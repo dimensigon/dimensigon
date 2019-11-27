@@ -1,3 +1,5 @@
+import uuid
+from datetime import datetime
 from unittest import TestCase
 
 import dm.framework.exceptions as exc
@@ -272,3 +274,73 @@ class TestApiWithFieldNames(TestConfig):
         with self.assertRaises(exc.NotFound) as error_info:
             self.repo.remove(entity)
         self.assertTupleEqual(error_info.exception.args, (id_, entity))
+
+
+global i
+i = -1
+l = [uuid.UUID('542ae76e-1108-11ea-90bd-382c4a6de936'), uuid.UUID('542ae76e-1108-11ea-90bd-382c4a6de937')]
+
+
+# Test filtering for a complex object field (not str, int)
+def uuid_factory():
+    global i
+    i += 1
+    return l[i]
+
+
+class User(Entity):
+    id = Id(factory=uuid_factory)
+
+    def __init__(self, name: str, email: str, last_updated: datetime, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
+        self.email = email
+        self.last_updated = last_updated
+
+
+class UserSchema(Schema):
+    __entity__ = User
+    id = fields.UUID()
+    name = fields.Str()
+    email = fields.Email()
+    last_updated = fields.Date(format='%Y%m%d')
+
+
+class TestObjectFields(TestConfig):
+    def setUp(self) -> None:
+        global i
+        i = -1
+        self.data = {'name': 'Bob', 'email': 'bob@mydomain.com', 'last_updated': '20191127'}
+        self.entity = User
+        self.schema = UserSchema
+        self.container = Container(default_scope=Scopes.SINGLETON)
+        self.container.register_by_interface(
+            IDao, InMemoryDao,
+            qualifier=User,
+            scope=Scopes.SINGLETON_NO_CONTAINER
+        )
+        self.dao = self.container.find_by_interface(IDao, qualifier=User)
+        self.container.register_by_name(name='User', constructor=self.dao._get_id)
+
+        self.repo = Repository(self.container, self.schema)
+        self.e = self.repo.create_and_add(self.data)
+
+    def test_find_success(self):
+        found_e = self.repo.find(self.e.id)
+        self.assertIsInstance(found_e, self.entity)
+
+    def test_contains_success(self):
+        self.repo.create_and_add(self.data)
+        self.assertTrue(self.repo.contains(self.e.id))
+
+    def test_update_success(self):
+        self.e.email = 'new_email@mydomain.com'
+        self.repo.update(self.e)
+        self.assertDictEqual({'name': 'Bob', 'email': 'new_email@mydomain.com', 'last_updated': '20191127',
+                              'id': '542ae76e-1108-11ea-90bd-382c4a6de936'},
+                             self.dao.get('542ae76e-1108-11ea-90bd-382c4a6de936'))
+
+    def test_remove_success(self):
+        self.assertTrue(self.dao.filter_by(id_='542ae76e-1108-11ea-90bd-382c4a6de936').exists())
+        self.repo.remove(self.e)
+        self.assertFalse(self.dao.filter_by(id_='542ae76e-1108-11ea-90bd-382c4a6de936').exists())

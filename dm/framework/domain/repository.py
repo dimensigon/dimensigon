@@ -26,6 +26,8 @@ class Repository(IRepository[Id, Entity]):
         container with the DAO
     schema:
         optional schema if not set during class definition
+    upgradable:
+        optional parameter that tells the Catalog to update
     """
     schema: t.ClassVar[t.Type[Schema]]
 
@@ -78,7 +80,8 @@ class Repository(IRepository[Id, Entity]):
     def update(self, entity: Entity) -> t.Optional[Id]:
         """Updates the object from the repo"""
         dto = self.schema.deconstruct(entity)
-        ids = self.dao.filter_by(id_=entity.id).update(dto)
+        id_serialized = self.schema.fields['id'].serialize('id', {'id': entity.id})
+        ids = self.dao.filter_by(id_=id_serialized).update(dto)
         return ids[0] if len(ids) > 0 else None
 
     def create_and_add(self, dto: Kwargs) -> Entity:
@@ -89,7 +92,8 @@ class Repository(IRepository[Id, Entity]):
 
     def find(self, id_: Id) -> t.Optional[Entity]:
         """Returns object of given id or None."""
-        dto = self.dao.get(id_)
+        id_serialized = self.schema.fields['id'].serialize('id', {'id': id_})
+        dto = self.dao.get(id_serialized)
         if not dto:
             raise exc.NotFound(id_, self.entity)
         entity = self.schema.construct(dto)
@@ -97,13 +101,15 @@ class Repository(IRepository[Id, Entity]):
 
     def contains(self, id_: Id) -> bool:
         """Checks whether an entity of given id is in the repo."""
-        return self.dao.filter_by(id_=id_).exists()
+        id_serialized = self.schema.fields['id'].serialize('id', {'id': id_})
+        return self.dao.filter_by(id_=id_serialized).exists()
 
     def remove(self, entity: Entity) -> None:
         """Removes the object from the underlying persistence layer via DAO."""
         if entity.id is None:  # entity hasn't been added yet
             raise exc.EntityNotYetAdded(entity)
-        result = self.dao.filter_by(id_=entity.id).remove()
+        id_serialized = self.schema.fields['id'].serialize('id', {'id': entity.id})
+        result = self.dao.filter_by(id_=id_serialized).remove()
         if not result:  # entity hasn't been found in the DAO
             raise exc.NotFound(entity.id, entity)
 
