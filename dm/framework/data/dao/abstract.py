@@ -146,9 +146,10 @@ class QueryChain(IQueryChain):
         return list(self)
 
     def get(self, id_: Id) -> t.Optional[Kwargs]:
-        """Returns object of given id, or None iff not present."""
+        """Returns object of given id, or None if not present."""
+
         qc = self.filter_by(id_=id_)
-        filtered = self._dao._resolve_filter(qc)
+        filtered = list(self._dao._resolve_filter(qc))
         return self._dao._resolve_get(filtered, id_, nullable=True)
 
     def exists(self) -> bool:
@@ -226,7 +227,7 @@ class AbstractDao(IDao[Id], ABC):
 
     @abstractmethod
     def _resolve_get(self, query_chain: QueryChain, id_: Id, nullable: bool = False) -> t.Optional[Kwargs]:
-        """Resolves `get`query described by the ids."""
+        """Resolves `get` query described by the ids."""
 
     @abstractmethod
     def _resolve_exists(self, query_chain: QueryChain) -> bool:

@@ -9,7 +9,7 @@ from asynctest import patch, TestCase, MagicMock, PropertyMock
 
 from dm.domain.entities.log import Log
 from dm.utils.helpers import encode
-from dm.web import create_app, repo, interactor
+from dm.web import create_app, repo_manager, interactor
 from tests.system.data import Server1, Server2
 from tests.helpers import set_response_from_mock, wait_mock_called, captured_output
 from testfixtures import LogCapture
@@ -70,9 +70,9 @@ class TestSendDataLog(TestCase):
     def test_send_data_log(self, mock_post):
         set_response_from_mock(mock_post, url='http://server2.localdomain:81/socket?', status=200, json='')
         with self.app1.app_context():
-            log = Log(file=self.file1, server=repo.ServerRepo.find('bbbbbbbb-1234-5678-1234-56781234bbb2'),
+            log = Log(file=self.file1, server=repo_manager.ServerRepo.find('bbbbbbbb-1234-5678-1234-56781234bbb2'),
                       dest_folder=DEST_FOLDER, dest_name=os.path.basename(self.file2))
-            repo.LogRepo.add(log)
+            repo_manager.LogRepo.add(log)
             del log
 
             interactor._delay = None
@@ -124,9 +124,9 @@ class TestSendDataLog(TestCase):
     def test_send_data_log_with_error(self, mock_post):
 
         with self.app1.app_context():
-            log = Log(file=self.file1, server=repo.ServerRepo.find('bbbbbbbb-1234-5678-1234-56781234bbb2'),
+            log = Log(file=self.file1, server=repo_manager.ServerRepo.find('bbbbbbbb-1234-5678-1234-56781234bbb2'),
                       dest_folder=DEST_FOLDER, dest_name=os.path.basename(self.file2))
-            repo.LogRepo.add(log)
+            repo_manager.LogRepo.add(log)
             del log
 
             set_response_from_mock(mock_post, url='http://server2.localdomain:81/socket?', status=500,

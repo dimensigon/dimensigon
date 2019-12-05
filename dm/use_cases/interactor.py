@@ -23,6 +23,7 @@ import dm.framework.exceptions as fmw_exc
 import dm.use_cases.exceptions as ue
 from dm.framework.domain import Repository
 from dm.framework.utils.collection import is_iterable, is_collection
+from dm.repositories.repositories import DataMarkRepo
 
 from dm.use_cases.base import OperationFactory, Scope
 from dm.use_cases.exceptions import ServersMustNotBeBlank, ErrorLock
@@ -77,8 +78,16 @@ class Interactor:
         return self._mediator.server
 
     @property
+    def catalog(self):
+        return self._catalog
+
+    @property
     def lockers(self):
         return self._lockers
+
+    @property
+    def mediator(self):
+        return self._mediator
 
     def stop_timer(self):
         """Stop the timer if it started"""
@@ -141,7 +150,7 @@ class Interactor:
         return res_do, res_undo, cc.execution
 
     @safe
-    def lock(self, scope: Scope, servers: t.List['Server'] = None) -> None:
+    def lock(self, scope: Scope, servers: t.List['Server'] = None):
         """
         locks the Locker if allowed
         Parameters
@@ -191,14 +200,15 @@ class Interactor:
 
     @safe
     def upgrade_catalog(self, server):
-        from dm.web import repo, catalog_manager
+        from dm.web import repo_manager as repo_manager, catalog_manager
 
         result = self.lock(Scope.UPGRADE, [server])
+
         if is_successful(result):
             delta_catalog = self._mediator.remote_get_delta_catalog(data_mark=self._catalog.max_data_mark,
                                                                     server=server)
-            repos: t.List[Repository] = [cls for cls in repo if
-                                         getattr(cls, 'upgradable', None)]
+            repos: t.List[Repository] = [repo for repo in repo_manager if
+                                         isinstance(repo, DataMarkRepo)]
             inside = set(r.__class__.__name__ for r in repos)
 
             outside = set(delta_catalog.keys())
@@ -237,14 +247,14 @@ class Interactor:
                 else:
                     log.update_offset_file()
 
-        from dm.web import repo
+        from dm.web import repo_manager
 
         self.is_running.set()
         self._awake.clear()
         while self.is_running.is_set():
             start = time.time()
             with app.app_context():
-                self._logs = repo.LogRepo.all()
+                self._logs = repo_manager.LogRepo.all()
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers,
                                                        thread_name_prefix="send_log") as executor:

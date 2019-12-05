@@ -142,6 +142,10 @@ class Container:
         return scope_function(self, constructor, kwargs, key)
 
     # Implementation of the scopes
+    def object(self, constructor: Constructor, kwargs: Kwargs, key):
+        """returns the constructor as it is. Used when passing an already instantiated class"""
+        return constructor
+
     def instance_scope(self, constructor: Constructor, kwargs: Kwargs, key) -> t.Any:
         """Every injection makes a new instance."""
         return constructor(self, **kwargs)
@@ -265,6 +269,7 @@ class Component(metaclass=ComponentMeta):
 
 
 class Scopes(Enum):
+    OBJECT: ScopeFunction = partial(Container.object)
     INSTANCE_NO_CONTAINER: ScopeFunction = partial(Container.instance_no_container)
     INSTANCE: ScopeFunction = partial(Container.instance_scope)
     SINGLETON_NO_CONTAINER: ScopeFunction = partial(Container.singleton_no_container)

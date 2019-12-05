@@ -8,6 +8,7 @@ from .execution import ExecutionSchema
 from .orchestration import OrchestrationSchema, StepSchema, OrchestrationSchemaNested
 from .server import ServerSchema
 from .service import ServiceSchema
+from .user import UserSchema
 
 __all__ = [
     'ActionTemplateSchema',
@@ -18,6 +19,7 @@ __all__ = [
     'StepSchema',
     'ServerSchema',
     'ServiceSchema',
+    'UserSchema',
     'set_container'
 ]
 

@@ -1,5 +1,5 @@
 from .repositories import (ActionTemplateRepo, ExecutionRepo, OrchestrationRepo, ServerRepo, ServiceRepo, StepRepo,
-                           CatalogRepo, LogRepo)
+                           CatalogRepo, LogRepo, DimensionRepo)
 
 __all__ = [
     "ActionTemplateRepo",
@@ -9,5 +9,6 @@ __all__ = [
     "ServiceRepo",
     "StepRepo",
     "CatalogRepo",
-    "LogRepo"
+    "LogRepo",
+    "DimensionRepo"
 ]

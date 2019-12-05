@@ -1,8 +1,8 @@
 from flask import Blueprint, jsonify, request
+
 import dm
 from dm.network.gateway import dispatch_message
-from dm.utils.decorators import forward_or_dispatch
-from dm.utils.helpers import decode
+from dm.utils.decorators import forward_or_dispatch, securizer
 from dm.web import catalog_manager as cm, interactor
 from elevator import __version__ as elevator_ver
 
@@ -31,8 +31,13 @@ def healthcheck():
                     })
 
 
-@root_bp.route('/socket', methods=['GET', 'POST'])
+@root_bp.route('/socket', methods=['POST'])
+@securizer
 @forward_or_dispatch
 def socket():
-    data = decode(request.get_json().get('data'))
+    data = request.get_json()
     return dispatch_message(data, interactor._mediator)
+
+
+
+

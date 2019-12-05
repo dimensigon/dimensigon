@@ -1,20 +1,21 @@
 import os
 basedir = os.path.abspath(os.path.dirname(__file__))
 
+
 class Config(object):
     DEBUG = False
     TESTING = False
     CSRF_ENABLED = True
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'hard to guess string'
     PROPAGATE_EXCEPTIONS = True
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-
+    # SQLALCHEMY_TRACK_MODIFICATIONS = False
+    JWT_TOKEN_LOCATION = ['headers', 'json']
 
 
 class ProductionConfig(Config):
     DEBUG = False
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-                              'sqlite:///' + os.path.join(basedir, 'data.sqlite')
+    DM_DATABASE_URI = os.environ.get('DM_DATABASE_URL') or 'sqlite:///' + os.path.join(basedir, 'data.sqlite')
+
 
 data = {
     'ActionTemplateRepo': [
@@ -62,8 +63,7 @@ data = {
 class TestingConfig(Config):
     TESTING = True
     SERVER_NAME = 'localhost.localdomain'
-    REPOSITORY = 'memory'
-    DM_DATABASE_CONTENT = data
+    DM_DATABASE_URI = "sqlite://:memory:"
 
 
 class DevelopmentConfig(Config):
@@ -75,8 +75,7 @@ class DevelopmentConfig(Config):
     DM_DATABASE_CONTENT = data
     # SQLALCHEMY_DATABASE_URI = os.environ.get('DEV_DATABASE_URL') or \
     #                           'sqlite:///' + os.path.join(basedir, 'data-dev.sqlite')
-    SQLALCHEMY_DATABASE_URI = None
-
+    DM_DATABASE_URI = None
 
 
 config_by_name = dict(

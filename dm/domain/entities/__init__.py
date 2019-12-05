@@ -4,6 +4,7 @@ from .execution import Execution
 from .orchestration import Orchestration, Step
 from .server import Server
 from .service import Service
+from .user import User
 
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     "Orchestration",
     "Step",
     "Service",
-    "Server"
+    "Server",
+    "User"
 ]

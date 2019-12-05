@@ -49,24 +49,47 @@ class CatalogManager(t.Generic[DataMark]):
                     self._entities.append(catalog.entity)
                     self._data_mark.append(catalog.data_mark)
 
-    def decode_data(self, data: datetime):
+    def validate_data(self, data: DataMark) -> bool:
         if issubclass(self.type, int):
-            return int(data.strftime(self.format))
+            return isinstance(data, int)
         elif issubclass(self.type, str):
-            return data.strftime(self.format)
+            return isinstance(data, str)
         elif issubclass(self.type, datetime):
-            return data
+            try:
+                datetime.strptime(str(data), self.format)
+            except:
+                return False
+            else:
+                return True
 
-    def encode_data(self, data: DataMark):
+    def to_type(self, data: DataMark):
         if isinstance(data, (int, str)):
-            return datetime.strptime(str(data), self.format)
+            if issubclass(self.type, int):
+                return int(data)
+            elif issubclass(self.type, str):
+                return str(data)
+            elif issubclass(self.type, datetime):
+                return datetime.strptime(str(data), self.format)
         elif isinstance(data, datetime):
-            return data
+            if issubclass(self.type, int):
+                return int(data.strftime(self.format))
+            elif issubclass(self.type, str):
+                return data.strftime(self.format)
+            elif issubclass(self.type, datetime):
+                return data
+        else:
+            raise ValueError('Invalid data type')
+
+    def to_str(self, data: DataMark):
+        if isinstance(data, (int, str)):
+            return str(data)
+        elif isinstance(data, datetime):
+            return data.strftime(self.format)
         else:
             raise ValueError('Invalid data type')
 
     def generate_data_mark(self) -> DataMark:
-        return self.decode_data(get_now())
+        return self.to_type(get_now())
 
     def set_data_mark(self, entity: 'Entity', force=False):
         """
@@ -118,7 +141,7 @@ class CatalogManager(t.Generic[DataMark]):
             idx = self._entities.index(entity_name)
         except ValueError as e:
             raise ValueError(f"'{entity_name}' is not in the catalog") from e
-        self._data_mark[idx] = max(self.encode_data(data_mark), self._data_mark[idx])
+        self._data_mark[idx] = max(data_mark, self._data_mark[idx])
 
     @property
     def max_data_mark(self) -> t.Optional[DataMark]:

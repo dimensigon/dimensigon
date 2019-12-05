@@ -6,7 +6,7 @@ from marshmallow import ValidationError
 
 from dm.framework.domain import Entity
 from dm.framework.interfaces.entity import Id
-from dm.web import repo
+from dm.web import repo_manager
 from dm.framework.interfaces.repository import IRepository
 from dm.utils.helpers import key_to_str, str_to_key
 
@@ -16,7 +16,7 @@ class BaseResource(Resource):
 
     @property
     def repo(self) -> t.Optional[IRepository]:
-        if repo and self.__entity__:
+        if repo_manager and self.__entity__:
             return eval(f'repo.{self.__entity__.__name__}Repo')
         else:
             return None

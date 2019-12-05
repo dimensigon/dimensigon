@@ -1,4 +1,5 @@
 import inspect
+import sqlite3
 import sys
 import typing as t
 
@@ -11,12 +12,16 @@ from dm.framework.data.dao.db import DbDao
 from dm.framework.domain import Repository
 from dm.framework.interfaces.dao import IDao
 from dm.framework.interfaces.repository import IRepository
-from flask import _app_ctx_stack, current_app
 
-from flask import Flask
+from flask import Flask, current_app, g
 
 _app_container = {}
 
+def dict_factory(cursor, row):
+    d = {}
+    for idx, col in enumerate(cursor.description):
+        d[col[0]] = row[idx]
+    return d
 
 class Repo:
 
@@ -26,6 +31,7 @@ class Repo:
                              inspect.isclass(cls) and issubclass(cls, Repository) and
                              getattr(cls, 'schema', None) and getattr(cls.schema, '__entity__', None)}
         self.app = app
+        self.con = None
         if app is not None:
             self.init_app(app)
 
@@ -37,17 +43,21 @@ class Repo:
         # app.teardown_appcontext(self.teardown)
 
     def create_repos(self, container):
-        from dm.web import db
         app = self.get_app()
         initial_content = app.config.get('DM_DATABASE_CONTENT') or {}
-        try:
-            engine = db.engine
-        except AttributeError:
-            engine = None
+        db_uri = app.config.get('DM_DATABASE_URI')
+        if db_uri:
+            self.con = sqlite3.connect(db_uri, detect_types=sqlite3.PARSE_DECLTYPES)
+
+            sqlite3.register_adapter(bool, int)
+            sqlite3.register_converter("BOOLEAN", lambda v: bool(int(v)))
+            self.con.row_factory = dict_factory
+        else:
+            con = None
         for name, cls in self._repo_classes.items():
-            container.register_by_interface(interface=IDao, constructor=DbDao if engine else InMemoryDao,
+            container.register_by_interface(interface=IDao, constructor=DbDao if db_uri else InMemoryDao,
                                             qualifier=cls.schema.__entity__,
-                                            kwargs={'db': db} if engine else {
+                                            kwargs={'db': self.con.cursor()} if db_uri else {
                                                 'initial_content': initial_content.get(name)}). \
                 register_by_interface(interface=IRepository, constructor=cls,
                                       qualifier=cls.schema.__entity__)
@@ -86,6 +96,6 @@ class Repo:
         return self.container.find_by_interface(interface=IRepository,
                                                 qualifier=self._repo_classes.get(attr).schema.__entity__)
 
-    def __iter__(self):
+    def __iter__(self) -> IRepository:
         for cls in self._repo_classes.values():
             yield self.container.find_by_interface(interface=IRepository, qualifier=cls.schema.__entity__)

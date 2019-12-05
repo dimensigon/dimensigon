@@ -1,5 +1,5 @@
-from domain.entities import Dimension
-from framework.domain import Schema, fields
+from dm.domain.entities import Dimension
+from dm.framework.domain import Schema, fields
 
 
 class DimensionSchema(Schema):

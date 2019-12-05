@@ -8,7 +8,6 @@ from dm.domain.exceptions import CatalogError
 from dm.framework.domain import Entity
 
 
-
 def get_now(**kwargs):
     return datetime.datetime(2012, 1, 1, 10, 10, 10, 0) + datetime.timedelta(**kwargs)
 

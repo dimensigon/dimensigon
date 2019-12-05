@@ -3,13 +3,14 @@ import uuid
 
 import rsa
 
-from framework.domain import Entity, Id
+from dm.framework.domain import Entity, Id
 
 
 class Dimension(Entity):
     __id__ = Id(factory=uuid.uuid1)
 
-    def __init__(self, name: str, priv: rsa.PrivateKey, pub: rsa.PublicKey, created: datetime.datetime, **kwargs):
+    def __init__(self, name: str, priv: rsa.PrivateKey, pub: rsa.PublicKey,
+                 created: datetime.datetime = datetime.datetime.now(), **kwargs):
         super().__init__(**kwargs)
         self.name = name
         self.priv = priv

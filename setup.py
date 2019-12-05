@@ -13,5 +13,6 @@ setup(
     author_email='joan.prat@dimensigon.com',
     description='', install_requires=['marshmallow', 'marshmallow_enum', 'returns', 'aiohttp', 'asynctest', 'attrdict',
                                       'PyYAML', 'requests', 'flask', 'click', 'psutil', 'flask_restful',
-                                      'flask_sqlalchemy']
+                                      'flask_sqlalchemy', 'rsa', 'passlib', 'cryptography', 'coverage', 'tqdm',
+                                      'flask-jwt-extended']
 )

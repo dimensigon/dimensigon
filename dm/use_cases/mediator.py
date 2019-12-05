@@ -16,6 +16,7 @@ from dm.framework.data.predicate import where
 from dm.framework.interfaces.dao import Kwargs
 from dm.network import TypeMsg
 from dm.network import gateway as gtw
+from dm.repositories.repositories import DataMarkRepo
 from dm.use_cases.base import Token, Scope
 from dm.use_cases.deployment import Command
 from dm.utils.async_operator import AsyncOperator
@@ -188,13 +189,8 @@ class Mediator:
         self._async_operator = async_operator
         self._interactor = interactor
         self.server = server
-        self.__dimension = dimension
         # if not self._async_operator.is_alive():
         #     self._async_operator.start()
-
-    def set_dimension(self, dm: 'Dimension'):
-        if self.__dimension is None:
-            self.__dimension = dm
 
     def create_token(self, destination: Server) -> Token:
         while True:
@@ -219,6 +215,7 @@ class Mediator:
         -------
 
         """
+        from dm.web import dimension
         tkn = self.create_token(destination)
         m = Mapper(applicant=command, destination=destination, token=tkn, callback=callback)
         self._mapper.append(m)
@@ -227,8 +224,8 @@ class Mediator:
         content['command'] = command
 
         response, rc = gtw.send_message(destination=destination, source=self.server,
-                                        pub_key=self.__dimension.pub,
-                                        priv_key=self.__dimension.priv,
+                                        pub_key=dimension.pub,
+                                        priv_key=dimension.priv,
                                         data=dict(msg_type=TypeMsg.INVOKE_CMD,
                                                   token=tkn,
                                                   content=content))
@@ -258,7 +255,7 @@ class Mediator:
                                                  callback_kw={'token': token}, name='invoke command')
 
     def _send_command_completion(self, data, token: Token):
-        from dm.web import repo, catalog_manager
+        from dm.web import repo_manager, catalog_manager, dimension
         # print('_send_command_completion')
         content = dict()
         content['data'] = data
@@ -266,10 +263,10 @@ class Mediator:
         with SessionManager(m) as session:
             content['execution'] = session.command.execution
             ip, port = token.source.split(':')
-            source = repo.ServerRepo.get_by_ip_or_name(ip, port)
+            source = repo_manager.ServerRepo.get_by_ip_or_name(ip, port)
             response, rc = gtw.send_message(destination=source, source=self.server,
-                                            pub_key=self.__dimension.pub,
-                                            priv_key=self.__dimension.priv,
+                                            pub_key=dimension.pub,
+                                            priv_key=dimension.priv,
                                             data=dict(msg_type=TypeMsg.COMPLETED_CMD,
                                                       token=token,
                                                       session=session.id,
@@ -306,12 +303,13 @@ class Mediator:
             callback[0](*callback[1], **callback[2])
 
     def undo_remote_command(self, command: Command, callback: Callback) -> None:
+        from dm.web import dimension
         m = self._mapper.get_by('applicant', command)
         m.token = self.create_token(m.destination)
         m.callback = callback
         response, rc = gtw.send_message(destination=m.destination, source=self.server,
-                                        pub_key=self.__dimension.pub,
-                                        priv_key=self.__dimension.priv,
+                                        pub_key=dimension.pub,
+                                        priv_key=dimension.priv,
                                         data=dict(msg_type=TypeMsg.UNDO_CMD,
                                                   token=m.token,
                                                   session=m.session))
@@ -366,6 +364,7 @@ class Mediator:
         None
             returns none if all went as expected.
         """
+        from dm.web import dimension
 
         assert action in 'UL'
 
@@ -376,8 +375,8 @@ class Mediator:
         if action == 'U':
             for s in servers:
                 tasks.append(gtw.async_send_message(destination=s, source=self.server,
-                                                    pub_key=self.__dimension.pub,
-                                                    priv_key=self.__dimension.priv,
+                                                    pub_key=dimension.pub,
+                                                    priv_key=dimension.priv,
                                                     data=dict(msg_type=TypeMsg.UNLOCK,
                                                               content={'scope': scope,
                                                                        'applicant': str(self.server.id)})))
@@ -388,8 +387,8 @@ class Mediator:
             for s in servers:
                 tasks.append(
                     gtw.async_send_message(destination=s, source=self.server,
-                                           pub_key=self.__dimension.pub,
-                                           priv_key=self.__dimension.priv,
+                                           pub_key=dimension.pub,
+                                           priv_key=dimension.priv,
                                            data=dict(msg_type=TypeMsg.PREVENT_LOCK,
                                                      content={'scope': scope,
                                                               'applicant': str(
@@ -399,8 +398,8 @@ class Mediator:
                 tasks = []
                 for s in servers:
                     tasks.append(gtw.async_send_message(destination=s, source=self.server,
-                                                        pub_key=self.__dimension.pub,
-                                                        priv_key=self.__dimension.priv,
+                                                        pub_key=dimension.pub,
+                                                        priv_key=dimension.priv,
                                                         data=dict(msg_type=TypeMsg.LOCK,
                                                                   content={'scope': scope,
                                                                            'applicant': str(self.server.id)})))
@@ -446,31 +445,35 @@ class Mediator:
         return ret
 
     def local_get_delta_catalog(self, data_mark: DataMark) -> t.Dict[str, t.List[Kwargs]]:
-        from dm.web import repo
+        from dm.web import repo_manager
         data = {}
-        repos = (repo.ActionTemplateRepo, repo.StepRepo, repo.ServerRepo, repo.OrchestrationRepo, repo.ServiceRepo)
+        repos = [repo for repo in repo_manager if isinstance(repo, DataMarkRepo)]
+        #repos = (repo.ActionTemplateRepo, repo.StepRepo, repo.ServerRepo, repo.OrchestrationRepo, repo.ServiceRepo)
+
         for r in repos:
-            repo_data = r.dao.filter(where("data_mark") > data_mark).all()
+            repo_data = r.dao.filter(where("data_mark") > self._interactor.catalog.to_str(data_mark)).all()
             if repo_data:
                 data.update({r.__class__.__name__: repo_data})
         return data
 
     def remote_get_delta_catalog(self, data_mark: DataMark, server: Server) -> t.Dict[str, t.List[Kwargs]]:
+        from dm.web import dimension
         response, code = gtw.send_message(destination=server, source=self.server,
-                                          pub_key=self.__dimension.pub,
-                                          priv_key=self.__dimension.priv,
+                                          pub_key=getattr(dimension, 'pub', None),
+                                          priv_key=dimension.priv,
                                           data=dict(msg_type=TypeMsg.UPDATE_CATALOG,
                                                     content=data_mark))
         if code == 200:
-            return json.loads(response)
+            return response
         else:
             raise ue.CommunicationError(server, response, code)
 
     def send_data_log(self, filename: str, server: Server, data_log: t.Union[str, bytes], dest_folder: str):
+        from dm.web import dimension
         if data_log:
             response, code = gtw.send_message(destination=server, source=self.server,
-                                              pub_key=self.__dimension.pub,
-                                              priv_key=self.__dimension.priv,
+                                              pub_key=dimension.pub,
+                                              priv_key=dimension.priv,
                                               data=dict(filename=filename,
                                                         data_log=data_log, dest_folder=dest_folder,
                                                         raise_for_status=False))

@@ -1,3 +1,6 @@
+import base64
+import json
+import pickle
 import typing as t
 
 import aiohttp
@@ -11,7 +14,7 @@ from dm.domain.entities import Server
 from dm.network import TypeMsg
 from dm.use_cases.base import Message, MsgExecution
 from dm.use_cases.deployment import Command, ProxyCommand
-from dm.utils.helpers import encode, generate_url
+from dm.utils.helpers import generate_url, encrypt, decrypt
 
 if t.TYPE_CHECKING:
     from dm.use_cases.mediator import Mediator
@@ -33,14 +36,112 @@ Create dict like servers
 """
 
 
-def _generate_msg(destination: Server, source: Server, pub_key=None, priv_key=None, data=None):
-    data, token = encode(data or {}, key=pub_key)
-    json = dict(destination=str(destination.id), source=str(source.id), data=data)
+def pack_msg(destination: t.Union[Server, str] = None,
+             source: t.Union[Server, str] = None,
+             pub_key: rsa.PublicKey = None,
+             priv_key: rsa.PrivateKey = None,
+             cipher_key: bytes = None,
+             symmetric_key: bytes = None,
+             data=None) -> t.Dict[str, t.Any]:
+    """
+    formats data in a well known encrypted structure. See Return.
+
+    Parameters
+    ----------
+    destination
+    source
+    pub_key:
+        public key object rsa.PublicKey. Used for encrypting the symmetric key
+    priv_key:
+        private key object rsa.PrivateKey. Private key must be provided for signing structure and when cipher_key
+        provided. If not, no signature will be added.
+    cipher_key:
+        encrypted symmetric key used for data encryption. If set, symmetric_key must be None
+    symmetric_key:
+        symmetric key to be used for data encryption. If None, randomly generated from cryptography.fernet.Fernet.generate_key()
+    data:
+        data to encrypt. Data is pickled and then encoded
+
+    Returns
+    -------
+    returns a dict with the following structure:
+        { "destination": "UUID",
+          "source": "UUID",
+          "data": "encrypted_data",
+          "key": "encrypted symmetric key",
+          "signature": "current data signature"
+        }
+
+    if no priv_key specified it does not encrypt the data. 'key' and 'signature' will not append to the structure.
+    if symmetric_key or cipher_key given, 'key' will not append to the structure
+    """
+    dumped_data = pickle.dumps(data)
+    if cipher_key:
+        if not priv_key:
+            raise ValueError('priv_key must be provided to decrypt cipher_key')
+        else:
+            symmetric_key = rsa.decrypt(cipher_key, priv_key=priv_key)
+
+    if pub_key or symmetric_key:
+        data, new_symmetric_key = encrypt(dumped_data or {}, symmetric_key=symmetric_key)
+    else:
+        data, new_symmetric_key = dumped_data, None
+
+    msg = dict(data=base64.b64encode(data).decode('ascii'))
+    if destination:
+        msg.update(destination=str(destination.id) if isinstance(destination, Server) else destination)
+    if source:
+        msg.update(source=str(source.id) if isinstance(source, Server) else source)
+    if pub_key and new_symmetric_key:
+        msg.update(key=base64.b64encode(rsa.encrypt(new_symmetric_key, pub_key)).decode('ascii'))
     if priv_key:
-        json.update({'token': token})
-        hash = rsa.sign(json, priv_key, 'SHA-256')
-        json.update({'hash': hash})
-    return json
+        signature = rsa.sign(json.dumps(msg).encode('ascii'), priv_key, 'SHA-512')
+        msg.update(signature=base64.b64encode(signature).decode('ascii'))
+    return msg
+
+
+def unpack_msg(msg, pub_key: rsa.PublicKey = None, priv_key: rsa.PrivateKey = None, symmetric_key=None,
+               cipher_key=None):
+    """
+    Unpacks msg. If signature in msg, pub_key must be provided to validate it.  Pub_key must be provided to decrypt
+    cipher_key if provided.
+
+    Parameters
+    ----------
+    msg:
+        message to be unpacked
+    pub_key:
+        public key which will be used for signature validation
+    priv_key:
+        pivate key used for decrypt the cipher_key
+    cipher_key:
+        encrypted symmetric key used for data encryption. When None checks in the msg if 'key' specified. If Not, then
+        symmetric_key may be used.
+    symmetric_key:
+        symmetric key to be used for data encryption. If None, cipher_key will be used
+
+    Returns
+    -------
+
+    """
+    if 'signature' in msg:
+        if not pub_key:
+            raise ValueError('No public key specified')
+        signature = base64.b64decode(msg.pop('signature').encode('ascii'))
+        rsa.verify(json.dumps(msg).encode(), signature, pub_key)
+
+    cipher_key = base64.b64decode(msg.pop('key', '').encode('ascii')) or cipher_key
+    if cipher_key:
+        if not priv_key:
+            raise ValueError('No private key specified')
+        else:
+            symmetric_key = rsa.decrypt(cipher_key, priv_key)
+    if symmetric_key:
+        data = decrypt(base64.b64decode(msg.pop('data').encode('ascii')), symmetric_key)
+    else:
+        data = base64.b64decode(msg.pop('data').encode('ascii'))
+    msg.update(data=pickle.loads(data))
+    return msg.get('data')
 
 
 def send_message(destination: Server, source: Server, pub_key=None, priv_key=None, raise_for_status=True, data=None) -> \
@@ -63,7 +164,7 @@ def send_message(destination: Server, source: Server, pub_key=None, priv_key=Non
         the corresponding HTTP code.
     """
     url = generate_url(destination, uri='/socket', protocol=PROTOCOL)
-    json = _generate_msg(destination, source, pub_key, priv_key, data=data)
+    json = pack_msg(destination, source, pub_key, priv_key, data=data)
     r = requests.post(url, json=json)
     # TODO Handle errors codes in HTTP to convert to understandable errors in Domain Application
     if raise_for_status:
@@ -71,7 +172,7 @@ def send_message(destination: Server, source: Server, pub_key=None, priv_key=Non
     try:
         response = r.json()
     except ValueError:
-        response = r.text
+        response = r.text()
     return response, r.status_code
 
 
@@ -93,7 +194,7 @@ async def async_send_message(destination: Server, source: Server, pub_key=None, 
         the corresponding HTTP code.
     """
     url = generate_url(destination, uri='/socket', protocol=PROTOCOL)
-    json = _generate_msg(destination, source, pub_key, priv_key, data=data)
+    json = generate_msg(destination, source, pub_key, priv_key, data=data)
     async with aiohttp.ClientSession() as s:
         r = await s.post(url, json=json)
         # TODO Handle errors codes in HTTP to convert to understandable errors in Domain Application
@@ -166,4 +267,4 @@ def proxy_request(request: flask.Request, destination: Server) -> requests.Respo
 
     kwargs['cookies'] = cookies
 
-    return requests.request(request.method, url, **kwargs)
+    return requests.request(request.method, url, stream=True, **kwargs)

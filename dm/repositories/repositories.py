@@ -1,22 +1,21 @@
 import ipaddress
 import typing as t
-import uuid
 
 from dm.domain.catalog_manager import CatalogManager
 from dm.domain.entities import ActionTemplate, Orchestration, Step, Server, Service
 from dm.domain.entities.catalog import Catalog
+from dm.domain.entities.dimension import Dimension
 from dm.domain.entities.log import Log
 from dm.domain.schemas import ActionTemplateSchema, OrchestrationSchema, StepSchema, ServiceSchema, ServerSchema, \
     ExecutionSchema
 from dm.domain.schemas.catalog import CatalogSchema
+from dm.domain.schemas.dimension import DimensionSchema
 from dm.domain.schemas.log import LogSchema
 from dm.framework.data.predicate import where
 from dm.framework.domain import Repository
 from dm.framework.interfaces.entity import Id, Entity
 from dm.framework.utils.dependency_injection import Inject
 from dm.utils.datamark import FIELD
-from domain.entities.dimension import Dimension
-from domain.schemas.dimension import DimensionSchema
 
 
 class DataMarkRepo(Repository[Id, Entity]):
@@ -35,22 +34,20 @@ class DataMarkRepo(Repository[Id, Entity]):
 
 class ActionTemplateRepo(DataMarkRepo[str, ActionTemplate]):
     schema = ActionTemplateSchema
-    upgradable = True
+    table = "D_ACTION_TEMPLATE"
 
 
 class OrchestrationRepo(DataMarkRepo[str, Orchestration]):
     schema = OrchestrationSchema
-    upgradable = True
+    table = "D_ORCHESTRATION"
 
 
 class StepRepo(DataMarkRepo[str, Step]):
     schema = StepSchema
-    upgradable = True
 
 
 class ServerRepo(DataMarkRepo[str, Server]):
     schema = ServerSchema
-    upgradable = True
 
     def get_by_ip_or_name(self, ip_or_name, port=None):
         ip = None
@@ -68,7 +65,6 @@ class ServerRepo(DataMarkRepo[str, Server]):
 
 class ServiceRepo(DataMarkRepo[str, Service]):
     schema = ServiceSchema
-    upgradable = True
 
 
 class ExecutionRepo(Repository):
@@ -77,7 +73,6 @@ class ExecutionRepo(Repository):
 
 class LogRepo(Repository[str, Log]):
     schema = LogSchema
-    upgradable = True
 
 
 class CatalogRepo(Repository[str, Catalog]):
@@ -91,3 +86,8 @@ class DimensionRepo(Repository[str, Dimension]):
         query = self.dao.filter((where('name') == name))
         data = query.one()
         return self.schema.construct(data)
+
+    def get_by_public_key(self, pub_key):
+        query = self.dao.filter((where('pub') == self._serialize('pub', pub_key)))
+        data = query.one()
+        return self.schema.construct(dto=data)

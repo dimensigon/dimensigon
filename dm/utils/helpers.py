@@ -60,24 +60,50 @@ def generate_url(destination: 'Server', uri, protocol='https'):
     return f"{protocol}://{forwarder.name}:{forwarder.port}{uri}"
 
 
-def encode(*args, key=None, **kwargs):
-    cipher_text = pickle.dumps(args[0] if len(args) else kwargs)
-    cipher_key = b''
-    if key:
-        token = Fernet.generate_key()
-        cipher_suite = Fernet(token)
-        cipher_text = cipher_suite.encrypt(cipher_text)
-        cipher_key = rsa.encrypt(token, key)
-    return base64.b64encode(cipher_text), base64.b64encode(cipher_key)
+def encrypt(data: bytes, symmetric_key: bytes = None) -> \
+        t.Tuple[bytes, t.Optional[bytes]]:
+    """
+
+    Parameters
+    ----------
+    data:
+        data to encrypt.
+    symmetric_key:
+        symmetric key used for encrypting data. If set, cipher_key must be None
+
+    Returns
+    -------
+
+    """
+    new_symmetric_key = None
+    if not symmetric_key:
+        symmetric_key = new_symmetric_key = Fernet.generate_key()
+    cipher_suite = Fernet(symmetric_key)
+    cipher_data = cipher_suite.encrypt(data)
+    return cipher_data, new_symmetric_key
 
 
-def decode(cipher_text, cipher_token=None, key=None):
-    dumped_data = cipher_text_decoded = base64.b64decode(cipher_text)
-    if key:
-        token = rsa.decrypt(base64.b64decode(cipher_token), key)
-        cipher_suite = Fernet(token)
-        dumped_data = cipher_suite.decrypt(cipher_text_decoded)
-    return pickle.loads(dumped_data)
+def decrypt(cipher_text: bytes, symmetric_key: bytes) -> bytes:
+    """
+
+    Parameters
+    ----------
+    cipher_text:
+        text to decrypt
+    cipher_key:
+        symmetric_key encrypted. If specified symmetric_key must be None (default)
+    symmetric_key:
+        symmetric_key. If specified cipher_token must be None (default)
+    key:
+        key used for decryption of cipher_key
+
+    Returns
+    -------
+    decrypted data
+    """
+    cipher_suite = Fernet(symmetric_key)
+    dumped_data = cipher_suite.decrypt(cipher_text)
+    return dumped_data
 
 
 def get_logger(self=None):
