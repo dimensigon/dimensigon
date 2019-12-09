@@ -1,6 +1,8 @@
 # noinspection PyUnresolvedReferences
+import ast
 import copy
 import ipaddress
+import json
 
 import rsa
 from marshmallow import utils, class_registry
@@ -16,9 +18,10 @@ if t.TYPE_CHECKING:
 
 class PluckEntity(Nested):
 
-    def __init__(self, nested, field_name, **kwargs):
+    def __init__(self, nested, field_name, as_is=False, **kwargs):
         super().__init__(nested, **kwargs)
         self.field_name = field_name
+        self.as_is = as_is
 
     @property
     def _field_data_key(self):
@@ -30,12 +33,28 @@ class PluckEntity(Nested):
         if ret is None:
             return None
         if self.many:
-            return str(utils.pluck(ret, key=self._field_data_key))
-        return str(ret[self._field_data_key])
+            ret = utils.pluck(ret, key=self._field_data_key)
+        else:
+            ret = ret[self._field_data_key]
+        if self.as_is:
+            return ret
+        else:
+            return str(ret)
 
     def _deserialize(self, value, attr, data, partial=None, **kwargs):
         self._test_collection(value)
         return self._load(value, data, partial=partial)
+
+
+class MappingEntity(Mapping):
+
+    def _serialize(self, nested_obj, attr, obj, **kwargs):
+        ret = super()._serialize(nested_obj, attr, obj, **kwargs)
+        return str(ret)
+
+    # def _deserialize(self, value, attr, data, **kwargs):
+    #     value = ast.literal_eval(value)
+    #     super()._deserialize(value, attr, data, **kwargs)
 
 
 TypeIPAddress = t.Union[ipaddress.IPv4Address, ipaddress.IPv6Address]

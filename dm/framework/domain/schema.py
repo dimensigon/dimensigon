@@ -1,3 +1,4 @@
+import ast
 import typing as t
 
 from marshmallow import Schema as MSchema, post_dump, pre_load, post_load, ValidationError
@@ -66,7 +67,9 @@ class Schema(MSchema, ISchema, t.Generic[EntityType]):
         dao: IDao = container.find_by_interface(interface=IDao, qualifier=entity)
         if field_class.many:
             nested_data = [dao.get((id_,) if entity.__id__.field_names and not isinstance(id_, tuple) else id_)
-                           for id_ in id_or_ids]
+                           for id_ in
+                           (ast.literal_eval(
+                               id_or_ids) if field_class.__class__ == fields.PluckEntity and not field_class.as_is else id_or_ids)]
         else:
             nested_data = dao.get(
                 id_=(id_or_ids,) if entity.__id__.field_names and not isinstance(id_or_ids, tuple) else id_or_ids)
@@ -82,8 +85,9 @@ class Schema(MSchema, ISchema, t.Generic[EntityType]):
                     id_or_ids = data
                 if isinstance(field_class, (fields.PluckEntity, fields.Pluck)):
                     nested_data = self.fetch_data(field_class, id_or_ids)
-                elif isinstance(field_class, fields.Mapping):
+                elif isinstance(field_class, fields.MappingEntity):
                     nested_data = {}
+                    data[field] = ast.literal_eval(data[field])
                     for key, value in data[field].items():
                         if isinstance(field_class.key_field, fields.Pluck):
                             key_nested = self.fetch_data(field_class.key_field, key)

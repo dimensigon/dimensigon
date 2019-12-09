@@ -13,6 +13,6 @@ class ServerSchema(Schema):
     birth = fields.DateTime(allow_none=True)
     keep_alive = fields.Raw(allow_none=True)
     available = fields.Bool(allow_none=True)
-    granules = fields.Raw(many=True)
+    granules = fields.Raw(many=True, allow_none=True)
     route = fields.PluckEntity('self', field_name='id', many=True)
     alt_route = fields.PluckEntity('self', field_name='id', many=True)

@@ -147,8 +147,8 @@ class OrchestrationSchema(Schema):
     __entity__ = Orchestration
     name = fields.Str(required=True)
     steps = fields.PluckEntity(StepSchema, field_name='name', many=True)
-    dependencies = fields.Mapping(keys=fields.Str(),
-                                  values=fields.PluckEntity(StepSchema, field_name='name', many=True))
+    dependencies = fields.MappingEntity(keys=fields.Str(),
+                                        values=fields.PluckEntity(StepSchema, field_name='name', as_is=True, many=True))
 
 
 class Artist(Entity):
@@ -333,7 +333,7 @@ class TestSchemaWithPluckFields(TestCase):
     def setUp(self) -> None:
         self.data = {('apple',): {'name': 'apple', 'calories': 52, 'sugar': 10.4, 'fiber': 2.4},
                      ('banana',): {'name': 'banana', 'calories': 105, 'sugar': 14.4, 'fiber': 3.1},
-                     ('fruit',): {'category': 'fruit', 'food': ['apple', 'banana']}}
+                     ('fruit',): {'category': 'fruit', 'food': "['apple', 'banana']"}}
 
         self.apple = Food(**self.data[('apple',)])
         self.banana = Food(**self.data[('banana',)])
@@ -349,7 +349,7 @@ class TestSchemaWithPluckFields(TestCase):
     def test_deconstruct(self):
         fruit_dto = self.category_schema.deconstruct(self.fruit)
 
-        self.assertDictEqual({'category': 'fruit', 'food': ['apple', 'banana']}, fruit_dto)
+        self.assertDictEqual({'category': 'fruit', 'food': "['apple', 'banana']"}, fruit_dto)
 
     def test_construct(self):
         fruit = self.category_schema.construct(self.data[('fruit',)])
@@ -370,7 +370,7 @@ class TestSchemaWithMapping(TestCase):
                                                               'code': 'cmd2'},
                      ('step1',): {'name': 'step1', 'undo': False, 'action': 'aaaa1111-2222-3333-4444-55556666aaa1'},
                      ('step2',): {'name': 'step2', 'undo': True, 'action': 'aaaa1111-2222-3333-4444-55556666aaa2'},
-                     ('orch',): {'name': 'orch', 'steps': ['step1', 'step2'], 'dependencies': {'step1': ['step2']}}}
+                     ('orch',): {'name': 'orch', 'steps': "['step1', 'step2']", 'dependencies': "{'step1': ['step2']}"}}
 
         Action.__id__.factory = mock.MagicMock(side_effect=[uuid.UUID('aaaa1111-2222-3333-4444-55556666aaa1'),
                                                             uuid.UUID('aaaa1111-2222-3333-4444-55556666aaa2')])
@@ -409,7 +409,7 @@ class TestSchemaWithPluckSelf(TestCase):
         self.data = {('Joan',): {'name': 'Joan', 'email': 'joan@domain.com',
                                  'friends': []},
                      ('Joe',): {'name': 'Joe', 'email': 'joe@domain.com',
-                                'friends': ['Joan', 'Josep']},
+                                'friends': "['Joan', 'Josep']"},
                      ('Josep',): {'name': 'Josep', 'email': 'josep@domain.com',
                                   'friends': []}
                      }
