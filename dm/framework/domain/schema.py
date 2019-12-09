@@ -1,6 +1,6 @@
 import typing as t
 
-from marshmallow import Schema as MSchema, post_dump, pre_load, post_load
+from marshmallow import Schema as MSchema, post_dump, pre_load, post_load, ValidationError
 from marshmallow.utils import INCLUDE
 
 from dm.framework.domain import fields, Entity
@@ -52,8 +52,9 @@ class Schema(MSchema, ISchema, t.Generic[EntityType]):
     #     dto.__id__ = original_data.id
     #     return dto
 
-    @staticmethod
-    def fetch_data(field_class, id_or_ids: t.Union[Id, Ids]):
+    def fetch_data(self, field_class, id_or_ids: t.Union[Id, Ids]):
+        if not id_or_ids:
+            return id_or_ids
         entity = field_class.schema.entity
         container = field_class.schema.__container__
         if not isinstance(container, Container):

@@ -1,13 +1,8 @@
 import os
 
-import os
-import sys
-import tempfile
-
 import click
 import requests
 import rsa
-import tqdm as tqdm
 from coverage import Coverage
 from flask.cli import with_appcontext
 
@@ -16,14 +11,23 @@ from dm.network.gateway import pack_msg, unpack_msg
 cov = Coverage(source=('dm',))
 cov.start()
 
-from dm.web import create_app, db, repo_manager, interactor, catalog_manager as cm
+from dm.web import create_app, repo_manager, interactor, catalog_manager as cm
+
+
+def init_db():
+    with open('./migrations/schema.sql') as fd:
+        repo_manager.db.executescript(fd.read())
+
+    with open('./migrations/data.sql') as fd:
+        repo_manager.db.executescript(fd.read())
+
 
 app = create_app(os.getenv('FLASK_CONFIG') or 'dev')
 
 
 @app.shell_context_processor
 def make_shell_context():
-    return dict(db=db, repo=repo_manager, cm=cm, interactor=interactor)
+    return dict(repo=repo_manager, cm=cm, interactor=interactor)
 
 
 @app.cli.command(help='executes the specified tests')
@@ -50,10 +54,12 @@ def test(test_names, coverage):
         print('HTML version: file://%s/index.html' % covdir)
         cov.erase()
 
+
 @app.cli.group()
 def dm():
     """Perform dimensigon actions."""
     pass
+
 
 @dm.command(help="""Joins to the dimension. Two arguments must be given: server and token.
 
@@ -115,9 +121,8 @@ def db():
     """Perform database migrations."""
     pass
 
+
 @db.command(help="""Creates database structure""")
 @with_appcontext
 def init():
-
-    from flask import g
-    g.db.execute()
+    init_db()

@@ -30,8 +30,8 @@ class PluckEntity(Nested):
         if ret is None:
             return None
         if self.many:
-            return utils.pluck(ret, key=self._field_data_key)
-        return ret[self._field_data_key]
+            return str(utils.pluck(ret, key=self._field_data_key))
+        return str(ret[self._field_data_key])
 
     def _deserialize(self, value, attr, data, partial=None, **kwargs):
         self._test_collection(value)

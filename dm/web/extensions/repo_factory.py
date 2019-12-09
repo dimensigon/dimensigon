@@ -31,9 +31,13 @@ class Repo:
                              inspect.isclass(cls) and issubclass(cls, Repository) and
                              getattr(cls, 'schema', None) and getattr(cls.schema, '__entity__', None)}
         self.app = app
-        self.con = None
+        self._con: sqlite3.Connection = None
         if app is not None:
             self.init_app(app)
+
+    @property
+    def db(self) -> sqlite3.Connection:
+        return self._con
 
     def init_app(self, app: Flask):
         """Initializes your repo settings from the application settings.
@@ -47,17 +51,27 @@ class Repo:
         initial_content = app.config.get('DM_DATABASE_CONTENT') or {}
         db_uri = app.config.get('DM_DATABASE_URI')
         if db_uri:
-            self.con = sqlite3.connect(db_uri, detect_types=sqlite3.PARSE_DECLTYPES)
+            engine, uri = db_uri.split('://', 1)
+            if engine == 'sqlite':
+                try:
+                    self._con = sqlite3.connect(uri, detect_types=sqlite3.PARSE_DECLTYPES)
+                except Exception as e:
+                    raise ConnectionError(f"Unable to connect to {db_uri}") from e
+                if ':memory:' in uri:
+                    from wsgi import init_db
+                    init_db()
+            else:
+                NotImplemented(f'Database engine {engine} not implemented')
 
             sqlite3.register_adapter(bool, int)
             sqlite3.register_converter("BOOLEAN", lambda v: bool(int(v)))
-            self.con.row_factory = dict_factory
+            self._con.row_factory = dict_factory
         else:
             con = None
         for name, cls in self._repo_classes.items():
             container.register_by_interface(interface=IDao, constructor=DbDao if db_uri else InMemoryDao,
                                             qualifier=cls.schema.__entity__,
-                                            kwargs={'db': self.con.cursor()} if db_uri else {
+                                            kwargs={'db': self._con.cursor(), 'table': cls.table} if db_uri else {
                                                 'initial_content': initial_content.get(name)}). \
                 register_by_interface(interface=IRepository, constructor=cls,
                                       qualifier=cls.schema.__entity__)

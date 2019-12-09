@@ -17,7 +17,7 @@ class Server(Entity):
         self.name = name
         self.ip = ip
         self.port = port
-        self.birth = birth
+        self.birth = birth or datetime.now()
         self.keep_alive = keep_alive
         self.available = available
         self.granules = granules

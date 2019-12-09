@@ -1,4 +1,4 @@
-CREATE TABLE d_server (
+CREATE TABLE d_server  (
 id varchar(36) primary key not null,
 name varchar(40) not null,
 ip varchar(39) not null,
@@ -8,8 +8,8 @@ keep_alive integer,
 available boolean,
 granules text,
 route text,
-alt_route text
-);
+alt_route text,
+data_mark varchar(20));
 
 CREATE TABLE d_action_template
 (id varchar(36) primary key not null,
@@ -20,12 +20,13 @@ code text,
 parameters text,
 system_kwargs text,
 expected_output text,
-expected_rc integer);
+expected_rc integer,
+data_mark varchar(20));
 
 CREATE UNIQUE INDEX d_action_template_ix1
 on d_action_template (name, version);
 
-create table l_catalog
+CREATE TABLE l_catalog
 (entity varchar(40) primary key not null,
 data_mark text not null);
 
@@ -49,6 +50,7 @@ step_expected_rc integer,
 step_parameters text,
 step_system_kwargs text,
 orchestration varchar(36) not null,
+data_mark varchar(20),
 CONSTRAINT fk_action_template FOREIGN KEY(action_template) REFERENCES d_action_template(id)
 );
 
@@ -56,25 +58,28 @@ CREATE TABLE d_orchestration (
 id varchar(36) primary key not null,
 name text not null,
 version integer not null,
-description text
+description text,
+steps text,
+dependencies text,
+data_mark varchar(20)
 );
 
 CREATE UNIQUE INDEX d_orchestration_ix1
 on d_orchestration (name, version);
 
-CREATE TABLE d_orchestration_step (
-orchestration varchar(36) not null,
-step varchar(36) not null,
-CONSTRAINT fk_orchestration FOREIGN KEY(orchestration) REFERENCES d_orchestration(id),
-CONSTRAINT fk_step FOREIGN KEY(step) REFERENCES d_step(id)
-);
-
-CREATE TABLE d_step_step (
-step varchar(36) not null,
-child_step varchar(36) not null,
-CONSTRAINT fk_step FOREIGN KEY(step) REFERENCES d_step(id),
-CONSTRAINT fk_child_step FOREIGN KEY(child_step) REFERENCES d_step(id)
-);
+--CREATE TABLE d_orchestration_step (
+--orchestration varchar(36) not null,
+--step varchar(36) not null,
+--CONSTRAINT fk_orchestration FOREIGN KEY(orchestration) REFERENCES d_orchestration(id),
+--CONSTRAINT fk_step FOREIGN KEY(step) REFERENCES d_step(id)
+--);
+--
+--CREATE TABLE d_step_step (
+--step varchar(36) not null,
+--child_step varchar(36) not null,
+--CONSTRAINT fk_step FOREIGN KEY(step) REFERENCES d_step(id),
+--CONSTRAINT fk_child_step FOREIGN KEY(child_step) REFERENCES d_step(id)
+--);
 
 CREATE TABLE l_execution (
 id varchar(36) primary key not null,
@@ -106,7 +111,8 @@ CREATE TABLE d_user (
 id varchar(36) primary key not null,
 username varchar(255) not null,
 password varchar(255) not null,
-created_on datetime
+created_on datetime,
+data_mark varchar(20)
 );
 
 CREATE UNIQUE INDEX d_user_ix1

@@ -34,6 +34,7 @@ class DataMarkRepo(Repository[Id, Entity]):
 
 class ActionTemplateRepo(DataMarkRepo[str, ActionTemplate]):
     schema = ActionTemplateSchema
+    # TODO: Rewrite table association in a cleaner way
     table = "D_ACTION_TEMPLATE"
 
 
@@ -44,10 +45,12 @@ class OrchestrationRepo(DataMarkRepo[str, Orchestration]):
 
 class StepRepo(DataMarkRepo[str, Step]):
     schema = StepSchema
+    table = "D_STEP"
 
 
 class ServerRepo(DataMarkRepo[str, Server]):
     schema = ServerSchema
+    table = "D_SERVER"
 
     def get_by_ip_or_name(self, ip_or_name, port=None):
         ip = None
@@ -65,22 +68,27 @@ class ServerRepo(DataMarkRepo[str, Server]):
 
 class ServiceRepo(DataMarkRepo[str, Service]):
     schema = ServiceSchema
+    table = "D_SERVICE"
 
 
 class ExecutionRepo(Repository):
     schema = ExecutionSchema
+    table = "L_EXECUTION"
 
 
 class LogRepo(Repository[str, Log]):
     schema = LogSchema
+    table = "L_LOG"
 
 
 class CatalogRepo(Repository[str, Catalog]):
     schema = CatalogSchema
+    table = "L_CATALOG"
 
 
 class DimensionRepo(Repository[str, Dimension]):
     schema = DimensionSchema
+    table = "L_DIMENSION"
 
     def get_by_name(self, name):
         query = self.dao.filter((where('name') == name))

@@ -8,7 +8,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.local import LocalProxy
 
 import dm.framework.utils.dependency_injection as di
-from config import config_by_name
+from config import config_by_name, DEFAULT_PORT
 from dm.domain.entities import Dimension
 from dm.network.gateway import proxy_request
 from dm.web.extensions.context_app import ContextApp
@@ -74,7 +74,6 @@ def create_app(config=None):
     jwt.init_app(app)
 
     # repo
-    db.init_app(app)
     repo_manager.init_app(app)
     container = di.Container()
     _catalog_manager.init_app(app)
@@ -88,13 +87,22 @@ def create_app(config=None):
         container.register_by_interface(interface=CatalogManager, constructor=catalog_manager, scope=di.Scopes.OBJECT)
 
         # Interactor Entry Point
+        import socket
+        hostname = socket.gethostname()
+        ip = socket.gethostbyname(hostname)
+        server = None
         try:
-            server_name = app.config.get('SERVER_NAME', '')
-            server, port = (server_name if ':' in server_name else server_name + ':').split(':')
-            server = repo_manager.ServerRepo.get_by_ip_or_name(server, port)
+            server_name = app.config.get('SERVER_NAME', '') or hostname
+            server = repo_manager.ServerRepo.get_by_ip_or_name(server_name)
         except dm.framework.exceptions.NoResultFound as e:
-            raise exc.ServerLookupError(
-                f"Server '{server_name}' not found in repo. Specify SERVER_NAME=server_or_ip:port") from e
+            # create the server if no server in repo
+            count = repo_manager.ServerRepo.dao.all().count()
+            if count > 0:
+                raise exc.ServerLookupError(
+                    f"Server '{server_name}' not found in repo. Specify SERVER_NAME=server_or_ip:port") from e
+        if not server:
+            server = repo_manager.ServerRepo.create_and_add(
+                {'name': server_name, 'port': app.config.get('PORT', DEFAULT_PORT), 'ip': ip, 'route': [], 'alt_route': []})
         interactor.set_catalog(catalog_manager)
         interactor.set_server(server)
 
