@@ -38,4 +38,36 @@ class Server(db.Model):
         self.cost = cost
 
     def __str__(self):
-        return self.name + ':' + str(self.port)
+        return f"{self.name} {self.id}"
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__} {self.id}>'
+
+    def url(self, view=None):
+        root_path = f"{current_app.config['PREFERRED_URL_SCHEME']}://{self.ip}:{self.port}"
+        if view is None:
+            return root_path
+        else:
+            return root_path + url_for(view, _external=False)
+
+    @classmethod
+    def get_neighbours(cls) -> t.List['Server']:
+        return cls.query.filter(cls.cost == 0).all()
+
+    @classmethod
+    def get_not_neighbours(cls) -> t.List['Server']:
+        return cls.query.filter(cls.cost != 0).filter(cls.cost is not None).all()
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'ip': self.ip, 'port': self.port, 'granules': self.granules,
+                'mesh_best_route': self.mesh_best_route,
+                'mesh_alt_route': self.mesh_alt_route,
+                'gateway': getattr(self.gateway, 'id', None),
+                'cost': self.cost}
+
+    def to_json(self):
+        return {'id': str(self.id), 'name': self.name, 'ip': self.ip, 'port': self.port, 'granules': self.granules,
+                'mesh_best_route': [str(s) for s in self.mesh_best_route],
+                'mesh_alt_route': [str(s) for s in self.mesh_alt_route],
+                'gateway': str(getattr(self.gateway, 'id', 'null')),
+                'cost': self.cost}
