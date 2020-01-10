@@ -2,7 +2,6 @@
 from typing import Iterable
 
 from flask import current_app
-from werkzeug.local import LocalProxy
 
 
 class ContextApp:

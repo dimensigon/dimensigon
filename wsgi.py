@@ -11,7 +11,6 @@ app = create_app(os.getenv('FLASK_CONFIG') or 'dev')
 def make_shell_context():
     return dict(db=db, repo=repo, cm=cm, interactor=interactor)
 
-
 @app.cli.command(help='executes the specified tests')
 @click.argument('test_names', nargs=-1)
 def test(test_names):

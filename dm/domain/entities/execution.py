@@ -1,26 +1,43 @@
+import enum
 import typing as t
 import uuid
 from datetime import datetime
 
-from dm.framework.domain import Entity, Id
+from dm.utils.typos import UUID
+from dm.web import db
 
 if t.TYPE_CHECKING:
-    from dm.domain.entities.server import Server
-    from dm.domain.entities.orchestration import Orchestration, Step
+    pass
 
 
-class Execution(Entity):
-    __id__ = Id(factory=uuid.uuid1)
+class Status(enum.Enum):
+    PENDING = enum.auto()
+    EXECUTING = enum.auto()
+    FINISHED = enum.auto()
+    ROLLING_BACK = enum.auto()
+    ROLLED_BACK = enum.auto()
+    CANCELLED = enum.auto()
+    ERROR = enum.auto()
 
-    def __init__(self, orchestration: 'Orchestration', step: 'Step', server: 'Server', params: dict, stdout: str = None,
-                 stderr: str = None, rc: int = None, start_time: datetime = None, end_time: datetime = None, **kwargs):
-        super().__init__(**kwargs)
-        self.orchestration = orchestration
-        self.step = step
-        self.server = server
-        self.params = params
-        self.stdout = stdout
-        self.stderr = stderr
-        self.rc = rc
-        self.start_time = start_time
-        self.end_time = end_time
+
+class Execution(db.Model):
+    __tablename__ = 'L_execution'
+
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
+    step_id = db.Column(db.Integer(), db.ForeignKey('D_step.id'), nullable=False)
+    status = db.Column(db.Enum(Status))
+    start_time = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    end_time = db.Column(db.DateTime, nullable=True)
+    rc = db.Column(db.Integer, nullable=True)
+    stdout = db.Column(db.Text, nullable=True)
+    stderr = db.Column(db.Text, nullable=True)
+    executor = db.Column(UUID, nullable=True)
+    server_id = db.Column(UUID, db.ForeignKey('D_server.id'), nullable=False)
+    service_id = db.Column(UUID, db.ForeignKey('D_service.id'), nullable=False)
+
+    step = db.relationship("Step")
+    service = db.relationship("Service", back_populates="executions")
+    server = db.relationship("Server")
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__} {self.id}>'

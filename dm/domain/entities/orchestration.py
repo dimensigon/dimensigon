@@ -1,47 +1,118 @@
-import typing as t
 import uuid
 from collections import ChainMap
+from datetime import datetime
+import typing as t
+
+from sqlalchemy import event, orm
+from sqlalchemy.orm import object_session
 
 from dm.domain.entities import ActionTemplate
+from dm.domain.entities.base import DistributedEntityMixin
 from dm.domain.exceptions import CycleError
-from dm.framework.utils.dependency_injection import Inject
-from dm.framework.utils.functools import reify
 from dm.utils.dag import DAG
-from dm.utils.datamark import data_mark
-from dm.framework.domain import Entity, Id
-from dm.framework.interfaces.entity import Id as IdType
+from dm.utils.typos import UUID, JSON
+from dm.web import db
+
+step_step = db.Table('D_step_step',
+                     db.Column('parent_step_id', UUID, db.ForeignKey('D_step.id'), primary_key=True),
+                     db.Column('step_id', UUID, db.ForeignKey('D_step.id'), primary_key=True),
+                     )
 
 
-class Step(Entity):
-    __id__ = Id(factory=uuid.uuid1)
+class Step(db.Model, DistributedEntityMixin):
+    __tablename__ = "D_step"
 
-    @data_mark
-    def __init__(self, undo: bool, stop_on_error: bool,
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
+    orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'), nullable=False)
+    action_template_id = db.Column(UUID, db.ForeignKey('D_action_template.id'), nullable=False)
+    undo = db.Column(db.Boolean, nullable=False)
+    stop_on_error = db.Column(db.Boolean, default=True, nullable=False)
+    step_parameters = db.Column(JSON, default={})
+    step_expected_output = db.Column(db.Text)
+    step_expected_rc = db.Column(db.Integer)
+    step_system_kwargs = db.Column(JSON, default={})
+    last_modified_at = db.Column(db.DateTime, nullable=False)
+
+    orchestration = db.relationship("Orchestration", primaryjoin="Step.orchestration_id==Orchestration.id",
+                                    back_populates="steps")
+    action_template = db.relationship("ActionTemplate", primaryjoin="Step.action_template_id==ActionTemplate.id",
+                                      backref="steps")
+
+    _parent_steps = db.relationship("Step", secondary="D_step_step",
+                                    primaryjoin="D_step.c.id==D_step_step.c.step_id",
+                                    secondaryjoin="D_step.c.id==D_step_step.c.parent_step_id",
+                                    back_populates="_children_steps")
+
+    _children_steps = db.relationship("Step", secondary="D_step_step",
+                                      primaryjoin="D_step.c.id==D_step_step.c.parent_step_id",
+                                      secondaryjoin="D_step.c.id==D_step_step.c.step_id",
+                                      back_populates="_parent_steps")
+
+    __table_args__ = (
+        db.UniqueConstraint('orchestration_id', 'action_template_id', 'undo', name='D_step_uq01'),)
+
+    def __init__(self, orchestration, undo: bool, stop_on_error: bool,
                  action_template: ActionTemplate, step_expected_output: t.Optional[str] = None,
                  step_expected_rc: t.Optional[int] = None, step_parameters: t.Dict[str, t.Any] = None,
-                 step_system_kwargs: t.Dict[str, t.Any] = None, **kwargs):
+                 step_system_kwargs: t.Dict[str, t.Any] = None, id=uuid.uuid4(),
+                 parent_steps: t.List['Step'] = None, children_steps: t.List['Step'] = None, **kwargs):
 
-        super().__init__(**kwargs)
+        DistributedEntityMixin.__init__(self, **kwargs)
         self.undo = undo
         self.stop_on_error = stop_on_error
         self.action_template = action_template
         self.step_expected_output = step_expected_output
         self.step_expected_rc = step_expected_rc
-        self.step_parameters = step_parameters
-        self.step_system_kwargs = step_system_kwargs
-        self.orchestration = kwargs.get('orchestration')
+        self.step_parameters = step_parameters or {}
+        self.step_system_kwargs = step_system_kwargs or {}
+        self.orchestration = orchestration
+        self.id = id
+        self._parent_steps = parent_steps or []
+        self._children_steps = children_steps or []
 
-    @classmethod
-    def set_sequence(cls, factory: t.Callable[[], IdType]):
-        cls.__id__.factory = factory
+    @property
+    def parents(self):
+        return self._parent_steps
 
-    @reify
+    @property
+    def children(self):
+        return self._children_steps
+
+    @property
+    def parent_undo_steps(self):
+        return [s for s in self._parent_steps if s.undo == True]
+
+    @property
+    def children_undo_steps(self):
+        return [s for s in self._children_steps if s.undo == True]
+
+    @property
+    def parent_do_steps(self):
+        return [s for s in self._parent_steps if s.undo == False]
+
+    @property
+    def children_do_steps(self):
+        return [s for s in self._children_steps if s.undo == False]
+
+    @property
     def parameters(self):
-        return ChainMap(self.step_parameters or {}, self.action_template.parameters)
+        if not hasattr(self, '_cm_parameters'):
+            if self.step_parameters is None:
+                self.step_parameters = {}
+            self._cm_parameters = ChainMap(self.step_parameters, self.action_template.parameters)
+        return self._cm_parameters
 
-    @reify
+    @property
     def system_kwargs(self):
-        return ChainMap(self.step_system_kwargs or {}, self.action_template.system_kwargs)
+        if not hasattr(self, '_cm_system_kwargs'):
+            if self.step_system_kwargs is None:
+                self.step_system_kwargs = {}
+            self._cm_system_kwargs = ChainMap(self.step_system_kwargs, self.action_template.system_kwargs)
+        return self._cm_system_kwargs
+
+    @system_kwargs.setter
+    def system_kwargs(self, value):
+        raise AttributeError("Property cannot be set. You must set step_system_kwargs")
 
     @property
     def code(self):
@@ -98,54 +169,99 @@ class Step(Entity):
             raise NotImplemented
 
     def __str__(self):
-        return ('Undo ' if self.undo else '') + self.__class__.__name__ + str(getattr(self, 'id', ''))
+        return ('Undo ' if self.undo else '') + self.__class__.__name__ + ' ' + str(getattr(self, 'id', ''))
 
     def __repr__(self):
-        return self.__str__()
+        return f'<{self.__class__.__name__} {self.id}>'
+
+    def _add_parents(self, parents):
+        for step in parents:
+            if not step in self._parent_steps:
+                self._parent_steps.append(step)
+
+    def _remove_parents(self, parents):
+        for step in parents:
+            if step in self._parent_steps:
+                self._parent_steps.remove(step)
+
+    def _add_children(self, children):
+        for step in children:
+            if not step in self._children_steps:
+                self._children_steps.append(step)
+
+    def _remove_children(self, children):
+        for step in children:
+            if step in self._children_steps:
+                self._children_steps.remove(step)
 
 
-class Orchestration(Entity):
-    """
-    Parameters
-    ----------
-    name str:
-        Orchestration name
-    version int:
-        Version of the orchestration
-    graph:
-        graph hierarchy object
-    description str:
-        description for the orchestration
+@event.listens_for(Step, 'before_insert')
+def receive_before_insert(mapper, connection, target):
+    target.orchestration.last_modified_at = datetime.now()
+    target.last_modified_at = datetime.now()
 
-    """
-    __id__ = Id(factory=uuid.uuid1)
 
-    @data_mark
-    def __init__(self, name: str, version: int, description: t.Optional[str] = None,
-                 steps: t.List[Step] = None, dependencies: t.Dict[IdType, t.List[IdType]] = None, **kwargs):
-        super().__init__(**kwargs)
-        find = lambda id_: next((step for step in steps if step.id == id_))
+@event.listens_for(Step, 'before_update')
+def receive_before_update(mapper, connection, target):
+    if object_session(target).is_modified(target, include_collections=False):
+        target.orchestration.last_modified_at = datetime.now()
+        target.last_modified_at = datetime.now()
+
+
+class Orchestration(db.Model, DistributedEntityMixin):
+    __tablename__ = 'D_orchestration'
+
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
+    name = db.Column(db.String(80), nullable=False)
+    version = db.Column(db.Integer, nullable=False)
+    desc = db.Column(db.Text)
+
+    steps = db.relationship("Step", primaryjoin="Step.orchestration_id==Orchestration.id",
+                            back_populates="orchestration")
+
+    __table_args__ = (db.UniqueConstraint('name', 'version', name='D_orchestration_uq01'),)
+
+    def __init__(self, name: str, version: int, description: t.Optional[str] = None, steps: t.List[Step] = None,
+                 dependencies: t.Union[t.Dict[Step, t.List[Step]], t.List[t.Tuple[Step, Step]]] = None, id=uuid.uuid4(),
+                 **kwargs):
+
+        DistributedEntityMixin.__init__(self, **kwargs)
+        self.id = id
         self.name = name
         self.version = version
-        edges = []
-        if isinstance(dependencies, t.Dict):
-            for k, v in dependencies.items():
-                try:
-                    step_from = find(k)
-                except StopIteration:
-                    raise ValueError(f'id step {k} not found in steps list')
-                for child_id in v:
-                    try:
-                        step_to = find(child_id)
-                    except StopIteration:
-                        raise ValueError(f'id step {child_id} not found in steps list')
-                    edges.append((step_from, step_to))
-        self._graph = DAG(edges)
+        self.steps = steps or []
         self.description = description
+        self._graph = None  # initialized by _generate_graph
+        edges = []
+        if dependencies:
+            find = lambda id_: next((step for step in self.steps if step.id == id_))
+            if isinstance(dependencies, t.Dict):
+                for k, v in dependencies.items():
+                    try:
+                        step_from = find(k)
+                    except StopIteration:
+                        raise ValueError(f'id step {k} not found in steps list')
+                    for child_id in v:
+                        try:
+                            step_to = find(child_id)
+                        except StopIteration:
+                            raise ValueError(f'id step {child_id} not found in steps list')
+                        edges.append((step_from, step_to))
+            elif isinstance(dependencies, t.Iterable):
+                edges = dependencies
+            else:
+                raise ValueError(f'dependencies must be a dict like object or an iterable of tuples. '
+                                 f'See the docs for more information')
 
-    @property
-    def steps(self) -> t.List[Step]:
-        return self._graph.nodes
+        self._graph = DAG(edges)
+
+    @orm.reconstructor
+    def init_on_load(self):
+        edges = []
+        for step in self.steps:
+            for p in step.parents:
+                edges.append((p, step))
+        self._graph = DAG(edges)
 
     @property
     def parents(self) -> t.Dict[Step, t.List[Step]]:
@@ -156,8 +272,8 @@ class Orchestration(Entity):
         return self._graph.succ
 
     @property
-    def dependencies(self) -> t.Dict[IdType, t.List[IdType]]:
-        return {k.id: [vv.id for vv in v] for k, v in self.children.items()}
+    def dependencies(self) -> t.Dict[Step, t.List[Step]]:
+        return self.children
 
     @property
     def root(self) -> t.List[Step]:
@@ -224,7 +340,7 @@ class Orchestration(Entity):
         if g.is_cyclic():
             raise CycleError('Cycle detected while trying to add dependency')
 
-    def add_step(self, undo, action_template, parents=None, children=None, stop_on_error=False, **kwargs) -> Step:
+    def add_step(self, parents=None, children=None, **kwargs) -> Step:
         """
         Allows to add step into the orchestration
 
@@ -250,13 +366,13 @@ class Orchestration(Entity):
         """
         parents = parents or []
         children = children or []
-        s = Step(orchestration=self, num=len(self.steps) + 1, undo=undo, action_template=action_template,
-                 stop_on_error=stop_on_error, **kwargs)
+        s = Step(orchestration=self, **kwargs)
         self._step_exists(parents + children)
         self._check_dependencies(s, parents, children)
+        s.orchestration = self
         self._graph.add_node(s)
-        self._graph.add_edges_from([(p, s) for p in parents])
-        self._graph.add_edges_from([(s, c) for c in children])
+        self.add_parents(s, parents)
+        self.add_children(s, children)
         return s
 
     def delete_step(self, step: Step) -> 'Orchestration':
@@ -268,6 +384,8 @@ class Orchestration(Entity):
         step Step: step to remove from the orchestration
         """
         self._step_exists(step)
+        i = self.steps.index(step)
+        self.steps.pop(i)
         self._graph.remove_node(step)
         return self
 
@@ -304,6 +422,7 @@ class Orchestration(Entity):
         """
         self._step_exists([step] + list(parents))
         self._check_dependencies(step, parents=parents)
+        step._add_parents(parents)
         self._graph.add_edges_from([(p, step) for p in parents])
         return self
 
@@ -339,6 +458,7 @@ class Orchestration(Entity):
         [Step2]
         """
         self._step_exists([step] + list(parents))
+        step._remove_parents(parents)
         self._graph.remove_edges_from([(p, step) for p in parents])
         return self
 
@@ -373,7 +493,6 @@ class Orchestration(Entity):
         >>> o.parents[s1]
         [Step3]
         """
-        self._step_exists([step] + parents)
         self.delete_parents(step, self._graph.pred[step])
         self.add_parents(step, parents)
         return self
@@ -381,18 +500,19 @@ class Orchestration(Entity):
     def add_children(self, step: Step, children: t.List[Step]) -> 'Orchestration':
         self._step_exists([step] + children)
         self._check_dependencies(step, children=children)
+        step._add_children(children)
         self._graph.add_edges_from([(step, c) for c in children])
-        return self
-
-    def set_children(self, step: Step, children: t.List[Step]) -> 'Orchestration':
-        self._step_exists([step] + children)
-        self._graph.remove_edges_from([(step, c) for c in self._graph.succ[step]])
-        self.add_children(step, children)
         return self
 
     def delete_children(self, step: Step, children: t.List[Step]) -> 'Orchestration':
         self._step_exists([step] + children)
+        step._remove_children(children)
         self._graph.remove_edges_from([(step, c) for c in children])
+        return self
+
+    def set_children(self, step: Step, children: t.List[Step]) -> 'Orchestration':
+        self.delete_children(step, self._graph.succ[step])
+        self.add_children(step, children)
         return self
 
     def eq_imp(self, other: 'Orchestration') -> bool:
@@ -443,5 +563,16 @@ class Orchestration(Entity):
     def subtree(self, steps: t.Union[t.List[Step], t.Iterable[Step]]) -> t.Dict[Step, t.List[Step]]:
         return self._graph.subtree(steps)
 
-    def __str__(self):
-        return f'{getattr(self, "name", None)}.{getattr(self, "version", None)}'
+    def __repr__(self):
+        return f'<{self.__class__.__name__} {self.id}>'
+
+
+@event.listens_for(Orchestration, 'before_insert')
+def receive_before_insert(mapper, connection, target):
+    target.last_modified_at = datetime.now()
+
+
+@event.listens_for(Orchestration, 'before_update')
+def receive_before_update(mapper, connection, target):
+    if object_session(target).is_modified(target, include_collections=False):
+        target.last_modified_at = datetime.now()

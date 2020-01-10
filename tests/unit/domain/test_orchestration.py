@@ -1,3 +1,4 @@
+import uuid
 from itertools import count
 from unittest import TestCase
 from unittest.mock import PropertyMock
@@ -6,7 +7,6 @@ from asynctest import mock
 
 import dm.domain.entities as e
 from dm.domain.exceptions import CycleError
-from dm.framework.domain import Entity, Id
 
 
 class TestOrchestration(TestCase):
@@ -24,47 +24,43 @@ class TestOrchestration(TestCase):
         type(cls.at).expected_rc = PropertyMock(return_value=0)
         type(cls.at).system_kwargs = PropertyMock(return_value={})
 
-    def setUp(self) -> None:
-        self.o = e.Orchestration(name='Test Orchestration', version=1, description='description')
-
-    def tearDown(self) -> None:
-        del self.o
-
     def test_constructor(self):
-        seq = count(1)
+        from dm.domain.entities.orchestration import Step
 
-        class Step(Entity):
-            __id__ = Id(factory=lambda: next(seq))
+        s1 = Step(id=uuid.UUID('11111111-2222-3333-4444-555555550001'))
+        s2 = Step(id=uuid.UUID('11111111-2222-3333-4444-555555550002'))
+        s3 = Step(id=uuid.UUID('11111111-2222-3333-4444-555555550003'))
 
-            def __init__(self, num, **kwargs):
-                super().__init__(**kwargs)
-                self.num = num
-
-        s1 = Step(5)
-        s2 = Step(6)
-        s3 = Step(7)
-
-        o = e.Orchestration('test', 1, description='description test', steps=[s1, s2, s3],
+        o = e.Orchestration('test', 1, id=uuid.UUID('11111111-2222-3333-4444-555555550004'),
+                            description='description test', steps=[s1, s2, s3],
                             dependencies={s1.id: [s2.id], s2.id: [s3.id], s3.id: []})
 
-        self.assertDictEqual(o.dependencies, {1: [2], 2: [3], 3: []})
+        self.assertDictEqual(o.dependencies, {s1: [s2], s2: [s3], s3: []})
 
         self.assertListEqual(o.steps, [s1, s2, s3])
 
         with self.assertRaises(ValueError):
             o2 = e.Orchestration('test', 1, description='description test', steps=[s1, s2, s3],
-                                 dependencies={s1.id: [s2.id], s2.id: [s3.id], s3.id: [4]})
+                                 dependencies={s1: [s2], s2: [s3], s3: [4]})
 
+    # noinspection PyTypeChecker
     def test_orchestration(self):
-        e.Step.__id__.factory = mock.Mock(side_effect=[n for n in range(1, 100)])
-        s1 = self.o.add_step(undo=False, action_template=self.at, parents=[], children=[], stop_on_error=False)
-        s2 = self.o.add_step(undo=True, action_template=self.at, parents=[s1], children=[], stop_on_error=False)
+        self.o = e.Orchestration(id=1,
+                                 name='Test Orchestration',
+                                 version=1,
+                                 description='description')
+
+        s1 = self.o.add_step(undo=False, action_template=self.at, parents=[], children=[], stop_on_error=False,
+                             id=1)
+        s2 = self.o.add_step(undo=True, action_template=self.at, parents=[s1], children=[], stop_on_error=False,
+                             id=2)
 
         with self.assertRaises(ValueError):
             self.o.add_step(undo=False, action_template=self.at, parents=[s2], children=[], stop_on_error=False)
 
-        o2 = e.Orchestration('dto', 2)
-        s21 = o2.add_step(undo=False, action_template=self.at, parents=[], children=[], stop_on_error=False)
+        o2 = e.Orchestration('dto', 2, id=2)
+        s21 = o2.add_step(undo=False, action_template=self.at, parents=[], children=[], stop_on_error=False,
+                          id=21)
 
         with self.assertRaises(ValueError):
             self.o.add_parents(s21, [s1])
@@ -74,12 +70,12 @@ class TestOrchestration(TestCase):
         self.assertListEqual(self.o.steps, [s1])
         self.assertListEqual(self.o.children[s1], [])
 
-        s2 = self.o.add_step(undo=False, action_template=self.at, parents=[s1], children=[], stop_on_error=False)
-        s3 = self.o.add_step(undo=False, action_template=self.at, parents=[s2], children=[], stop_on_error=False)
-        s4 = self.o.add_step(undo=False, action_template=self.at, parents=[s2], children=[], stop_on_error=False)
-        s5 = self.o.add_step(undo=False, action_template=self.at, parents=[s4], children=[], stop_on_error=False)
-        s6 = self.o.add_step(undo=False, action_template=self.at, parents=[s4], children=[], stop_on_error=False)
-        s7 = self.o.add_step(undo=False, action_template=self.at, parents=[s1], children=[s2], stop_on_error=False)
+        s2 = self.o.add_step(undo=False, action_template=self.at, parents=[s1], children=[], stop_on_error=False, id=2)
+        s3 = self.o.add_step(undo=False, action_template=self.at, parents=[s2], children=[], stop_on_error=False, id=3)
+        s4 = self.o.add_step(undo=False, action_template=self.at, parents=[s2], children=[], stop_on_error=False, id=4)
+        s5 = self.o.add_step(undo=False, action_template=self.at, parents=[s4], children=[], stop_on_error=False, id=5)
+        s6 = self.o.add_step(undo=False, action_template=self.at, parents=[s4], children=[], stop_on_error=False, id=6)
+        s7 = self.o.add_step(undo=False, action_template=self.at, parents=[s1], children=[s2], stop_on_error=False, id=7)
 
         self.assertListEqual(self.o.steps, [s1, s2, s3, s4, s5, s6, s7])
 
@@ -110,9 +106,12 @@ class TestOrchestration(TestCase):
 
         self.o.delete_children(s4, [s5, s6])
         self.assertListEqual(self.o.parents[s6], [s3])
+        self.assertListEqual(self.o.parents[s5], [])
 
         self.o.set_children(s4, [s5, s6]).set_children(s3, [])
-        self.assertListEqual(self.o.parents[s6], [s4])
+        self.assertListEqual([s4], self.o.parents[s6])
+        self.assertListEqual([s4], self.o.parents[s5])
+        self.assertListEqual([], self.o.children[s3])
 
         # properties and default values
         s = self.o.add_step(undo=False, action_template=self.at)
@@ -134,7 +133,6 @@ class TestOrchestration(TestCase):
         self.assertEqual(0, s.expected_rc)
 
     def test_eq_imp(self):
-        e.Step.__id__.factory = mock.Mock(side_effect=[n for n in range(1, 100)])
         o1 = e.Orchestration('dto', 1)
 
         s11 = o1.add_step(False, self.at, )
@@ -157,5 +155,5 @@ class TestOrchestration(TestCase):
         self.assertTrue(o1.eq_imp(o2))
 
         s13.parameters['server'] = 'localhost'
-
+        self.assertFalse(s13.eq_imp(s23))
         self.assertFalse(o1.eq_imp(o2))

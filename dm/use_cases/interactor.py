@@ -1,16 +1,18 @@
-import asyncio
 import concurrent
 import os
+import random
 import threading
 import time
 import typing as t
-from asyncio import AbstractEventLoop
+import uuid
 from collections import ChainMap
 from concurrent.futures.thread import ThreadPoolExecutor
-from datetime import datetime
 
-from flask import current_app
-from marshmallow import ValidationError
+import aiohttp
+import requests
+
+from flask import current_app, url_for
+from flask_jwt_extended import create_access_token
 from returns.pipeline import is_successful
 from returns.result import Result
 from returns.result import safe
@@ -19,10 +21,8 @@ import dm.use_cases.deployment as dpl
 
 from dm.domain.exceptions import StateAlreadyInUnlock
 from dm.domain.locker import PriorityLocker
-import dm.framework.exceptions as fmw_exc
 import dm.use_cases.exceptions as ue
-from dm.framework.domain import Repository
-from dm.framework.utils.collection import is_iterable, is_collection
+from dm.network.gateway import unpack_msg, ping
 
 from dm.use_cases.base import OperationFactory, Scope
 from dm.use_cases.exceptions import ServersMustNotBeBlank, ErrorLock
@@ -30,13 +30,13 @@ from dm.use_cases.helpers import get_servers_from_scope
 from dm.use_cases.mediator import Mediator
 from dm.utils.async_operator import AsyncOperator
 from dm.utils.decorators import logged
+from dm.utils.helpers import get_distributed_entities, convert
+from dm.web import db
+from dm.domain.entities import Orchestration, Log, Server
 
 if t.TYPE_CHECKING:
-    from dm.domain.catalog_manager import CatalogManager
-    from dm.domain.entities import Orchestration, Dimension
     from dm import Server
     from dm import Params
-    from dm.domain.entities.log import Log
 
 
 @logged
@@ -45,14 +45,13 @@ class Interactor:
     border between user world and domain application world
     """
 
-    def __init__(self, catalog: 'CatalogManager' = None, server: 'Server' = None):
+    def __init__(self):
         self.MAX_LINES = 1000
         self.op_factory = OperationFactory()
         self._lockers = {}
-        self._catalog = catalog
         for s in Scope:
             self._lockers.update({s: PriorityLocker(s)})
-        self._mediator = Mediator(async_operator=AsyncOperator(), interactor=self, server=server)
+        self._mediator = Mediator(async_operator=AsyncOperator(), interactor=self)
         self._log_thread = None
         self._logs: t.List[Log] = []
         self._loop = None
@@ -60,17 +59,6 @@ class Interactor:
         self.is_running = threading.Event()  # event tells if send_data_log is running
         self._awake = threading.Event()
         self.max_workers = min(32, os.cpu_count() + 4)
-
-    def set_catalog(self, catalog: 'CatalogManager'):
-        if not self._catalog:
-            self._catalog = catalog
-
-    def set_server(self, server: 'Server'):
-        if not self._mediator.server:
-            self._mediator.server = server
-
-    def set_dimension(self, dimension: 'Dimension'):
-        self._mediator.set_dimension(dimension)
 
     @property
     def server(self):
@@ -191,27 +179,23 @@ class Interactor:
 
     @safe
     def upgrade_catalog(self, server):
-        from dm.web import repo, catalog_manager
-
         result = self.lock(Scope.UPGRADE, [server])
         if is_successful(result):
             delta_catalog = self._mediator.remote_get_delta_catalog(data_mark=self._catalog.max_data_mark,
                                                                     server=server)
-            repos: t.List[Repository] = [cls for cls in repo if
-                                         getattr(cls, 'upgradable', None)]
-            inside = set(r.__class__.__name__ for r in repos)
+            de = get_distributed_entities()
+            inside = set([name for name, cls in de])
 
             outside = set(delta_catalog.keys())
 
             if len(inside ^ outside) > 0:
                 raise ue.CatalogMismatch(inside ^ outside)
 
-            for r in repos:
-                repo_name = r.__class__.__name__
-                if repo_name in delta_catalog:
-                    for dto in delta_catalog[r.__class__.__name__]:
-                        r.dao.upsert(dto)
-                        catalog_manager.update_data_mark(r.entity.__name__, dto.get('data_mark'))
+            for name, cls in de:
+                if name in delta_catalog:
+                    for dto in delta_catalog[name]:
+                        o = cls(**dto)
+                        db.session.add(o)
 
             result = self.unlock(Scope.UPGRADE)
             return result
@@ -237,14 +221,12 @@ class Interactor:
                 else:
                     log.update_offset_file()
 
-        from dm.web import repo
-
         self.is_running.set()
         self._awake.clear()
         while self.is_running.is_set():
             start = time.time()
             with app.app_context():
-                self._logs = repo.LogRepo.all()
+                self._logs = Log.query.all()
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers,
                                                        thread_name_prefix="send_log") as executor:
@@ -292,3 +274,207 @@ class Interactor:
         for _ in range(len(self._logs)):
             log = self._logs.pop()
             del log
+
+
+def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False) -> t.List[Server]:
+    """Gets route tables of all neighbours and updates its own table based on jump weights.
+    Needs a Flask App Context to run.
+
+    Parameters
+    ----------
+    discover_new_neighbours:
+        tries to discover new neighbours
+    check_current_neighbours:
+        checks if current neighbours are still neighoburs
+
+    Returns
+    -------
+    None
+    """
+    # get all neighbours
+    if check_current_neighbours:
+        for server in Server.get_neighbours():
+            cost, time = ping(server)
+            if cost is None:
+                server.cost = None
+                server.gateway = None
+            # try:
+            #     requests.get(server.url('root.healthcheck'), timeout=0.5,
+            #                  verify=False)
+            # except (requests.exceptions.ConnectTimeout, TimeoutError):
+            #     # TODO: handle when a neighobur is not a neighbour anymore
+            #     server.cost = None
+            # else:
+            #     server.cost = 0
+            #     server.gateway = None
+
+    if discover_new_neighbours:
+        for server in Server.get_not_neighbours():
+            try:
+                requests.get(server.url('root.healthcheck'),
+                             timeout=0.5,
+                             verify=False)
+            except (requests.exceptions.ConnectTimeout, TimeoutError):
+                pass
+            else:
+                server.cost = 0
+                server.gateway = None
+    db.session.commit()
+    token = create_access_token(identity='root')
+    pool_responses = []
+    temp_table_routes: t.Dict[uuid.UUID, t.List[t.Optional[t.Tuple[uuid.UUID, int, dict]]]] = {}
+    for server in Server.get_neighbours():
+        pool_responses.append(
+            requests.get(server.url('api_1_0.routes'),
+                         headers={'Authorization': f'Bearer {token}'}, verify=False))
+    neighbours = Server.get_neighbours()
+    neighbour_ids = [n.id for n in neighbours]
+    for r in pool_responses:
+        if (isinstance(r, aiohttp.ClientResponse) and r.status == 200) or (
+                isinstance(r, (requests.Response,)) and r.status_code == 200):
+            msg = unpack_msg(r.json(), getattr(current_app.dimension, 'public', None),
+                             getattr(current_app.dimension, 'private', None))
+            r.close()
+
+            likely_gateway_entity = Server.query.get(msg.get('server_id'))
+
+            # remove a routing if gateway cannot reach the destination
+            dst_srv_through_lkly_gtw = Server.query.filter(Server.gateway == likely_gateway_entity).all()
+
+            for reachable_server in msg['server_list']:
+                reachable_server = convert(reachable_server)
+                reachable_server.id = uuid.UUID(reachable_server.id)
+                if reachable_server.gateway:
+                    reachable_server.gateway = uuid.UUID(reachable_server.gateway)
+                if reachable_server.id != current_app.server.id and reachable_server.gateway != current_app.server.id:
+                    if reachable_server.id not in temp_table_routes:
+                        temp_table_routes.update({reachable_server.id: []})
+                    if reachable_server.cost is not None:
+                        reachable_server.cost += 1
+                        reachable_server.gateway = likely_gateway_entity.id
+                        temp_table_routes[reachable_server.id].append(reachable_server)
+                # remove a routing if gateway cannot reach the destination
+                if reachable_server.id in [s.id for s in dst_srv_through_lkly_gtw] and reachable_server.cost is None:
+                    reachable_server_entity = next((s for s in dst_srv_through_lkly_gtw if s.id == reachable_server.id),
+                                                   None)
+                    reachable_server_entity.cost = None
+                    reachable_server_entity.gateway = None
+
+    # changed = []
+    MAX_COST = 9999999
+    for server_id in filter(lambda s: s not in neighbour_ids, temp_table_routes.keys()):
+        server = Server.query.get(server_id)
+        if not server:
+            # new server
+            server_data = temp_table_routes[server_id][0][2]
+            server = Server(id=server_id, ip=server_data.get('ip'), port=server_data.get('port'),
+                            granules=server_data.get('granules'))
+        temp_table_routes[server_id].sort(key=lambda x: x.cost or MAX_COST)
+        for min_server in temp_table_routes[server_id]:
+            if server.gateway:
+                if server.cost is not None and min_server.cost < server.cost:
+                    server.gateway = Server.query.get(min_server.gateway)
+                    server.cost = min_server.cost
+                    # changed.append(server.to_dict())
+                    break
+            else:
+                server.gateway = Server.query.get(min_server.gateway)
+                server.cost = min_server.cost
+                # changed.append(server.to_dict())
+                break
+
+    # return changed
+
+
+def update_table_routing_static(discover_new_neighbours=False, check_current_neighbours=False):
+    """Gets route tables of all neighbours and updates its own table based on jump weights.
+    Needs a Flask App Context to run.
+
+    Parameters
+    ----------
+    discover_new_neighbours:
+        tries to discover new neighbours
+    check_current_neighbours:
+        checks if current neighbours are still neighoburs
+
+    Returns
+    -------
+    None
+    """
+    url_schema = current_app.config['PREFERRED_URL_SCHEME']
+    # get all neighbours
+    if check_current_neighbours:
+        neighbours = []
+        for server in Server.get_neighbours():
+            try:
+                requests.get(f"{url_schema}://{server.ip}:{server.port}{url_for('healthcheck')}", timeout=0.5,
+                             verify=False)
+            except requests.exceptions.ConnectTimeout:
+                server.unreachable = True
+            else:
+                neighbours.append(server)
+    else:
+        neighbours = Server.get_neighbours()
+    if discover_new_neighbours:
+        for server in Server.get_not_neighbours():
+            try:
+                requests.get(f"{url_schema}://{server.ip}:{server.port}{url_for('healthcheck')}",
+                             timeout=0.5,
+                             verify=False)
+            except requests.exceptions.ConnectTimeout:
+                pass
+            else:
+                server.unreachable = False
+                neighbours.append(server)
+    token = create_access_token(identity='root')
+
+    # loop = asyncio.get_event_loop()
+
+    # async def get(url, tkn):
+    #     async with ClientSession() as session:
+    #         resp = await session.get(url,
+    #                                  headers={'Authorization': f'Bearer {tkn}'},
+    #                                  ssl=False,
+    #                                  timeout=5)
+    #         return resp
+
+    tasks = []
+    pool_responses = []
+    table_routes: t.Dict[Server, t.List[t.List[uuid.UUID]]] = {}
+    table_alt_routes: t.Dict[Server, t.List[t.List[uuid.UUID]]] = {}
+    for server in neighbours:
+        table_routes.update({server.id: [list()]})
+        table_alt_routes.update({server.id: [list()]})
+        pool_responses.append(
+            requests.get(f"{url_schema}://{server.ip}:{server.port}{url_for('api_1_0.route', _external=False)}",
+                         headers={'Authorization': f'Bearer {token}'}, verify=False))
+    #     tasks.append(get(f"https://{server.ip}:{server.port}{url_for('api_1_0.route')}", token))
+    # pool_responses = loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=False))
+
+    neighbour_ids = [n.id for n in neighbours]
+    for r in pool_responses:
+        if (isinstance(r, aiohttp.ClientResponse) and r.status == 200) or (
+                isinstance(r, (requests.Response,)) and r.status_code == 200):
+            msg = unpack_msg(r.json(), getattr(current_app.dimension, 'public', None),
+                             getattr(current_app.dimension, 'private', None))
+            r.close()
+
+            jump_server_id = msg.get('server_id')
+
+            for reachable_server_dict in msg['server_list']:
+                rs_id = reachable_server_dict.get('id')
+                if not (rs_id == current_app.server.id or rs_id in neighbour_ids):
+                    if rs_id not in table_routes:
+                        table_routes.update({rs_id: []})
+                        table_alt_routes.update({rs_id: []})
+                    table_routes[rs_id].append([jump_server_id] + reachable_server_dict.get('mesh_best_route', []))
+                    table_alt_routes[rs_id].append([jump_server_id] + reachable_server_dict.get('mesh_alt_route', []))
+
+    for server_id in table_routes.keys():
+        server = Server.query.get(server_id)
+        random.shuffle(table_routes[server_id])
+        server.mesh_best_route = min(table_routes[server_id], key=len)
+        table_routes[server_id].remove(server.mesh_best_route)
+        table_alt_routes[server_id].extend(table_routes[server_id])
+        random.shuffle(table_alt_routes[server_id])
+        server.mesh_alt_route = min(table_alt_routes[server_id], key=len)

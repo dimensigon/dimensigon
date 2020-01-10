@@ -1,29 +1,29 @@
 from unittest import TestCase, mock
 from unittest.mock import patch
-from dm.domain.entities import ActionType, ActionTemplate, Orchestration, Step
+from dm.domain.entities import ActionType, ActionTemplate, Orchestration
+from dm.domain.entities.orchestration import Step
 from dm.use_cases.interactor import Interactor
 
 
 class TestInteractor(TestCase):
 
     def test_create_cmd_from_orchestration(self):
-        Step.__id__.factory = mock.Mock(side_effect=[n for n in range(1, 100)])
-        at = ActionTemplate(name='create dir', version=1, action_type=ActionType.NATIVE, code='mkdir {dir}',
+        at = ActionTemplate(id=1, name='create dir', version=1, action_type=ActionType.NATIVE, code='mkdir {dir}',
                             parameters={}, expected_output='',
                             expected_rc=0, system_kwargs={})
 
-        o = Orchestration('Test Orchestration', 1, 'description')
+        o = Orchestration('Test Orchestration', 1, 'description', id=1)
 
-        s1 = o.add_step(undo=False, action_template=at, parents=[], children=[], stop_on_error=False)
-        s2 = o.add_step(undo=True, action_template=at, parents=[s1], children=[], stop_on_error=False)
-        s3 = o.add_step(undo=False, action_template=at, parents=[s1], children=[], stop_on_error=False)
-        s4 = o.add_step(undo=True, action_template=at, parents=[s3], children=[], stop_on_error=False)
-        s5 = o.add_step(undo=True, action_template=at, parents=[s4], children=[], stop_on_error=False)
-        s6 = o.add_step(undo=True, action_template=at, parents=[s5], children=[], stop_on_error=False)
-        s7 = o.add_step(undo=False, action_template=at, parents=[s3], children=[], stop_on_error=False)
-        s8 = o.add_step(undo=True, action_template=at, parents=[s7], children=[], stop_on_error=False)
+        s1 = o.add_step(id=1, undo=False, action_template=at, parents=[], children=[], stop_on_error=False)
+        s2 = o.add_step(id=2, undo=True, action_template=at, parents=[s1], children=[], stop_on_error=False)
+        s3 = o.add_step(id=3, undo=False, action_template=at, parents=[s1], children=[], stop_on_error=False)
+        s4 = o.add_step(id=4, undo=True, action_template=at, parents=[s3], children=[], stop_on_error=False)
+        s5 = o.add_step(id=5, undo=True, action_template=at, parents=[s4], children=[], stop_on_error=False)
+        s6 = o.add_step(id=6, undo=True, action_template=at, parents=[s5], children=[], stop_on_error=False)
+        s7 = o.add_step(id=7, undo=False, action_template=at, parents=[s3], children=[], stop_on_error=False)
+        s8 = o.add_step(id=8, undo=True, action_template=at, parents=[s7], children=[], stop_on_error=False)
 
-        i = Interactor(catalog=mock.MagicMock(), server=mock.MagicMock())
+        i = Interactor()
 
         cc = i._create_cmd_from_orchestration(o, {'dir': 'C:\\test_folder'})
 

@@ -31,9 +31,8 @@ class PygtailTest(unittest.TestCase):
 
     def append(self, str):
         # append the give string to the temp logfile
-        fh = open(self.logfile.name, "ab")
-        fh.write(str.encode())
-        fh.close()
+        with open(self.logfile.name, "ab") as fh:
+            fh.write(str.encode())
 
     def copytruncate(self):
         shutil.copyfile(self.logfile.name, "%s.1" % self.logfile.name)
@@ -43,9 +42,14 @@ class PygtailTest(unittest.TestCase):
     def tearDown(self):
         gc.collect()
         filename = self.logfile.name
+        self.logfile.close()
         for tmpfile in [filename, filename + ".offset", filename + ".1", filename + ".1.gz"]:
             if os.path.exists(tmpfile):
-                os.remove(tmpfile)
+                try:
+                    os.remove(tmpfile)
+                except PermissionError:
+                    pass
+
 
     def test_read(self):
         pygtail = Pygtail(self.logfile.name)
@@ -86,15 +90,15 @@ class PygtailTest(unittest.TestCase):
 
     def test_readlines_max_lines(self):
         pygtail = Pygtail(self.logfile.name)
-        self.assertEqual(["1\n", "2\n"], pygtail.readlines(2))
+        self.assertEqual(["1\n", "2\n", "3\n", "4\n"], pygtail.readlines(4))
 
-        self.assertEqual(["3\n"], pygtail.readlines(2))
+        self.assertEqual(["5\n"], pygtail.readlines(2))
 
     def test_readlines_max_lines_binary(self):
         pygtail = Pygtail(self.logfile.name, binary=True)
-        self.assertEqual([b"1\n", b"2\n"], pygtail.readlines(2))
+        self.assertEqual([b"1\n", b"2\n", b"3\n", b"4\n"], pygtail.readlines(4))
 
-        self.assertEqual([b"3\n"], pygtail.readlines(2))
+        self.assertEqual([b"5\n"], pygtail.readlines(2))
 
     def test_readlines_max_characters(self):
         import dm.utils.pygtail as py
@@ -357,8 +361,8 @@ class PygtailTest(unittest.TestCase):
         log_inode = os.stat(self.logfile.name).st_ino or os.stat(self.logfile.name).st_ctime_ns
 
         pygtail.readline()
-        self.assertFalse(os.path.exists(self.logfile.name + '.offset'))
-
+        pygtail.readline()
+        pygtail.readline()
         pygtail.readline()
         self.assertFalse(os.path.exists(self.logfile.name + '.offset'))
 
@@ -370,7 +374,7 @@ class PygtailTest(unittest.TestCase):
         with open(self.logfile.name + '.offset', 'r') as f:
             inode, offset = int(next(f)), int(next(f))
         self.assertEqual(inode, log_inode)
-        self.assertEqual(offset, 6)
+        self.assertEqual(offset, 10)
 
     def test_on_update_with_paranoid(self):
         updates = [0]

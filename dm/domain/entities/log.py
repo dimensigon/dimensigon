@@ -1,31 +1,41 @@
 import asyncio
 import uuid
-from contextlib import suppress
-from threading import Event
+import typing as t
 
-from dm.domain.entities import Server
-from dm.framework.domain import Entity, Id
+from sqlalchemy import orm
+
+
 from dm.utils.pygtail import Pygtail
+from dm.utils.typos import UUID
+from dm.web import db
+
+if t.TYPE_CHECKING:
+    from dm.domain.entities import Server
 
 
-class Log(Entity, Pygtail):
-    __id__ = Id(factory=uuid.uuid1)
+class Log(db.Model):
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
+    file = db.Column(db.Text, nullable=False)
+    server_id = db.Column(UUID, db.ForeignKey('D_server.id'), nullable=False)
+    dest_folder = db.Column(db.Text)
+    offset_file = db.Column(db.Text)
 
-    def __init__(self, file: str, server: Server, dest_folder, dest_name=None, time=60, **kwargs):
-        Entity.__init__(self, id=kwargs.pop('id', None))
-        Pygtail.__init__(self, file=file, offset_mode='manual', **kwargs)
+    server = db.relationship("Server")
+
+    def __init__(self, file: str, server: 'Server', id: uuid.UUID = None, dest_folder=None, offset_file=None):
+        self.id = id
+        self.file = file
         self.server = server
         self.dest_folder = dest_folder
-        self.dest_name = dest_name
-        self.time = time
+        self.offset_file = offset_file
+        self.pytail = Pygtail(file=self.file, offset_mode='manual', offset_file=self.offset_file)
 
-    def __repr__(self):
-        data = [f"{k}={v}" for k, v in self.__dict__]
-
-        return "Log(" + ', '.join(data) + ")"
+    @orm.reconstructor
+    def init_on_load(self):
+        self.pytail = Pygtail(file=self.file, offset_mode='manual', offset_file=self.offset_file)
 
     def __str__(self):
         return f"{self.file} -> {self.server}://{self.dest_folder}"
 
-    def __del__(self):
-        Pygtail.__del__(self)
+    def __repr__(self):
+        return f'<{self.__class__.__name__} {self.id}>'

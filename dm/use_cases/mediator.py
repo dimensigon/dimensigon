@@ -7,24 +7,19 @@ import typing as t
 from dataclasses import dataclass
 from random import random
 
+from flask import current_app
+
 import dm.domain.exceptions as de
 import dm.use_cases.exceptions as ue
 
-from dm.domain.entities import Server, Dimension
-from dm.domain.entities.catalog import DataMark
-from dm.framework.data.predicate import where
-from dm.framework.interfaces.dao import Kwargs
+from dm.domain.entities import Server, Dimension, Catalog
 from dm.network import TypeMsg
 from dm.network import gateway as gtw
 from dm.use_cases.base import Token, Scope
 from dm.use_cases.deployment import Command
 from dm.utils.async_operator import AsyncOperator
-from dm.utils.helpers import get_now
-from dm.utils.typos import Callback
-
-if t.TYPE_CHECKING:
-    from dm.use_cases import Interactor
-    from dm.web.extensions.repo_factory import Repo
+from dm.utils.helpers import get_now, get_distributed_entities
+from dm.utils.typos import Callback, Kwargs
 
 
 class SessionExpired(BaseException):
@@ -68,7 +63,10 @@ class SessionManager:
             self.__expires = get_now() + datetime.timedelta(seconds=ttl or self.__ttl)
 
         def __getattr__(self, item):
-            return self.__dict__[item]
+            if item in self.__dict__:
+                return self.__dict__[item]
+            else:
+                raise AttributeError(f"'Session' object has no attribute '{item}'")
 
         def __setattr__(self, key, value):
             self.__dict__[key] = value
@@ -182,19 +180,29 @@ class AttributeFilterList(t.List):
 
 class Mediator:
 
-    def __init__(self, async_operator: AsyncOperator, interactor: 'Interactor', server: Server = None,
-                 dimension: Dimension = None):
+    def __init__(self, async_operator: AsyncOperator, interactor: 'Interactor', server: 'Server' = None,
+                 dimension: 'Dimension' = None):
         self._mapper = AttributeFilterList()
         self._async_operator = async_operator
         self._interactor = interactor
-        self.server = server
-        self.__dimension = dimension
+        try:
+            self.server = server or current_app.server
+        except RuntimeError:
+            self.server = None
+        try:
+            self.__dimension = dimension or current_app.dimension
+        except RuntimeError:
+            self.__dimension = None
         # if not self._async_operator.is_alive():
         #     self._async_operator.start()
 
     def set_dimension(self, dm: 'Dimension'):
         if self.__dimension is None:
             self.__dimension = dm
+
+    def set_server(self, server: 'Server'):
+        if self.server is None:
+            self.server = server
 
     def create_token(self, destination: Server) -> Token:
         while True:
@@ -227,8 +235,8 @@ class Mediator:
         content['command'] = command
 
         response, rc = gtw.send_message(destination=destination, source=self.server,
-                                        pub_key=self.__dimension.pub,
-                                        priv_key=self.__dimension.priv,
+                                        pub_key=getattr(self.__dimension, 'public', None),
+                                        priv_key=getattr(self.__dimension, 'private', None),
                                         data=dict(msg_type=TypeMsg.INVOKE_CMD,
                                                   token=tkn,
                                                   content=content))
@@ -258,7 +266,6 @@ class Mediator:
                                                  callback_kw={'token': token}, name='invoke command')
 
     def _send_command_completion(self, data, token: Token):
-        from dm.web import repo, catalog_manager
         # print('_send_command_completion')
         content = dict()
         content['data'] = data
@@ -266,10 +273,11 @@ class Mediator:
         with SessionManager(m) as session:
             content['execution'] = session.command.execution
             ip, port = token.source.split(':')
-            source = repo.ServerRepo.get_by_ip_or_name(ip, port)
+            source = Server.query.filter_by(ip=ip)
+
             response, rc = gtw.send_message(destination=source, source=self.server,
-                                            pub_key=self.__dimension.pub,
-                                            priv_key=self.__dimension.priv,
+                                            pub_key=getattr(self.__dimension, 'public', None),
+                                            priv_key=getattr(self.__dimension, 'private', None),
                                             data=dict(msg_type=TypeMsg.COMPLETED_CMD,
                                                       token=token,
                                                       session=session.id,
@@ -310,8 +318,8 @@ class Mediator:
         m.token = self.create_token(m.destination)
         m.callback = callback
         response, rc = gtw.send_message(destination=m.destination, source=self.server,
-                                        pub_key=self.__dimension.pub,
-                                        priv_key=self.__dimension.priv,
+                                        pub_key=getattr(self.__dimension, 'public', None),
+                                        priv_key=getattr(self.__dimension, 'private', None),
                                         data=dict(msg_type=TypeMsg.UNDO_CMD,
                                                   token=m.token,
                                                   session=m.session))
@@ -376,8 +384,8 @@ class Mediator:
         if action == 'U':
             for s in servers:
                 tasks.append(gtw.async_send_message(destination=s, source=self.server,
-                                                    pub_key=self.__dimension.pub,
-                                                    priv_key=self.__dimension.priv,
+                                                    pub_key=getattr(self.__dimension, 'public', None),
+                                                    priv_key=getattr(self.__dimension, 'private', None),
                                                     data=dict(msg_type=TypeMsg.UNLOCK,
                                                               content={'scope': scope,
                                                                        'applicant': str(self.server.id)})))
@@ -388,8 +396,8 @@ class Mediator:
             for s in servers:
                 tasks.append(
                     gtw.async_send_message(destination=s, source=self.server,
-                                           pub_key=self.__dimension.pub,
-                                           priv_key=self.__dimension.priv,
+                                           pub_key=getattr(self.__dimension, 'public', None),
+                                           priv_key=getattr(self.__dimension, 'private', None),
                                            data=dict(msg_type=TypeMsg.PREVENT_LOCK,
                                                      content={'scope': scope,
                                                               'applicant': str(
@@ -399,8 +407,8 @@ class Mediator:
                 tasks = []
                 for s in servers:
                     tasks.append(gtw.async_send_message(destination=s, source=self.server,
-                                                        pub_key=self.__dimension.pub,
-                                                        priv_key=self.__dimension.priv,
+                                                        pub_key=getattr(self.__dimension, 'public', None),
+                                                        priv_key=getattr(self.__dimension, 'private', None),
                                                         data=dict(msg_type=TypeMsg.LOCK,
                                                                   content={'scope': scope,
                                                                            'applicant': str(self.server.id)})))
@@ -445,20 +453,19 @@ class Mediator:
             ret = True, None
         return ret
 
-    def local_get_delta_catalog(self, data_mark: DataMark) -> t.Dict[str, t.List[Kwargs]]:
-        from dm.web import repo
+    def local_get_delta_catalog(self, data_mark: datetime.datetime) -> t.Dict[str, t.List[Kwargs]]:
         data = {}
-        repos = (repo.ActionTemplateRepo, repo.StepRepo, repo.ServerRepo, repo.OrchestrationRepo, repo.ServiceRepo)
-        for r in repos:
-            repo_data = r.dao.filter(where("data_mark") > data_mark).all()
+        for name, obj in get_distributed_entities():
+            c = Catalog.get(name)
+            repo_data = obj.query.filter(obj.last_modified_at > data_mark)
             if repo_data:
                 data.update({r.__class__.__name__: repo_data})
         return data
 
-    def remote_get_delta_catalog(self, data_mark: DataMark, server: Server) -> t.Dict[str, t.List[Kwargs]]:
+    def remote_get_delta_catalog(self, data_mark: str, server: Server) -> t.Dict[str, t.List[Kwargs]]:
         response, code = gtw.send_message(destination=server, source=self.server,
-                                          pub_key=self.__dimension.pub,
-                                          priv_key=self.__dimension.priv,
+                                          pub_key=getattr(self.__dimension, 'private', None),
+                                          priv_key=getattr(self.__dimension, 'private', None),
                                           data=dict(msg_type=TypeMsg.UPDATE_CATALOG,
                                                     content=data_mark))
         if code == 200:
@@ -469,8 +476,8 @@ class Mediator:
     def send_data_log(self, filename: str, server: Server, data_log: t.Union[str, bytes], dest_folder: str):
         if data_log:
             response, code = gtw.send_message(destination=server, source=self.server,
-                                              pub_key=self.__dimension.pub,
-                                              priv_key=self.__dimension.priv,
+                                              pub_key=getattr(self.__dimension, 'public', None),
+                                              priv_key=getattr(self.__dimension, 'private', None),
                                               data=dict(filename=filename,
                                                         data_log=data_log, dest_folder=dest_folder,
                                                         raise_for_status=False))

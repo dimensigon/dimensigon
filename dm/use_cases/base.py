@@ -1,15 +1,11 @@
 import typing as t
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
 
 import dm.use_cases.deployment as dpl
-from dm.domain.entities import Server, ActionType, Step
-from dm.network import TypeMsg
+from dm.domain.entities import ActionType
+from dm.domain.entities.orchestration import Step
 
-if t.TYPE_CHECKING:
-    from dm.use_cases import Mediator
 
 
 @dataclass
@@ -23,7 +19,7 @@ class Token:
 
     @property
     def uid(self):
-        return self.source + '.' + self.destination + '.' + str(id)
+        return self.source + '.' + self.destination + '.' + str(self.id)
 
 
 class Scope(Enum):
@@ -33,27 +29,6 @@ class Scope(Enum):
 
     def __lt__(self, other):
         return self.value < other.value
-
-
-@dataclass
-class Message:
-    source: Server
-    destination: Server
-    msg_type: TypeMsg
-    content: t.Any
-    token: Token
-    created_on: datetime = datetime.now()
-    session: int = field(default=None)
-
-
-@dataclass
-class MsgExecution:
-    source: Server
-    destination: Server
-    function_name: str
-    args: t.Sequence
-    kwargs: t.Dict[str, t.Any]
-    created_on: datetime = datetime.now()
 
 
 # class IGateway(ABC):

@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from functools import partial
 
-from dm.framework.interfaces.entity import Id, Ids
+from flask import Flask
+
+from dm.utils.typos import Id, Ids
 
 
 @dataclass
@@ -64,7 +66,7 @@ class AsyncTask(threading.Thread):
                  callback: t.Callable[[], None] = None, callback_args: t.Tuple = None,
                  callback_kw: t.Dict[str, t.Any] = None,
                  name_: str = None,
-                 set_progress: t.Callable = None):
+                 set_progress: t.Callable = None, app: Flask = None):
         super().__init__(name=name_ or str(async_proc).replace('<', '').replace('>', ''))
         self._id = id_
         self.async_proc = async_proc
@@ -76,6 +78,8 @@ class AsyncTask(threading.Thread):
         self._e = None
         self._data = None
         self._set_progress_func = set_progress
+        self.app = app
+        self.daemon = True
         self.running = threading.Event()
 
     @property
@@ -102,24 +106,31 @@ class AsyncTask(threading.Thread):
         async_params = inspect.signature(self.async_proc).parameters
 
         start_time = time.time()
+
+        if self.app:
+            self.app.app_context().push()
         try:
-            # check if function gets parameter progress_indicator
-            if 'set_progress' in async_params and self._set_progress_func:
-                self._data = self.async_proc(*self.async_proc_args, set_progress=self._set_progress_func,
-                                             **self.async_proc_kw)
-            else:
-                self._data = self.async_proc(*self.async_proc_args, **self.async_proc_kw)
-        except Exception as e:
-            self._e = e
-        delta = time.time() - start_time
+            try:
+                # check if function gets parameter progress_indicator
+                if 'set_progress' in async_params and self._set_progress_func:
+                    self._data = self.async_proc(*self.async_proc_args, set_progress=self._set_progress_func,
+                                                 **self.async_proc_kw)
+                else:
+                    self._data = self.async_proc(*self.async_proc_args, **self.async_proc_kw)
+            except Exception as e:
+                self._e = e
+            delta = time.time() - start_time
 
-        cp = CompletedProcess(returndata=self._data, excep=self._e, runtime=delta)
+            cp = CompletedProcess(returndata=self._data, excep=self._e, runtime=delta)
 
-        if self.callback:
-            if 'data' in inspect.signature(self.callback).parameters:
-                self.callback(*self.callback_args, data=cp, **self.callback_kw)
-            else:
-                self.callback(*self.callback_args, **self.callback_kw)
+            if self.callback:
+                if 'data' in inspect.signature(self.callback).parameters:
+                    self.callback(*self.callback_args, data=cp, **self.callback_kw)
+                else:
+                    self.callback(*self.callback_args, **self.callback_kw)
+        finally:
+            if self.app:
+                self.app.app_context().pop()
 
     def __eq__(self, other):
         return self.id == other.id
@@ -139,7 +150,7 @@ class AsyncOperator(StoppableThread):
     # __metaclass__ = Singleton
 
     def __init__(self, max_threads: int = 5, wait_interval: float = 0.005, priority: bool = True,
-                 initial_count: int = 1, maxsize_pending: int = None):
+                 initial_count: int = 1, maxsize_pending: int = None, start=True):
         """
         Parameters
         ----------
@@ -164,6 +175,10 @@ class AsyncOperator(StoppableThread):
 
         self.__pending_tasks: t.List[AsyncTask] = []
         self.priority = priority
+        # TODO: resolve stop thread gracefully
+        self.daemon = True
+        if start:
+            self.start()
 
     def tasks_in_state(self, *args) -> t.List[int]:
         return [entry[1].id for entry in self._entry_finder.values() if entry[1].status in args]
@@ -317,7 +332,7 @@ class AsyncOperator(StoppableThread):
                  callback: t.Callable[[], None] = None, callback_args: t.Tuple = None,
                  callback_kw: t.Dict[str, t.Any] = None,
                  priority: int = 100,
-                 name: str = None):
+                 name: str = None, app: Flask = None):
 
         """
         Registers an async process to be executed

@@ -17,6 +17,7 @@ from dm.framework.utils.dependency_injection import Inject
 from dm.utils.datamark import FIELD
 from domain.entities.dimension import Dimension
 from domain.schemas.dimension import DimensionSchema
+from web import db
 
 
 class DataMarkRepo(Repository[Id, Entity]):
@@ -48,22 +49,22 @@ class StepRepo(DataMarkRepo[str, Step]):
     upgradable = True
 
 
-class ServerRepo(DataMarkRepo[str, Server]):
-    schema = ServerSchema
-    upgradable = True
+class ServerRepo:
 
-    def get_by_ip_or_name(self, ip_or_name, port=None):
-        ip = None
-        name = None
-        try:
-            ip = ipaddress.ip_address(ip_or_name)
-        except ValueError:
-            name = ip_or_name
-        query = self.dao.filter((where('ip') == ip) if ip else (where('name') == name))
-        if port:
-            query = query.filter(where('port') == port)
-        data = query.one()
-        return self.schema.construct(data)
+    def get_neighbours(self):
+        query = db.Server.filter(mesh_best_route='[]').filter(where('id') != str(interactor.server.id))
+        servers = []
+        for dto in query.all():
+            servers.append(self.schema.construct(dto))
+        return servers
+
+    def get_not_neighbours(self):
+        from dm.web import interactor
+        query = self.dao.filter(where('route') != '[]').filter(where('id') != str(interactor.server.id))
+        servers = []
+        for dto in query.all():
+            servers.append(self.schema.construct(dto))
+        return servers
 
 
 class ServiceRepo(DataMarkRepo[str, Service]):

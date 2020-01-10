@@ -1,17 +1,12 @@
-import base64
-import logging
-import pickle
-import typing as t
 import datetime
+import inspect
+import logging
+import sys
+import typing as t
 
 from cryptography.fernet import Fernet
-import rsa as rsa
 from flask import current_app
-
-from dm.framework.interfaces.entity import Id
-
-if t.TYPE_CHECKING:
-    from dm.domain.entities import Server
+from flask_sqlalchemy import Model
 
 
 class AttributeDict(dict):
@@ -19,16 +14,16 @@ class AttributeDict(dict):
     __setattr__ = dict.__setitem__
 
 
-# function to mock datetime.now
-def get_now() -> datetime.datetime:
-    return datetime.datetime.now()
-
-
 def convert(d):
     for k, v in d.items():
         if isinstance(v, dict):
             d[k] = convert(v)
     return AttributeDict(d)
+
+
+# function to mock datetime.now
+def get_now() -> datetime.datetime:
+    return datetime.datetime.now()
 
 
 def str_to_key(id_: str):
@@ -43,7 +38,7 @@ def str_to_key(id_: str):
     return tuple(key) if len(key) > 1 else key[0]
 
 
-def key_to_str(key: Id):
+def key_to_str(key):
     if isinstance(key, t.Sequence):
         id_ = '.'.join([str(i) for i in key])
     else:
@@ -51,33 +46,62 @@ def key_to_str(key: Id):
     return id_
 
 
-def generate_url(destination: 'Server', uri, protocol='https'):
+def generate_url(destination, uri, protocol='https'):
+    from dm.domain.entities import Server
     try:
-        forwarder: 'Server' = destination.route[0]
+        forwarder = destination.mesh_best_route[0]
     except IndexError:
         forwarder = destination
+    else:
+        forwarder = Server.query.get(forwarder)
 
     return f"{protocol}://{forwarder.name}:{forwarder.port}{uri}"
 
 
-def encode(*args, key=None, **kwargs):
-    cipher_text = pickle.dumps(args[0] if len(args) else kwargs)
-    cipher_key = b''
-    if key:
-        token = Fernet.generate_key()
-        cipher_suite = Fernet(token)
-        cipher_text = cipher_suite.encrypt(cipher_text)
-        cipher_key = rsa.encrypt(token, key)
-    return base64.b64encode(cipher_text), base64.b64encode(cipher_key)
+def encrypt(data: bytes, symmetric_key: bytes = None) -> \
+        t.Tuple[bytes, t.Optional[bytes]]:
+    """
+
+    Parameters
+    ----------
+    data:
+        data to encrypt.
+    symmetric_key:
+        symmetric key used for encrypting data. If set, cipher_key must be None
+
+    Returns
+    -------
+
+    """
+    new_symmetric_key = None
+    if not symmetric_key:
+        symmetric_key = new_symmetric_key = Fernet.generate_key()
+    cipher_suite = Fernet(symmetric_key)
+    cipher_data = cipher_suite.encrypt(data)
+    return cipher_data, new_symmetric_key
 
 
-def decode(cipher_text, cipher_token=None, key=None):
-    dumped_data = cipher_text_decoded = base64.b64decode(cipher_text)
-    if key:
-        token = rsa.decrypt(base64.b64decode(cipher_token), key)
-        cipher_suite = Fernet(token)
-        dumped_data = cipher_suite.decrypt(cipher_text_decoded)
-    return pickle.loads(dumped_data)
+def decrypt(cipher_text: bytes, symmetric_key: bytes) -> bytes:
+    """
+
+    Parameters
+    ----------
+    cipher_text:
+        text to decrypt
+    cipher_key:
+        symmetric_key encrypted. If specified symmetric_key must be None (default)
+    symmetric_key:
+        symmetric_key. If specified cipher_token must be None (default)
+    key:
+        key used for decryption of cipher_key
+
+    Returns
+    -------
+    decrypted data
+    """
+    cipher_suite = Fernet(symmetric_key)
+    dumped_data = cipher_suite.decrypt(cipher_text)
+    return dumped_data
 
 
 def get_logger(self=None):
@@ -95,3 +119,13 @@ def get_logger(self=None):
     else:
         logger = current_app.logger
     return logger
+
+
+def get_distributed_entities() -> t.List[t.Tuple['str', t.Type[Model]]]:
+    from dm.domain.entities.base import DistributedEntityMixin
+    entities = []
+    for name, cls in inspect.getmembers(sys.modules['dm.domain.entities']):
+        if inspect.isclass(cls):
+            if issubclass(cls, DistributedEntityMixin):
+                entities.append((name, cls))
+    return entities
