@@ -101,6 +101,8 @@ def join(server, token):
     if 'dim' in resp_data:
         dim = Dimension(**resp_data.get('dim'))
         db.session.add(dim)
+
+
         db.session.commit()
 
     print('Joined to the dimension')

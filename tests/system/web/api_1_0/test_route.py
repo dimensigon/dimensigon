@@ -10,6 +10,7 @@ from flask import url_for
 from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Server
+from dm.domain.entities.route import Route
 from dm.network.gateway import unpack_msg, pack_msg
 from dm.web import create_app, db, set_variables
 
@@ -28,42 +29,32 @@ class TestApiRoutes(TestCase):
 
         with self.app1.app_context():
             db.create_all()
-            self.s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='server1',
-                             ip=ipaddress.IPv4Address('127.0.0.1'),
-                             port=5001,
-                             mesh_best_route=[],
-                             mesh_alt_route=[],
-                             gateway=None,
-                             cost=None,
-                             )
-            self.s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='server2',
-                             ip=ipaddress.IPv4Address('127.0.0.1'),
-                             port=5002,
-                             mesh_best_route=[],
-                             mesh_alt_route=[],
-                             gateway=None,
-                             cost=0,
-                             )
-            self.s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='server3',
-                             ip=ipaddress.IPv4Address('127.0.0.1'),
-                             port=5003,
-                             mesh_best_route=[],
-                             mesh_alt_route=[],
-                             gateway=None,
-                             cost=0,
-                             )
-            self.s4 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440004'), name='server4',
-                             ip=ipaddress.IPv4Address('127.0.0.1'),
-                             port=5004,
-                             mesh_best_route=[uuid.UUID('123e4567-e89b-12d3-a456-426655440002')],
-                             mesh_alt_route=[uuid.UUID('123e4567-e89b-12d3-a456-426655440003')],
-                             gateway=self.s2,
-                             cost=1,
-                             )
-            db.session.add_all([self.s1, self.s2, self.s3, self.s4])
+            s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='server1',
+                        ip=ipaddress.IPv4Address('127.0.0.1'),
+                        port=5001,
+                        gateway=None,
+                        cost=None,
+                        )
+            s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='server2',
+                        ip=ipaddress.IPv4Address('127.0.0.1'),
+                        port=5002,
+                        gateway=None,
+                        cost=0,
+                        )
+            s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='server3',
+                        ip=ipaddress.IPv4Address('127.0.0.1'),
+                        port=5003,
+                        gateway=None,
+                        cost=0,
+                        )
+            s4 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440004'), name='server4',
+                        ip=ipaddress.IPv4Address('127.0.0.1'),
+                        port=5004,
+                        gateway=s2,
+                        cost=1,
+                        )
+            db.session.add_all([s1, s2, s3, s4])
             db.session.commit()
-            self.response = {'server_id': '123e4567-e89b-12d3-a456-426655440001',
-                             'server_list': [self.s2.to_json(), self.s3.to_json(), self.s4.to_json()]}
             set_variables()
 
     # def tearDown(self) -> None:
@@ -78,45 +69,63 @@ class TestApiRoutes(TestCase):
             response = cli1.get(url_for('api_1_0.routes', _external=False),
                                 headers={"Authorization": f"Bearer {access_token}"})
             data = unpack_msg(response.get_json())
-            self.assertDictEqual({'server_id': str(self.s1.id),
-                                  'server_list': [self.s2.to_json(), self.s3.to_json(), self.s4.to_json()]}, data)
+            self.assertDictEqual({'server_id': '123e4567-e89b-12d3-a456-426655440001',
+                                  'route_list': [
+                                      dict(destination='123e4567-e89b-12d3-a456-426655440002', gateway=None, cost=0),
+                                      dict(destination='123e4567-e89b-12d3-a456-426655440003', gateway=None, cost=0),
+                                      dict(destination='123e4567-e89b-12d3-a456-426655440004',
+                                           gateway='123e4567-e89b-12d3-a456-426655440002', cost=1)]}, data)
 
-    def test_routes_patch(self):
+    @patch('dm.web.api_1_0.routes.ping_server')
+    def test_routes_patch(self, mocked_ping):
+        mocked_ping.return_value = (None, None)
         cli1 = self.app1.test_client()
         with self.app1.app_context():
             access_token = create_access_token(identity='test')
             response = cli1.patch(url_for('api_1_0.routes', _external=False),
                                   headers={"Authorization": f"Bearer {access_token}"},
-                                  json=pack_msg({"server_id": str(self.s2.id),
-                                                 "server_list": [dict(id=str(self.s4.id), gateway=None, cost=None)]}))
+                                  json=pack_msg({"server_id": '123e4567-e89b-12d3-a456-426655440002',
+                                                 "route_list": [
+                                                     dict(destination='123e4567-e89b-12d3-a456-426655440004',
+                                                          gateway=None,
+                                                          cost=None)]}))
 
-            self.assertEqual(None, Server.query.get(self.s1.id).gateway)
-            self.assertEqual(None, Server.query.get(self.s1.id).cost)
-            self.assertEqual(None, Server.query.get(self.s2.id).gateway)
-            self.assertEqual(0, Server.query.get(self.s2.id).cost)
-            self.assertEqual(None, Server.query.get(self.s3.id).gateway)
-            self.assertEqual(0, Server.query.get(self.s3.id).cost)
-            self.assertEqual(None, Server.query.get(self.s4.id).gateway)
-            self.assertEqual(None, Server.query.get(self.s4.id).cost)
+            s = Server.query.get('123e4567-e89b-12d3-a456-426655440001')
+            self.assertEqual(None, s.route.gateway)
+            self.assertEqual(None, s.route.cost)
+
+            s = Server.query.get('123e4567-e89b-12d3-a456-426655440002')
+            self.assertEqual(None, s.route.gateway)
+            self.assertEqual(0, s.route.cost)
+
+            s = Server.query.get('123e4567-e89b-12d3-a456-426655440003')
+            self.assertEqual(None, s.route.gateway)
+            self.assertEqual(0, s.route.cost)
+
+            s = Server.query.get('123e4567-e89b-12d3-a456-426655440004')
+            self.assertEqual(None, s.route.gateway)
+            self.assertEqual(None, s.route.cost)
 
     @patch('dm.use_cases.interactor.ping')
     @patch('dm.use_cases.interactor.requests.get')
     def test_routes_post_broken_route_2_4(self, mocked_get, mocked_ping):
         def get(url, **kwargs):
 
-            if url == self.s2.url('api_1_0.routes'):
-                msg = pack_msg({"server_id": str(self.s2.id),
-                                "server_list": [
-                                    dict(id=str(self.s1.id), gateway=None, cost=0),
-                                    dict(id=str(self.s3.id), gateway=str(self.s1.id), cost=1),
-                                    dict(id=str(self.s4.id), gateway=None, cost=None),
+            if url == Server.query.get('123e4567-e89b-12d3-a456-426655440002').url('api_1_0.routes'):
+                msg = pack_msg({"server_id": '123e4567-e89b-12d3-a456-426655440002',
+                                "route_list": [
+                                    dict(destination='123e4567-e89b-12d3-a456-426655440001', gateway=None, cost=0),
+                                    dict(destination='123e4567-e89b-12d3-a456-426655440003',
+                                         gateway='123e4567-e89b-12d3-a456-426655440001', cost=1),
+                                    dict(destination='123e4567-e89b-12d3-a456-426655440004', gateway=None, cost=None),
                                 ]})
-            if url == self.s3.url('api_1_0.routes'):
-                msg = pack_msg({"server_id": str(self.s3.id),
-                                "server_list": [
-                                    dict(id=str(self.s1.id), gateway=None, cost=0),
-                                    dict(id=str(self.s2.id), gateway=str(self.s1.id), cost=1),
-                                    dict(id=str(self.s4.id), gateway=None, cost=0),
+            if url == Server.query.get('123e4567-e89b-12d3-a456-426655440003').url('api_1_0.routes'):
+                msg = pack_msg({"server_id": '123e4567-e89b-12d3-a456-426655440003',
+                                "route_list": [
+                                    dict(destination='123e4567-e89b-12d3-a456-426655440001', gateway=None, cost=0),
+                                    dict(destination='123e4567-e89b-12d3-a456-426655440002',
+                                         gateway='123e4567-e89b-12d3-a456-426655440001', cost=1),
+                                    dict(destination='123e4567-e89b-12d3-a456-426655440004', gateway=None, cost=0),
                                 ]})
             resp = requests.Response()
             resp.status_code = 200
@@ -126,11 +135,11 @@ class TestApiRoutes(TestCase):
             return resp
 
         def ping(server):
-            if server.id == self.s2.id:
+            if str(server.id) == '123e4567-e89b-12d3-a456-426655440002':
                 return 0, None
-            elif server.id == self.s3.id:
+            elif str(server.id) == '123e4567-e89b-12d3-a456-426655440003':
                 return 0, None
-            elif server.id == self.s4.id:
+            elif str(server.id) == '123e4567-e89b-12d3-a456-426655440004':
                 return None, None
 
         mocked_get.side_effect = get
@@ -142,18 +151,18 @@ class TestApiRoutes(TestCase):
                                  headers={"Authorization": f"Bearer {access_token}"},
                                  json=pack_msg({}))
 
-            s = Server.query.get(self.s1.id)
-            self.assertEqual(None, s.gateway)
-            self.assertEqual(None, s.cost)
+            r = Route.query.filter_by(destination_id='123e4567-e89b-12d3-a456-426655440001').one()
+            self.assertEqual(None, r.gateway)
+            self.assertEqual(None, r.cost)
 
-            s = Server.query.get(self.s2.id)
-            self.assertEqual(None, s.gateway)
-            self.assertEqual(0, s.cost)
+            r = Route.query.filter_by(destination_id='123e4567-e89b-12d3-a456-426655440002').one()
+            self.assertEqual(None, r.gateway)
+            self.assertEqual(0, r.cost)
 
-            s = Server.query.get(self.s3.id)
-            self.assertEqual(None, s.gateway)
-            self.assertEqual(0, s.cost)
+            r = Route.query.filter_by(destination_id='123e4567-e89b-12d3-a456-426655440003').one()
+            self.assertEqual(None, r.gateway)
+            self.assertEqual(0, r.cost)
 
-            s = Server.query.get(self.s4.id)
-            self.assertEqual(self.s3.id, s.gateway.id)
-            self.assertEqual(1, s.cost)
+            r = Route.query.filter_by(destination_id='123e4567-e89b-12d3-a456-426655440004').one()
+            self.assertEqual('123e4567-e89b-12d3-a456-426655440003', str(r.gateway.id))
+            self.assertEqual(1, r.cost)

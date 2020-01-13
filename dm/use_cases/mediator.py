@@ -7,7 +7,7 @@ import typing as t
 from dataclasses import dataclass
 from random import random
 
-from flask import current_app
+from flask import current_app, g
 
 import dm.domain.exceptions as de
 import dm.use_cases.exceptions as ue
@@ -186,11 +186,11 @@ class Mediator:
         self._async_operator = async_operator
         self._interactor = interactor
         try:
-            self.server = server or current_app.server
+            self.server = server or g.server
         except RuntimeError:
             self.server = None
         try:
-            self.__dimension = dimension or current_app.dimension
+            self.__dimension = dimension or g.dimension
         except RuntimeError:
             self.__dimension = None
         # if not self._async_operator.is_alive():

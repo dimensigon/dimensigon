@@ -16,7 +16,7 @@ def forward_or_dispatch(func):
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
         data = request.get_json()
-        if data is None or 'destination' not in data or data.get('destination') == str(current_app.server.id):
+        if data is None or 'destination' not in data or data.get('destination') == str(g.server.id):
             value = func(*args, **kwargs)
             return value
         else:

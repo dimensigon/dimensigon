@@ -5,7 +5,7 @@ import uuid
 from contextlib import contextmanager
 
 import jsonschema
-from flask import Flask, current_app, Response, appcontext_tearing_down
+from flask import Flask, current_app, Response, appcontext_tearing_down, g
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
@@ -56,6 +56,11 @@ def create_app(config=None):
 
     return app
 
+def load_global_data_into_context():
+    from dm.domain.entities import Server, Dimension
+    g.server = Server.query.get(current_app.server_id)
+    g.dimension = Dimension.query.get(current_app.dimension_id)
+
 
 def set_variables():
     from dm.domain.entities import Server, Dimension
@@ -73,7 +78,7 @@ def set_variables():
             raise exc.ServerLookupError(
                 f"Server '{server_name}' not found in database. Specify SERVER_NAME=server_or_ip:port")
 
-    current_app.server = server
+    current_app.server_id = server.id if server else None
 
     count = Dimension.query.count()
     dimension = None
@@ -88,8 +93,9 @@ def set_variables():
             else:
                 dimension = Dimension.query.filter_by(name=current_app.config['DM_DIMENSION']).one_or_none()
 
-    current_app.dimension = dimension
+    current_app.dimension_id = dimension.id if dimension else None
 
+    current_app.before_request(load_global_data_into_context)
 
 @contextmanager
 def session_scope():

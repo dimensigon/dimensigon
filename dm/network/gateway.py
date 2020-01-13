@@ -7,7 +7,7 @@ import aiohttp
 import flask
 import requests
 import rsa
-from flask import current_app
+from flask import current_app, g
 
 from dm.domain.entities import Server
 from dm.utils.helpers import generate_url, encrypt, decrypt
@@ -212,7 +212,7 @@ async def async_send_message(destination: Server, source: Server, pub_key=None, 
 
 
 def proxy_request(request: flask.Request, destination: Server) -> requests.Response:
-    url = generate_url(destination=destination, uri=request.full_path, protocol=PROTOCOL)
+    url = destination.url() + request.full_path
     json = request.get_json()
 
     if request.path == '/ping':
@@ -247,8 +247,8 @@ def ping(server: Server, retries=3, timeout=3):
         try:
             tries += 1
             resp = requests.post(
-                server.gateway.url('root.ping') if server.gateway else server.url('root.ping'),
-                json={'source': str(current_app.server.id), 'destination': str(server.id)},
+                server.route.gateway.url('root.ping') if server.route.gateway else server.url('root.ping'),
+                json={'source': str(g.server.id), 'destination': str(server.id)},
                 verify=False,
                 timeout=timeout)
         except (TimeoutError, requests.exceptions.ConnectionError):

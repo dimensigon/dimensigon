@@ -11,13 +11,14 @@ from concurrent.futures.thread import ThreadPoolExecutor
 import aiohttp
 import requests
 
-from flask import current_app, url_for
+from flask import current_app, url_for, g
 from flask_jwt_extended import create_access_token
 from returns.pipeline import is_successful
 from returns.result import Result
 from returns.result import safe
 
 import dm.use_cases.deployment as dpl
+from dm.domain.entities.route import Route
 
 from dm.domain.exceptions import StateAlreadyInUnlock
 from dm.domain.locker import PriorityLocker
@@ -296,8 +297,8 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
         for server in Server.get_neighbours():
             cost, time = ping(server)
             if cost is None:
-                server.cost = None
-                server.gateway = None
+                server.route.cost = None
+                server.route.gateway = None
             # try:
             #     requests.get(server.url('root.healthcheck'), timeout=0.5,
             #                  verify=False)
@@ -317,73 +318,65 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
             except (requests.exceptions.ConnectTimeout, TimeoutError):
                 pass
             else:
-                server.cost = 0
-                server.gateway = None
+                server.route.cost = 0
+                server.route.gateway = None
     db.session.commit()
     token = create_access_token(identity='root')
     pool_responses = []
-    temp_table_routes: t.Dict[uuid.UUID, t.List[t.Optional[t.Tuple[uuid.UUID, int, dict]]]] = {}
+    temp_table_routes: t.Dict[uuid.UUID, t.List[Route]] = {}
     for server in Server.get_neighbours():
         pool_responses.append(
             requests.get(server.url('api_1_0.routes'),
                          headers={'Authorization': f'Bearer {token}'}, verify=False))
-    neighbours = Server.get_neighbours()
-    neighbour_ids = [n.id for n in neighbours]
-    for r in pool_responses:
-        if (isinstance(r, aiohttp.ClientResponse) and r.status == 200) or (
-                isinstance(r, (requests.Response,)) and r.status_code == 200):
-            msg = unpack_msg(r.json(), getattr(current_app.dimension, 'public', None),
-                             getattr(current_app.dimension, 'private', None))
-            r.close()
 
-            likely_gateway_entity = Server.query.get(msg.get('server_id'))
+    changed_routes = []
+    for resp in pool_responses:
+        if (isinstance(resp, aiohttp.ClientResponse) and resp.status == 200) or (
+                isinstance(resp, (requests.Response,)) and resp.status_code == 200):
+            msg = unpack_msg(resp.json(), getattr(g.dimension, 'public', None),
+                             getattr(g.dimension, 'private', None))
+            resp.close()
 
-            # remove a routing if gateway cannot reach the destination
-            dst_srv_through_lkly_gtw = Server.query.filter(Server.gateway == likely_gateway_entity).all()
+            likely_gateway_server_entity = Server.query.get(msg.get('server_id'))
 
-            for reachable_server in msg['server_list']:
-                reachable_server = convert(reachable_server)
-                reachable_server.id = uuid.UUID(reachable_server.id)
-                if reachable_server.gateway:
-                    reachable_server.gateway = uuid.UUID(reachable_server.gateway)
-                if reachable_server.id != current_app.server.id and reachable_server.gateway != current_app.server.id:
-                    if reachable_server.id not in temp_table_routes:
-                        temp_table_routes.update({reachable_server.id: []})
-                    if reachable_server.cost is not None:
-                        reachable_server.cost += 1
-                        reachable_server.gateway = likely_gateway_entity.id
-                        temp_table_routes[reachable_server.id].append(reachable_server)
-                # remove a routing if gateway cannot reach the destination
-                if reachable_server.id in [s.id for s in dst_srv_through_lkly_gtw] and reachable_server.cost is None:
-                    reachable_server_entity = next((s for s in dst_srv_through_lkly_gtw if s.id == reachable_server.id),
-                                                   None)
-                    reachable_server_entity.cost = None
-                    reachable_server_entity.gateway = None
+            for route_json in msg['route_list']:
+                route_json = convert(route_json)
+                # noinspection PyTypeChecker
+                route_json.destination = uuid.UUID(route_json.destination)
+                if route_json.gateway:
+                    # noinspection PyTypeChecker
+                    route_json.gateway = uuid.UUID(route_json.gateway)
+                if route_json.destination != g.server.id and route_json.gateway != g.server.id:
+                    if route_json.destination not in temp_table_routes:
+                        temp_table_routes.update({route_json.destination: []})
+                    if route_json.cost is not None:
+                        route_json.cost += 1
+                        route_json.gateway = likely_gateway_server_entity.id
+                        temp_table_routes[route_json.destination].append(route_json)
+                    elif route_json.cost is None:
+                        # remove a routing if gateway cannot reach the destination
+                        temp_table_routes[route_json.destination].append(route_json)
 
-    # changed = []
+    # Select new routes based on neighbour routes
     MAX_COST = 9999999
-    for server_id in filter(lambda s: s not in neighbour_ids, temp_table_routes.keys()):
-        server = Server.query.get(server_id)
-        if not server:
-            # new server
-            server_data = temp_table_routes[server_id][0][2]
-            server = Server(id=server_id, ip=server_data.get('ip'), port=server_data.get('port'),
-                            granules=server_data.get('granules'))
-        temp_table_routes[server_id].sort(key=lambda x: x.cost or MAX_COST)
-        for min_server in temp_table_routes[server_id]:
-            if server.gateway:
-                if server.cost is not None and min_server.cost < server.cost:
-                    server.gateway = Server.query.get(min_server.gateway)
-                    server.cost = min_server.cost
-                    # changed.append(server.to_dict())
-                    break
-            else:
-                server.gateway = Server.query.get(min_server.gateway)
-                server.cost = min_server.cost
-                # changed.append(server.to_dict())
+    neighbour_ids = [s.id for s in Server.get_neighbours()]
+    for destination_id in filter(lambda s: s not in neighbour_ids, temp_table_routes.keys()):
+        route = Route.query.filter_by(destination_id=destination_id).one_or_none()
+        if not route:
+            # TODO: handle how to create new server. If through repository or through new routes
+            continue
+        temp_table_routes[destination_id].sort(key=lambda x: x.cost or MAX_COST)
+        if len(temp_table_routes[destination_id]) > 0:
+            min_route = temp_table_routes[destination_id][0]
+            gateway = Server.query.get(min_route['gateway'])
+            cost = min_route['cost']
+            if route.gateway != gateway or route.cost != cost:
+                route.gateway = gateway
+                route.cost = cost
+                changed_routes.append(route.to_json())
                 break
 
-    # return changed
+    return changed_routes
 
 
 def update_table_routing_static(discover_new_neighbours=False, check_current_neighbours=False):
@@ -455,15 +448,15 @@ def update_table_routing_static(discover_new_neighbours=False, check_current_nei
     for r in pool_responses:
         if (isinstance(r, aiohttp.ClientResponse) and r.status == 200) or (
                 isinstance(r, (requests.Response,)) and r.status_code == 200):
-            msg = unpack_msg(r.json(), getattr(current_app.dimension, 'public', None),
-                             getattr(current_app.dimension, 'private', None))
+            msg = unpack_msg(r.json(), getattr(g.dimension, 'public', None),
+                             getattr(g.dimension, 'private', None))
             r.close()
 
             jump_server_id = msg.get('server_id')
 
             for reachable_server_dict in msg['server_list']:
                 rs_id = reachable_server_dict.get('id')
-                if not (rs_id == current_app.server.id or rs_id in neighbour_ids):
+                if not (rs_id == g.server.id or rs_id in neighbour_ids):
                     if rs_id not in table_routes:
                         table_routes.update({rs_id: []})
                         table_alt_routes.update({rs_id: []})
