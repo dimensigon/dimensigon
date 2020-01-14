@@ -6,10 +6,11 @@ from sqlalchemy import or_
 
 from dm.utils.typos import UUID, IP, ScalarListType
 from dm.web import db
+from .base import DistributedEntityMixin
 from .route import Route
 
 
-class Server(db.Model):
+class Server(db.Model, DistributedEntityMixin):
     __tablename__ = 'D_server'
 
     id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
@@ -22,7 +23,8 @@ class Server(db.Model):
                             back_populates="destination")
 
     def __init__(self, name: str, ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int,
-                 granules=None, gateway: 'Server' = None, cost: int = None, id=uuid.uuid4()):
+                 granules=None, gateway: 'Server' = None, cost: int = None, id=uuid.uuid4(), **kwargs):
+        DistributedEntityMixin.__init__(self, **kwargs)
         self.id = uuid.UUID(id) if isinstance(id, str) else id
         self.name = name
         self.ip = ipaddress.ip_address(ip) if isinstance(ip, str) else ip

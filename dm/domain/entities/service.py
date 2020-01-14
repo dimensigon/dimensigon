@@ -1,11 +1,13 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import event
+from sqlalchemy import event, func
 from sqlalchemy.orm import object_session
 
+from dm.domain.entities import Execution, Orchestration
 from dm.domain.entities.base import DistributedEntityMixin
-from dm.utils.typos import UUID, Kwargs
+from dm.domain.entities.orchestration import Step
+from dm.utils.typos import UUID, Kwargs, JSON, ScalarListType
 from dm.web import db
 
 
@@ -14,10 +16,11 @@ class Service(db.Model, DistributedEntityMixin):
 
     id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(255), nullable=False)
-    details = db.Column(db.Text)
+    details = db.Column(JSON)
     created_on = db.Column(db.DateTime, nullable=False, default=datetime.now)
     last_ping = db.Column(db.DateTime)
     status = db.Column(db.String(40))
+    _orchestrations = db.Column("orchestrations", ScalarListType(UUID))
 
     executions = db.relationship("Execution", back_populates="service")
 
@@ -30,6 +33,19 @@ class Service(db.Model, DistributedEntityMixin):
         self.status = status
         self.created_on = created_on
         self.last_ping = last_ping
+
+    def to_json(self):
+        return {'id': self.id, 'name': self.name, 'details': self.details,
+                'last_ping': self.last_ping.strftime("%d/%m/%Y %H:%M:%S"),
+                'status': self.status}
+
+    @property
+    def orchestrations(self):
+        return [Orchestration.get() for o_id in self._orchestrations]
+
+    @orchestrations.setter
+    def orchestrations(self, orchestrations):
+        self._orchestrations = [o.id for o in orchestrations]
 
     def __repr__(self):
         return '<Service %s>' % self.id

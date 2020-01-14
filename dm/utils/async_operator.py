@@ -175,7 +175,6 @@ class AsyncOperator(StoppableThread):
 
         self.__pending_tasks: t.List[AsyncTask] = []
         self.priority = priority
-        # TODO: resolve stop thread gracefully
         self.daemon = True
         if start:
             self.start()

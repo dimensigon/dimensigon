@@ -8,7 +8,8 @@ from flask import url_for
 from flask.cli import with_appcontext
 from flask_migrate import MigrateCommand
 
-from dm.domain import entities
+from dm.domain.entities import *
+from dm.domain.entities.orchestration import Step
 from dm.network.gateway import pack_msg, unpack_msg
 from dm.domain.entities import Dimension
 
@@ -24,7 +25,8 @@ app = create_app(os.getenv('FLASK_CONFIG') or 'dev')
 def make_shell_context():
     db.create_all()
     set_variables()
-    return dict(db=db, app=app, entities=entities)
+    return dict(db=db, app=app, ActionTemplate=ActionTemplate, Step=Step, Orchestration=Orchestration, Catalog=Catalog,
+                Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service)
 
 
 @app.cli.command(help='executes the specified tests')

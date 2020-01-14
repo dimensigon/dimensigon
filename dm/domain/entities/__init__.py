@@ -10,6 +10,7 @@ from .dimension import Dimension
 from .execution import Execution
 from .log import Log
 from .orchestration import Orchestration
+from .route import Route
 from .server import Server
 from .service import Service
 
@@ -21,6 +22,7 @@ __all__ = [
     "Execution",
     "Orchestration",
     "Log",
+    "Route",
     "Service",
     "Server"
 ]
