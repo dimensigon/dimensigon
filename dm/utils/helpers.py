@@ -124,8 +124,7 @@ def get_logger(self=None):
 def get_distributed_entities() -> t.List[t.Tuple['str', t.Type[Model]]]:
     from dm.domain.entities.base import DistributedEntityMixin
     entities = []
-    for name, cls in inspect.getmembers(sys.modules['dm.domain.entities']):
-        if inspect.isclass(cls):
-            if issubclass(cls, DistributedEntityMixin):
-                entities.append((name, cls))
+    for name, cls in inspect.getmembers(sys.modules['dm.domain.entities'], inspect.isclass):
+        if issubclass(cls, DistributedEntityMixin):
+            entities.append((name, cls))
     return entities

@@ -7,7 +7,7 @@ from sqlalchemy import event, orm
 from sqlalchemy.orm import object_session
 
 from dm.domain.entities import ActionTemplate
-from dm.domain.entities.base import DistributedEntityMixin
+from dm.domain.entities.base import DistributedEntityMixin, EntityWithId
 from dm.domain.exceptions import CycleError
 from dm.utils.dag import DAG
 from dm.utils.typos import UUID, JSON
@@ -19,10 +19,9 @@ step_step = db.Table('D_step_step',
                      )
 
 
-class Step(db.Model, DistributedEntityMixin):
+class Step(EntityWithId, DistributedEntityMixin):
     __tablename__ = "D_step"
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'), nullable=False)
     action_template_id = db.Column(UUID, db.ForeignKey('D_action_template.id'), nullable=False)
     undo = db.Column(db.Boolean, nullable=False)
@@ -171,9 +170,6 @@ class Step(db.Model, DistributedEntityMixin):
     def __str__(self):
         return ('Undo ' if self.undo else '') + self.__class__.__name__ + ' ' + str(getattr(self, 'id', ''))
 
-    def __repr__(self):
-        return f'<{self.__class__.__name__} {self.id}>'
-
     def _add_parents(self, parents):
         for step in parents:
             if not step in self._parent_steps:
@@ -222,7 +218,8 @@ class Orchestration(db.Model, DistributedEntityMixin):
     __table_args__ = (db.UniqueConstraint('name', 'version', name='D_orchestration_uq01'),)
 
     def __init__(self, name: str, version: int, description: t.Optional[str] = None, steps: t.List[Step] = None,
-                 dependencies: t.Union[t.Dict[Step, t.List[Step]], t.List[t.Tuple[Step, Step]]] = None, id=uuid.uuid4(),
+                 dependencies: t.Union[t.Dict[Step, t.List[Step]], t.List[t.Tuple[Step, Step]]] = None,
+                 id: uuid.UUID = None,
                  **kwargs):
 
         DistributedEntityMixin.__init__(self, **kwargs)
@@ -563,8 +560,6 @@ class Orchestration(db.Model, DistributedEntityMixin):
     def subtree(self, steps: t.Union[t.List[Step], t.Iterable[Step]]) -> t.Dict[Step, t.List[Step]]:
         return self._graph.subtree(steps)
 
-    def __repr__(self):
-        return f'<{self.__class__.__name__} {self.id}>'
 
 
 @event.listens_for(Orchestration, 'before_insert')

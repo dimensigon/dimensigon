@@ -1,31 +1,34 @@
 import uuid
 from datetime import datetime
+import typing as t
 
-from sqlalchemy import event, func
-from sqlalchemy.orm import object_session
-
-from dm.domain.entities import Execution, Orchestration
-from dm.domain.entities.base import DistributedEntityMixin
-from dm.domain.entities.orchestration import Step
-from dm.utils.typos import UUID, Kwargs, JSON, ScalarListType
+from dm.domain.entities.base import DistributedEntityMixin, EntityWithId
+from dm.utils.typos import UUID, Kwargs, JSON
 from dm.web import db
 
 
-class Service(db.Model, DistributedEntityMixin):
+class ServiceOrchestration(db.Model, DistributedEntityMixin):
+    __tablename__ = 'D_service_orchestration'
+    id = db.Column(UUID, primary_key=True)
+    service_id = db.Column(UUID, db.ForeignKey('D_service.id'))
+    orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'))
+    execution_time = db.Column(db.DateTime, default=datetime.now())
+
+
+class Service(EntityWithId, DistributedEntityMixin):
     __tablename__ = 'D_service'
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(255), nullable=False)
     details = db.Column(JSON)
     created_on = db.Column(db.DateTime, nullable=False, default=datetime.now)
     last_ping = db.Column(db.DateTime)
     status = db.Column(db.String(40))
-    _orchestrations = db.Column("orchestrations", ScalarListType(UUID))
 
     executions = db.relationship("Execution", back_populates="service")
+    orchestrations = db.relationship("Orchestration", secondary="D_service_orchestration", order_by="ServiceOrchestration.execution_time")
 
     def __init__(self, name: str, details: Kwargs, status: str, created_on: datetime = datetime.now(),
-                 last_ping: datetime = None, id=uuid.uuid4(), **kwargs):
+                 last_ping: datetime = None, id: uuid.UUID = None, **kwargs):
         DistributedEntityMixin.__init__(self, **kwargs)
         self.id = id
         self.name = name
@@ -35,20 +38,10 @@ class Service(db.Model, DistributedEntityMixin):
         self.last_ping = last_ping
 
     def to_json(self):
-        return {'id': self.id, 'name': self.name, 'details': self.details,
+        return {'id': str(self.id), 'name': self.name, 'details': self.details,
                 'last_ping': self.last_ping.strftime("%d/%m/%Y %H:%M:%S"),
                 'status': self.status}
 
-    @property
-    def orchestrations(self):
-        return [Orchestration.get() for o_id in self._orchestrations]
-
-    @orchestrations.setter
-    def orchestrations(self, orchestrations):
-        self._orchestrations = [o.id for o in orchestrations]
-
-    def __repr__(self):
-        return '<Service %s>' % self.id
 
     def __str__(self):
         return self.__repr__()

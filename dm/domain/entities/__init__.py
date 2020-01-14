@@ -13,6 +13,7 @@ from .orchestration import Orchestration
 from .route import Route
 from .server import Server
 from .service import Service
+from .software import Software, SoftwareServerAssociation, Family as SoftwareFamily
 
 __all__ = [
     "ActionTemplate",
@@ -24,11 +25,14 @@ __all__ = [
     "Log",
     "Route",
     "Service",
-    "Server"
+    "Server",
+    "Software",
+    "SoftwareFamily",
+    "SoftwareServerAssociation"
 ]
 
-from ...utils.helpers import get_distributed_entities
-from ...web import db, session_scope
+from dm.utils.helpers import get_distributed_entities
+from dm.web import db, session_scope
 
 for name, entity in get_distributed_entities():
     def receive_before_insert(mapper, connection, target):

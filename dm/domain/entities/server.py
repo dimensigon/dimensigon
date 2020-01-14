@@ -6,14 +6,13 @@ from sqlalchemy import or_
 
 from dm.utils.typos import UUID, IP, ScalarListType
 from dm.web import db
-from .base import DistributedEntityMixin
+from .base import DistributedEntityMixin, EntityWithId
 from .route import Route
 
 
-class Server(db.Model, DistributedEntityMixin):
+class Server(EntityWithId, DistributedEntityMixin):
     __tablename__ = 'D_server'
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(255), nullable=False)
     ip = db.Column(IP, nullable=False)
     port = db.Column(db.Integer, nullable=False)
@@ -21,11 +20,13 @@ class Server(db.Model, DistributedEntityMixin):
 
     route = db.relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
                             back_populates="destination")
+    software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
 
     def __init__(self, name: str, ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int,
-                 granules=None, gateway: 'Server' = None, cost: int = None, id=uuid.uuid4(), **kwargs):
+                 granules=None, gateway: 'Server' = None, cost: int = None, id: uuid.UUID = None,
+                 **kwargs):
         DistributedEntityMixin.__init__(self, **kwargs)
-        self.id = uuid.UUID(id) if isinstance(id, str) else id
+        self.id = id
         self.name = name
         self.ip = ipaddress.ip_address(ip) if isinstance(ip, str) else ip
         self.port = port
@@ -37,8 +38,6 @@ class Server(db.Model, DistributedEntityMixin):
     def __str__(self):
         return f"{self.name} {self.id}"
 
-    def __repr__(self):
-        return f'<{self.__class__.__name__} {self.id}>'
 
     def url(self, view=None):
         root_path = f"{current_app.config['PREFERRED_URL_SCHEME']}://{self.ip}:{self.port}"

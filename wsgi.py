@@ -26,7 +26,8 @@ def make_shell_context():
     db.create_all()
     set_variables()
     return dict(db=db, app=app, ActionTemplate=ActionTemplate, Step=Step, Orchestration=Orchestration, Catalog=Catalog,
-                Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service)
+                Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service,
+                Software=Software, SoftwareFamily=SoftwareFamily, SoftwareServerAssociation=SoftwareServerAssociation)
 
 
 @app.cli.command(help='executes the specified tests')
@@ -103,7 +104,6 @@ def join(server, token):
     if 'dim' in resp_data:
         dim = Dimension(**resp_data.get('dim'))
         db.session.add(dim)
-
 
         db.session.commit()
 

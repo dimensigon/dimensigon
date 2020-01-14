@@ -1,12 +1,8 @@
+import typing as t
 import uuid
-from datetime import datetime
 from enum import Enum, auto
 
-from flask import g
-from sqlalchemy import event
-from sqlalchemy.orm import object_session
-
-from dm.domain.entities.base import DistributedEntityMixin
+from dm.domain.entities.base import DistributedEntityMixin, EntityWithId
 from dm.utils.typos import JSON, UUID, Params
 from dm.web import db
 
@@ -19,10 +15,9 @@ class ActionType(Enum):
     TEST = auto()
 
 
-class ActionTemplate(db.Model, DistributedEntityMixin):
+class ActionTemplate(EntityWithId, DistributedEntityMixin):
     __tablename__ = 'D_action_template'
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(40), nullable=False)
     version = db.Column(db.Integer, nullable=False)
     action_type = db.Column(db.Enum(ActionType), nullable=False)
@@ -33,7 +28,8 @@ class ActionTemplate(db.Model, DistributedEntityMixin):
     system_kwargs = db.Column(JSON)
 
     def __init__(self, name: str, version: int, action_type: ActionType, code: str, parameters: Params = None,
-                 expected_output: str = None, expected_rc: int = None, system_kwargs: Params = None, id=uuid.uuid4(),
+                 expected_output: str = None, expected_rc: int = None, system_kwargs: Params = None,
+                 id: uuid.UUID = None,
                  **kwargs):
         DistributedEntityMixin.__init__(self, **kwargs)
         self.name = name
@@ -49,6 +45,3 @@ class ActionTemplate(db.Model, DistributedEntityMixin):
     # systems = db.relationship("System", secondary='D_action_system', back_populates="actions")
 
     __table_args__ = (db.UniqueConstraint('name', 'version', name='D_action_template_uq01'),)
-
-    def __repr__(self):
-        return f'<{self.__class__.__name__} {self.id}>'
