@@ -16,7 +16,7 @@ from datetime import datetime
 import psutil
 import requests
 
-__author__ = "Joan Prat & Daniel Moya"
+__author__ = "Joan Prat "
 __copyright__ = "Copyright 2019, The Dimensigon project"
 __credits__ = ["Joan Prat", "Daniel Moya"]
 __license__ = ""
@@ -32,7 +32,7 @@ SOFTWARE = os.path.join(HOME, 'software')
 TMP = os.environ.get('TMP')
 BACKUP_FILENAME = "dm_" + datetime.now().strftime("%Y%m%d%H%M%S") + ".bkp"
 INCLUDE_PATTERN = ".*"
-EXCLUDE_PATTERN = "(pyc$|ini$)"
+EXCLUDE_PATTERN = r"(\.pyc$|\.ini$)"
 PROTOCOL = "HTTP"
 DM_PORT = 80
 DM_URI = '/healtcheck'  # healt check URI

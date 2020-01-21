@@ -4,14 +4,12 @@ import click
 import requests
 import rsa
 from coverage import Coverage
-from flask import url_for
-from flask.cli import with_appcontext
-from flask_migrate import MigrateCommand
-
 from dm.domain.entities import *
+from dm.domain.entities import Dimension
 from dm.domain.entities.orchestration import Step
 from dm.network.gateway import pack_msg, unpack_msg
-from dm.domain.entities import Dimension
+from flask import url_for
+from flask.cli import with_appcontext, FlaskGroup
 
 cov = Coverage(source=('dm',))
 cov.start()
@@ -21,13 +19,19 @@ from dm.web import create_app, db, set_variables
 app = create_app(os.getenv('FLASK_CONFIG') or 'dev')
 
 
+@click.group(cls=FlaskGroup, create_app=create_app)
+def cli():
+    """Management script for the Wiki application."""
+
+
 @app.shell_context_processor
 def make_shell_context():
     db.create_all()
     set_variables()
     return dict(db=db, app=app, ActionTemplate=ActionTemplate, Step=Step, Orchestration=Orchestration, Catalog=Catalog,
                 Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service,
-                Software=Software, SoftwareFamily=SoftwareFamily, SoftwareServerAssociation=SoftwareServerAssociation)
+                Software=Software, SoftwareFamily=SoftwareFamily, SoftwareServerAssociation=SoftwareServerAssociation,
+                Transfer=Transfer)
 
 
 @app.cli.command(help='executes the specified tests')
@@ -119,3 +123,7 @@ def new(name):
     db.session.add(dim)
     db.session.commit()
     click.echo('The UUID for the dimension is %s' % dim.id)
+
+
+if __name__ == "__main__":
+    app.run()
