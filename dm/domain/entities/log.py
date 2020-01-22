@@ -1,10 +1,9 @@
-import asyncio
-import uuid
 import typing as t
+import uuid
 
 from sqlalchemy import orm
 
-from dm.domain.entities.base import EntityWithId
+from dm.domain.entities.base import EntityReprMixin
 from dm.utils.pygtail import Pygtail
 from dm.utils.typos import UUID
 from dm.web import db
@@ -13,8 +12,8 @@ if t.TYPE_CHECKING:
     from dm.domain.entities import Server
 
 
-class Log(EntityWithId):
-
+class Log(db.Model, EntityReprMixin):
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     file = db.Column(db.Text, nullable=False)
     server_id = db.Column(UUID, db.ForeignKey('D_server.id'), nullable=False)
     dest_folder = db.Column(db.Text)

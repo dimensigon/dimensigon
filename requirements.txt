@@ -1,0 +1,9 @@
+flask
+flask-sqlalchemy
+requests
+rsa
+coverage
+jsonschema
+flask-jwt-extended
+flask-migrate
+aiohttp

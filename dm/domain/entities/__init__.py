@@ -14,6 +14,7 @@ from .route import Route
 from .server import Server
 from .service import Service
 from .software import Software, SoftwareServerAssociation, Family as SoftwareFamily
+from .transfer import Transfer, Status as TransferStatus
 
 __all__ = [
     "ActionTemplate",
@@ -28,7 +29,9 @@ __all__ = [
     "Server",
     "Software",
     "SoftwareFamily",
-    "SoftwareServerAssociation"
+    "SoftwareServerAssociation",
+    "Transfer",
+    "TransferStatus"
 ]
 
 from dm.utils.helpers import get_distributed_entities

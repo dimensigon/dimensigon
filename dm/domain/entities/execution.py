@@ -3,7 +3,7 @@ import typing as t
 import uuid
 from datetime import datetime
 
-from dm.domain.entities.base import EntityWithId
+from dm.domain.entities.base import EntityReprMixin
 from dm.utils.typos import UUID
 from dm.web import db
 
@@ -21,9 +21,10 @@ class Status(enum.Enum):
     ERROR = enum.auto()
 
 
-class Execution(EntityWithId):
+class Execution(db.Model, EntityReprMixin):
     __tablename__ = 'L_execution'
 
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     step_id = db.Column(db.Integer(), db.ForeignKey('D_step.id'), nullable=False)
     status = db.Column(db.Enum(Status))
     start_time = db.Column(db.DateTime, nullable=False, default=datetime.now)

@@ -5,6 +5,7 @@ import typing as t
 from dm.framework.utils.dependency_injection import Component, Inject
 from dm.framework.utils.functools import reify
 from dm.repositories.repositories import LogRepo
+
 from dm.use_cases.mediator import Mediator
 from dm.utils.decorators import logged
 

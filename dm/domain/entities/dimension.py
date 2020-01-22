@@ -1,17 +1,15 @@
 import uuid
 from datetime import datetime
 
-import uuid
-from datetime import datetime
-
 import rsa
 
-from dm.domain.entities.base import EntityWithId
-from dm.utils.typos import PrivateKey, PublicKey
+from dm.domain.entities.base import EntityReprMixin
+from dm.utils.typos import PrivateKey, PublicKey, UUID
 from dm.web import db
 
 
-class Dimension(EntityWithId):
+class Dimension(db.Model, EntityReprMixin):
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(40), nullable=False, unique=True)
     private = db.Column(PrivateKey, unique=True)
     public = db.Column(PublicKey, unique=True)

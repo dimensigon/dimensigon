@@ -1,7 +1,7 @@
 import time
 from unittest import TestCase
 
-from dm.utils.async_operator import AsyncOperator, TaskStatus
+from dm.web.extensions.job_background import AsyncOperator, TaskStatus
 
 
 class TestAsyncOperator(TestCase):

@@ -7,7 +7,7 @@ import aiohttp
 import flask
 import requests
 import rsa
-from flask import current_app, g
+from flask import g
 
 from dm.domain.entities import Server
 from dm.utils.helpers import generate_url, encrypt, decrypt
@@ -258,3 +258,4 @@ def ping(server: Server, retries=3, timeout=3):
             cost = resp.json().get('hops', 0)
             elapsed = resp.elapsed
     return cost, elapsed
+

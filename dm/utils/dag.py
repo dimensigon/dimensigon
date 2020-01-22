@@ -2,7 +2,6 @@
 Utility function and classes for dm
 
 """
-from collections import Mapping
 import copy
 import typing as t
 

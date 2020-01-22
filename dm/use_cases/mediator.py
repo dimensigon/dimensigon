@@ -7,11 +7,10 @@ import typing as t
 from dataclasses import dataclass
 from random import random
 
-from flask import current_app, g
+from flask import g
 
 import dm.domain.exceptions as de
 import dm.use_cases.exceptions as ue
-
 from dm.domain.entities import Server, Dimension, Catalog
 from dm.network import TypeMsg
 from dm.network import gateway as gtw

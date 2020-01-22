@@ -248,3 +248,45 @@ class TestPack_msg_json(TestCase):
 
         self.assertDictEqual({'source': self.source, 'destination': self.dest, 'data': self.data}, packed_msg)
         self.assertDictEqual(self.data, unpacked_msg)
+
+    def test_unpack_without_data_and_keys(self):
+        packed_msg = pack_msg({}, self.dest, self.source, self.pub_key, self.priv_key)
+        self.assertIn('source', packed_msg)
+        self.assertIn('destination', packed_msg)
+        self.assertIn('key', packed_msg)
+        self.assertIn('signature', packed_msg)
+        self.assertIn('data', packed_msg)
+
+        with self.assertRaises(ValueError) as e:
+            unpack_msg(packed_msg, symmetric_key=self.token)
+
+        unpacked_msg = unpack_msg(packed_msg, pub_key=self.pub_key, priv_key=self.priv_key, symmetric_key=self.token)
+
+        self.assertDictEqual({'source': self.source, 'destination': self.dest, 'data': {}}, packed_msg)
+        self.assertDictEqual({}, unpacked_msg)
+
+    def test_unpack_without_data_and_without_keys(self):
+        packed_msg = pack_msg({}, self.dest, self.source)
+        self.assertIn('source', packed_msg)
+        self.assertIn('destination', packed_msg)
+        self.assertNotIn('key', packed_msg)
+        self.assertNotIn('signature', packed_msg)
+        self.assertIn('data', packed_msg)
+
+        unpacked_msg = unpack_msg(packed_msg)
+
+        self.assertDictEqual({'source': self.source, 'destination': self.dest, 'data': {}}, packed_msg)
+        self.assertDictEqual({}, unpacked_msg)
+
+    def test_pack_without_source_dest(self):
+        packed_msg = pack_msg({})
+        self.assertNotIn('source', packed_msg)
+        self.assertNotIn('destination', packed_msg)
+        self.assertNotIn('key', packed_msg)
+        self.assertNotIn('signature', packed_msg)
+        self.assertIn('data', packed_msg)
+
+        unpacked_msg = unpack_msg(packed_msg)
+
+        self.assertDictEqual({'data': {}}, packed_msg)
+        self.assertDictEqual({}, unpacked_msg)

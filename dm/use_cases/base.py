@@ -7,7 +7,6 @@ from dm.domain.entities import ActionType
 from dm.domain.entities.orchestration import Step
 
 
-
 @dataclass
 class Token:
     """

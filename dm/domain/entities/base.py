@@ -1,9 +1,4 @@
-import uuid
-
 from sqlalchemy import DateTime, Column
-
-from dm.utils.typos import UUID
-from dm.web import db
 
 
 class DistributedEntityMixin:
@@ -13,8 +8,8 @@ class DistributedEntityMixin:
         self.last_modified_at = kwargs.pop('last_modified_at', None)
 
 
-class EntityWithId(db.Model):
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
+class EntityReprMixin:
+    id=None
 
     def __repr__(self):
         if self.id:

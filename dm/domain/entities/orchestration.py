@@ -1,13 +1,13 @@
+import typing as t
 import uuid
 from collections import ChainMap
 from datetime import datetime
-import typing as t
 
 from sqlalchemy import event, orm
 from sqlalchemy.orm import object_session
 
 from dm.domain.entities import ActionTemplate
-from dm.domain.entities.base import DistributedEntityMixin, EntityWithId
+from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
 from dm.domain.exceptions import CycleError
 from dm.utils.dag import DAG
 from dm.utils.typos import UUID, JSON
@@ -19,9 +19,10 @@ step_step = db.Table('D_step_step',
                      )
 
 
-class Step(EntityWithId, DistributedEntityMixin):
+class Step(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = "D_step"
 
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'), nullable=False)
     action_template_id = db.Column(UUID, db.ForeignKey('D_action_template.id'), nullable=False)
     undo = db.Column(db.Boolean, nullable=False)
@@ -204,7 +205,7 @@ def receive_before_update(mapper, connection, target):
         target.last_modified_at = datetime.now()
 
 
-class Orchestration(db.Model, DistributedEntityMixin):
+class Orchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_orchestration'
 
     id = db.Column(UUID, primary_key=True, default=uuid.uuid4)

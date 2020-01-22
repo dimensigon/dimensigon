@@ -1,5 +1,6 @@
 import base64
 import functools
+import json
 
 import rsa
 from flask import current_app, request, session, url_for, g
@@ -15,18 +16,26 @@ def forward_or_dispatch(func):
 
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
-        data = request.get_json()
-        if data is None or 'destination' not in data or data.get('destination') == str(g.server.id):
-            value = func(*args, **kwargs)
-            return value
+        destination_id = None
+        if 'D-Destination' in request.headers:
+            destination_id = request.headers['D-Destination']
         else:
-            server_id = data.get('destination')
-            destination = Server.query.get(server_id)
+            # Get information from content
+            # Code Compatibility. Use D-Destination header instead
+            data = request.get_json()
+            if data is not None and 'destination' in data:
+                destination_id = data.get('destination')
+
+        if destination_id and destination_id != str(g.server.id):
+            destination = Server.query.get(destination_id)
             if destination:
                 resp = proxy_request(request=request, destination=destination)
                 return resp.raw.read(), resp.status_code, resp.headers
             else:
-                return UnknownServer(server_id).format()
+                return UnknownServer(destination_id).format()
+        else:
+            value = func(*args, **kwargs)
+            return value
 
     return wrapper_decorator
 
@@ -40,17 +49,25 @@ def securizer(func):
                 try:
                     cipher_key = base64.b64decode(request.json.get('key')) if 'key' in request.json else session.get(
                         'cipher_key', None)
-                    data = unpack_msg(request.json,
-                                      pub_key=getattr(getattr(current_app, 'dimension', None), 'public', None),
-                                      priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
-                                      cipher_key=cipher_key)
+                    if request.json:
+                        data = unpack_msg(request.json,
+                                          pub_key=getattr(getattr(current_app, 'dimension', None), 'public', None),
+                                          priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
+                                          cipher_key=cipher_key)
 
-                    for key, val in request.json.items():
-                        setattr(g, key, val)
-                    for key in list(request.json.keys()):
-                        request.json.pop(key)
-                    for key, val in data.items():
-                        request.json[key] = val
+                        try:
+                            json.dumps(data)
+                        except TypeError:
+                            pass
+                        else:
+                            # data packed is still json. We recreate the request.json with the unpacked data
+                            for key in list(request.json.keys()):
+                                request.json.pop(key)
+                            for key, val in data.items():
+                                request.json[key] = val
+                    else:
+                        data = request.json
+                    g.unpacked_data = data
                 except rsa.pkcs1.VerificationError as e:
                     return {'error': str(e),
                             'message': request.get_json()}, 400
@@ -86,3 +103,4 @@ def securizer(func):
         return rv
 
     return wrapper_decorator
+

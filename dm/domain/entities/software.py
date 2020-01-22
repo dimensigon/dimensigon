@@ -1,7 +1,7 @@
 import uuid
 from enum import Enum, auto
 
-from dm.domain.entities.base import DistributedEntityMixin, EntityWithId
+from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
 from dm.utils.typos import UUID
 from dm.web import db
 
@@ -20,9 +20,10 @@ class SoftwareServerAssociation(db.Model, DistributedEntityMixin):
     server = db.relationship("Server", back_populates="software_list", uselist=False)
 
 
-class Software(EntityWithId, DistributedEntityMixin):
+class Software(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = "D_software"
 
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(80), nullable=False)
     version = db.Column(db.String(40))
     family = db.Enum(Family, nullable=False)

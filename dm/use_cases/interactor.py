@@ -1,6 +1,6 @@
+import base64
 import concurrent
 import os
-import random
 import threading
 import time
 import typing as t
@@ -10,21 +10,20 @@ from concurrent.futures.thread import ThreadPoolExecutor
 
 import aiohttp
 import requests
-
-from flask import current_app, url_for, g
+import rsa
+from flask import current_app, g
 from flask_jwt_extended import create_access_token
 from returns.pipeline import is_successful
 from returns.result import Result
 from returns.result import safe
 
 import dm.use_cases.deployment as dpl
+import dm.use_cases.exceptions as ue
+from dm.domain.entities import Orchestration, Log, Server, SoftwareServerAssociation
 from dm.domain.entities.route import Route
-
 from dm.domain.exceptions import StateAlreadyInUnlock
 from dm.domain.locker import PriorityLocker
-import dm.use_cases.exceptions as ue
-from dm.network.gateway import unpack_msg, ping
-
+from dm.network.gateway import unpack_msg, ping, pack_msg
 from dm.use_cases.base import OperationFactory, Scope
 from dm.use_cases.exceptions import ServersMustNotBeBlank, ErrorLock
 from dm.use_cases.helpers import get_servers_from_scope
@@ -33,7 +32,6 @@ from dm.utils.async_operator import AsyncOperator
 from dm.utils.decorators import logged
 from dm.utils.helpers import get_distributed_entities, convert
 from dm.web import db
-from dm.domain.entities import Orchestration, Log, Server
 
 if t.TYPE_CHECKING:
     from dm import Server
@@ -379,95 +377,79 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     return changed_routes
 
 
-def update_table_routing_static(discover_new_neighbours=False, check_current_neighbours=False):
-    """Gets route tables of all neighbours and updates its own table based on jump weights.
-    Needs a Flask App Context to run.
+DEFAULT_CHUNK_SIZE = 20971520  # 20 MB
+DEFAULT_MAX_SENDERS = 4
 
-    Parameters
-    ----------
-    discover_new_neighbours:
-        tries to discover new neighbours
-    check_current_neighbours:
-        checks if current neighbours are still neighoburs
 
-    Returns
-    -------
-    None
-    """
-    url_schema = current_app.config['PREFERRED_URL_SCHEME']
-    # get all neighbours
-    if check_current_neighbours:
-        neighbours = []
-        for server in Server.get_neighbours():
-            try:
-                requests.get(f"{url_schema}://{server.ip}:{server.port}{url_for('healthcheck')}", timeout=0.5,
-                             verify=False)
-            except requests.exceptions.ConnectTimeout:
-                server.unreachable = True
-            else:
-                neighbours.append(server)
-    else:
-        neighbours = Server.get_neighbours()
-    if discover_new_neighbours:
-        for server in Server.get_not_neighbours():
-            try:
-                requests.get(f"{url_schema}://{server.ip}:{server.port}{url_for('healthcheck')}",
-                             timeout=0.5,
-                             verify=False)
-            except requests.exceptions.ConnectTimeout:
-                pass
-            else:
-                server.unreachable = False
-                neighbours.append(server)
-    token = create_access_token(identity='root')
+def _send_chunk(url: str, transfer_id: str, chunk: int, chunk_size: int, file: str, cipher_key: bytes,
+                priv_key: rsa.PrivateKey,
+                session: requests.Session, dest_id: str):
+    json_msg = {}
+    json_msg.update(transfer_id=transfer_id)
+    json_msg.update(chunk=chunk)
 
-    # loop = asyncio.get_event_loop()
+    with open(file, 'rb') as fd:
+        fd.seek(chunk * chunk_size)
+        chunk_content = fd.read(chunk_size)
+    json_msg.update(content=chunk_content)
 
-    # async def get(url, tkn):
-    #     async with ClientSession() as session:
-    #         resp = await session.get(url,
-    #                                  headers={'Authorization': f'Bearer {tkn}'},
-    #                                  ssl=False,
-    #                                  timeout=5)
-    #         return resp
+    packed_msg = pack_msg(data=json_msg, cipher_key=cipher_key, priv_key=priv_key)
+    return session.post(url, json=packed_msg, headers={'D-Destination': dest_id})
 
-    tasks = []
-    pool_responses = []
-    table_routes: t.Dict[Server, t.List[t.List[uuid.UUID]]] = {}
-    table_alt_routes: t.Dict[Server, t.List[t.List[uuid.UUID]]] = {}
-    for server in neighbours:
-        table_routes.update({server.id: [list()]})
-        table_alt_routes.update({server.id: [list()]})
-        pool_responses.append(
-            requests.get(f"{url_schema}://{server.ip}:{server.port}{url_for('api_1_0.route', _external=False)}",
-                         headers={'Authorization': f'Bearer {token}'}, verify=False))
-    #     tasks.append(get(f"https://{server.ip}:{server.port}{url_for('api_1_0.route')}", token))
-    # pool_responses = loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=False))
 
-    neighbour_ids = [n.id for n in neighbours]
-    for r in pool_responses:
-        if (isinstance(r, aiohttp.ClientResponse) and r.status == 200) or (
-                isinstance(r, (requests.Response,)) and r.status_code == 200):
-            msg = unpack_msg(r.json(), getattr(g.dimension, 'public', None),
-                             getattr(g.dimension, 'private', None))
-            r.close()
+def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path: str,
+                  chunk_size: int = DEFAULT_CHUNK_SIZE,
+                  max_senders: int = DEFAULT_MAX_SENDERS) \
+        -> t.Optional[t.List[t.Tuple[int, t.Union[Exception, requests.Response]]]]:
+    chunks = ssa.software.size_bytes // chunk_size
+    if ssa.software.size_bytes % chunk_size:
+        chunks += 1
 
-            jump_server_id = msg.get('server_id')
+    ssa = SoftwareServerAssociation.query.filter_by(software=ssa.software, server=dest_server)
 
-            for reachable_server_dict in msg['server_list']:
-                rs_id = reachable_server_dict.get('id')
-                if not (rs_id == g.server.id or rs_id in neighbour_ids):
-                    if rs_id not in table_routes:
-                        table_routes.update({rs_id: []})
-                        table_alt_routes.update({rs_id: []})
-                    table_routes[rs_id].append([jump_server_id] + reachable_server_dict.get('mesh_best_route', []))
-                    table_alt_routes[rs_id].append([jump_server_id] + reachable_server_dict.get('mesh_alt_route', []))
+    json_msg = dict(software_id=ssa.software, num_chunks=chunks, filename=os.path.basename(ssa.path),
+                    dest_path=dest_path)
+    msg = pack_msg(data=json_msg, pub_key=g.dimension.public, priv_key=g.dimension.private)
+    cipher_key = base64.b64decode(msg.get('key', '').encode('ascii'))
+    s = requests.Session()
+    resp = s.post(dest_server.url('transfers'), msg, headers={'D-Destination': str(dest_server.id)})
 
-    for server_id in table_routes.keys():
-        server = Server.query.get(server_id)
-        random.shuffle(table_routes[server_id])
-        server.mesh_best_route = min(table_routes[server_id], key=len)
-        table_routes[server_id].remove(server.mesh_best_route)
-        table_alt_routes[server_id].extend(table_routes[server_id])
-        random.shuffle(table_alt_routes[server_id])
-        server.mesh_alt_route = min(table_alt_routes[server_id], key=len)
+    if resp.status_code == 202:
+        json_resp = resp.json()
+        transfer_id = json_resp.get('transfer_id')
+        url = dest_server.url('transfer', transfer_id=transfer_id)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_senders) as executor:
+            future_to_chunk = {executor.submit(_send_chunk, (
+                url, transfer_id, chunk, chunk_size, ssa.path, cipher_key, g.dimension.private, s,
+                str(dest_server.id))): chunk for chunk in range(1, chunks + 1)}
+            retry_chunks = []
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                chunk = future_to_chunk[future]
+                try:
+                    data = future.result()
+                except Exception as exc:
+                    retry_chunks.append(chunk)
+                else:
+                    if data.status_code != 200:
+                        retry_chunks.append(chunk)
+
+        if retry_chunks:
+            url = dest_server.url('transfer', transfer_id=transfer_id)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_senders) as executor:
+                future_to_chunk = {executor.submit(_send_chunk, (
+                    url, transfer_id, chunk, chunk_size, ssa.path, cipher_key, g.dimension.private, s,
+                    str(dest_server.id))): chunk for chunk in retry_chunks}
+                error_chunks = []
+                for future in concurrent.futures.as_completed(future_to_chunk):
+                    chunk = future_to_chunk[future]
+                    try:
+                        data = future.result()
+                    except Exception as exc:
+                        error_chunks.append((chunk, exc))
+                    else:
+                        if data.status_code != 200:
+                            error_chunks.append((chunk, data))
+            if error_chunks:
+                return error_chunks
+        else:
+            return None

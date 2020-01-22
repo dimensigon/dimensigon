@@ -1,13 +1,12 @@
 import uuid
 from datetime import datetime
-import typing as t
 
-from dm.domain.entities.base import DistributedEntityMixin, EntityWithId
+from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
 from dm.utils.typos import UUID, Kwargs, JSON
 from dm.web import db
 
 
-class ServiceOrchestration(db.Model, DistributedEntityMixin):
+class ServiceOrchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_service_orchestration'
     id = db.Column(UUID, primary_key=True)
     service_id = db.Column(UUID, db.ForeignKey('D_service.id'))
@@ -15,9 +14,10 @@ class ServiceOrchestration(db.Model, DistributedEntityMixin):
     execution_time = db.Column(db.DateTime, default=datetime.now())
 
 
-class Service(EntityWithId, DistributedEntityMixin):
+class Service(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_service'
 
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(255), nullable=False)
     details = db.Column(JSON)
     created_on = db.Column(db.DateTime, nullable=False, default=datetime.now)
@@ -41,7 +41,3 @@ class Service(EntityWithId, DistributedEntityMixin):
         return {'id': str(self.id), 'name': self.name, 'details': self.details,
                 'last_ping': self.last_ping.strftime("%d/%m/%Y %H:%M:%S"),
                 'status': self.status}
-
-
-    def __str__(self):
-        return self.__repr__()

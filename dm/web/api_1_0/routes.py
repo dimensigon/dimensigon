@@ -168,7 +168,8 @@ def routes():
         if new_routes:
             msg = {'server_id': str(g.server.id),
                    'route_list': [
-                       {'destination': str(r.destination), 'gateway': str(r.gateway.id) if r.gateway else None, 'cost': r.cost}
+                       {'destination': str(r.destination), 'gateway': str(r.gateway.id) if r.gateway else None,
+                        'cost': r.cost}
                        for r in new_routes]}
             for s in Server.get_neighbours():
                 if s != likely_gateway_server:

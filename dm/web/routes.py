@@ -1,13 +1,10 @@
-from datetime import datetime
-
-from flask import Blueprint, jsonify, current_app, request
-from sqlalchemy import func
+from flask import Blueprint, jsonify, request
 
 import dm
 from dm.domain import entities
+from dm.web import db
 # from dm.domain.entities.catalog import Catalog
 from dm.web.decorators import forward_or_dispatch
-from dm.web import db
 from elevator import __version__ as elevator_ver
 
 blueprint_name = 'root'

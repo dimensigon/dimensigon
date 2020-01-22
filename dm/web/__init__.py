@@ -4,8 +4,7 @@ import typing as t
 import uuid
 from contextlib import contextmanager
 
-import jsonschema
-from flask import Flask, current_app, Response, appcontext_tearing_down, g
+from flask import Flask, current_app, g
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
@@ -13,8 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 import dm.web.exceptions as exc
 from config import config_by_name
-from dm.utils.async_operator import AsyncOperator
-from dm.web.extensions.context_app import ContextApp
+from dm.web.extensions.job_background import JobBackground
 
 PROTOCOL = 'https'
 HOSTNAME = socket.gethostname()
@@ -24,11 +22,12 @@ DEFAULT_PORT = 24000
 db = SQLAlchemy()
 migrate = Migrate(db)
 jwt = JWTManager()
+ajl = JobBackground()
 
 
-def create_app(config=None):
+def create_app(config='prod'):
     global PROTOCOL
-    app = Flask(__name__)
+    app = Flask('dm')
     if isinstance(config, t.Mapping):
         app.config.from_mapping(config)
     elif config in config_by_name:
@@ -46,7 +45,7 @@ def create_app(config=None):
     db.init_app(app)
     migrate.init_app(app)
     jwt.init_app(app)
-    app.queue = AsyncOperator()
+    ajl.init_app(app)
 
     # API version 0
     from dm.web.routes import root_bp

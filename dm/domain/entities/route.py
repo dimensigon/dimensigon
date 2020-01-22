@@ -1,5 +1,3 @@
-import uuid
-import typing as t
 from dm.utils.typos import UUID
 from dm.web import db
 

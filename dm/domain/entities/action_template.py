@@ -1,8 +1,7 @@
-import typing as t
 import uuid
 from enum import Enum, auto
 
-from dm.domain.entities.base import DistributedEntityMixin, EntityWithId
+from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
 from dm.utils.typos import JSON, UUID, Params
 from dm.web import db
 
@@ -15,9 +14,10 @@ class ActionType(Enum):
     TEST = auto()
 
 
-class ActionTemplate(EntityWithId, DistributedEntityMixin):
+class ActionTemplate(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_action_template'
 
+    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(40), nullable=False)
     version = db.Column(db.Integer, nullable=False)
     action_type = db.Column(db.Enum(ActionType), nullable=False)

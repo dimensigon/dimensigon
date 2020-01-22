@@ -1,6 +1,3 @@
-from abc import ABC, abstractmethod
-
-
 class Monostate:
     _shared_state = {}
 

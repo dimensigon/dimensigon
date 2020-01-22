@@ -1,3 +1,5 @@
+from flask import current_app
+
 import heapq
 import inspect
 import itertools
@@ -108,7 +110,8 @@ class AsyncTask(threading.Thread):
         start_time = time.time()
 
         if self.app:
-            self.app.app_context().push()
+            ctx = self.app.app_context()
+            ctx.push()
         try:
             try:
                 # check if function gets parameter progress_indicator
@@ -129,8 +132,8 @@ class AsyncTask(threading.Thread):
                 else:
                     self.callback(*self.callback_args, **self.callback_kw)
         finally:
-            if self.app:
-                self.app.app_context().pop()
+            if ctx:
+                ctx.pop()
 
     def __eq__(self, other):
         return self.id == other.id
@@ -389,7 +392,7 @@ class AsyncOperator(StoppableThread):
         entry = [priority, None, 0]
         task = AsyncTask(id_=count, async_proc=async_proc, async_proc_args=async_proc_args, async_proc_kw=async_proc_kw,
                          callback=callback, callback_args=callback_args, callback_kw=callback_kw,
-                         name_=name, set_progress=partial(set_, entry_=entry))
+                         name_=name, set_progress=partial(set_, entry_=entry), app=app)
         entry[1] = task
 
         self.__lock.acquire()
@@ -401,3 +404,52 @@ class AsyncOperator(StoppableThread):
     def stop(self):
         super().stop()
         self.purge()
+
+_app_queue = {}
+
+
+def get_queue(app):
+    """Gets the queue for the application"""
+    if app in _app_queue:
+        return _app_queue[app]
+    else:
+        raise RuntimeError('The job_background extension was not registered to the current ' \
+                           'application.  Please make sure to call init_app() first.')
+
+
+class JobBackground(object):
+
+    def __init__(self, app=None):
+        self.app = app
+        if app is not None:
+            self.init_app(app)
+
+    def init_app(self, app):
+        _app_queue.update({app: AsyncOperator()})
+        app.extensions['job_background'] = self
+
+    def _get_app(self, reference_app=None):
+        """Helper method that implements the logic to look up an
+        application."""
+
+        if reference_app is not None:
+            return reference_app
+
+        if current_app:
+            return current_app._get_current_object()
+
+        if self.app is not None:
+            return self.app
+
+        raise RuntimeError(
+            'No application found. Either work inside a view function or push'
+            ' an application context.'
+        )
+
+    @property
+    def queue(self) -> AsyncOperator:
+        app = self._get_app()
+        return get_queue(app)
+
+    def register(self, *args, **kwargs) -> int:
+        return self.queue.register(*args, app=self._get_app(), **kwargs)

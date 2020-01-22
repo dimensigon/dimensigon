@@ -4,7 +4,6 @@ import typing as t
 import uuid
 
 import rsa
-import six
 from sqlalchemy import types
 from sqlalchemy.dialects.postgresql import UUID as pUUID
 from sqlalchemy.ext.mutable import MutableDict

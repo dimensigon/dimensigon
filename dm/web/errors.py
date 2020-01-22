@@ -1,8 +1,5 @@
 from abc import ABC, abstractmethod
 
-import jsonschema
-from flask import Response, app
-
 
 class AbstractError(ABC):
     http_error_code = 400
