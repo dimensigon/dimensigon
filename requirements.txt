@@ -13,3 +13,5 @@ dataclasses
 cryptography
 psutil
 returns
+uwsgi
+gitpython
