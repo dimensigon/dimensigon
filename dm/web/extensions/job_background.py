@@ -1,3 +1,7 @@
+import uuid
+from collections import Iterable
+
+import six
 from flask import current_app
 
 import heapq
@@ -12,6 +16,7 @@ from functools import partial
 
 from flask import Flask
 
+from dm.utils.helpers import is_iterable_not_string
 from dm.utils.typos import Id, Ids
 
 
@@ -112,6 +117,8 @@ class AsyncTask(threading.Thread):
         if self.app:
             ctx = self.app.app_context()
             ctx.push()
+        else:
+            ctx = None
         try:
             try:
                 # check if function gets parameter progress_indicator
@@ -153,7 +160,7 @@ class AsyncOperator(StoppableThread):
     # __metaclass__ = Singleton
 
     def __init__(self, max_threads: int = 5, wait_interval: float = 0.005, priority: bool = True,
-                 initial_count: int = 1, maxsize_pending: int = None, start=True):
+                 initial_count: int = 1, maxsize_pending: int = None, start=False):
         """
         Parameters
         ----------
@@ -172,11 +179,10 @@ class AsyncOperator(StoppableThread):
         self.max_threads = max_threads
         self.wait_interval = wait_interval
         self.maxsize_pending = maxsize_pending
-        self.__lock = threading.Lock()
-        self._counter = itertools.count(initial_count)
+        self._lock = threading.Lock()
         self._entry_finder: t.Dict[int, t.List[t.Union[int, AsyncTask, int]]] = {}
 
-        self.__pending_tasks: t.List[AsyncTask] = []
+        self._pending_tasks: t.List[AsyncTask] = []
         self.priority = priority
         self.daemon = True
         if start:
@@ -203,14 +209,14 @@ class AsyncOperator(StoppableThread):
             # check whether there are async tasks to execute
             if self.num_tasks_in_state(TaskStatus.RUNNING) < self.max_threads:
                 try:
-                    self.__lock.acquire()
-                    entry = heapq.heappop(self.__pending_tasks)
+                    self._lock.acquire()
+                    entry = heapq.heappop(self._pending_tasks)
                 except IndexError:
-                    self.__lock.release()
+                    self._lock.release()
                     self._stop_event.wait(timeout=self.wait_interval)
                 else:
                     entry[1].start()
-                    self.__lock.release()
+                    self._lock.release()
             else:
                 self._stop_event.wait(timeout=self.wait_interval)
 
@@ -243,12 +249,13 @@ class AsyncOperator(StoppableThread):
         """
         if not self.is_alive():
             raise RuntimeError('AsyncOperator thread must start before call on wait_tasks')
-        if type(ids) is int:
-            ids_ = [ids]
-        elif ids is None:
+        if ids is None:
             ids_ = (task_id for task_id in self.tasks_in_state(TaskStatus.PENDING, TaskStatus.RUNNING))
-        else:
+        elif is_iterable_not_string(ids):
             ids_ = ids
+        else:
+            ids_ = [ids]
+
         start_time = time.time()
         for id_ in ids_:
             try:
@@ -279,13 +286,15 @@ class AsyncOperator(StoppableThread):
         t.List[int]
             returns a list with the progress of each task. Same order as input parameter ids
         """
-        if type(ids) is int:
-            ids_ = [ids]
-        else:
+        if ids is None:
+            ids_ = (task_id for task_id in self.tasks_in_state(TaskStatus.PENDING, TaskStatus.RUNNING))
+        elif is_iterable_not_string(ids):
             ids_ = ids
+        else:
+            ids_ = [ids]
 
         res = [self._entry_finder[id_][2] for id_ in ids_]
-        return res[0] if type(ids) is int else res
+        return res[0] if not is_iterable_not_string(ids) else res
 
     def status(self, ids: Ids) -> t.List[TaskStatus]:
         """
@@ -301,15 +310,17 @@ class AsyncOperator(StoppableThread):
         t.List[TaskStatus]
             returns a list with the status of each task. Same order as input parameter ids
         """
-        if type(ids) is int:
-            ids_ = [ids]
-        else:
+        if ids is None:
+            ids_ = (task_id for task_id in self.tasks_in_state(TaskStatus.PENDING, TaskStatus.RUNNING))
+        elif is_iterable_not_string(ids):
             ids_ = ids
+        else:
+            ids_ = [ids]
 
         res = []
         for id_ in ids_:
             res.append(self._entry_finder[id_][1].status)
-        return res[0] if type(ids) is int else res
+        return res[0] if not is_iterable_not_string(ids) else res
 
     def exception(self, id_: Id):
         return self._entry_finder[id_][1].e
@@ -324,9 +335,9 @@ class AsyncOperator(StoppableThread):
         bool:
             True if all tasks are done. False otherwise
         """
-        self.__lock.acquire()
-        cond = len(self.__pending_tasks) == 0 and self.num_tasks_in_state(TaskStatus.RUNNING) == 0
-        self.__lock.release()
+        self._lock.acquire()
+        cond = len(self._pending_tasks) == 0 and self.num_tasks_in_state(TaskStatus.RUNNING) == 0
+        self._lock.release()
         return cond
 
     def register(self, async_proc: t.Callable, async_proc_args: t.Tuple = None,
@@ -382,28 +393,29 @@ class AsyncOperator(StoppableThread):
             entry_[2] = progress
 
         if self.maxsize_pending:
-            if len(self.__pending_tasks) >= self.maxsize_pending:
+            if len(self._pending_tasks) >= self.maxsize_pending:
                 raise Full('Pending tasks reached its maximum size')
-        count = next(self._counter)
 
         if not self.priority:
             priority = 1
 
         entry = [priority, None, 0]
-        task = AsyncTask(id_=count, async_proc=async_proc, async_proc_args=async_proc_args, async_proc_kw=async_proc_kw,
+        task = AsyncTask(id_=uuid.uuid4(), async_proc=async_proc, async_proc_args=async_proc_args,
+                         async_proc_kw=async_proc_kw,
                          callback=callback, callback_args=callback_args, callback_kw=callback_kw,
                          name_=name, set_progress=partial(set_, entry_=entry), app=app)
         entry[1] = task
 
-        self.__lock.acquire()
+        self._lock.acquire()
         self._entry_finder[task.id] = entry
-        heapq.heappush(self.__pending_tasks, entry)
-        self.__lock.release()
-        return count
+        heapq.heappush(self._pending_tasks, entry)
+        self._lock.release()
+        return task.id
 
     def stop(self):
         super().stop()
         self.purge()
+
 
 _app_queue = {}
 

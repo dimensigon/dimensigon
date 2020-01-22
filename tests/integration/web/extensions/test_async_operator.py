@@ -3,7 +3,6 @@ from unittest import TestCase
 
 from dm.web.extensions.job_background import AsyncOperator, TaskStatus
 
-
 class TestAsyncOperator(TestCase):
 
     @staticmethod
@@ -161,7 +160,7 @@ class TestAsyncOperator(TestCase):
 
         result = []
 
-        self.ao = AsyncOperator(priority=False)
+        self.ao = AsyncOperator(priority=False, start=False)
 
         id1 = self.ao.register(process1, callback=lambda data: result.append(data.returndata))
 

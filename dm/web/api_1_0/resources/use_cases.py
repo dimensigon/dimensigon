@@ -52,8 +52,7 @@ def software_send():
         kwargs.update(max_senders=json.get('max_senders'))
 
     ssa = SoftwareServerAssociation.query.filter_by(server=dest_server, software=software)
-    kwargs.update(ssa=ssa, )
-    # TODO: execute in background
-    task_id = ajl.register(send_software, (ssa,) dest_path=json.get('dest_path'), **kwargs)
+    kwargs.update(ssa=ssa, dest_server=dest_server, dest_path=json.get('dest_path'))
+    job_id = ajl.register(send_software, (), kwargs)
 
-    return '', 202
+    return {'job_id': str(job_id)}, 202

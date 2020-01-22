@@ -16,7 +16,6 @@ from dm.network import TypeMsg
 from dm.network import gateway as gtw
 from dm.use_cases.base import Token, Scope
 from dm.use_cases.deployment import Command
-from dm.utils.async_operator import AsyncOperator
 from dm.utils.helpers import get_now, get_distributed_entities
 from dm.utils.typos import Callback, Kwargs
 
@@ -179,10 +178,9 @@ class AttributeFilterList(t.List):
 
 class Mediator:
 
-    def __init__(self, async_operator: AsyncOperator, interactor: 'Interactor', server: 'Server' = None,
+    def __init__(self, interactor: 'Interactor', server: 'Server' = None,
                  dimension: 'Dimension' = None):
         self._mapper = AttributeFilterList()
-        self._async_operator = async_operator
         self._interactor = interactor
         try:
             self.server = server or g.server
@@ -458,7 +456,7 @@ class Mediator:
             c = Catalog.get(name)
             repo_data = obj.query.filter(obj.last_modified_at > data_mark)
             if repo_data:
-                data.update({r.__class__.__name__: repo_data})
+                data.update({name: repo_data})
         return data
 
     def remote_get_delta_catalog(self, data_mark: str, server: Server) -> t.Dict[str, t.List[Kwargs]]:

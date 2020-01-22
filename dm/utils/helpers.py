@@ -4,7 +4,9 @@ import inspect
 import logging
 import sys
 import typing as t
+from collections import Iterable
 
+import six
 from cryptography.fernet import Fernet
 from flask import current_app
 from flask_sqlalchemy import Model
@@ -13,6 +15,18 @@ from flask_sqlalchemy import Model
 class AttributeDict(dict):
     __getattr__ = dict.__getitem__
     __setattr__ = dict.__setitem__
+
+
+def is_string_types(var):
+    return isinstance(var, six.string_types)
+
+
+def is_iterable(var):
+    return isinstance(var, Iterable)
+
+
+def is_iterable_not_string(var):
+    return is_iterable(var) and not is_string_types(var)
 
 
 def convert(d):

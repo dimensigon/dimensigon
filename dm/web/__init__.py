@@ -10,9 +10,9 @@ from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import sessionmaker
 
-import dm.web.exceptions as exc
+from .exceptions import ServerLookupError, WebError
 from config import config_by_name
-from dm.web.extensions.job_background import JobBackground
+from .extensions.job_background import JobBackground
 
 PROTOCOL = 'https'
 HOSTNAME = socket.gethostname()
@@ -74,7 +74,7 @@ def set_variables():
     else:
         server = Server.query.filter_by(name=server_name).first()
         if not server:
-            raise exc.ServerLookupError(
+            raise ServerLookupError(
                 f"Server '{server_name}' not found in database. Specify SERVER_NAME=server_or_ip:port")
 
     current_app.server_id = server.id if server else None

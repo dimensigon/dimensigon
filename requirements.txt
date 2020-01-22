@@ -1,3 +1,4 @@
+wheel
 flask
 flask-sqlalchemy
 requests
@@ -6,4 +7,9 @@ coverage
 jsonschema
 flask-jwt-extended
 flask-migrate
+flask-restful
 aiohttp
+dataclasses
+cryptography
+psutil
+returns

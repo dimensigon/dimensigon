@@ -28,7 +28,6 @@ from dm.use_cases.base import OperationFactory, Scope
 from dm.use_cases.exceptions import ServersMustNotBeBlank, ErrorLock
 from dm.use_cases.helpers import get_servers_from_scope
 from dm.use_cases.mediator import Mediator
-from dm.utils.async_operator import AsyncOperator
 from dm.utils.decorators import logged
 from dm.utils.helpers import get_distributed_entities, convert
 from dm.web import db
@@ -50,7 +49,7 @@ class Interactor:
         self._lockers = {}
         for s in Scope:
             self._lockers.update({s: PriorityLocker(s)})
-        self._mediator = Mediator(async_operator=AsyncOperator(), interactor=self)
+        self._mediator = Mediator(interactor=self)
         self._log_thread = None
         self._logs: t.List[Log] = []
         self._loop = None
@@ -398,9 +397,11 @@ def _send_chunk(url: str, transfer_id: str, chunk: int, chunk_size: int, file: s
 
 
 def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path: str,
+                  set_progress: t.Callable[[int], None],
                   chunk_size: int = DEFAULT_CHUNK_SIZE,
                   max_senders: int = DEFAULT_MAX_SENDERS) \
         -> t.Optional[t.List[t.Tuple[int, t.Union[Exception, requests.Response]]]]:
+    set_progress(0)
     chunks = ssa.software.size_bytes // chunk_size
     if ssa.software.size_bytes % chunk_size:
         chunks += 1
@@ -415,6 +416,7 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
     resp = s.post(dest_server.url('transfers'), msg, headers={'D-Destination': str(dest_server.id)})
 
     if resp.status_code == 202:
+        set_progress(5)
         json_resp = resp.json()
         transfer_id = json_resp.get('transfer_id')
         url = dest_server.url('transfer', transfer_id=transfer_id)
@@ -432,7 +434,10 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
                 else:
                     if data.status_code != 200:
                         retry_chunks.append(chunk)
-
+        if len(retry_chunks) == 0:
+            set_progress(100)
+        else:
+            set_progress(50)
         if retry_chunks:
             url = dest_server.url('transfer', transfer_id=transfer_id)
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_senders) as executor:
@@ -451,5 +456,9 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
                             error_chunks.append((chunk, data))
             if error_chunks:
                 return error_chunks
+            else:
+                set_progress(100)
         else:
             return None
+    else:
+        raise RuntimeError(resp.content)
