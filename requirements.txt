@@ -1,3 +1,7 @@
+gunicorn
+waitress
+PyYAML
+six
 wheel
 flask
 flask-sqlalchemy
@@ -13,5 +17,5 @@ dataclasses
 cryptography
 psutil
 returns
-uwsgi
 gitpython
+python-dotenv
