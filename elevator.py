@@ -2,19 +2,30 @@
 
 
 # Generic/Built-in
-
-
-# Owned
+import argparse
+import functools
+import importlib
+import logging
 import os
-# Other Libs
 import platform
 import re
+import shutil
+import signal
+import subprocess
+import sys
 import time
 import zipfile
+from collections import ChainMap
 from datetime import datetime
+from enum import Enum
 
+import daemon
+import git
 import psutil
 import requests
+from dotenv import load_dotenv
+
+import dm.defaults as defaults
 
 __author__ = "Joan Prat "
 __copyright__ = "Copyright 2019, The Dimensigon project"
@@ -26,36 +37,57 @@ __email__ = "joan.prat@dimensigon.com"
 __status__ = "Dev"
 
 # Script variables
+PYPI_URL = 'https://pypi.org/pypi/{PACKAGE}/json'
+
 HOME = os.path.dirname(os.path.abspath(__file__))
 DM_HOME = os.path.join(HOME, 'dm')
 SOFTWARE = os.path.join(HOME, 'software')
 TMP = os.environ.get('TMP')
 BACKUP_FILENAME = "dm_" + datetime.now().strftime("%Y%m%d%H%M%S") + ".bkp"
-INCLUDE_PATTERN = ".*"
-EXCLUDE_PATTERN = r"(\.pyc$|\.ini$)"
-PROTOCOL = "HTTP"
-DM_PORT = 80
-DM_URI = '/healtcheck'  # healt check URI
+EXCLUDE_PATTERN = r"(\.pyc|\.ini)$"  # files to be excluded from backup
+HEALTHCHECK_URI = '/healthcheck'  # health check URI
 SOFTWARE_URI = '/software'
-MAIN_REPOSITORY = "https://www.dimensigon.com/api/software"  # internet URL to obtain the software
-MAX_TIME_WAITING = 180  # max time elevator will wait for the process to start and ask for the health check response
-TRY_GET_NEW_VERSION = 500  # tries to get the new version from neighbours or internet every TRY_GET_NEW_VERSION seconds
-if platform.system() == "Windows":
-    DAEMON_NAME = 'dm.exe'
-else:
-    DAEMON_NAME = 'dm'
-NEIGHBOURS = [('server1', 80), ('server2', 80)]
+FAILED_VERSIONS = '.failed_versions'
+MAX_TIME_WAITING = 300
+VERIFY_SSL = False
+PACKAGE_NAME = 'dimensigon'
 
-inc_pattern = re.compile(INCLUDE_PATTERN)
+# max time elevator will wait for the process to start and ask for the health check response
+
+
+exc_dirs = ('__pycache__', '.git', '.idea', 'tests', 'migrations', 'tmp', 'bin')
+
 exc_pattern = re.compile(EXCLUDE_PATTERN)
+config_files = ['.env', 'data.sqlite']
 
-exc_dirs = ('__pycache__',)
+FORMAT = '%(asctime)-15s %(filename)s %(levelname)-8s %(message)s'
+logging.basicConfig(format=FORMAT, level=logging.INFO)
 
 
 # FUNCTIONS
+
+
 def unzip_software(file, dest):
     with zipfile.ZipFile(file, 'r') as zip_ref:
         zip_ref.extractall(path=dest)
+
+
+def find_python_file_executed(file):
+    '''
+    Check if there is any running process that contains the given name processName.
+    '''
+    # Iterate over the all the running process
+    return [proc for proc in psutil.process_iter() if
+            proc.name().startswith('python') and len(proc.cmdline()) > 1 and os.path.basename(
+                proc.cmdline()[1]) == file]
+
+    # try:
+    #     # Check if process name contains the given name string.
+    #     if proc.name().startswith('python') and len(proc.cmdline()) > 1 and os.path.basename(
+    #             proc.cmdline()[1]).startswith(file):
+    #         return proc
+    # except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+    #     pass
 
 
 def find_process_by_name(process_name):
@@ -73,14 +105,18 @@ def find_process_by_name(process_name):
     return None
 
 
-def get_healtcheck(tries=1, delay=3, backoff=1):
+def get_healtcheck(url, token=None, tries=1, delay=3, backoff=1):
     mtries, mdelay = tries, delay
     hc = {}
     while mtries > 0:
         try:
-            url = f'{PROTOCOL}://127.0.0.1:{DM_PORT}{DM_URI}'
-            r = requests.get(url)
+            r = requests.get(url + "/healthcheck", headers={"Authentication": f"Bearer {token}"}, timeout=2,
+                             verify=VERIFY_SSL)
+            if r.status_code == 401:
+                r = requests.get(url + "/healthcheck", verify=VERIFY_SSL, timeout=2)
+            r.raise_for_status()
             hc = r.json()
+            break
         except Exception as e:
             msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
             print(msg)
@@ -93,13 +129,9 @@ def get_healtcheck(tries=1, delay=3, backoff=1):
         return hc
 
 
-def get_version(health_check):
-    return tuple(health_check.get('version', '..').split('.'))
-
-
 def check_services(health_check):
-    status = False
-    for service in health_check.get('services'):
+    status = None
+    for service in health_check.get('services', []):
         if service.get('status') != 'ALIVE':
             status = False
             break
@@ -108,156 +140,359 @@ def check_services(health_check):
     return status
 
 
-def check_process():
-    # check if process is running
-    status = False
-    iterations = MAX_TIME_WAITING // 5
-    while not status or iterations > 0:
-        status = True if find_process_by_name(DAEMON_NAME) else False
-        time.sleep(5)
-        iterations -= 1
-    return status
+def check_daemon():
+    cp = subprocess.run(['python', 'dimensigon.py', 'status'], env=os.environ)
+    return cp.returncode
 
+
+def get_func_find_proc():
+    if platform.system() == 'Linux':
+        func = functools.partial(find_python_file_executed, 'dimensigon.py')
+    elif platform.system() == 'Windows':
+        func = functools.partial(find_python_file_executed, 'flask.exe')
+    return func
+
+
+#
+#
+# def collect_initial_config():
+#     if platform.system() == 'Windows':
+#         func = get_func_find_proc()
+#         proc_list = func()
+#         for p in proc_list:
+#             args = p.cmdline()
+#             host_op = '-h' if '-h' in args else '--host' if '--host' in args else None
+#             if host_op:
+#                 ip = args[args.index(host_op) + 1]
+#             else:
+#                 ip = '127.0.0.1'
+#             port_op = '-p' if '-p' in args else '--port' if '--port' in args else None
+#             if port_op:
+#                 port = args[args.index(port_op) + 1]
+#             else:
+#                 if 'FLASK_RUN_PORT' in p.environ():
+#                     port = p.environ()['FLASK_RUN_PORT']
+#                 else:
+#                     port = 5000
+#             protocol = 'https' if '--cert' in args else 'http'
+#
+#             config = {'protocol': protocol, 'ip': ip, 'port': port, 'venv': config.get('venv', None)}
+#
+#     else:
+#         config = load_config_wsgi()
+#     with open('config.yaml') as fd:
+#         yaml_config = yaml.load(fd, Loader=yaml.FullLoader)
+#     config = ChainMap(yaml_config[0], config)
+#
+#     config['elevator'].update(localhost=f"{config['protocol']}://{config['ip']}:{config['port']}")
+#
+#     return config
 
 def start_daemon():
-    # TODO spawn program via subprocess or fork
+    cp = subprocess.run(['python', 'dimensigon.py', 'start'], capture_output=True, env=os.environ, timeout=10)
+    return cp.returncode
 
-    return check_process()
 
+def start_and_check():
+    # start new version & check health
+    try:
+        rc = start_daemon()
+    except Exception as e:
+        logging.exception("Unable to start daemon.")
+        return False
+    else:
+        logging.debug("Daemon started")
 
-def start_daemon_and_check(version=None):
-    daemon_running = start_daemon()
-    version_running = False
-    sc = False
-    hc = False
-
-    if daemon_running:
+    rc = check_daemon()
+    if rc == 10:
         d = 5
         tries = MAX_TIME_WAITING // d
-        hc = get_healtcheck(tries=tries, delay=d)
+        hc = get_healtcheck(config['dm_url'], tries=tries, delay=d)
         if hc:
-            if version is not None:
-                version_running = version == get_version(hc)
+            version_running = hc.get('version', False)
 
             sc = check_services(hc)
+            if sc is True:
+                logging.info(f"New version {version_running} up & running with all services alive")
+            else:
+                logging.info(f"New version {version_running} up & running with services not alive")
 
-    return hc and version_running and sc
-
+    return True
 
 def stop_daemon():
-    proc = find_process_by_name(DAEMON_NAME)
-    if proc:
-        proc.kill()
+    cp = subprocess.run(['python', 'dimensigon.py', 'stop'], capture_output=True, env=os.environ, timeout=10)
+    return cp.returncode
+
+
+def kill_daemons():
+    func = get_func_find_proc()
+    proc_list = func()
+    if proc_list:
+        for proc in proc_list:
+            try:
+                proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
         time.sleep(1)
-        proc = find_process_by_name(DAEMON_NAME)
-        if proc:
-            proc.kill()
-            time.sleep(1)
-            proc = find_process_by_name(DAEMON_NAME)
-    return False if proc else True
+        proc_list = func()
+        if proc_list:
+            for proc in proc_list:
+                try:
+                    proc.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    pass
+            time.sleep(2)
+            proc_list = func()
+    return False if proc_list else True
 
 
-def get_software_from(url, ver):
-    data = {'packages': ['dm>' + '.'.join([f'{v}' for v in ver])]}
-
-    response = requests.get(url, data)
-    if response.status_code == 200:
-        cd = response.headers.get('Content-Disposition')
-        match = re.match('attachment; filename="(?P<filename>.+)"', cd)
-        if match:
-            name = match.groupdict().get('filename')
-        else:
-            name = data.get('packages')
-        with open(os.path.join(SOFTWARE, name), "wb") as handle:
-            for data in response.iter_content(chunk_size=1024 * 1024):
-                handle.write(data)
-        return os.path.join(SOFTWARE, name)
+def install(package, version=None, capture_output=True):
+    if version:
+        spec_pkg = [f"{package}=={version}"]
     else:
-        return None
+        if isinstance(package, (list, tuple)):
+            spec_pkg = list(package)
+        else:
+            spec_pkg = [package]
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade"]
+    cmd.extend(spec_pkg)
+    return subprocess.run(cmd, capture_output=capture_output, timeout=300)
 
+
+def pull_software(git_repo=None):
+    try:
+        repo = git.Repo()
+    except git.exc.InvalidGitRepositoryError:
+        repo = None
+    if repo is None:
+        # first time. Clone from remote
+        repo = git.Repo.clone_from(git_repo, HOME)
+    pull_info = repo.remote('origin').pull('master')[0]
+
+
+# def clone_repo(source: str, dest: str, branch: str = 'master', ssl: bool = False) -> git.Repo:
+#     return git.Repo.clone_from(source, dest,
+#                                branch=branch, config=f'http.sslVerify={str(ssl).lower()}',
+#                                )
+
+# def get_software_from(url, ver):
+#     data = {'packages': ['dm>' + '.'.join([f'{v}' for v in ver])]}
+#
+#     response = requests.get(url, data)
+#     if response.status_code == 200:
+#         cd = response.headers.get('Content-Disposition')
+#         match = re.match('attachment; filename="(?P<filename>.+)"', cd)
+#         if match:
+#             name = match.groupdict().get('filename')
+#         else:
+#             name = data.get('packages')
+#         with open(os.path.join(config['SOFTWARE'], name), "wb") as handle:
+#             for data in response.iter_content(chunk_size=1024 * 1024):
+#                 handle.write(data)
+#         return os.path.join(config['SOFTWARE'], name)
+#     else:
+#         return None
+
+#
+# def get_software_data(config):
+#     from pkg_resources import parse_version
+#     resp = requests.get(f"{config['elevator']['localhost']}{config['SOFTWARE_URI']}?filter[name]=Dimensigon",
+#                         headers={f"Authorization: Bearer {config['elevator']['token']}"}, verify=VERIFY_SSL)
+#     soft = (None, None)
+#     if resp.status_code == 200:
+#         data = resp.json()
+#         soft = max(data, key=lambda x: parse_version(['version']))
+#         if resp.status_code == 200:
+#             return soft, config['elevator']['localhost']
+#     else:
+#         # try with neighbours
+#         for neighbour in config['elevator']['neighbours']:
+#             resp = requests.get(f"{neighbour}{config['SOFTWARE_URI']}?filter[name]=Dimensigon",
+#                                 headers={f"Authorization: Bearer {config['elevator']['token']}"}, verify=VERIFY_SSL)
+#             if resp == 200:
+#                 data = resp.json()
+#                 soft = max(data, key=lambda x: parse_version(['version']))
+#                 return soft, neighbour
+#     return soft
+
+
+def get_version_from_file():
+    current_version = None
+    with open('dm/__init__.py', 'r') as fd:
+        for line in fd.readlines():
+            if line.startswith('__version__'):
+                current_version = line.split('=')[1].strip().strip('"')
+                break
+    return current_version
+
+
+def get_current_version(url, token=None):
+    hc = get_healtcheck(url, token)
+    current_version = hc.get('version', None)
+    if current_version is None:
+        # try to get version from file
+        current_version = get_version_from_file()
+    return current_version
+
+
+def backup_data(origin, dest, compress_type=zipfile.ZIP_DEFLATED):
+    zf = zipfile.ZipFile(dest, "w", compress_type)
+    for root, dirs, files in os.walk(origin, topdown=True):
+        dirs[:] = [d for d in dirs if d not in exc_dirs]
+        for file in files:
+            if not exc_pattern.search(file):
+                zf.write(os.path.join(root, file))
+    zf.close()
+
+class ReturnCodes(Enum):
+    NO_NEW_VERSION = 2
+    ERROR_INSTALLING_PACKAGE = 3
+    ERROR_IMPORTING_PACKAGE = 4
+    ERROR_STARTING_OLD_VERSION = 5
 
 ###################################
 #             MAIN                #
 ###################################
-def main():
-    hc = get_healtcheck(5, 5)
-    old_version = tuple(hc.get('version', '').split('.'))
+def main(config):
+    # backup data
+    if 'deployable' not in config:
+        logging.info(f"Backing up data")
+        # backup_data(origin=HOME, dest=os.path.join(TMP, BACKUP_FILENAME))
 
-    ##########
-    # backup #
-    ##########
-    zf = zipfile.ZipFile(os.path.join(TMP, BACKUP_FILENAME), "w")
-    for dirname, subdirs, files in os.walk(DM_HOME):
-        if not os.path.basename(dirname) in exc_dirs:
-            zf.write(dirname.replace(DM_HOME, ''))
-            for filename in files:
-                if inc_pattern.search(filename) and not exc_pattern.search(filename):
-                    zf.write(os.path.join(dirname.replace(DM_HOME, ''), filename))
-    zf.close()
+    old_version = get_current_version(config.get('dm_url'), config.get('token'))
 
-    ##################
-    # try dm upgrade #
-    ##################
-    # TODO get file to unzip
+    # deploy new version
+    if 'deployable' in config:
+        dest_folder = os.path.join(os.path.dirname(HOME), 'dimensigon_new')
+        os.mkdir(dest_folder)
+        logging.info(f"Unzipping file {config['file']}")
+        unzip_software(config['file'], dest_folder)
+    else:
+        logging.info(f"Installing package with pip")
+        cp = install(PACKAGE_NAME, capture_output=config.get('debug'))
+        if cp.returncode != 0:
+            if not config.get('debug'):
+                logging.error(f"Error while installing package with pip:\nstdout-> {cp.stdout}\nstderr-> {cp.stderr}")
+            return ReturnCodes.ERROR_INSTALLING_PACKAGE
+        # try:
+        #     pull_software(git_repo=config['git_repo'])
+        # except Exception as e:
+        #     logging.exception(f"Unable to clone repository from '{config['git_repo']}' to '{HOME}'")
+        #     # TODO: try to get software asking dm to send it?
+        #     sys.exit(1)
+        try:
+            new_package = importlib.import_module(PACKAGE_NAME)
+        except:
+            logging.error(f"Unable to import package '{PACKAGE_NAME}'")
+            return ReturnCodes.ERROR_IMPORTING_PACKAGE
+        new_version = new_package.__version__
 
-    hc = get_healtcheck()
-    current_version = tuple(hc.get('version', '..').split('.'))
+        if old_version == new_version:
+            logging.info("No new version got from repository")
+            return ReturnCodes.NO_NEW_VERSION
+    if 'deployable' in config:
+        # copy config files and DB from old version to new version
+        logging.info("Importing configuration and database from current_version")
+        for file in config_files:
+            shutil.copy2(file, dest_folder)
 
-    # TODO get new version from file name
-    new_version = (0, 0, 1)
+    # stop old version
+    rc = check_daemon()
+    if 9 < rc < 20:
+        logging.info("Stopping old version")
+        stopped = stop_daemon()
 
-    program_healthy = start_daemon_and_check(new_version)
+    if 'deployable' in config:
+        os.chdir(dest_folder)
+        new_version = get_version_from_file()
 
-    ##################
-    # restore backup #
-    ##################
-    if program_healthy is False:
+    # TODO: execute DB migrations
+
+    # if new version not running
+    if not start_and_check():
+        logging.info(f"New version not running. Reverting changes to version '{old_version}'")
+        os.chdir(config['HOME'])
+
+        # save failed version
+        with open(FAILED_VERSIONS, 'a') as fd:
+            fd.write(f'{new_version}\n')
+
+        # kill daemon if running
         stop_daemon()
 
-        backup_file = os.path.join(TMP, BACKUP_FILENAME)
+        # restore backup
+        if 'deployable' in config:
+            unzip_software(os.path.join(TMP, BACKUP_FILENAME), DM_HOME)
+        else:
+            cp = install(PACKAGE_NAME, version=old_version)
+            if cp.returncode != 0:
+                if not config.get('debug'):
+                    logging.error(
+                        f"Error while installing package with pip:\nstdout-> {cp.stdout}\nstderr-> {cp.stderr}")
+                return ReturnCodes.ERROR_INSTALLING_PACKAGE
 
-        # remove old files
-        for dirname, subdirs, files in os.walk(DM_HOME):
-            if not os.path.basename(dirname) in exc_dirs:
-                for filename in files:
-                    if inc_pattern.search(filename) and not exc_pattern.search(filename):
-                        os.remove(os.path.join(dirname, filename))
+        # start old version
+        logging.info("Starting old version")
+        if not start_and_check():
+            logging.error(f"Unable to start old version {old_version}")
+            stop_daemon()
+            return ReturnCodes.ERROR_STARTING_OLD_VERSION
 
-        with zipfile.ZipFile(backup_file, 'r') as zip_ref:
-            zip_ref.extractall(path=DM_HOME)
+            ##########################################
+            # try to get new version from neighbours #
+            ##########################################
+            # file = None
+            # program_healthy = False
+            # while not file or not program_healthy:
+            #     for name_or_ip, port in config['elevator']['neighbours']:
+            #         file = get_software_from(f"{PROTOCOL}://{name_or_ip}:{port}{SOFTWARE_URI}", new_version)
+            #
+            #     if file is None:
+            #         # TODO try to get new version from internet #
+            #         file = get_software_from(MAIN_REPOSITORY, new_version)
+            #
+            #     if file is None:
+            #         # TODO make a SOS call #
+            #         ...
+            #     time.sleep(TRY_GET_NEW_VERSION)
+            #
+            #     if file:
+            #         # remove old files
+            #         for dirname, subdirs, files in os.walk(DM_HOME):
+            #             if not os.path.basename(dirname) in exc_dirs:
+            #                 for filename in files:
+            #                     if inc_pattern.search(filename) and not exc_pattern.search(filename):
+            #                         os.remove(os.path.join(dirname, filename))
+            #
+            #         with zipfile.ZipFile(file, 'r') as zip_ref:
+            #             zip_ref.extractall(path=DM_HOME)
+            #
+            #         # TODO get new version from file
+            #         program_healthy = start_daemon_check_health()
 
-        program_healthy = start_daemon_and_check(version=old_version)
 
-    if not program_healthy:
-        stop_daemon()
+if __name__ == '__main__':
 
-        ##########################################
-        # try to get new version from neighbours #
-        ##########################################
-        file = None
-        while not file or not program_healthy:
-            for server, port in NEIGHBOURS:
-                file = get_software_from(f"{PROTOCOL}://{server}:{port}{SOFTWARE_URI}", new_version)
+    dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(dotenv_path):
+        load_dotenv(dotenv_path)
 
-            if file is None:
-                # TODO try to get new version from internet #
-                file = get_software_from(MAIN_REPOSITORY, new_version)
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    # parser.add_argument('--token', '-t', required=True,
+    #                     help='token used for communication with dimensigon')
+    parser.add_argument('--deployable', '-d',
+                        help='new file to be installed')
+    parser.add_argument('--verify-ssl', action='store_true',
+                        help='new file to be installed')
 
-            if file is None:
-                # TODO make a SOS call #
-                ...
-            time.sleep(TRY_GET_NEW_VERSION)
+    args = parser.parse_args()
+    VERIFY_SSL = args.verify_ssl
+    command_line_args = {k: v for k, v in vars(args).items() if v is not None}
 
-            if file:
-                # remove old files
-                for dirname, subdirs, files in os.walk(DM_HOME):
-                    if not os.path.basename(dirname) in exc_dirs:
-                        for filename in files:
-                            if inc_pattern.search(filename) and not exc_pattern.search(filename):
-                                os.remove(os.path.join(dirname, filename))
+    combined = ChainMap(command_line_args, os.environ)
+    local_config = {'dm_url': f"http://127.0.0.1:{defaults.LOOPBACK_PORT}/"}
 
-                with zipfile.ZipFile(file, 'r') as zip_ref:
-                    zip_ref.extractall(path=DM_HOME)
+    local_config.update(git_repo=os.environ.get('GIT_REPO'))
+    config = ChainMap(local_config, command_line_args)
 
-                # TODO get new version from file
-                program_healthy = start_daemon_and_check()
+    sys.exit(main(config))

@@ -1,51 +1,45 @@
-import ipaddress
-import socket
 import typing as t
-import uuid
 from contextlib import contextmanager
+from pprint import pprint
 
-from flask import Flask, current_app, g
+from flask import Flask, g
 from flask_jwt_extended import JWTManager
-from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import sessionmaker
 
-from .exceptions import ServerLookupError, WebError
 from config import config_by_name
 from .extensions.job_background import JobBackground
+from .helpers import BaseQueryJSON
 
-PROTOCOL = 'https'
-HOSTNAME = socket.gethostname()
-IP = ipaddress.ip_address(socket.gethostbyname(HOSTNAME))
-DEFAULT_PORT = 24000
-
-db = SQLAlchemy()
-migrate = Migrate(db)
+db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
 ajl = JobBackground()
 
 
-def create_app(config='prod'):
-    global PROTOCOL
+def create_app(config_name):
     app = Flask('dm')
-    if isinstance(config, t.Mapping):
-        app.config.from_mapping(config)
-    elif config in config_by_name:
-        app.config.from_object(config_by_name[config])
+    if isinstance(config_name, t.Mapping):
+        app.config.from_mapping(config_name)
+    elif config_name in config_by_name:
+        app.config.from_object(config_by_name[config_name])
     else:
-        app.config.from_object(config)
+        app.config.from_object(config_name)
 
-    # GLOBAL CONFIG
-    # app.logger.addHandler(logging.StreamHandler(sys.stdout))
-    # app.logger.setLevel(logging.INFO)
-
+    config_by_name[config_name].init_app(app)
     # AUTHENTICATION CONFIG
 
     # EXTENSIONS
     db.init_app(app)
-    migrate.init_app(app)
     jwt.init_app(app)
     ajl.init_app(app)
+    # with app.app_context():
+    #     ajl.queue.start()
+    # TODO: check ssl redirection and Talisman library
+    # if app.config['SSL_REDIRECT']:
+    #     from flask_talisman import Talisman
+    #     talisman = Talisman(app)
+
+    app.before_request(load_global_data_into_context)
 
     # API version 0
     from dm.web.routes import root_bp
@@ -55,46 +49,12 @@ def create_app(config='prod'):
 
     return app
 
+
 def load_global_data_into_context():
     from dm.domain.entities import Server, Dimension
-    g.server = Server.query.get(current_app.server_id)
-    g.dimension = Dimension.query.get(current_app.dimension_id)
+    g.server = Server.query.filter_by(_me=True)
+    g.dimension = Dimension.query.filter_by(current=True)
 
-
-def set_variables():
-    from dm.domain.entities import Server, Dimension
-    count = Server.query.count()
-    server_name = current_app.config.get('SERVER_NAME', None) or HOSTNAME
-    port = current_app.config.get('PORT', None) or DEFAULT_PORT
-    # TODO: better initialization to avoid problems when changing SERVER_NAME or PORT once initialized
-    if count == 0:
-        server = Server(name=server_name, port=port, ip=IP)
-        db.session.add(server)
-        db.session.commit()
-    else:
-        server = Server.query.filter_by(name=server_name).first()
-        if not server:
-            raise ServerLookupError(
-                f"Server '{server_name}' not found in database. Specify SERVER_NAME=server_or_ip:port")
-
-    current_app.server_id = server.id if server else None
-
-    count = Dimension.query.count()
-    dimension = None
-    if count == 1:
-        dimension = Dimension.query.all()[0]
-    elif count > 1:
-        if 'DM_DIMENSION' in current_app.config:
-            try:
-                uuid.UUID(current_app.config['DM_DIMENSION'])
-            except ValueError:
-                dimension = Dimension.query.get(current_app.config['DM_DIMENSION'])
-            else:
-                dimension = Dimension.query.filter_by(name=current_app.config['DM_DIMENSION']).one_or_none()
-
-    current_app.dimension_id = dimension.id if dimension else None
-
-    current_app.before_request(load_global_data_into_context)
 
 @contextmanager
 def session_scope():

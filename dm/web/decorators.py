@@ -98,6 +98,11 @@ def securizer(func):
                                   priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
                                   cipher_key=cipher_key)
 
+        if isinstance(rv, list):
+            rv = pack_msg(data=rv, pub_key=getattr(getattr(current_app, 'dimension', None), 'public', None),
+                          priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
+                          cipher_key=cipher_key)
+
         if rest:
             rv = (rv,) + rest
         return rv

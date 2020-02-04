@@ -4,6 +4,7 @@ from dm.web import db
 
 
 class Catalog(db.Model):
+    __tablename__ = 'L_catalog'
     entity = db.Column(db.String(40), primary_key=True, unique=True)
     last_modified_at = db.Column(db.DateTime, nullable=False)
 

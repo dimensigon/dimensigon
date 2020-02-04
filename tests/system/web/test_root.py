@@ -1,8 +1,8 @@
-from unittest import TestCase, mock
+from unittest import TestCase
 
-import requests
-
-from dm.web import create_app, db, set_variables
+import dm
+import elevator
+from dm.web import create_app, db
 from tests.helpers import initial_test_data
 
 
@@ -11,23 +11,22 @@ class TestRoot(TestCase):
         """Create and configure a new app instance for each test."""
         # create a temporary file to isolate the database for each test
         # create the app with common test config
-        self.app = create_app('dev')
+        self.app = create_app('test')
+        self.app_context = self.app.app_context()
+        self.app_context.push()
+        self.client = self.app.test_client()
+        db.create_all()
+        initial_test_data()
 
-        with self.app.app_context():
-            db.create_all()
-            set_variables()
-            initial_test_data()
-
-    def tearDown(self) -> None:
-        with self.app.app_context():
-            db.drop_all()
+    def tearDown(self):
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
 
     def test_healthcheck(self):
-        client = self.app.test_client()
-        response = client.get('/healthcheck')
-
-        self.assertDictEqual({"version": "0.0.1",
-                              "elevator_version": "0.0.1",
+        response = self.client.get('/healthcheck')
+        self.assertDictEqual({"version": dm.__version__,
+                              "elevator_version": elevator.__version__,
                               "catalog_version": "20190101000530100000",
                               "neighbours": [],
                               "services": [
@@ -38,3 +37,5 @@ class TestRoot(TestCase):
                                   }
                               ]
                               }, response.get_json())
+
+

@@ -11,7 +11,7 @@ from flask import g
 
 from dm.domain.entities import Server
 from dm.utils.helpers import generate_url, encrypt, decrypt
-from dm.web import PROTOCOL
+from .. import defaults
 
 """
 Singleton class that allows communication between servers. create a routes dict like follows:
@@ -171,7 +171,7 @@ def send_message(destination: Server, source: Server, pub_key=None, priv_key=Non
         returns the response from the server in a tuple ('message response', 204) message response from server and
         the corresponding HTTP code.
     """
-    url = generate_url(destination, uri='/socket', protocol=PROTOCOL)
+    url = generate_url(destination, uri='/socket', protocol=defaults.PROTOCOL)
     json = pack_msg(destination, source, pub_key, priv_key, data=data)
     r = requests.post(url, json=json)
     # TODO Handle errors codes in HTTP to convert to understandable errors in Domain Application
@@ -201,7 +201,7 @@ async def async_send_message(destination: Server, source: Server, pub_key=None, 
         returns the response from the server in a tuple ('message response', 204) message response from server and
         the corresponding HTTP code.
     """
-    url = generate_url(destination, uri='/socket', protocol=PROTOCOL)
+    url = generate_url(destination, uri='/socket', protocol=defaults.PROTOCOL)
     json = pack_msg(destination, source, pub_key, priv_key, data=data)
     async with aiohttp.ClientSession() as s:
         r = await s.post(url, json=json)

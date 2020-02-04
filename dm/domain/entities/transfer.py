@@ -4,7 +4,7 @@ from enum import Enum, auto
 
 from flask import current_app
 
-from dm.defaults import DEFAULT_DATETIME_FORMAT
+import dm.defaults
 from dm.domain.entities.base import EntityReprMixin
 from dm.utils.typos import UUID
 from dm.web import db
@@ -38,7 +38,7 @@ class Transfer(db.Model, EntityReprMixin):
         try:
             format = current_app.config['DATETIME_FORMAT']
         except:
-            format = DEFAULT_DATETIME_FORMAT
+            format = dm.defaults.DATETIME_FORMAT
 
         json = dict(id=str(self.id), software_id=str(self.software.id), dest_path=self.dest_path,
                     filename=self.filename, num_chunks=self.num_chunks, status=self.status.name,

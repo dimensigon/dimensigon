@@ -1,4 +1,5 @@
 import ipaddress
+import os
 import typing as t
 import uuid
 
@@ -9,8 +10,10 @@ from dm.utils.typos import UUID, IP, ScalarListType
 from dm.web import db
 from .base import DistributedEntityMixin, EntityReprMixin
 from .route import Route
+from ... import defaults
 
 
+# TODO: handle multiple networks (IP gateways) on a server with netifaces
 class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_server'
 
@@ -20,14 +23,17 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
     port = db.Column(db.Integer, nullable=False)
     dns_name = db.Column(db.String(255))
     granules = db.Column(ScalarListType())
+    _me = db.Column(db.Boolean, default=False)
 
     route = db.relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
                             back_populates="destination")
     software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
 
+    # __table_args__ = (db.UniqueConstraint('name', 'ip', 'port', name='D_server_uq01'),)
+
     def __init__(self, name: str, ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int,
                  dns_name: str = None, granules=None, gateway: 'Server' = None, cost: int = None, id: uuid.UUID = None,
-                 **kwargs):
+                 _me=False, **kwargs):
         DistributedEntityMixin.__init__(self, **kwargs)
         self.id = id
         self.name = name
@@ -35,6 +41,7 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
         self.port = port
         self.dns_name = dns_name
         self.granules = granules or []
+        self._me = _me
         if (gateway or cost) and cost > 0 and gateway is None:
             raise AttributeError("'gateway' must be specified if 'cost' greater than 0")
         self.route = Route(gateway=gateway, cost=cost)
@@ -42,7 +49,7 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
     def __str__(self):
         return f"{self.name} {self.id}"
 
-    def url(self, view: str=None, **values) -> str:
+    def url(self, view: str = None, **values) -> str:
         """
         generates the full url to access the server. Uses url_for to generate the full_path.
 
@@ -82,3 +89,19 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
 
     def to_json(self):
         return {'id': str(self.id), 'name': self.name, 'ip': str(self.ip), 'port': self.port, 'granules': self.granules}
+
+    @staticmethod
+    def set_initial():
+        server = Server.query.filter_by(_me=True).all()
+        if len(server) == 0:
+            server_name = current_app.config.get('SERVER_NAME') or defaults.HOSTNAME
+            ip = os.environ.get('SERVER_HOST') or defaults.IP
+            if ip == '0.0.0.0':
+                ip = defaults.IP
+            server = Server(name=server_name,
+                            port=os.environ.get('FLASK_RUN_PORT') or current_app.config.get('FLASK_RUN_PORT'),
+                            ip=defaults.IP)
+            db.session.add(server)
+            db.session.commit()
+        elif len(server) > 1:
+            raise ValueError('Multiple servers found as me.')

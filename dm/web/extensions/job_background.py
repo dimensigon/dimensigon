@@ -180,7 +180,7 @@ class AsyncOperator(StoppableThread):
         self.wait_interval = wait_interval
         self.maxsize_pending = maxsize_pending
         self._lock = threading.Lock()
-        self._entry_finder: t.Dict[int, t.List[t.Union[int, AsyncTask, int]]] = {}
+        self._entry_finder: t.Dict[Ids, t.List[t.Union[int, AsyncTask, int]]] = {}
 
         self._pending_tasks: t.List[AsyncTask] = []
         self.priority = priority
@@ -188,7 +188,7 @@ class AsyncOperator(StoppableThread):
         if start:
             self.start()
 
-    def tasks_in_state(self, *args) -> t.List[int]:
+    def tasks_in_state(self, *args) -> t.List[Ids]:
         return [entry[1].id for entry in self._entry_finder.values() if entry[1].status in args]
 
     def num_tasks_in_state(self, *args) -> int:

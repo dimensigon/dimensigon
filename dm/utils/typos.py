@@ -2,6 +2,7 @@ import ipaddress
 import json
 import typing as t
 import uuid
+from abc import ABC
 
 import rsa
 from sqlalchemy import types
@@ -16,10 +17,17 @@ Callback = t.Tuple[t.Callable[[], None], t.Tuple, t.Dict]
 
 Priority = t.TypeVar('T')
 
+
+class BaseTypeDecorator(types.TypeDecorator):
+    def __repr__(self):
+        return self.impl.__repr__()
+
+
 class ScalarListException(Exception):
     pass
 
-class ScalarListType(types.TypeDecorator):
+
+class ScalarListType(BaseTypeDecorator):
     """
     ScalarListType type provides convenient way for saving multiple scalar
     values in one column. ScalarListType works like list on python side and
@@ -95,7 +103,7 @@ class ScalarListType(types.TypeDecorator):
             ))
 
 
-class UUID(types.TypeDecorator):
+class UUID(BaseTypeDecorator):
     """Platform-independent GUID type.
 
     Uses Postgresql's UUID type, otherwise uses
@@ -121,8 +129,7 @@ class UUID(types.TypeDecorator):
         else:
             return uuid.UUID(value)
 
-
-class JSONEncodedDict(types.TypeDecorator):
+class JSONEncodedDict(BaseTypeDecorator):
     impl = types.JSON
 
     def process_bind_param(self, value, dialect):
@@ -139,7 +146,7 @@ class JSONEncodedDict(types.TypeDecorator):
 JSON = MutableDict.as_mutable(JSONEncodedDict)
 
 
-class PrivateKey(types.TypeDecorator):
+class PrivateKey(BaseTypeDecorator):
     impl = types.BLOB
 
     def process_bind_param(self, value, dialect):
@@ -153,7 +160,7 @@ class PrivateKey(types.TypeDecorator):
         return value
 
 
-class PublicKey(types.TypeDecorator):
+class PublicKey(BaseTypeDecorator):
     impl = types.BLOB
 
     def process_bind_param(self, value, dialect):
@@ -167,7 +174,7 @@ class PublicKey(types.TypeDecorator):
         return value
 
 
-class IP(types.TypeDecorator):
+class IP(BaseTypeDecorator):
     impl = types.CHAR
 
     def process_bind_param(self, value, dialect):

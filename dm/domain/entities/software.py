@@ -1,6 +1,7 @@
+import json
 import uuid
 from enum import Enum, auto
-
+from flask import json
 from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
 from dm.utils.typos import UUID
 from dm.web import db
@@ -16,8 +17,11 @@ class SoftwareServerAssociation(db.Model, DistributedEntityMixin):
     server_id = db.Column(UUID, db.ForeignKey("D_server.id"), primary_key=True)
     path = db.Column(db.Text, nullable=False)
 
-    software = db.relationship("Software", back_populates="servers", uselist=False)
+    software = db.relationship("Software", back_populates="ssas", uselist=False)
     server = db.relationship("Server", back_populates="software_list", uselist=False)
+
+    def to_json(self):
+        return {'software_id': str(self.software.id), 'server_id': str(self.server.id), 'path': self.file}
 
 
 class Software(db.Model, EntityReprMixin, DistributedEntityMixin):
@@ -25,9 +29,18 @@ class Software(db.Model, EntityReprMixin, DistributedEntityMixin):
 
     id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(80), nullable=False)
-    version = db.Column(db.String(40))
-    family = db.Enum(Family, nullable=False)
-    size_bytes = db.Column(db.Integer)
+    version = db.Column(db.String(40), nullable=False)
+    family = db.Column(db.Enum(Family), nullable=False)
+    filename = db.Column(db.String(256))
+    size = db.Column(db.Integer)
     checksum = db.Column(db.Text())
 
-    servers = db.relationship("SoftwareServerAssociation", back_populates="software")
+    ssas = db.relationship("SoftwareServerAssociation", back_populates="software")
+
+    __table_args__ = (
+        db.UniqueConstraint('name', 'version', name='D_software_u01'),)
+
+    def to_json(self):
+        return {'id': str(self.id), 'name': self.name, 'version': self.version, 'family': self.family.name.lower(),
+                'filename': self.filename, 'size': self.size, 'checksum': self.checksum,
+                'servers': [str(ssa.server.id) for ssa in self.ssas]}

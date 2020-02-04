@@ -1,21 +1,17 @@
-from setuptools import setup
 
+from setuptools import setup, find_packages
+import dm
 setup(
     name='dm',
-    version='0.0.1',
-    # packages=['utils', 'domain', 'domain.schemas', 'domain.entities', 'network', 'use_cases'],
-    # package_dir={'': 'dm'},
+    version=dm.__version__,
+    packages=find_packages(),
     url='',
-    license='',
-    author='joan.prat',
-    author_email='joan.prat@dimensigon.com',
+    license=dm.__license__,
+    author=dm.__author__,
+    author_email=dm.__email__,
     description='',
     install_requires=['returns', 'aiohttp', 'asynctest', 'attrdict',
                       'requests', 'flask', 'click', 'psutil',
                       'flask_sqlalchemy', 'rsa', 'jsonschema', 'uwsgi'],
-    entry_points={
-        'console_scripts': [
-            'dm = wsgi:main'
-        ],
-    }
+    scripts=['dimensigon.py', 'elevator.py'],
 )

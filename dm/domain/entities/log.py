@@ -13,6 +13,7 @@ if t.TYPE_CHECKING:
 
 
 class Log(db.Model, EntityReprMixin):
+    __tablename__ = 'L_log'
     id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     file = db.Column(db.Text, nullable=False)
     server_id = db.Column(UUID, db.ForeignKey('D_server.id'), nullable=False)

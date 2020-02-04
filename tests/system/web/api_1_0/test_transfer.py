@@ -9,7 +9,6 @@ from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Software, SoftwareFamily, SoftwareServerAssociation, Server, Transfer, TransferStatus
 from dm.network.gateway import pack_msg, unpack_msg
-from dm.utils.helpers import md5
 from dm.web import create_app, set_variables, db
 
 
@@ -46,7 +45,7 @@ class TestTransferURL(TestCase):
             self.software_id = str(soft.id)
 
     def tearDown(self) -> None:
-        from dm.web.api_1_0.resources.transfer import TEMPORAL_DIRECTORY
+        from dm.web.api_1_0.urls.transfer import TEMPORAL_DIRECTORY
         import shutil
         if os.path.exists(os.path.join(os.getcwd(), self.filename)):
             os.remove(os.path.join(os.getcwd(), self.filename))
