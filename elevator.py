@@ -4,23 +4,18 @@
 # Generic/Built-in
 import argparse
 import functools
-import importlib
 import logging
 import os
 import platform
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import time
-import zipfile
 from collections import ChainMap
 from datetime import datetime
 from enum import Enum
 
-import daemon
-import git
 import psutil
 import requests
 from dotenv import load_dotenv
@@ -66,10 +61,10 @@ logging.basicConfig(format=FORMAT, level=logging.INFO)
 
 # FUNCTIONS
 
-
-def unzip_software(file, dest):
-    with zipfile.ZipFile(file, 'r') as zip_ref:
-        zip_ref.extractall(path=dest)
+#
+# def unzip_software(file, dest):
+#     with zipfile.ZipFile(file, 'r') as zip_ref:
+#         zip_ref.extractall(path=dest)
 
 
 def find_python_file_executed(file):
@@ -246,28 +241,28 @@ def kill_daemons():
     return False if proc_list else True
 
 
-def install(package, version=None, capture_output=True):
-    if version:
-        spec_pkg = [f"{package}=={version}"]
-    else:
-        if isinstance(package, (list, tuple)):
-            spec_pkg = list(package)
-        else:
-            spec_pkg = [package]
-    cmd = [sys.executable, "-m", "pip", "install", "--upgrade"]
-    cmd.extend(spec_pkg)
-    return subprocess.run(cmd, capture_output=capture_output, timeout=300)
-
-
-def pull_software(git_repo=None):
-    try:
-        repo = git.Repo()
-    except git.exc.InvalidGitRepositoryError:
-        repo = None
-    if repo is None:
-        # first time. Clone from remote
-        repo = git.Repo.clone_from(git_repo, HOME)
-    pull_info = repo.remote('origin').pull('master')[0]
+# def install(package, version=None, capture_output=True):
+#     if version:
+#         spec_pkg = [f"{package}=={version}"]
+#     else:
+#         if isinstance(package, (list, tuple)):
+#             spec_pkg = list(package)
+#         else:
+#             spec_pkg = [package]
+#     cmd = [sys.executable, "-m", "pip", "install", "--upgrade"]
+#     cmd.extend(spec_pkg)
+#     return subprocess.run(cmd, capture_output=capture_output, timeout=300)
+#
+#
+# def pull_software(git_repo=None):
+#     try:
+#         repo = git.Repo()
+#     except git.exc.InvalidGitRepositoryError:
+#         repo = None
+#     if repo is None:
+#         # first time. Clone from remote
+#         repo = git.Repo.clone_from(git_repo, HOME)
+#     pull_info = repo.remote('origin').pull('master')[0]
 
 
 # def clone_repo(source: str, dest: str, branch: str = 'master', ssl: bool = False) -> git.Repo:
@@ -335,14 +330,14 @@ def get_current_version(url, token=None):
     return current_version
 
 
-def backup_data(origin, dest, compress_type=zipfile.ZIP_DEFLATED):
-    zf = zipfile.ZipFile(dest, "w", compress_type)
-    for root, dirs, files in os.walk(origin, topdown=True):
-        dirs[:] = [d for d in dirs if d not in exc_dirs]
-        for file in files:
-            if not exc_pattern.search(file):
-                zf.write(os.path.join(root, file))
-    zf.close()
+# def backup_data(origin, dest, compress_type=zipfile.ZIP_DEFLATED):
+#     zf = zipfile.ZipFile(dest, "w", compress_type)
+#     for root, dirs, files in os.walk(origin, topdown=True):
+#         dirs[:] = [d for d in dirs if d not in exc_dirs]
+#         for file in files:
+#             if not exc_pattern.search(file):
+#                 zf.write(os.path.join(root, file))
+#     zf.close()
 
 class ReturnCodes(Enum):
     NO_NEW_VERSION = 2
@@ -355,46 +350,22 @@ class ReturnCodes(Enum):
 ###################################
 def main(config):
     # backup data
-    if 'deployable' not in config:
-        logging.info(f"Backing up data")
-        # backup_data(origin=HOME, dest=os.path.join(TMP, BACKUP_FILENAME))
+
+    logging.info(f"Backing up data")
+    backup_filename = shutil.make_archive(os.path.join(TMP, BACKUP_FILENAME), 'gztar', HOME)
 
     old_version = get_current_version(config.get('dm_url'), config.get('token'))
 
     # deploy new version
-    if 'deployable' in config:
-        dest_folder = os.path.join(os.path.dirname(HOME), 'dimensigon_new')
-        os.mkdir(dest_folder)
-        logging.info(f"Unzipping file {config['file']}")
-        unzip_software(config['file'], dest_folder)
-    else:
-        logging.info(f"Installing package with pip")
-        cp = install(PACKAGE_NAME, capture_output=config.get('debug'))
-        if cp.returncode != 0:
-            if not config.get('debug'):
-                logging.error(f"Error while installing package with pip:\nstdout-> {cp.stdout}\nstderr-> {cp.stderr}")
-            return ReturnCodes.ERROR_INSTALLING_PACKAGE
-        # try:
-        #     pull_software(git_repo=config['git_repo'])
-        # except Exception as e:
-        #     logging.exception(f"Unable to clone repository from '{config['git_repo']}' to '{HOME}'")
-        #     # TODO: try to get software asking dm to send it?
-        #     sys.exit(1)
-        try:
-            new_package = importlib.import_module(PACKAGE_NAME)
-        except:
-            logging.error(f"Unable to import package '{PACKAGE_NAME}'")
-            return ReturnCodes.ERROR_IMPORTING_PACKAGE
-        new_version = new_package.__version__
+    dest_folder = os.path.join(os.path.dirname(HOME), 'dimensigon_new')
+    os.mkdir(dest_folder)
+    logging.info(f"Unzipping file {config['file']}")
+    shutil.unpack_archive(config['file'], dest_folder)
 
-        if old_version == new_version:
-            logging.info("No new version got from repository")
-            return ReturnCodes.NO_NEW_VERSION
-    if 'deployable' in config:
-        # copy config files and DB from old version to new version
-        logging.info("Importing configuration and database from current_version")
-        for file in config_files:
-            shutil.copy2(file, dest_folder)
+    # copy config files and DB from old version to new version
+    logging.info("Importing configuration and database from current_version")
+    for file in config_files:
+        shutil.copy2(file, dest_folder)
 
     # stop old version
     rc = check_daemon()
@@ -402,9 +373,8 @@ def main(config):
         logging.info("Stopping old version")
         stopped = stop_daemon()
 
-    if 'deployable' in config:
-        os.chdir(dest_folder)
-        new_version = get_version_from_file()
+    os.chdir(dest_folder)
+    new_version = get_version_from_file()
 
     # TODO: execute DB migrations
 
@@ -421,15 +391,8 @@ def main(config):
         stop_daemon()
 
         # restore backup
-        if 'deployable' in config:
-            unzip_software(os.path.join(TMP, BACKUP_FILENAME), DM_HOME)
-        else:
-            cp = install(PACKAGE_NAME, version=old_version)
-            if cp.returncode != 0:
-                if not config.get('debug'):
-                    logging.error(
-                        f"Error while installing package with pip:\nstdout-> {cp.stdout}\nstderr-> {cp.stderr}")
-                return ReturnCodes.ERROR_INSTALLING_PACKAGE
+
+        unzip_software(backup_filename, DM_HOME)
 
         # start old version
         logging.info("Starting old version")
@@ -480,7 +443,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Process some integers.')
     # parser.add_argument('--token', '-t', required=True,
     #                     help='token used for communication with dimensigon')
-    parser.add_argument('--deployable', '-d',
+    parser.add_argument('--deployable', '-d', required=True,
                         help='new file to be installed')
     parser.add_argument('--verify-ssl', action='store_true',
                         help='new file to be installed')
