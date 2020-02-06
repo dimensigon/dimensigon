@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import datetime
 from enum import Enum, auto
@@ -49,3 +50,14 @@ class Transfer(db.Model, EntityReprMixin):
             json.update(ended_on=self.ended_on)
 
         return json
+
+    def wait_transfer(self, timeout=300) -> Status:
+        start = time.time()
+        db.session.refresh(self)
+        delta = 0
+        while self.status in (Status.IN_PROGRESS, Status.WAITING_CHUNKS) or delta < timeout:
+            time.sleep(1)
+            db.session.refresh(self)
+            delta = time.time() - start
+
+        return self.status

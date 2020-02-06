@@ -5,6 +5,7 @@ from flask import json
 from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
 from dm.utils.typos import UUID
 from dm.web import db
+import typing as t
 
 
 class Family(Enum):
@@ -35,10 +36,11 @@ class Software(db.Model, EntityReprMixin, DistributedEntityMixin):
     size = db.Column(db.Integer)
     checksum = db.Column(db.Text())
 
-    ssas = db.relationship("SoftwareServerAssociation", back_populates="software")
+    ssas: t.List[SoftwareServerAssociation] = db.relationship("SoftwareServerAssociation", back_populates="software")
 
     __table_args__ = (
         db.UniqueConstraint('name', 'version', name='D_software_u01'),)
+
 
     def to_json(self):
         return {'id': str(self.id), 'name': self.name, 'version': self.version, 'family': self.family.name.lower(),

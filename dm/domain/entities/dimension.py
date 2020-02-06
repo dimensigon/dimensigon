@@ -26,3 +26,7 @@ class Dimension(db.Model, EntityReprMixin):
         self.public = public
         self.created_at = created_at
         self.current = current
+
+    @staticmethod
+    def get_current():
+        return Dimension.query.filter_by(current=True).one_or_none()

@@ -8,7 +8,8 @@ api = Api(api_bp)
 
 # import routes
 import dm.web.api_1_0.routes
-import dm.web.api_1_0.urls
+import dm.web.api_1_0.urls.transfer
+import dm.web.api_1_0.urls.use_cases
 
 # import resources
 from dm.web.api_1_0.resources import SoftwareServers, SoftwareResource, SoftwareList
