@@ -12,6 +12,7 @@ from sqlalchemy.ext.mutable import MutableDict
 Kwargs = Params = t.NewType('Params', t.Union[t.Dict['str', t.Any]])
 Id = t.TypeVar('Id', int, str, uuid.UUID)
 Ids = t.Sequence[Id]
+Id_or_Ids = t.Union[Id, Ids]
 
 Callback = t.Tuple[t.Callable[[], None], t.Tuple, t.Dict]
 
