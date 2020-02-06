@@ -1,3 +1,4 @@
+import datetime
 import uuid
 from collections import Iterable
 
@@ -17,7 +18,7 @@ from functools import partial
 from flask import Flask
 
 from dm.utils.helpers import is_iterable_not_string
-from dm.utils.typos import Id, Ids
+from dm.utils.typos import Id, Ids, Id_or_Ids
 
 
 @dataclass
@@ -73,7 +74,7 @@ class AsyncTask(threading.Thread):
                  callback: t.Callable[[], None] = None, callback_args: t.Tuple = None,
                  callback_kw: t.Dict[str, t.Any] = None,
                  name_: str = None,
-                 set_progress: t.Callable = None, app: Flask = None):
+                 set_func: t.Callable = None, app: Flask = None, fail_silently=True):
         super().__init__(name=name_ or str(async_proc).replace('<', '').replace('>', ''))
         self._id = id_
         self.async_proc = async_proc
@@ -84,8 +85,9 @@ class AsyncTask(threading.Thread):
         self.callback_kw = callback_kw or dict()
         self._e = None
         self._data = None
-        self._set_progress_func = set_progress
+        self._set_func = set_func
         self.app = app
+        self.fail_silently = fail_silently
         self.daemon = True
         self.running = threading.Event()
 
@@ -122,13 +124,16 @@ class AsyncTask(threading.Thread):
         try:
             try:
                 # check if function gets parameter progress_indicator
-                if 'set_progress' in async_params and self._set_progress_func:
-                    self._data = self.async_proc(*self.async_proc_args, set_progress=self._set_progress_func,
+                if 'set_progress' in async_params and self._set_func:
+                    self._data = self.async_proc(*self.async_proc_args, set_progress=self._set_func,
                                                  **self.async_proc_kw)
                 else:
                     self._data = self.async_proc(*self.async_proc_args, **self.async_proc_kw)
             except Exception as e:
-                self._e = e
+                if self.fail_silently:
+                    self._e = e
+                else:
+                    raise
             delta = time.time() - start_time
 
             cp = CompletedProcess(returndata=self._data, excep=self._e, runtime=delta)
@@ -150,6 +155,26 @@ class AsyncTask(threading.Thread):
 
     def __hash__(self):
         return id(self)
+
+
+class TaskRegistry:
+
+    def __init__(self, task: AsyncTask = None):
+        self.task = task
+        self.progress = 0
+        self.data = {}
+        self.timestamp = datetime.datetime.now()
+
+    @property
+    def id(self):
+        return self.task.id
+
+    @property
+    def status(self):
+        return self.task.status
+
+    def __lt__(self, other):
+        return self.timestamp < other.timestamp
 
 
 class AsyncOperator(StoppableThread):
@@ -180,22 +205,22 @@ class AsyncOperator(StoppableThread):
         self.wait_interval = wait_interval
         self.maxsize_pending = maxsize_pending
         self._lock = threading.Lock()
-        self._entry_finder: t.Dict[Ids, t.List[t.Union[int, AsyncTask, int]]] = {}
+        self._entry_finder: t.Dict[Ids, TaskRegistry] = {}
 
-        self._pending_tasks: t.List[AsyncTask] = []
+        self._pending_tasks: t.List[t.Tuple[(int, TaskRegistry)]] = []
         self.priority = priority
         self.daemon = True
         if start:
             self.start()
 
     def tasks_in_state(self, *args) -> t.List[Ids]:
-        return [entry[1].id for entry in self._entry_finder.values() if entry[1].status in args]
+        return [entry.id for entry in self._entry_finder.values() if entry.status in args]
 
     def num_tasks_in_state(self, *args) -> int:
         if not args:
             return len(self._entry_finder)
         else:
-            return sum(1 for entry in self._entry_finder.values() if entry[1].status in args)
+            return sum(1 for entry in self._entry_finder.values() if entry.status in args)
 
     def run(self):
         """
@@ -210,12 +235,12 @@ class AsyncOperator(StoppableThread):
             if self.num_tasks_in_state(TaskStatus.RUNNING) < self.max_threads:
                 try:
                     self._lock.acquire()
-                    entry = heapq.heappop(self._pending_tasks)
+                    priority, registry = heapq.heappop(self._pending_tasks)
                 except IndexError:
                     self._lock.release()
                     self._stop_event.wait(timeout=self.wait_interval)
                 else:
-                    entry[1].start()
+                    registry.task.start()
                     self._lock.release()
             else:
                 self._stop_event.wait(timeout=self.wait_interval)
@@ -231,7 +256,7 @@ class AsyncOperator(StoppableThread):
         for task_id in self.tasks_in_state(TaskStatus.FINISHED, TaskStatus.ERROR):
             del self._entry_finder[task_id]
 
-    def wait_tasks(self, ids: Ids = None, timeout: float = None):
+    def wait_tasks(self, ids: Id_or_Ids = None, timeout: float = None):
         """
         waits the tasks passed by parameter to finish their execution
 
@@ -259,21 +284,21 @@ class AsyncOperator(StoppableThread):
         start_time = time.time()
         for id_ in ids_:
             try:
-                priority, task, progress = self._entry_finder[id_]
+                registry = self._entry_finder[id_]
             except KeyError:
                 continue
             remainder = max((timeout - (time.time() - start_time)), 0) if timeout is not None else None
-            res = task.running.wait(timeout=remainder)
+            res = registry.task.running.wait(timeout=remainder)
             if res:
                 remainder = max((timeout - (time.time() - start_time)), 0) if timeout is not None else None
-                task.join(timeout=remainder)
-                if task.is_alive():
+                registry.task.join(timeout=remainder)
+                if registry.task.is_alive():
                     return False
             else:
                 return False
         return True
 
-    def progress(self, ids: Ids) -> t.List[int]:
+    def progress(self, ids: Id_or_Ids) -> t.Union[t.List[int], int]:
         """
         Checks the task's progress
         Parameters
@@ -286,17 +311,36 @@ class AsyncOperator(StoppableThread):
         t.List[int]
             returns a list with the progress of each task. Same order as input parameter ids
         """
-        if ids is None:
-            ids_ = (task_id for task_id in self.tasks_in_state(TaskStatus.PENDING, TaskStatus.RUNNING))
-        elif is_iterable_not_string(ids):
+        if is_iterable_not_string(ids):
             ids_ = ids
         else:
             ids_ = [ids]
 
-        res = [self._entry_finder[id_][2] for id_ in ids_]
+        res = [self._entry_finder[id_].progress for id_ in ids_]
         return res[0] if not is_iterable_not_string(ids) else res
 
-    def status(self, ids: Ids) -> t.List[TaskStatus]:
+    def data(self, ids: Id_or_Ids) -> t.Union[t.List[t.Dict], t.Dict]:
+        """
+        Checks the task's progress
+        Parameters
+        ----------
+        ids
+            ids from which to retrieve data
+
+        Returns
+        -------
+        t.List[t.Dict]
+            returns a list with the progress of each task. Same order as input parameter ids
+        """
+        if is_iterable_not_string(ids):
+            ids_ = ids
+        else:
+            ids_ = [ids]
+
+        res = [self._entry_finder[id_].data for id_ in ids_]
+        return res[0] if not is_iterable_not_string(ids) else res
+
+    def status(self, ids: Id_or_Ids) -> t.Union[t.List[TaskStatus], TaskStatus]:
         """
         Checks the task's status
 
@@ -310,20 +354,18 @@ class AsyncOperator(StoppableThread):
         t.List[TaskStatus]
             returns a list with the status of each task. Same order as input parameter ids
         """
-        if ids is None:
-            ids_ = (task_id for task_id in self.tasks_in_state(TaskStatus.PENDING, TaskStatus.RUNNING))
-        elif is_iterable_not_string(ids):
+        if is_iterable_not_string(ids):
             ids_ = ids
         else:
             ids_ = [ids]
 
         res = []
         for id_ in ids_:
-            res.append(self._entry_finder[id_][1].status)
+            res.append(self._entry_finder[id_].status)
         return res[0] if not is_iterable_not_string(ids) else res
 
     def exception(self, id_: Id):
-        return self._entry_finder[id_][1].e
+        return self._entry_finder[id_].task.e
 
     @property
     def done(self) -> bool:
@@ -345,7 +387,7 @@ class AsyncOperator(StoppableThread):
                  callback: t.Callable[[], None] = None, callback_args: t.Tuple = None,
                  callback_kw: t.Dict[str, t.Any] = None,
                  priority: int = 100,
-                 name: str = None, app: Flask = None):
+                 name: str = None, app: Flask = None, fail_silently=True):
 
         """
         Registers an async process to be executed
@@ -371,6 +413,8 @@ class AsyncOperator(StoppableThread):
             sets the priority in case the queue is a Priority Queue. The lowest valued entries are retrieved first
         name:
             name of the task. The thread will have the task name as thread.name
+        app:
+            flask App to push context if necessary
 
         Notes
         -----
@@ -388,9 +432,16 @@ class AsyncOperator(StoppableThread):
             When maxsize_pending is set and the size of pending_tasks reaches maxsize_pending
         """
 
-        def set_(progress: int, entry_: [int, AsyncTask, int, TaskStatus]) -> None:
-            assert 0 <= progress <= 100
-            entry_[2] = progress
+        def set_(registry_: TaskRegistry, *args, progress: int = None, data: t.Dict = None) -> None:
+            if len(args) >= 1:
+                progress = args[0]
+                if len(args) == 2:
+                    data = args[1]
+            if progress:
+                assert 0 <= progress <= 100
+                registry_.progress = progress
+            if data:
+                registry_.data.update(data)
 
         if self.maxsize_pending:
             if len(self._pending_tasks) >= self.maxsize_pending:
@@ -399,16 +450,16 @@ class AsyncOperator(StoppableThread):
         if not self.priority:
             priority = 1
 
-        entry = [priority, None, 0]
+        registry = TaskRegistry()
         task = AsyncTask(id_=uuid.uuid4(), async_proc=async_proc, async_proc_args=async_proc_args,
                          async_proc_kw=async_proc_kw,
                          callback=callback, callback_args=callback_args, callback_kw=callback_kw,
-                         name_=name, set_progress=partial(set_, entry_=entry), app=app)
-        entry[1] = task
+                         name_=name, set_func=partial(set_, registry), app=app, fail_silently=fail_silently)
+        registry.task = task
 
         self._lock.acquire()
-        self._entry_finder[task.id] = entry
-        heapq.heappush(self._pending_tasks, entry)
+        self._entry_finder[task.id] = registry
+        heapq.heappush(self._pending_tasks, (priority, registry))
         self._lock.release()
         return task.id
 

@@ -3,6 +3,7 @@ from unittest import TestCase
 
 from dm.web.extensions.job_background import AsyncOperator, TaskStatus
 
+
 class TestAsyncOperator(TestCase):
 
     @staticmethod
@@ -37,9 +38,9 @@ class TestAsyncOperator(TestCase):
         self.ao = AsyncOperator(priority=False)
 
         self.ao.register(async_proc=self.async_op, async_proc_args=(dict_test,),
-                    callback=TestAsyncOperator.callback1, callback_args=(dict_test,))
+                         callback=TestAsyncOperator.callback1, callback_args=(dict_test,))
         self.ao.register(async_proc=self.async_op, async_proc_args=(dict_test,),
-                    callback=TestAsyncOperator.callback1, callback_args=(dict_test,))
+                         callback=TestAsyncOperator.callback1, callback_args=(dict_test,))
 
         self.ao.start()
 
@@ -89,7 +90,7 @@ class TestAsyncOperator(TestCase):
         self.assertFalse(self.ao.wait_tasks(timeout=0.05))
         end = time.time()
 
-        self.assertGreaterEqual(end-start, 0.05)
+        self.assertGreaterEqual(end - start, 0.05)
 
         self.assertFalse(self.ao.wait_tasks(id1, timeout=0.01))
         self.assertFalse(self.ao.wait_tasks(id2, timeout=0.01))
@@ -116,38 +117,78 @@ class TestAsyncOperator(TestCase):
         self.first_done = threading.Event()
         self.second_done = threading.Event()
 
+        self.first_p_done = threading.Event()
+        self.second_p_done = threading.Event()
+
         def process1(set_progress):
             set_progress(0)
             self.first_done.wait()
             set_progress(50)
+            self.first_p_done.set()
             self.second_done.wait()
             set_progress(100)
+            self.second_p_done.set()
             return 'First Done'
+
+        def process2(set_progress):
+            set_progress(50)
+            return 'Second Done'
 
         result = []
 
         self.ao = AsyncOperator(priority=False)
 
-        id1 = self.ao.register(process1, callback=lambda data: result.append(data.returndata))
+        id1 = self.ao.register(process1, callback=lambda data: result.append(data.returndata), fail_silently=False)
 
         self.ao.start()
 
         self.assertEqual(self.ao.progress(id1), 0)
 
         self.first_done.set()
-        # force context switch
-        time.sleep(0.00001)
+        self.first_p_done.wait()
         self.assertEqual(self.ao.progress(id1), 50)
 
         self.second_done.set()
-        # force context switch
-        time.sleep(0.00001)
+        self.second_p_done.wait()
         self.assertEqual(self.ao.progress(id1), 100)
+        self.ao.wait_tasks(id1)
         self.assertListEqual(result, ['First Done'])
 
-        id2 = self.ao.register(process1, callback=lambda data: result.append(data.returndata))
+        id2 = self.ao.register(process2, callback=lambda data: result.append(data.returndata), fail_silently=False)
         self.ao.wait_tasks()
-        self.assertListEqual(self.ao.progress([id1, id2]), [100, 100])
+        self.assertListEqual(self.ao.progress([id2, id1]), [50, 100])
+        self.assertListEqual(result, ['First Done', 'Second Done'])
+
+    def test_data(self):
+        import threading
+
+        self.first_done = threading.Event()
+        self.second_done = threading.Event()
+
+        def process1(set_progress):
+            self.first_done.wait()
+            set_progress(data={'thread_id': 1})
+            self.second_done.wait()
+            set_progress(data={'return': 2})
+            return
+
+        result = []
+
+        self.ao = AsyncOperator(priority=False)
+
+        id1 = self.ao.register(process1)
+
+        self.ao.start()
+        self.assertDictEqual({}, self.ao.data(id1))
+        self.first_done.set()
+        # force context switch
+        time.sleep(0.001)
+        self.assertDictEqual({'thread_id': 1}, self.ao.data(id1))
+
+        self.second_done.set()
+        # force context switch
+        time.sleep(0.001)
+        self.assertDictEqual({'thread_id': 1, 'return': 2}, self.ao.data(id1))
 
     def test_error(self):
         import threading
@@ -229,7 +270,6 @@ class TestAsyncOperator(TestCase):
         self.assertEqual(1, self.ao.num_tasks_in_state(TaskStatus.ERROR))
         self.assertEqual(2, self.ao.num_tasks_in_state())
 
-
     def test_purge(self):
         import threading
 
@@ -251,18 +291,18 @@ class TestAsyncOperator(TestCase):
         id1 = self.ao.register(process1, callback=lambda data: result.append(data.returndata))
         id2 = self.ao.register(process2, callback=lambda data: result.append(data.returndata))
 
-        self.assertRaises(RuntimeError, self.ao.wait_tasks, (id1, ))
+        self.assertRaises(RuntimeError, self.ao.wait_tasks, (id1,))
 
         self.ao.start()
 
         self.ao.wait_tasks(id1)
 
-        self.assertEqual(1, self.ao.num_tasks_in_state(TaskStatus.PENDING))
-        self.assertEqual(1, self.ao.num_tasks_in_state(TaskStatus.FINISHED))
         self.assertEqual(2, self.ao.num_tasks_in_state())
+        self.assertEqual(1, self.ao.num_tasks_in_state(TaskStatus.PENDING, TaskStatus.RUNNING))
+        self.assertEqual(1, self.ao.num_tasks_in_state(TaskStatus.FINISHED))
 
         self.ao.purge()
-        self.assertEqual(1, self.ao.num_tasks_in_state(TaskStatus.PENDING))
+        self.assertEqual(1, self.ao.num_tasks_in_state(TaskStatus.PENDING, TaskStatus.RUNNING))
         self.assertEqual(1, self.ao.num_tasks_in_state())
 
         self.second_done.set()
@@ -273,5 +313,3 @@ class TestAsyncOperator(TestCase):
 
         self.assertEqual(0, self.ao.num_tasks_in_state())
         self.assertEqual(2, len(result))
-
-
