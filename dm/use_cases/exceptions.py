@@ -55,3 +55,11 @@ class MediatorError(Exception):
 
 class CommunicationError(MediatorError):
     """An error occurred while trying to communicate with a server"""
+
+
+class TransferTimeout(UseCaseException):
+    """A timeout while waiting for transfer to end"""
+
+
+class TransferError(UseCaseException):
+    """Error ocurred when trying to send chunks"""

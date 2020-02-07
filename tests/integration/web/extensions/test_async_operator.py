@@ -190,6 +190,32 @@ class TestAsyncOperator(TestCase):
         time.sleep(0.001)
         self.assertDictEqual({'thread_id': 1, 'return': 2}, self.ao.data(id1))
 
+    def test_wait_data(self):
+        import threading
+
+        self.first_done = threading.Event()
+        self.second_done = threading.Event()
+
+        def process1(set_progress):
+            self.first_done.wait()
+            set_progress(data={'thread_id': 1})
+            self.second_done.set()
+            return
+
+        self.ao = AsyncOperator(priority=False)
+
+        id1 = self.ao.register(process1, )
+
+        self.ao.start()
+        r = self.ao.wait_data(id1, 'thread_id', timeout=0.1)
+
+        self.assertFalse(r)
+        self.first_done.set()
+        self.second_done.wait()
+        r = self.ao.wait_data(id1, 'thread_id', timeout=0.1)
+
+        self.assertEqual(1, r)
+
     def test_error(self):
         import threading
 

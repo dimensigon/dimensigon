@@ -2,16 +2,18 @@ import base64
 import json
 import pickle
 import typing as t
+import warnings
 
 import aiohttp
-import flask
 import requests
 import rsa
-from flask import g
 
 from dm.domain.entities import Server
 from dm.utils.helpers import generate_url, encrypt, decrypt
 from .. import defaults
+
+if t.TYPE_CHECKING:
+    import flask
 
 """
 Singleton class that allows communication between servers. create a routes dict like follows:
@@ -80,14 +82,17 @@ def pack_msg(data,
             symmetric_key = rsa.decrypt(cipher_key, priv_key=priv_key)
 
     if pub_key or symmetric_key:
-        data, new_symmetric_key = encrypt(dumped_data if isinstance(dumped_data, bytes) else dumped_data.encode('utf-8'),
-                                          symmetric_key=symmetric_key)
+        data, new_symmetric_key = encrypt(
+            dumped_data if isinstance(dumped_data, bytes) else dumped_data.encode('utf-8'),
+            symmetric_key=symmetric_key)
     else:
         data, new_symmetric_key = dumped_data, None
 
     msg = dict(data=base64.b64encode(data).decode('ascii'))
 
     if destination:
+        warnings.warn("The 'destination' parameter is deprecated, "
+                      "use 'D-Destination header' instead", DeprecationWarning, 2)
         msg.update(destination=str(destination.id) if isinstance(destination, Server) else destination)
     if source:
         msg.update(source=str(source.id) if isinstance(source, Server) else source)
@@ -211,7 +216,7 @@ async def async_send_message(destination: Server, source: Server, pub_key=None, 
         return await r.text(), r.status
 
 
-def proxy_request(request: flask.Request, destination: Server) -> requests.Response:
+def proxy_request(request: 'flask.Request', destination: Server) -> requests.Response:
     url = destination.url() + request.full_path
     json = request.get_json()
 
@@ -239,7 +244,7 @@ def proxy_request(request: flask.Request, destination: Server) -> requests.Respo
     return requests.request(request.method, url, stream=True, **kwargs)
 
 
-def ping(server: Server, retries=3, timeout=3):
+def ping(server: Server, source: Server, retries=3, timeout=3):
     tries = 0
     cost = None
     elapsed = None
@@ -248,14 +253,14 @@ def ping(server: Server, retries=3, timeout=3):
             tries += 1
             resp = requests.post(
                 server.route.gateway.url('root.ping') if server.route.gateway else server.url('root.ping'),
-                json={'source': str(g.server.id), 'destination': str(server.id)},
+                json={'source': str(source.id)},
+                headers={'D-Destination': str(server.id)},
                 verify=False,
                 timeout=timeout)
         except (TimeoutError, requests.exceptions.ConnectionError):
-            # unable to reach actual server through current gateway, we will get the new gateway
+            # unable to reach actual server through current gateway
             resp = None
         if resp is not None and resp.status_code == 200:
             cost = resp.json().get('hops', 0)
             elapsed = resp.elapsed
     return cost, elapsed
-

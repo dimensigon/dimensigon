@@ -410,6 +410,7 @@ def main():
     detached = False if os.environ.get('DETACHED').lower() == 'false' else not args.attached
     stdout = os.environ.get('STDOUT') or 'dimensigon.out'
     stderr = os.environ.get('STDERR') or 'dimensigon.err'
+
     if PLATFORM == 'Windows':
         raise NotImplementedError('use flask instead')
         # from waitress import serve

@@ -1,6 +1,7 @@
 import base64
 import concurrent
 import os
+import subprocess
 import threading
 import time
 import typing as t
@@ -11,16 +12,18 @@ from concurrent.futures.thread import ThreadPoolExecutor
 import aiohttp
 import requests
 import rsa
+from bs4 import BeautifulSoup
 from flask import current_app, g
 from flask_jwt_extended import create_access_token
+from pkg_resources import parse_version
 from returns.pipeline import is_successful
 from returns.result import Result
 from returns.result import safe
 
 import dm.use_cases.deployment as dpl
 import dm.use_cases.exceptions as ue
-from dm.domain.entities import Orchestration, Log, Server, SoftwareServerAssociation
-from dm.domain.entities.route import Route
+from dm import __version__ as dm_version
+from dm.domain.entities import *
 from dm.domain.exceptions import StateAlreadyInUnlock
 from dm.domain.locker import PriorityLocker
 from dm.network.gateway import unpack_msg, ping, pack_msg
@@ -29,7 +32,7 @@ from dm.use_cases.exceptions import ServersMustNotBeBlank, ErrorLock
 from dm.use_cases.helpers import get_servers_from_scope
 from dm.use_cases.mediator import Mediator
 from dm.utils.decorators import logged
-from dm.utils.helpers import get_distributed_entities, convert
+from dm.utils.helpers import get_distributed_entities, convert, get_filename_from_cd, md5
 from dm.web import db
 
 if t.TYPE_CHECKING:
@@ -397,7 +400,7 @@ def _send_chunk(url: str, transfer_id: str, chunk: int, chunk_size: int, file: s
 
 
 def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path: str,
-                  set_progress: t.Callable[[int], None],
+                  set_progress: t.Callable[..., None],
                   chunk_size: int = DEFAULT_CHUNK_SIZE,
                   max_senders: int = DEFAULT_MAX_SENDERS) \
         -> t.Optional[t.List[t.Tuple[int, t.Union[Exception, requests.Response]]]]:
@@ -406,19 +409,23 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
     if ssa.software.size_bytes % chunk_size:
         chunks += 1
 
+    dim = Dimension.get_current()
+    # create transfer
     ssa = SoftwareServerAssociation.query.filter_by(software=ssa.software, server=dest_server)
 
     json_msg = dict(software_id=ssa.software, num_chunks=chunks, filename=os.path.basename(ssa.path),
                     dest_path=dest_path)
-    msg = pack_msg(data=json_msg, pub_key=g.dimension.public, priv_key=g.dimension.private)
+    msg = pack_msg(data=json_msg, pub_key=getattr(dim, 'public'), priv_key=getattr(dim, 'private'))
     cipher_key = base64.b64decode(msg.get('key', '').encode('ascii'))
     s = requests.Session()
     resp = s.post(dest_server.url('transfers'), msg, headers={'D-Destination': str(dest_server.id)})
 
     if resp.status_code == 202:
-        set_progress(5)
         json_resp = resp.json()
-        transfer_id = json_resp.get('transfer_id')
+        data = unpack_msg(json_resp.get('transfer_id'), priv_key=getattr(dim, 'private'),
+                          pub_key=getattr(dim, 'public'), cipher_key=cipher_key)
+        transfer_id = data.get('transfer_id')
+        set_progress(5, data=dict(transfer_id=transfer_id))
         url = dest_server.url('transfer', transfer_id=transfer_id)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_senders) as executor:
             future_to_chunk = {executor.submit(_send_chunk, (
@@ -462,3 +469,96 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
             return None
     else:
         raise RuntimeError(resp.content)
+
+
+def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
+    base_url = os.environ.get('GIT_REPO') or 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
+    releases_uri = '/dimensigon/dimensigon/releases'
+    try:
+        r = requests.get(base_url + releases_uri, verify=current_app.config['SSL_VERIFY'], timeout=10)
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+        r = None
+
+    # get new versions from repo
+    if r and r.status_code == 200:
+        # get current software
+        software_list: t.List = Software.query.filter_by(name='dimensigon').all()
+        software_list.sort(key=lambda s: parse_version(s.version))
+        gogs_versions = {}
+
+        html_content = r.text
+        soup = BeautifulSoup(html_content, 'html.parser')
+        for li in soup.find(id='release-list').find_all('li'):
+            version = li.h4.a.get_text(strip=True)
+            uris = [a.attrs['href'] for a in li.find('div', class_='download').find_all('a') if
+                    a.attrs['href'].endswith('tar.gz')]
+            if len(uris) > 0:
+                gogs_versions.update({parse_version(version): uris[0]})
+        if len(software_list) > 0:
+            max_version = parse_version(software_list[-1].version)
+        else:
+            max_version = parse_version('0')
+        new_versions = [gogs_ver for gogs_ver in gogs_versions if gogs_ver > max_version]
+
+        # TODO: lock distribuited repo
+        with requests.Session() as s:
+            for new_version in new_versions:
+                r = s.get(base_url + gogs_versions[new_version], verify=current_app.config['SSL_VERIFY'])
+                filename = get_filename_from_cd(
+                    r.headers.get(
+                        'content-disposition')) or f"dimensigon-{gogs_versions[new_version].rsplit('/', 1)[-1]}"
+                file = os.path.join(current_app.config['SOFTWARE_DIR'], filename)
+                open(file, 'wb').write(r.content)
+
+                soft = Software(name='dimensigon', version=str(new_version), family=SoftwareFamily.MIDDLEWARE,
+                                filename=filename, size=r.headers.get('content-length'), checksum=md5(file))
+                ssa = SoftwareServerAssociation(software=soft, server=Server.get_current(),
+                                                path=current_app.config['SOFTWARE_DIR'])
+                db.session.add(soft)
+                db.session.add(ssa)
+
+        db.session.commit()
+
+    software_list: t.List = Software.query.filter_by(name='dimensigon').all()
+    software_list.sort(key=lambda s: parse_version(s.version))
+
+    if len(software_list) > 0 and parse_version(dm_version) < parse_version(software_list[-1].version):
+        soft2deploy: Software = software_list[-1]
+        # check if I should get software
+        ssa = [ssa for ssa in soft2deploy.ssas if ssa.server == Server.get_current()]
+        deployable = None
+        if ssa:
+            deployable = os.path.join(ssa[0].path, soft2deploy.filename)
+        else:
+            # get software if not in folder
+            file = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
+            if not os.path.exists(file):
+                ssa = min(soft2deploy.ssas, key=lambda x: x.server.route.cost or 999999)
+                r = requests.post(url=ssa.server.url('api_1_0.software_send'),
+                                  json=pack_msg({"software_id": str(soft2deploy.id),
+                                                 "dest_server_id": str(Server.get_current().id),
+                                                 "dest_path": current_app.config['SOFTWARE_DIR'],
+                                                 "chunk_size": 1024 * 1024 * 4,
+                                                 "max_senders": os.environ.get('WORKERS', 2)},
+                                                pub_key=Dimension.get_current().public,
+                                                priv_key=Dimension.get_current().private),
+                                  headers={'D-Destination': str(ssa.server.id)})
+                r.raise_for_status()
+                data = unpack_msg(r.json(), pub_key=Dimension.get_current().public,
+                                  priv_key=Dimension.get_current().private)
+                trans_id = data.get('transfer_id')
+                trans: Transfer = Transfer.query.get(trans_id)
+                status = trans.wait_transfer(timeout=timeout_wait_transfer, refresh_interval=refresh_interval)
+                if status == TransferStatus.COMPLETED:
+                    deployable = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
+                elif status in (TransferStatus.IN_PROGRESS, TransferStatus.WAITING_CHUNKS):
+                    raise ue.TransferTimeout()
+                else:
+                    raise ue.TransferError(status)
+            else:
+                deployable = file
+        if deployable:
+            stdout = open('elevator.out', 'a')
+            subprocess.Popen(['python', 'elevator.py', '-d', deployable],
+                             stdin=None, stdout=stdout, stderr=stdout, close_fds=True, env=os.environ)
+            stdout.close()

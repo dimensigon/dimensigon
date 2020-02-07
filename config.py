@@ -1,5 +1,4 @@
 import os
-import sys
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -13,6 +12,10 @@ class Config(object):
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     DATETIME_FORMAT = "%d/%m/%Y, %H:%M:%S"
     SSL_REDIRECT = False
+
+    GIT_REPO = 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
+    SSL_VERIFY = False
+    SOFTWARE_DIR = os.path.join(basedir, 'software')
 
     @staticmethod
     def init_app(app):
@@ -68,9 +71,13 @@ class UnixConfig(ProductionConfig):
 
 
 class TestingConfig(Config):
-    TESTING = True
-    SERVER_NAME = 'localhost.localdomain'
+    TESTING = False
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    FLASK_RUN_PORT = 5000
+    SERVER_HOST = '0.0.0.0'
+
+    THREADS = 1
+    WORKERS = 1
 
 
 class DevelopmentConfig(Config):

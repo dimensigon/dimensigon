@@ -5,6 +5,7 @@ import inspect
 import logging
 import os
 import platform
+import re
 import sys
 import typing as t
 from collections import Iterable, ChainMap
@@ -240,3 +241,15 @@ def collect_initial_config():
         config = config.new_child(load_config_wsgi())
 
     return config
+
+
+def get_filename_from_cd(cd):
+    """
+    Get filename from content-disposition
+    """
+    if not cd:
+        return None
+    fname = re.findall('filename=(.+)', cd)
+    if len(fname) == 0:
+        return None
+    return fname[0]

@@ -23,7 +23,7 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
     port = db.Column(db.Integer, nullable=False)
     dns_name = db.Column(db.String(255))
     granules = db.Column(ScalarListType())
-    _me = db.Column(db.Boolean, default=False)
+    _me = db.Column("me", db.Boolean, default=False)
 
     route = db.relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
                             back_populates="destination")
@@ -31,9 +31,9 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
 
     # __table_args__ = (db.UniqueConstraint('name', 'ip', 'port', name='D_server_uq01'),)
 
-    def __init__(self, name: str, ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int,
+    def __init__(self, name: str, ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int = 5000,
                  dns_name: str = None, granules=None, gateway: 'Server' = None, cost: int = None, id: uuid.UUID = None,
-                 _me=False, **kwargs):
+                 me=False, **kwargs):
         DistributedEntityMixin.__init__(self, **kwargs)
         self.id = id
         self.name = name
@@ -41,7 +41,7 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
         self.port = port
         self.dns_name = dns_name
         self.granules = granules or []
-        self._me = _me
+        self._me = me
         if (gateway or cost) and cost > 0 and gateway is None:
             raise AttributeError("'gateway' must be specified if 'cost' greater than 0")
         self.route = Route(gateway=gateway, cost=cost)
@@ -63,17 +63,18 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
         ConnectionError:
             if server is unreachable
         """
-        scheme = current_app.config['PREFERRED_URL_SCHEME']
-        if self.cost == 0:
+        scheme = current_app.config['PREFERRED_URL_SCHEME'] or 'http'
+        if self.route.cost == 0:
             root_path = f"{scheme}://{self.dns_name or self.ip}:{self.port}"
-        elif self.gateway:
-            root_path = f"{scheme}://{self.gateway.dns_name or self.gateway.ip}:{self.gateway.port}"
+        elif self.route.gateway:
+            root_path = f"{scheme}://{self.route.gateway.dns_name or self.route.gateway.ip}:{self.route.gateway.port}"
         else:
             raise ConnectionError(f"Unreachable destination {self.id}")
         if view is None:
             return root_path
         else:
-            return root_path + url_for(view, **values, _external=False)
+            with current_app.test_request_context():
+                return root_path + url_for(view, **values)
 
     @classmethod
     def get_neighbours(cls) -> t.List['Server']:
@@ -91,6 +92,10 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
         return {'id': str(self.id), 'name': self.name, 'ip': str(self.ip), 'port': self.port, 'granules': self.granules}
 
     @staticmethod
+    def get_current():
+        return Server.query.filter_by(_me=True).one()
+
+    @staticmethod
     def set_initial():
         server = Server.query.filter_by(_me=True).all()
         if len(server) == 0:
@@ -100,7 +105,7 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
                 ip = defaults.IP
             server = Server(name=server_name,
                             port=os.environ.get('FLASK_RUN_PORT') or current_app.config.get('FLASK_RUN_PORT'),
-                            ip=defaults.IP)
+                            ip=defaults.IP, me=True)
             db.session.add(server)
             db.session.commit()
         elif len(server) > 1:

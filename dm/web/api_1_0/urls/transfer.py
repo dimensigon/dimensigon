@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 
 import jsonschema
-from flask import request, g
+from flask import request, g, current_app
 from flask_jwt_extended import jwt_required
 
 from dm.domain.entities import Transfer, Software
@@ -25,7 +25,7 @@ schema_transfers = {
         "num_chunks": {"type": "integer",
                        "minimum": 0}
     },
-    "required": ["software_id", "dest_path", "filename", "num_chunks"]
+    "required": ["software_id"]
 }
 TEMPORAL_DIRECTORY = '.tmp'
 
@@ -41,13 +41,13 @@ def transfers():
         # validation
         json = request.get_json()
         jsonschema.validate(json, schema_transfers)
-
         soft = Software.query.get(json['software_id'])
         if not soft:
             return {"error": f"Software id '{json['software_id']}' not found"}, 404
 
-        t = Transfer(software=soft, dest_path=json['dest_path'], filename=json['filename'],
-                     num_chunks=json['num_chunks'])
+        t = Transfer(software=soft, dest_path=json.get('dest_path', current_app.config['SOFTWARE_DIR']),
+                     filename=json.get('filename', soft.filename),
+                     num_chunks=json.get('num_chunks'))
 
         if not os.path.exists(t.dest_path):
             os.makedirs(t.dest_path)
@@ -112,7 +112,7 @@ def transfer(transfer_id):
              os.path.isfile(os.path.join(path, f)) and chunk_pattern.match(f)],
             key=lambda x: x[1]))
 
-        if len(files) != trans.num_chunks or sum(chunks_ids) != (trans.num_chunks-1)*trans.num_chunks/2:
+        if len(files) != trans.num_chunks or sum(chunks_ids) != (trans.num_chunks - 1) * trans.num_chunks / 2:
             return {"error": f"Not enough chunks to generate file"}, 404
         with open(file, 'wb') as outfile:
             for fname in files:

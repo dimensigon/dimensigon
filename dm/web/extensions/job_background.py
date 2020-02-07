@@ -1,21 +1,16 @@
 import datetime
-import uuid
-from collections import Iterable
-
-import six
-from flask import current_app
-
 import heapq
 import inspect
-import itertools
 import threading
 import time
 import typing as t
+import uuid
 from dataclasses import dataclass
 from enum import Enum, auto
 from functools import partial
 
 from flask import Flask
+from flask import current_app
 
 from dm.utils.helpers import is_iterable_not_string
 from dm.utils.typos import Id, Ids, Id_or_Ids
@@ -462,6 +457,60 @@ class AsyncOperator(StoppableThread):
         heapq.heappush(self._pending_tasks, (priority, registry))
         self._lock.release()
         return task.id
+
+    def get_info(self, ids: Id_or_Ids = None) -> t.List[t.Dict]:
+        if ids is None:
+            ids_ = self._entry_finder.keys()
+        elif is_iterable_not_string(ids):
+            ids_ = ids
+        else:
+            ids_ = [ids]
+        data = []
+        for id_ in ids_:
+            registry = self._entry_finder[id_]
+            id_data = {'id': registry.id,
+                       'progress': registry.progress,
+                       'status': registry.status.name}
+            if registry.status == TaskStatus.ERROR and registry.task.e:
+                id_data.update(exception=registry.task.e)
+            data.append(id_data)
+
+        return data
+
+    def wait_data(self, id_: Id, key, timeout: float = None):
+        """
+        waits the tasks passed by parameter to set a key into data
+
+        Parameters
+        ----------
+        id
+            id to wait for
+        timeout
+            total timeout waiting for tasks to set data.
+
+        Returns
+        -------
+        bool
+            returns True if all tasks passed by parameter finished. Otherwise, returns False
+        """
+        if not self.is_alive():
+            raise RuntimeError('AsyncOperator thread must start before call on wait_tasks')
+
+        start_time = time.time()
+
+        registry = self._entry_finder[id_]
+        remainder = max((timeout - (time.time() - start_time)), 0) if timeout is not None else None
+        res = registry.task.running.wait(timeout=remainder)
+        if res:
+            remainder = max((timeout - (time.time() - start_time)), 0) if timeout is not None else None
+            while key not in registry.data and (remainder is None or remainder > 0):
+                time.sleep(0.5)
+                if registry.status in (TaskStatus.ERROR, TaskStatus.FINISHED):
+                    break
+                remainder = max((timeout - (time.time() - start_time)), 0) if timeout is not None else None
+            if key in registry.data:
+                return registry.data[key]
+        return False
 
     def stop(self):
         super().stop()

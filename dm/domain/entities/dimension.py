@@ -2,7 +2,6 @@ import uuid
 from datetime import datetime
 
 import rsa
-from flask import current_app
 
 from dm.domain.entities.base import EntityReprMixin
 from dm.utils.typos import PrivateKey, PublicKey, UUID
@@ -26,3 +25,7 @@ class Dimension(db.Model, EntityReprMixin):
         self.public = public
         self.created_at = created_at
         self.current = current
+
+    @staticmethod
+    def get_current() -> 'Dimension':
+        return Dimension.query.filter_by(current=True).one_or_none()

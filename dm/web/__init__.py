@@ -1,6 +1,5 @@
 import typing as t
 from contextlib import contextmanager
-from pprint import pprint
 
 from flask import Flask, g
 from flask_jwt_extended import JWTManager
@@ -22,10 +21,10 @@ def create_app(config_name):
         app.config.from_mapping(config_name)
     elif config_name in config_by_name:
         app.config.from_object(config_by_name[config_name])
+        config_by_name[config_name].init_app(app)
     else:
         app.config.from_object(config_name)
 
-    config_by_name[config_name].init_app(app)
     # AUTHENTICATION CONFIG
 
     # EXTENSIONS
@@ -52,8 +51,8 @@ def create_app(config_name):
 
 def load_global_data_into_context():
     from dm.domain.entities import Server, Dimension
-    g.server = Server.query.filter_by(_me=True)
-    g.dimension = Dimension.query.filter_by(current=True)
+    g.server = Server.get_current()
+    g.dimension = Dimension.get_current()
 
 
 @contextmanager

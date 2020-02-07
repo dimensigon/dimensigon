@@ -1,6 +1,5 @@
 import ipaddress
 import json
-import os
 import uuid
 from unittest import TestCase
 from unittest.mock import patch
@@ -12,7 +11,7 @@ from flask_jwt_extended import create_access_token
 from dm.domain.entities import Server
 from dm.domain.entities.route import Route
 from dm.network.gateway import unpack_msg, pack_msg
-from dm.web import create_app, db, set_variables
+from dm.web import create_app, db
 
 
 class TestApiRoutes(TestCase):
@@ -55,7 +54,6 @@ class TestApiRoutes(TestCase):
                         )
             db.session.add_all([s1, s2, s3, s4])
             db.session.commit()
-            set_variables()
 
     # def tearDown(self) -> None:
     #     with self.app1.app_context():
