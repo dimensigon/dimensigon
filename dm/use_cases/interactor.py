@@ -20,9 +20,9 @@ from returns.pipeline import is_successful
 from returns.result import Result
 from returns.result import safe
 
-from dm import __version__ as dm_version
 import dm.use_cases.deployment as dpl
 import dm.use_cases.exceptions as ue
+from dm import __version__ as dm_version
 from dm.domain.entities import *
 from dm.domain.exceptions import StateAlreadyInUnlock
 from dm.domain.locker import PriorityLocker
@@ -409,19 +409,23 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
     if ssa.software.size_bytes % chunk_size:
         chunks += 1
 
+    dim = Dimension.get_current()
+    # create transfer
     ssa = SoftwareServerAssociation.query.filter_by(software=ssa.software, server=dest_server)
 
     json_msg = dict(software_id=ssa.software, num_chunks=chunks, filename=os.path.basename(ssa.path),
                     dest_path=dest_path)
-    msg = pack_msg(data=json_msg, pub_key=g.dimension.public, priv_key=g.dimension.private)
+    msg = pack_msg(data=json_msg, pub_key=getattr(dim, 'public'), priv_key=getattr(dim, 'private'))
     cipher_key = base64.b64decode(msg.get('key', '').encode('ascii'))
     s = requests.Session()
     resp = s.post(dest_server.url('transfers'), msg, headers={'D-Destination': str(dest_server.id)})
 
     if resp.status_code == 202:
-        set_progress(5)
         json_resp = resp.json()
-        transfer_id = json_resp.get('transfer_id')
+        data = unpack_msg(json_resp.get('transfer_id'), priv_key=getattr(dim, 'private'),
+                          pub_key=getattr(dim, 'public'), cipher_key=cipher_key)
+        transfer_id = data.get('transfer_id')
+        set_progress(5, data=dict(transfer_id=transfer_id))
         url = dest_server.url('transfer', transfer_id=transfer_id)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_senders) as executor:
             future_to_chunk = {executor.submit(_send_chunk, (
@@ -467,7 +471,7 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
         raise RuntimeError(resp.content)
 
 
-def check_new_versions():
+def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
     base_url = os.environ.get('GIT_REPO') or 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
     releases_uri = '/dimensigon/dimensigon/releases'
     try:
@@ -527,27 +531,30 @@ def check_new_versions():
             deployable = os.path.join(ssa[0].path, soft2deploy.filename)
         else:
             # get software if not in folder
-            file = os.path.join(current_app['SOFTWARE_DIR'], soft2deploy.filename)
+            file = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
             if not os.path.exists(file):
-                ssa = min(soft2deploy.ssas, key=lambda s: s.route.cost or 999999)
+                ssa = min(soft2deploy.ssas, key=lambda x: x.server.route.cost or 999999)
                 r = requests.post(url=ssa.server.url('api_1_0.software_send'),
                                   json=pack_msg({"software_id": str(soft2deploy.id),
                                                  "dest_server_id": str(Server.get_current().id),
                                                  "dest_path": current_app.config['SOFTWARE_DIR'],
                                                  "chunk_size": 1024 * 1024 * 4,
                                                  "max_senders": os.environ.get('WORKERS', 2)},
-                                                destination=ssa.server,
-                                                source=Server.get_current(),
                                                 pub_key=Dimension.get_current().public,
-                                                priv_key=Dimension.get_current().private))
+                                                priv_key=Dimension.get_current().private),
+                                  headers={'D-Destination': str(ssa.server.id)})
                 r.raise_for_status()
                 data = unpack_msg(r.json(), pub_key=Dimension.get_current().public,
                                   priv_key=Dimension.get_current().private)
                 trans_id = data.get('transfer_id')
                 trans: Transfer = Transfer.query.get(trans_id)
-                status = trans.wait_transfer()
-                if status == status.COMPLETED:
-                    deployable = os.path.join(current_app['SOFTWARE_DIR'], soft2deploy.filename)
+                status = trans.wait_transfer(timeout=timeout_wait_transfer, refresh_interval=refresh_interval)
+                if status == TransferStatus.COMPLETED:
+                    deployable = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
+                elif status in (TransferStatus.IN_PROGRESS, TransferStatus.WAITING_CHUNKS):
+                    raise ue.TransferTimeout()
+                else:
+                    raise ue.TransferError(status)
             else:
                 deployable = file
         if deployable:

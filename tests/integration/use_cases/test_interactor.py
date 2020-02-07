@@ -1,14 +1,13 @@
-import json
 import os
-import uuid
 from unittest import TestCase
 from unittest.mock import patch
 
 import requests
 import responses
+
 from dm.domain.entities import Server, Software, SoftwareServerAssociation, Transfer
-from dm.network.gateway import unpack_msg, pack_msg
-from dm.use_cases.interactor import check_new_versions, SoftwareFamily, Dimension
+from dm.network.gateway import pack_msg
+from dm.use_cases.interactor import check_new_versions, SoftwareFamily, Dimension, TransferStatus
 from dm.web import create_app, db
 
 gogs_content = """
@@ -74,7 +73,7 @@ class TestCheckNewVersions(TestCase):
         db.create_all()
         Server.set_initial()
         d = Dimension(name='test', current=True)
-        db.session.add()
+        db.session.add(d)
         db.session.commit()
         self.client = self.app.test_client(use_cookies=True)
 
@@ -198,37 +197,31 @@ class TestCheckNewVersions(TestCase):
                       url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
                       body=requests.exceptions.ConnectionError('No connection'))
 
-
-
-        def request_callback(request):
-            data = unpack_msg(json.loads(request.body))
-            t = Transfer()
-            db.session.add(t)
-            db.session.commit()
-            return 201, {}, json.dumps(pack_msg({'job_id': '728d329e-0e86-11e4-a748-0c84dc037c13'}))
-
-        responses.add_callback(
-            responses.POST, 'http://calc.com/sum',
-            callback=request_callback,
-            content_type='application/json',
-        )
-
-        responses.add(method='POST',
-                      url='https://remoteserver.local:5000/software/send',
-                      body=requests.exceptions.ConnectionError('No connection'))
-
         mock_exists.return_value = False
-        r_server = Server(name='RemoteServer', ip='8.8.8.8', port=5000, dns_name='remoteserver.local')
+        r_server = Server(name='RemoteServer', ip='8.8.8.8', port=5000, dns_name='remoteserver.local', cost=0)
         soft = Software(name='dimensigon', version='v0.2', family=SoftwareFamily.MIDDLEWARE,
                         filename='dimensigon-v0.2.tar.gz', size=10, checksum=b'10')
-        ssa = SoftwareServerAssociation(software=soft, server=Server.get_current(),
+        ssa = SoftwareServerAssociation(software=soft, server=r_server,
                                         path=self.app.config['SOFTWARE_DIR'])
         db.session.add(r_server)
         db.session.add(soft)
         db.session.add(ssa)
         db.session.commit()
 
-        check_new_versions()
+        t = Transfer(software=soft, dest_path='', filename='', num_chunks=5, status=TransferStatus.COMPLETED)
+        db.session.add(t)
+        db.session.commit()
+
+        responses.add(method='POST',
+                      # TODO: change static url for url_for
+                      url=f"http://remoteserver.local:5000/api/v1.0/software/send",
+                      # url=f"https://remoteserver.local:5000{url_for('api_1_0.software_send')}",
+                      json=pack_msg(data={'transfer_id': t.id},
+                                    priv_key=getattr(Dimension.get_current(), 'private'),
+                                    pub_key=getattr(Dimension.get_current(), 'public'))
+                      )
+
+        check_new_versions(timeout_wait_transfer=0.1, refresh_interval=0.05)
 
         self.assertEqual((['python', 'elevator.py', '-d',
                            os.path.join(self.app.config['SOFTWARE_DIR'], 'dimensigon-v0.2.tar.gz')],),

@@ -21,10 +21,10 @@ def create_app(config_name):
         app.config.from_mapping(config_name)
     elif config_name in config_by_name:
         app.config.from_object(config_by_name[config_name])
+        config_by_name[config_name].init_app(app)
     else:
         app.config.from_object(config_name)
 
-    config_by_name[config_name].init_app(app)
     # AUTHENTICATION CONFIG
 
     # EXTENSIONS

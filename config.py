@@ -1,5 +1,4 @@
 import os
-import sys
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -72,7 +71,7 @@ class UnixConfig(ProductionConfig):
 
 
 class TestingConfig(Config):
-    TESTING = True
+    TESTING = False
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
     FLASK_RUN_PORT = 5000
     SERVER_HOST = '0.0.0.0'

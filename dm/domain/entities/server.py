@@ -31,7 +31,7 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
 
     # __table_args__ = (db.UniqueConstraint('name', 'ip', 'port', name='D_server_uq01'),)
 
-    def __init__(self, name: str, ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int,
+    def __init__(self, name: str, ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int = 5000,
                  dns_name: str = None, granules=None, gateway: 'Server' = None, cost: int = None, id: uuid.UUID = None,
                  me=False, **kwargs):
         DistributedEntityMixin.__init__(self, **kwargs)
@@ -63,17 +63,18 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
         ConnectionError:
             if server is unreachable
         """
-        scheme = current_app.config['PREFERRED_URL_SCHEME']
-        if self.cost == 0:
+        scheme = current_app.config['PREFERRED_URL_SCHEME'] or 'http'
+        if self.route.cost == 0:
             root_path = f"{scheme}://{self.dns_name or self.ip}:{self.port}"
-        elif self.gateway:
-            root_path = f"{scheme}://{self.gateway.dns_name or self.gateway.ip}:{self.gateway.port}"
+        elif self.route.gateway:
+            root_path = f"{scheme}://{self.route.gateway.dns_name or self.route.gateway.ip}:{self.route.gateway.port}"
         else:
             raise ConnectionError(f"Unreachable destination {self.id}")
         if view is None:
             return root_path
         else:
-            return root_path + url_for(view, **values, _external=False)
+            with current_app.test_request_context():
+                return root_path + url_for(view, **values)
 
     @classmethod
     def get_neighbours(cls) -> t.List['Server']:
