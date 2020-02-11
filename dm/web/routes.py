@@ -9,6 +9,7 @@ from flask import Blueprint, jsonify, request, current_app
 import dm
 from dm import defaults
 from dm.domain import entities
+from dm.domain.entities import Server
 from dm.web import db, ajl
 # from dm.domain.entities.catalog import Catalog
 from dm.web.decorators import forward_or_dispatch
@@ -39,20 +40,17 @@ def shutdown_server():
     if func is None:
         func = partial(os.kill, os.getppid(), signal.SIGTERM)
     current_app.logger.info('Shutting down server')
-    try:
-        ajl.queue.stop()
-    except RuntimeError as e:
-        current_app.logger.warning(f"queue already stopped")
-    else:
-        now = int(time.time())
-        while True:
-            if ajl.queue.done:
-                break
-            else:
-                tasks = ajl.queue.tasks_in_state((TaskStatus.PENDING, TaskStatus.RUNNING))
-                current_app.logger.info(f"Waiting tasks {', '.join(tasks)} to finish its work")
-                if (int(time.time()) - now) > defaults.MAX_WAITING_TIME:
-                    current_app.logger.info(f"Max time waiting tasks reached. Stopping service")
+    ajl.stop()
+
+    now = int(time.time())
+    while True:
+        if ajl.queue.done:
+            break
+        else:
+            tasks = ajl.queue.tasks_in_state((TaskStatus.PENDING, TaskStatus.RUNNING))
+            current_app.logger.info(f"Waiting tasks {', '.join(tasks)} to finish its work")
+            if (int(time.time()) - now) > defaults.MAX_WAITING_TIME:
+                current_app.logger.info(f"Max time waiting tasks reached. Stopping service")
     if func is None:
         raise RuntimeError('Not running with the Werkzeug Server')
     func()
@@ -69,8 +67,8 @@ def healthcheck():
         return jsonify({"version": dm.__version__,
                         "elevator_version": elevator_ver,
                         "catalog_version": catalog_ver.strftime("%Y%m%d%H%M%S%f"),
-
-                        "neighbours": [],
+                        "async_operator": "running" if ajl.queue.is_alive() else "stopped",
+                        "neighbours": [str(server.id) for server in Server.get_neighbours()],
                         "services": [
                             {
                                 "service1": {

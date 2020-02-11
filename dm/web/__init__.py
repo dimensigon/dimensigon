@@ -39,6 +39,8 @@ def create_app(config_name):
     #     talisman = Talisman(app)
 
     app.before_request(load_global_data_into_context)
+    if not app.config['TESTING']:
+        app.before_first_request(start_background_tasks)
 
     # API version 0
     from dm.web.routes import root_bp
@@ -47,6 +49,14 @@ def create_app(config_name):
     app.register_blueprint(api_1_0_bp)
 
     return app
+
+
+def start_background_tasks():
+    print("Set background tasks")
+    from dm.use_cases.interactor import check_new_versions
+    if not ajl.queue.is_alive():
+        ajl.start(5)
+        ajl.schedule.every(15).minutes.do(check_new_versions, (600,), {})
 
 
 def load_global_data_into_context():

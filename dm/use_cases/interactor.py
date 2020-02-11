@@ -472,13 +472,26 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
 
 
 def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
+    """
+    checks if new version in repo
+
+    Parameters
+    ----------
+    timeout_wait_transfer:
+        timeout waiting tranfer file to end.
+    refresh_interval:
+        time period to check if tranfer ended. Normally, used for test purposes
+
+    Returns
+    -------
+
+    """
     base_url = os.environ.get('GIT_REPO') or 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
     releases_uri = '/dimensigon/dimensigon/releases'
     try:
         r = requests.get(base_url + releases_uri, verify=current_app.config['SSL_VERIFY'], timeout=10)
     except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
         r = None
-
     # get new versions from repo
     if r and r.status_code == 200:
         # get current software

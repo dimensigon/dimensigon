@@ -1,4 +1,5 @@
 import datetime
+import functools
 import heapq
 import inspect
 import threading
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from functools import partial
 
+import schedule as schedule
 from flask import Flask
 from flask import current_app
 
@@ -410,6 +412,8 @@ class AsyncOperator(StoppableThread):
             name of the task. The thread will have the task name as thread.name
         app:
             flask App to push context if necessary
+        fail_silently:
+            fails silently not raising exception
 
         Notes
         -----
@@ -469,6 +473,7 @@ class AsyncOperator(StoppableThread):
         for id_ in ids_:
             registry = self._entry_finder[id_]
             id_data = {'id': registry.id,
+                       'name': registry.task.name,
                        'progress': registry.progress,
                        'status': registry.status.name}
             if registry.status == TaskStatus.ERROR and registry.task.e:
@@ -537,7 +542,7 @@ class JobBackground(object):
             self.init_app(app)
 
     def init_app(self, app):
-        _app_queue.update({app: AsyncOperator()})
+        _app_queue.update({app: (AsyncOperator(), Scheduler())})
         app.extensions['job_background'] = self
 
     def _get_app(self, reference_app=None):
@@ -561,7 +566,112 @@ class JobBackground(object):
     @property
     def queue(self) -> AsyncOperator:
         app = self._get_app()
-        return get_queue(app)
+        return get_queue(app)[0]
+
+    @property
+    def schedule(self) -> 'Scheduler':
+        app = self._get_app()
+        return get_queue(app)[1]
+
+    def start(self, interval=1):
+        self.queue.start()
+        self.schedule.run_continuously(interval)
+
+    def stop(self, wait=False, timeout=None):
+        self.schedule.stop_continously()
+        try:
+            self.queue.stop()
+        except RuntimeError as e:
+            current_app.logger.warning(f"queue already stopped")
+        if wait:
+            self.queue.wait_tasks(timeout=timeout)
 
     def register(self, *args, **kwargs) -> int:
-        return self.queue.register(*args, app=self._get_app(), **kwargs)
+        if 'app' in kwargs:
+            app = kwargs['app']
+            ctx = app.app_context()
+            ctx.push()
+        else:
+            app = None
+        r = self.queue.register(*args, **kwargs)
+        if 'app' in kwargs:
+            ctx.pop()
+        return r
+
+
+def get_job_background(app):
+    """Gets the state for the application"""
+    assert 'job_background' in app.extensions, \
+        'The job background extension was not registered to the current ' \
+        'application.  Please make sure to call init_app() first.'
+    return app.extensions['job_background']
+
+
+class Scheduler(schedule.Scheduler):
+
+    def __init__(self):
+        super().__init__()
+        self._cease_continuous_run = None
+
+    def every(self, interval=1):
+        """Schedule a new periodic job."""
+        job = Job(interval, self)
+        return job
+
+    def run_continuously(self, interval=1):
+        """Continuously run, while executing pending jobs at each elapsed
+        time interval.
+        @return cease_continuous_run: threading.Event which can be set to
+        cease continuous run.
+        Please note that it is *intended behavior that run_continuously()
+        does not run missed jobs*. For example, if you've registered a job
+        that should run every minute and you set a continuous run interval
+        of one hour then your job won't be run 60 times at each interval but
+        only once.
+        """
+        self._cease_continuous_run = threading.Event()
+
+        class ScheduleThread(threading.Thread):
+            @classmethod
+            def run(cls):
+                while not self._cease_continuous_run.is_set():
+                    self.run_pending()
+                    self._cease_continuous_run.wait(interval)
+
+        continuous_thread = ScheduleThread()
+        current_app.logger.info("Running scheduler")
+        continuous_thread.start()
+
+    def stop_continously(self):
+        if self._cease_continuous_run:
+            self._cease_continuous_run.set()
+
+
+class Job(schedule.Job):
+
+    def do(self, job_func, job_func_args=None, job_func_kwargs=None, *args, **kwargs):
+        """
+        Specifies the job_func that should be called every time the
+        job runs.
+
+        Any additional arguments are passed on to job_func when
+        the job runs.
+
+        :param job_func: The function to be scheduled
+        :return: The invoked job instance
+        """
+        app = current_app._get_current_object()
+        ajl: JobBackground = get_job_background(app)
+
+        self.job_func = functools.partial(ajl.register, job_func, job_func_args or (), job_func_kwargs or {}, *args,
+                                          app=app, **kwargs)
+        try:
+            functools.update_wrapper(self.job_func, job_func)
+        except AttributeError:
+            # job_funcs already wrapped by functools.partial won't have
+            # __name__, __module__ or __doc__ and the update_wrapper()
+            # call will fail.
+            pass
+        self._schedule_next_run()
+        self.scheduler.jobs.append(self)
+        return self
