@@ -472,6 +472,20 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
 
 
 def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
+    """
+    checks if new version in repo
+
+    Parameters
+    ----------
+    timeout_wait_transfer:
+        timeout waiting tranfer file to end.
+    refresh_interval:
+        time period to check if tranfer ended. Normally, used for test purposes
+
+    Returns
+    -------
+
+    """
     current_app.logger.info('Starting Upgrade Process')
     base_url = os.environ.get('GIT_REPO') or 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
     releases_uri = '/dimensigon/dimensigon/releases'
@@ -572,10 +586,3 @@ def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
             stdout.close()
     else:
         current_app.logger.debug(f"No version to upgrade")
-
-
-def run_job_updater(app=None):
-    app = app or current_app
-    with app.app_context():
-        ajl.register(check_new_versions, fail_silently=False)
-    threading.Timer(30, run_job_updater, (app,)).start()
