@@ -53,7 +53,7 @@ PACKAGE_NAME = 'dimensigon'
 exc_dirs = ('__pycache__', '.git', '.idea', 'tests', 'migrations', 'tmp', 'bin')
 
 exc_pattern = re.compile(EXCLUDE_PATTERN)
-config_files = ['.env', 'data.sqlite']
+config_files = ['.env', 'sqlite.db']
 
 FORMAT = '%(asctime)-15s %(filename)s %(levelname)-8s %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.INFO)

@@ -13,7 +13,7 @@ class JobList(Resource):
     @jwt_required
     @forward_or_dispatch
     def get(self):
-        return ajl.queue.get_info()
+        return ajl.queue.get_info(json=True)
 
 
 class JobResource(Resource):

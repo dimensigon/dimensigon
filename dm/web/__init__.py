@@ -25,14 +25,12 @@ def create_app(config_name):
     else:
         app.config.from_object(config_name)
 
-    # AUTHENTICATION CONFIG
-
     # EXTENSIONS
     db.init_app(app)
     jwt.init_app(app)
     ajl.init_app(app)
-    # with app.app_context():
-    #     ajl.queue.start()
+    from ..use_cases.interactor import run_job_updater
+    run_job_updater(app)
     # TODO: check ssl redirection and Talisman library
     # if app.config['SSL_REDIRECT']:
     #     from flask_talisman import Talisman

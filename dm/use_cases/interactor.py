@@ -33,7 +33,7 @@ from dm.use_cases.helpers import get_servers_from_scope
 from dm.use_cases.mediator import Mediator
 from dm.utils.decorators import logged
 from dm.utils.helpers import get_distributed_entities, convert, get_filename_from_cd, md5
-from dm.web import db
+from dm.web import db, ajl
 
 if t.TYPE_CHECKING:
     from dm import Server
@@ -472,12 +472,14 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
 
 
 def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
+    current_app.logger.info('Starting Upgrade Process')
     base_url = os.environ.get('GIT_REPO') or 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
     releases_uri = '/dimensigon/dimensigon/releases'
     try:
         r = requests.get(base_url + releases_uri, verify=current_app.config['SSL_VERIFY'], timeout=10)
     except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
         r = None
+        current_app.logger.info('Unable to contact to main repo')
 
     # get new versions from repo
     if r and r.status_code == 200:
@@ -501,6 +503,7 @@ def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
         new_versions = [gogs_ver for gogs_ver in gogs_versions if gogs_ver > max_version]
 
         # TODO: lock distribuited repo
+        current_app.logger.info(f"Downloading new versions {', '.join(map(str, new_versions))}")
         with requests.Session() as s:
             for new_version in new_versions:
                 r = s.get(base_url + gogs_versions[new_version], verify=current_app.config['SSL_VERIFY'])
@@ -534,6 +537,7 @@ def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
             file = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
             if not os.path.exists(file):
                 ssa = min(soft2deploy.ssas, key=lambda x: x.server.route.cost or 999999)
+                current_app.logger.debug(f"Getting software from server {ssa.server.id}")
                 r = requests.post(url=ssa.server.url('api_1_0.software_send'),
                                   json=pack_msg({"software_id": str(soft2deploy.id),
                                                  "dest_server_id": str(Server.get_current().id),
@@ -547,18 +551,31 @@ def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
                 data = unpack_msg(r.json(), pub_key=Dimension.get_current().public,
                                   priv_key=Dimension.get_current().private)
                 trans_id = data.get('transfer_id')
+                current_app.logger.debug(f"Transfer ID {trans_id} generated")
                 trans: Transfer = Transfer.query.get(trans_id)
                 status = trans.wait_transfer(timeout=timeout_wait_transfer, refresh_interval=refresh_interval)
                 if status == TransferStatus.COMPLETED:
                     deployable = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
                 elif status in (TransferStatus.IN_PROGRESS, TransferStatus.WAITING_CHUNKS):
+                    current_app.logger.debug(f"Timeout while waiting transfer ID {trans_id} to be completed")
                     raise ue.TransferTimeout()
                 else:
+                    current_app.logger.debug(f"Error while waiting transfer ID {trans_id} to be completed")
                     raise ue.TransferError(status)
             else:
                 deployable = file
         if deployable:
+            current_app.logger.info(f"Upgrading to version {soft2deploy.version}")
             stdout = open('elevator.out', 'a')
             subprocess.Popen(['python', 'elevator.py', '-d', deployable],
                              stdin=None, stdout=stdout, stderr=stdout, close_fds=True, env=os.environ)
             stdout.close()
+    else:
+        current_app.logger.debug(f"No version to upgrade")
+
+
+def run_job_updater(app=None):
+    app = app or current_app
+    with app.app_context():
+        ajl.register(check_new_versions, fail_silently=False)
+    threading.Timer(30, run_job_updater, (app,)).start()

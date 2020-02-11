@@ -61,6 +61,11 @@ def shutdown_server():
 @root_bp.route('/healthcheck', methods=['GET', 'POST'])
 @forward_or_dispatch
 def healthcheck():
+    current_app.logger.debug('this is a DEBUG message')
+    current_app.logger.info('this is an INFO message')
+    current_app.logger.warning('this is a WARNING message')
+    current_app.logger.error('this is an ERROR message')
+    current_app.logger.critical('this is a CRITICAL message')
     if request.method == 'GET':
         # catalog_ver = current_app.catalog_manager.max_data_mark
         # if catalog_ver:

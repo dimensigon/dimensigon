@@ -3,6 +3,7 @@ import heapq
 import inspect
 import threading
 import time
+import traceback
 import typing as t
 import uuid
 from dataclasses import dataclass
@@ -180,7 +181,7 @@ class AsyncOperator(StoppableThread):
     # __metaclass__ = Singleton
 
     def __init__(self, max_threads: int = 5, wait_interval: float = 0.005, priority: bool = True,
-                 initial_count: int = 1, maxsize_pending: int = None, start=False):
+                 initial_count: int = 1, maxsize_pending: int = None, start=False, fail_silently=None):
         """
         Parameters
         ----------
@@ -205,6 +206,7 @@ class AsyncOperator(StoppableThread):
         self._pending_tasks: t.List[t.Tuple[(int, TaskRegistry)]] = []
         self.priority = priority
         self.daemon = True
+        self.fail_silently = fail_silently
         if start:
             self.start()
 
@@ -382,7 +384,7 @@ class AsyncOperator(StoppableThread):
                  callback: t.Callable[[], None] = None, callback_args: t.Tuple = None,
                  callback_kw: t.Dict[str, t.Any] = None,
                  priority: int = 100,
-                 name: str = None, app: Flask = None, fail_silently=True):
+                 name: str = None, app: Flask = None, fail_silently=None):
 
         """
         Registers an async process to be executed
@@ -446,6 +448,16 @@ class AsyncOperator(StoppableThread):
             priority = 1
 
         registry = TaskRegistry()
+        if fail_silently is not None:
+            fail_silently = fail_silently
+        else:
+            if self.fail_silently is not None:
+                fail_silently = self.fail_silently
+            else:
+                if app.config.get('FLASK_ENV') == 'development':
+                    fail_silently = False
+                else:
+                    fail_silently = True
         task = AsyncTask(id_=uuid.uuid4(), async_proc=async_proc, async_proc_args=async_proc_args,
                          async_proc_kw=async_proc_kw,
                          callback=callback, callback_args=callback_args, callback_kw=callback_kw,
@@ -458,7 +470,7 @@ class AsyncOperator(StoppableThread):
         self._lock.release()
         return task.id
 
-    def get_info(self, ids: Id_or_Ids = None) -> t.List[t.Dict]:
+    def get_info(self, ids: Id_or_Ids = None, json=False) -> t.List[t.Dict]:
         if ids is None:
             ids_ = self._entry_finder.keys()
         elif is_iterable_not_string(ids):
@@ -468,11 +480,12 @@ class AsyncOperator(StoppableThread):
         data = []
         for id_ in ids_:
             registry = self._entry_finder[id_]
-            id_data = {'id': registry.id,
+            id_data = {'id': registry.id if not json else str(registry.id),
                        'progress': registry.progress,
-                       'status': registry.status.name}
+                       'status': registry.status if not json else registry.status.name}
             if registry.status == TaskStatus.ERROR and registry.task.e:
-                id_data.update(exception=registry.task.e)
+                id_data.update(exception=registry.task.e if not json else ''.join(
+                    traceback.format_tb(registry.task.e.__traceback__)))
             data.append(id_data)
 
         return data
@@ -517,7 +530,7 @@ class AsyncOperator(StoppableThread):
         self.purge()
 
 
-_app_queue = {}
+_app_queue: t.Dict[Flask, AsyncOperator] = {}
 
 
 def get_queue(app):
@@ -537,7 +550,7 @@ class JobBackground(object):
             self.init_app(app)
 
     def init_app(self, app):
-        _app_queue.update({app: AsyncOperator()})
+        _app_queue.update({app: AsyncOperator(start=True)})
         app.extensions['job_background'] = self
 
     def _get_app(self, reference_app=None):
@@ -562,6 +575,11 @@ class JobBackground(object):
     def queue(self) -> AsyncOperator:
         app = self._get_app()
         return get_queue(app)
+
+    def stop(self):
+        app = self._get_app()
+        ao = _app_queue.get(app)
+        ao.stop()
 
     def register(self, *args, **kwargs) -> int:
         return self.queue.register(*args, app=self._get_app(), **kwargs)

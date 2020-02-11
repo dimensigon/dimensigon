@@ -1,6 +1,5 @@
 import argparse
 import atexit
-import logging
 import multiprocessing
 import os
 import platform
@@ -33,7 +32,6 @@ import rsa
 from flask import url_for, Flask
 from flask.cli import with_appcontext
 from flask_migrate import Migrate
-from flask_migrate.cli import upgrade, init, migrate
 
 from dm.domain.entities import *
 from dm.domain.entities import Dimension
@@ -41,13 +39,10 @@ from dm.domain.entities.orchestration import Step
 from dm.network.gateway import pack_msg, unpack_msg
 from dm.web import create_app, db
 from dm import defaults
+from flask_jwt_extended import create_access_token
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
 migrate = Migrate(app, db)
-
-# gunicorn_logger = logging.getLogger('gunicorn.error')
-# app.logger.handlers = gunicorn_logger.handlers
-# app.logger.setLevel(gunicorn_logger.level)
 
 
 #
@@ -61,7 +56,7 @@ def make_shell_context():
     return dict(db=db, app=app, ActionTemplate=ActionTemplate, Step=Step, Orchestration=Orchestration, Catalog=Catalog,
                 Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service,
                 Software=Software, SoftwareFamily=SoftwareFamily, SoftwareServerAssociation=SoftwareServerAssociation,
-                Transfer=Transfer)
+                Transfer=Transfer, create_access_token=create_access_token)
 
 
 @app.cli.command()
@@ -165,16 +160,33 @@ def join(server, token):
 @click.argument('name', nargs=1)
 @with_appcontext
 def new(name):
-    priv, pub = rsa.newkeys(4096, poolsize=8)
-    dim = Dimension(**{'name': name, 'pub': pub, 'priv': priv})
+    public, private = rsa.newkeys(4096, poolsize=8)
+    count = Dimension.query.count()
+    dim = Dimension(name=name, public=public, private=private, current=count == 0)
     db.session.add(dim)
     db.session.commit()
-    click.echo('The UUID for the dimension is %s' % dim.id)
+    click.echo(f"New dimension created successfully")
+
+
+@dm.command(help="""Activates the dimension""")
+@click.argument('dim', nargs=1)
+@with_appcontext
+def activate(dim):
+    d = Dimension.query.get(dim).one_or_none()
+    if not d:
+        d = Dimension.query.filter_by(name=dim).one_or_none()
+    if not d:
+        click.echo(f"Dimension '{dim}' not found.")
+        sys.exit(1)
+    Dimension.query.update({Dimension.current: False})
+    d.current = True
+    db.session.commit()
+    click.echo(f"dimension '{dim}' activated")
 
 
 @app.cli.command(help='Fill initial database data.')
 @with_appcontext
-def init_db():
+def populate_db():
     # migrate database to latest revision
     # alembic_dir = os.path.join(basedir, 'migrations')
     #
@@ -185,6 +197,34 @@ def init_db():
 
     # Generate Server
     Server.set_initial()
+
+
+class ProcessStopped:
+    code = 10
+
+
+class ProcessStoppedButPidFile(ProcessStopped):
+    code = 11
+
+
+class ProcessRunning:
+    code = 20
+
+
+class ProcessRunningButNotResponding(ProcessRunning):
+    code = 21
+
+
+class ProcessAlreadyRunning(ProcessRunning):
+    code = 22
+
+
+class ProcessUnknown:
+    code = 30
+
+
+class ProcessPidFileNotFound(ProcessUnknown):
+    code = 31
 
 
 if PLATFORM == 'Linux':
@@ -287,19 +327,33 @@ if PLATFORM == 'Linux':
                 pid = None
             return pid
 
-        def start(self, daemon=False):
+        def status(self, silently=False):
+            # Check for a pidfile to see if the daemon already runs
+            pid = self.get_pid()
+
+            if pid:
+                if psutil.pid_exists(pid):
+                    # process running.
+                    return ProcessRunning
+                else:
+                    sys.stdout.write(f"Process death but pidfile exists\n") if not silently else None
+                    return ProcessStoppedButPidFile
+            else:
+                sys.stdout.write(f"Process stopped\n") if not silently else None
+                return ProcessStopped
+
+        def start(self, silently=False):
             """
             Start the daemon
             """
             # Check for a pidfile to see if the daemon already runs
             rc = self.status(silently=True)
-            if rc == 10:
-                sys.stdout.write(f"Process already running with pid {self.get_pid()}")
-                sys.exit(10)
-            elif rc == 11:
-                sys.stdout.write(
-                    f"Process already running with pid {self.get_pid()} but not responding. Kill it before starting again\n")
-                sys.exit(11)
+            if issubclass(rc, ProcessRunning):
+                if silently:
+                    return rc
+                else:
+                    sys.stdout.write('Process already running\n') if not silently else None
+                    return rc
 
             # Start the daemon
             if self.daemon:
@@ -311,20 +365,25 @@ if PLATFORM == 'Linux':
                 initial = time.time()
                 while True:
                     rc = self.status(silently=True)
-                    if rc != 10:
+                    if issubclass(rc, ProcessStopped):
                         time.sleep(0.1)
                     else:
                         break
                     if time.time() - initial > 30:
                         break
-                if rc == 10:
-                    return 0
+                if issubclass(rc, ProcessRunning):
+                    sys.stdout.write('Process running\n') if not silently else None
+                    return ProcessRunning
                 else:
-                    return 1
+                    if issubclass(rc, ProcessStopped):
+                        sys.stdout.write('Unable to start process\n') if not silently else None
+                    elif issubclass(rc, ProcessUnknown):
+                        sys.stdout.write('Unable to determine process status\n') if not silently else None
+                    return rc
             else:
                 self.run()
 
-        def stop(self, timeout=30):
+        def stop(self, timeout=30, silently=False):
             """
             Stop the daemon
             """
@@ -334,8 +393,8 @@ if PLATFORM == 'Linux':
 
             if not pid:
                 message = "pidfile %s does not exist. Daemon not running?\n"
-                sys.stderr.write(message % self.pidfile)
-                return 1
+                sys.stderr.write(message % self.pidfile) if not silently else None
+                return ProcessUnknown
 
             # Try killing the daemon process
             try:
@@ -353,32 +412,18 @@ if PLATFORM == 'Linux':
                 else:
                     print(str(err))
                     sys.exit(1)
-            sys.stdout.write('Process stopped\n')
-            return 0
+            sys.stdout.write('Process stopped\n') if not silently else None
+            return ProcessStopped
 
-        def restart(self):
+        def restart(self, silently=False):
             """
             Restart the daemon
             """
             rc = self.stop()
-            if rc == 1:
-                sys.stdout.write("Process already stopped.\n")
-            return self.start()
-
-        def status(self, silently=False):
-            # Check for a pidfile to see if the daemon already runs
-            pid = self.get_pid()
-
-            if pid:
-                if psutil.pid_exists(pid):
-                    # process running. Check if responding to a request
-                    return 1
-                else:
-                    sys.stdout.write(f"Process death but pidfile exists\n") if not silently else None
-                    return 2
-            else:
-                sys.stdout.write(f"Process stopped\n") if not silently else None
-                return 0
+            if issubclass(rc, ProcessRunning):
+                sys.stdout.write("Unable to stop process\n") if not silently else None
+                return rc
+            return self.start(silently=silently)
 
         def run(self):
             """
@@ -427,16 +472,51 @@ def main():
             'workers': workers,
             'keyfile': keyfile,
             'certfile': certfile,
-            'ca_certs': ca_certs
+            'ca_certs': ca_certs,
+            'errorlog': 'gunicorn.log',
+            'accesslog': 'access.log',
+            'capture_output': False,
+            # 'logconfig_dict': dict(
+            #     loggers={
+            #         "gunicorn.error": {
+            #             "level": "INFO",
+            #             "handlers": ["error_console"],
+            #             "propagate": False,
+            #             "qualname": "gunicorn.error"
+            #         },
+            #
+            #         "gunicorn.access": {
+            #             "level": "INFO",
+            #             "handlers": ["console"],
+            #             "propagate": False,
+            #             "qualname": "gunicorn.access"
+            #         }
+            #     },
+            #     formatters={
+            #         "generic": {
+            #             "format": "%(asctime)s [%(process)d] [%(module)s] [%(funcName)s] [%(name)s] [%(levelname)s] %(message)s",
+            #             "datefmt": "[%Y-%m-%d %H:%M:%S %z]",
+            #             "class": "logging.Formatter"
+            #         }
+            #     })
+
         }
+
+        class ProcessRunningButNoHealtcheck(ProcessRunning):
+            code = 12
 
         class Dimensigon(Daemon):
             def run(self):
-                StandaloneApplication(app, options).run()
+                if not self.daemon:
+                    options.pop('errorlog')
+                    options.pop('accesslog')
+
+                sa = StandaloneApplication(app, options)
+                sa.run()
 
             def status(self, silently=False):
                 rc = super().status(silently)
-                if rc == 1:
+                if issubclass(rc, ProcessRunning):
                     pid = self.get_pid()
                     try:
                         if certfile:
@@ -448,29 +528,35 @@ def main():
                     except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                         sys.stdout.write(
                             f"Process running with pid {pid} but not responding to requests\n") if not silently else None
-                        return 11
+                        return ProcessRunningButNotResponding
                     else:
-                        sys.stdout.write(f"Process running with pid {pid}\n") if not silently else None
-                        return 10
+                        if not 200 <= r.status_code < 300:
+                            sys.stdout.write(
+                                f"Process running with pid {pid} but unable to get healthcheck\n") if not silently else None
+                            return ProcessRunningButNoHealtcheck
+                        else:
+                            sys.stdout.write(f"Process running with pid {pid}\n") if not silently else None
+                            return ProcessRunning
                 return rc
 
-        daemon = Dimensigon(pidfile=PIDFILE, stdout=stdout, stderr=stderr, daemon=detached)
+    daemon = Dimensigon(pidfile=PIDFILE, stdout=stdout, stderr=stderr, daemon=detached)
 
-        rc = 1
-        if args.action == 'start':
-            rc = daemon.start()
-            if rc == 0:
-                sys.stdout.write("Process started.\n")
-            else:
-                sys.stdout.write(f"Unable to start process. Check {stdout}\n")
-        elif args.action == 'stop':
-            rc = daemon.stop()
-        elif args.action == 'restart':
-            rc = daemon.restart()
-        elif args.action == 'status':
-            rc = daemon.status()
+    rc = 1
+    if args.action == 'start':
+        rc = daemon.start().code
+        # if issubclass(rc, ProcessRunning):
+        #     sys.stdout.write("Process started.\n")
+        # else:
+        #     sys.stdout.write(f"Unable to start process. Check {stderr}\n")
+        # rc = rc.code
+    elif args.action == 'stop':
+        rc = daemon.stop().code
+    elif args.action == 'restart':
+        rc = daemon.restart(silently=False).code
+    elif args.action == 'status':
+        rc = daemon.status().code
 
-        sys.exit(rc)
+    sys.exit(rc)
 
 
 if __name__ == "__main__":
