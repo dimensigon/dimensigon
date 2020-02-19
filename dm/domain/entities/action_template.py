@@ -1,9 +1,11 @@
 import uuid
 from enum import Enum, auto
 
+import sqlalchemy as sa
+
 from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
+from dm.model import Base
 from dm.utils.typos import JSON, UUID, Params
-from dm.web import db
 
 
 class ActionType(Enum):
@@ -14,18 +16,18 @@ class ActionType(Enum):
     TEST = auto()
 
 
-class ActionTemplate(db.Model, EntityReprMixin, DistributedEntityMixin):
+class ActionTemplate(EntityReprMixin, DistributedEntityMixin, Base):
     __tablename__ = 'D_action_template'
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
-    name = db.Column(db.String(40), nullable=False)
-    version = db.Column(db.Integer, nullable=False)
-    action_type = db.Column(db.Enum(ActionType), nullable=False)
-    code = db.Column(db.Text, nullable=False)
-    parameters = db.Column(JSON)
-    expected_output = db.Column(db.Text)
-    expected_rc = db.Column(db.Integer)
-    system_kwargs = db.Column(JSON)
+    id = sa.Column(UUID, primary_key=True, default=uuid.uuid4)
+    name = sa.Column(sa.String(40), nullable=False)
+    version = sa.Column(sa.Integer, nullable=False)
+    action_type = sa.Column(sa.Enum(ActionType), nullable=False)
+    code = sa.Column(sa.Text, nullable=False)
+    parameters = sa.Column(JSON)
+    expected_output = sa.Column(sa.Text)
+    expected_rc = sa.Column(sa.Integer)
+    system_kwargs = sa.Column(JSON)
 
     def __init__(self, name: str, version: int, action_type: ActionType, code: str, parameters: Params = None,
                  expected_output: str = None, expected_rc: int = None, system_kwargs: Params = None,
@@ -42,6 +44,6 @@ class ActionTemplate(db.Model, EntityReprMixin, DistributedEntityMixin):
         self.system_kwargs = system_kwargs or {}
         self.id = id
 
-    # systems = db.relationship("System", secondary='D_action_system', back_populates="actions")
+    # systems = sa.relationship("System", secondary='D_action_system', back_populates="actions")
 
-    __table_args__ = (db.UniqueConstraint('name', 'version', name='D_action_template_uq01'),)
+    __table_args__ = (sa.UniqueConstraint('name', 'version', name='D_action_template_uq01'),)

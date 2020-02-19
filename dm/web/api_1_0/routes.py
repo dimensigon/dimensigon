@@ -4,14 +4,14 @@ from datetime import datetime
 import jsonschema
 import requests
 from flask import current_app, request, g
-from flask_jwt_extended import jwt_required
+from flask_jwt_extended import jwt_required, get_jwt_identity
 
+from dm import db
 from dm.domain.entities import Server, Orchestration
 # from dm.use_cases.interactor import update_table_routing
 from dm.domain.entities.route import Route
 from dm.network.gateway import ping as ping_server
 from dm.use_cases.interactor import update_table_routing_cost
-from dm.web import db
 from dm.web.api_1_0 import api_bp
 from dm.web.decorators import forward_or_dispatch, securizer
 
@@ -21,11 +21,23 @@ def home():
     return "API v1.0 documentation page"
 
 
+@api_bp.route('/join/public', methods=['GET'])
+@jwt_required
+def join_public():
+    if get_jwt_identity() == 'join':
+        return g.dimension.public.save_pkcs1(), 200, {'content-type': 'application/octet-stream'}
+    else:
+        return '', 401
+
+
 @api_bp.route('/join', methods=['POST'])
 @jwt_required
 @securizer
 def join():
-    return g.dimension
+    if get_jwt_identity() == 'join':
+        return g.dimension.to_json(), 200
+    else:
+        return '', 401
 
 
 @api_bp.route('/launch/<string:orchestration_id>', methods=['POST'])

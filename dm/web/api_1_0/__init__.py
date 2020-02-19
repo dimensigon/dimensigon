@@ -16,5 +16,3 @@ api.add_resource(SoftwareList, '/software')
 api.add_resource(SoftwareResource, '/software/<software_id>')
 api.add_resource(SoftwareServers, '/software/<software_id>/server')
 
-api.add_resource(JobList, '/jobs')
-api.add_resource(JobResource, '/jobs/<job_id>')

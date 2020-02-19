@@ -20,3 +20,5 @@ psutil
 returns
 gitpython
 python-dotenv
+netifaces
+apscheduler

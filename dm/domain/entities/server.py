@@ -3,33 +3,36 @@ import os
 import typing as t
 import uuid
 
+import sqlalchemy as sa
 from flask import current_app, url_for, g
 from sqlalchemy import or_
+from sqlalchemy.orm import relationship
 
 from dm.utils.typos import UUID, IP, ScalarListType
-from dm.web import db
 from .base import DistributedEntityMixin, EntityReprMixin
 from .route import Route
 from ... import defaults
-
-
 # TODO: handle multiple networks (IP gateways) on a server with netifaces
-class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
+from ...db import session
+from ...model import Base
+
+
+class Server(Base, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_server'
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
-    name = db.Column(db.String(255), nullable=False)
-    ip = db.Column(IP, nullable=False)
-    port = db.Column(db.Integer, nullable=False)
-    dns_name = db.Column(db.String(255))
-    granules = db.Column(ScalarListType())
-    _me = db.Column("me", db.Boolean, default=False)
+    id = sa.Column(UUID, primary_key=True, default=uuid.uuid4)
+    name = sa.Column(sa.String(255), nullable=False)
+    ip = sa.Column(IP, nullable=False)
+    port = sa.Column(sa.Integer, nullable=False)
+    dns_name = sa.Column(sa.String(255))
+    granules = sa.Column(ScalarListType())
+    _me = sa.Column("me", sa.Boolean, default=False)
 
-    route = db.relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
-                            back_populates="destination")
-    software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
+    route = relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
+                         back_populates="destination")
+    software_list = relationship("SoftwareServerAssociation", back_populates="server")
 
-    # __table_args__ = (db.UniqueConstraint('name', 'ip', 'port', name='D_server_uq01'),)
+    # __table_args__ = (sa.UniqueConstraint('name', 'ip', 'port', name='D_server_uq01'),)
 
     def __init__(self, name: str, ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int = 5000,
                  dns_name: str = None, granules=None, gateway: 'Server' = None, cost: int = None, id: uuid.UUID = None,
@@ -106,7 +109,7 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
             server = Server(name=server_name,
                             port=os.environ.get('FLASK_RUN_PORT') or current_app.config.get('FLASK_RUN_PORT'),
                             ip=defaults.IP, me=True)
-            db.session.add(server)
-            db.session.commit()
+            session.add(server)
+            session.commit()
         elif len(server) > 1:
             raise ValueError('Multiple servers found as me.')

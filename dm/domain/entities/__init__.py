@@ -35,7 +35,8 @@ __all__ = [
 ]
 
 from dm.utils.helpers import get_distributed_entities
-from dm.web import db, session_scope
+from dm.web import session_scope
+from dm.db import session
 
 for name, entity in get_distributed_entities():
     def receive_before_insert(mapper, connection, target):
@@ -59,8 +60,7 @@ for name, entity in get_distributed_entities():
     event.listen(entity, 'before_update', receive_before_update)
 
 
-
-@event.listens_for(db.session, 'after_commit')
+@event.listens_for(session, 'after_commit')
 def receive_after_commit(session):
     # TODO: run this peace of code in a thread to allow the request end while executing the queries
     if 'catalog' in g:

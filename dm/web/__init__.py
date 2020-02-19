@@ -3,16 +3,13 @@ from contextlib import contextmanager
 
 from flask import Flask, g
 from flask_jwt_extended import JWTManager
-from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import sessionmaker
 
 from config import config_by_name
-from .extensions.job_background import JobBackground
+from dm import db
 from .helpers import BaseQueryJSON
 
-db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
-ajl = JobBackground()
 
 
 def create_app(config_name):
@@ -26,19 +23,18 @@ def create_app(config_name):
         app.config.from_object(config_name)
 
     # EXTENSIONS
-    db.init_app(app)
+    @app.teardown_appcontext
+    def cleanup(resp_or_exc):
+        db.session.remove()
+
     jwt.init_app(app)
-    ajl.init_app(app)
-    from ..use_cases.interactor import run_job_updater
-    run_job_updater(app)
+
     # TODO: check ssl redirection and Talisman library
     # if app.config['SSL_REDIRECT']:
     #     from flask_talisman import Talisman
     #     talisman = Talisman(app)
 
     app.before_request(load_global_data_into_context)
-    if not app.config['TESTING']:
-        app.before_first_request(start_background_tasks)
 
     # API version 0
     from dm.web.routes import root_bp
@@ -48,13 +44,6 @@ def create_app(config_name):
 
     return app
 
-
-def start_background_tasks():
-    print("Set background tasks")
-    from dm.use_cases.interactor import check_new_versions
-    if not ajl.queue.is_alive():
-        ajl.start(5)
-        ajl.schedule.every(15).minutes.do(check_new_versions, (600,), {})
 
 
 def load_global_data_into_context():

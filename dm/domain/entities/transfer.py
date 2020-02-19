@@ -3,13 +3,16 @@ import uuid
 from datetime import datetime
 from enum import Enum, auto
 
+import sqlalchemy as sa
 from flask import current_app
+from sqlalchemy.orm import relationship
 
 import dm.defaults
+from dm.db import session
 from dm.domain.entities import Software
 from dm.domain.entities.base import EntityReprMixin
+from dm.model import Base
 from dm.utils.typos import UUID
-from dm.web import db
 
 
 class Status(Enum):
@@ -21,20 +24,20 @@ class Status(Enum):
     CANCELED = auto()
 
 
-class Transfer(db.Model, EntityReprMixin):
+class Transfer(Base, EntityReprMixin):
     __tablename__ = "L_transfer"
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
-    software_id = db.Column(db.ForeignKey('D_software.id'), nullable=False)
-    dest_path = db.Column(db.Text, nullable=False)
-    filename = db.Column(db.String(256), nullable=False)
-    num_chunks = db.Column(db.Integer, nullable=False)
-    status = db.Column(db.Enum(Status), nullable=False, default=Status.WAITING_CHUNKS)
-    created_on = db.Column(db.DateTime(), default=datetime.now())
-    started_on = db.Column(db.DateTime())
-    ended_on = db.Column(db.DateTime())
+    id = sa.Column(UUID, primary_key=True, default=uuid.uuid4)
+    software_id = sa.Column(sa.ForeignKey('D_software.id'), nullable=False)
+    dest_path = sa.Column(sa.Text, nullable=False)
+    filename = sa.Column(sa.String(256), nullable=False)
+    num_chunks = sa.Column(sa.Integer, nullable=False)
+    status = sa.Column(sa.Enum(Status), nullable=False, default=Status.WAITING_CHUNKS)
+    created_on = sa.Column(sa.DateTime(), default=datetime.now())
+    started_on = sa.Column(sa.DateTime())
+    ended_on = sa.Column(sa.DateTime())
 
-    software = db.relationship("Software", uselist=False)
+    software = relationship("Software", uselist=False)
 
     def __init__(self, software: Software, dest_path: str, filename: str, num_chunks: int, status: Status = None,
                  id: uuid.UUID = None):
@@ -65,11 +68,11 @@ class Transfer(db.Model, EntityReprMixin):
         timeout = timeout or 300
         refresh_interval = refresh_interval or 1
         start = time.time()
-        db.session.refresh(self)
+        session.refresh(self)
         delta = 0
         while self.status in (Status.IN_PROGRESS, Status.WAITING_CHUNKS) and delta < timeout:
             time.sleep(refresh_interval)
-            db.session.refresh(self)
+            session.refresh(self)
             delta = time.time() - start
 
         return self.status

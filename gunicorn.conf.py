@@ -1,0 +1,9 @@
+bind = ["127.0.0.1:20194", "0.0.0.0:5000"]
+workers = 1  # multiprocessing.cpu_count() * 2 + 1
+proc_name = "dimensigon"
+# keyfile = 'ssl/cert.pem'
+# certfile = 'ssl/key.pem'
+# ca_certs = 'ssl/ca.crt'
+ssl_version = 'TLS'
+do_handshake_on_connect = False
+pidfile = 'gunicorn.pid'

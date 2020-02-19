@@ -1,18 +1,15 @@
 import os
-import re
 
 import jsonschema
 from flask import request
 from flask_jwt_extended import jwt_required
-
-from dm.domain.entities import Software, SoftwareFamily, Server, SoftwareServerAssociation
-from dm.utils.helpers import md5
-from dm.web import db
-from dm.web.api_1_0.routes import UUID_pattern
-
-from dm.web.decorators import securizer, forward_or_dispatch
 from flask_restful import Resource
 
+from dm import db
+from dm.domain.entities import Software, SoftwareFamily, Server, SoftwareServerAssociation
+from dm.utils.helpers import md5
+from dm.web.api_1_0.routes import UUID_pattern
+from dm.web.decorators import securizer, forward_or_dispatch
 from dm.web.helpers import filter_query
 
 family_list = [f.name.lower() for f in SoftwareFamily]

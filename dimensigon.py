@@ -1,14 +1,12 @@
-import argparse
-import atexit
-import multiprocessing
+import datetime
+import datetime
 import os
 import platform
-import signal
 import sys
-import time
 
-import psutil
 from dotenv import load_dotenv
+
+from dm.utils.helpers import generate_symmetric_key
 
 basedir = os.path.dirname(os.path.abspath(__file__))
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -29,26 +27,18 @@ if os.environ.get('FLASK_COVERAGE'):
 import click
 import requests
 import rsa
-from flask import url_for, Flask
+from flask import Flask
 from flask.cli import with_appcontext
-from flask_migrate import Migrate
 
 from dm.domain.entities import *
 from dm.domain.entities import Dimension
 from dm.domain.entities.orchestration import Step
 from dm.network.gateway import pack_msg, unpack_msg
-from dm.web import create_app, db
-from dm import defaults
+from dm.web import create_app
+from dm import defaults, db, model
 from flask_jwt_extended import create_access_token
 
-app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
-migrate = Migrate(app, db)
-
-
-#
-# @click.group(cls=FlaskGroup, create_app=create_app)
-# def cli():
-#     """Management script for the Wiki application."""
+app: Flask = create_app(defaults.flask_config)
 
 
 @app.shell_context_processor
@@ -114,57 +104,92 @@ server: Reference Server which will allow to join the dimension. You must specif
 token: Authentication Token used for authentication to the reference server""")
 @click.argument('server', nargs=1)
 @click.argument('token', nargs=1)
-# @click.argument('local_server', nargs=1)
-# @click.option('--home', default='.', help='Folder to unpack the software')
-# @click.option('--url', default='https://{server}/software/dimensigon/latest/dimensigon.tar.gz',
-#               help='Specific url to download the software')
-def join(server, token):
-    # click.echo('Beginning software download')
-    # url = url.replace('{server}', server) if '{server}' in url else url
-    # # Streaming, so we can iterate over the response.
-    # r = requests.get(url, stream=True)
-    # # Total size in bytes.
-    # total_size = int(r.headers.get('content-length', 0))
-    # block_size = 1024  # 1 Kibibyte
-    # t = tqdm.tqdm(total=total_size, unit='B', unit_scale=True)
-    # with open(os.path.join(tempfile.gettempdir(), 'dimensigon.tar.gz'), 'wb') as f:
-    #     for data in r.iter_content(block_size):
-    #         t.update(len(data))
-    #         f.write(data)
-    # t.close()
-    # if total_size != 0 and t.n != total_size:
-    #     click.echo("Error while trying to download the software")
-    #     sys.exit(1)
-    # # unpack software
-    with open('dimension.pem', mode='rb') as publicfile:
-        keydata = publicfile.read()
-    d_pub_key = rsa.PublicKey.load_pkcs1(keydata)
-    # Generate Public and Private Temporal Keys
-    priv, pub = rsa.newkeys(2048, poolsize=8)
-    msg = {'pub': pub.save_pkcs1().encode('ascii'), 'access_token': token}
-    data = pack_msg(pub_key=d_pub_key, data=msg)
-    click.echo("Joining to dimension")
-    resp = requests.post(f"https://{server}" + url_for('api_1_0.join'), json=data)
+@click.option('--ssl/--no-ssl', help="makes connection with HTTP protocol", default=True)
+@with_appcontext
+def join(server, token, ssl):
+    protocol = "https" if ssl else "http"
+    resp = requests.get(f"{protocol}://{server}/api/v1.0/join/public", headers={'Authorization': 'Bearer ' + token})
     resp.raise_for_status()
-    resp_data = unpack_msg(resp.json, pub_key=d_pub_key, priv_key=priv)
-    if 'dim' in resp_data:
-        dim = Dimension(**resp_data.get('dim'))
+    pub_key = rsa.PublicKey.load_pkcs1(resp.content)
+
+    # Generate Public and Private Temporal Keys
+    tmp_pub, tmp_priv = rsa.newkeys(2048, poolsize=8)
+    symmetric_key = generate_symmetric_key()
+    data = pack_msg(data={}, pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key, add_key=True)
+    data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
+    click.echo("Joining to dimension")
+    resp = requests.post(f"{protocol}://{server}/api/v1.0/join", json=data,
+                         headers={'Authorization': 'Bearer ' + token})
+    resp.raise_for_status()
+    resp_data = unpack_msg(resp.json(), pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key)
+    if 'id' in resp_data:
+        priv_key = rsa.PrivateKey.load_pkcs1(resp_data.get('private'))
+        dim = Dimension(id=resp_data.get('id'), name=resp_data.get('name'), public=pub_key, private=priv_key,
+                        created_at=resp_data.get('created_at'), current=True)
         db.session.add(dim)
 
         db.session.commit()
 
-    print('Joined to the dimension')
+    click.echo('Joined to the dimension')
+
+
+@dm.command(help="""Create a token for joining the dimension.""")
+def token():
+    click.echo(create_access_token('join', expires_delta=datetime.timedelta(minutes=15)))
 
 
 @dm.command(help="""Create a dimension from scratch. Must provide a name for the dimension""")
 @click.argument('name', nargs=1)
 @with_appcontext
 def new(name):
-    public, private = rsa.newkeys(4096, poolsize=8)
+    from cryptography import x509
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+    import datetime
+
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=4096,
+        backend=default_backend()
+    )
+    priv_pem = private_key.private_bytes(encoding=serialization.Encoding.PEM,
+                                         format=serialization.PrivateFormat.TraditionalOpenSSL,
+                                         encryption_algorithm=serialization.NoEncryption())
+    pub_pem = private_key.public_key().public_bytes(encoding=serialization.Encoding.PEM,
+                                                    format=serialization.PublicFormat.PKCS1)
     count = Dimension.query.count()
-    dim = Dimension(name=name, public=public, private=private, current=count == 0)
+    dim = Dimension(name=name, private=priv_pem, public=pub_pem, current=count == 0)
     db.session.add(dim)
+
+    now = datetime.datetime.utcnow()
+
+    cert = x509.CertificateBuilder().subject_name(x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, name),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u'KnowTrade S.L.'),
+        x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, u'CA Dimension ' + name)])) \
+        .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])) \
+        .not_valid_before(now - datetime.timedelta(1, 0, 0)) \
+        .not_valid_after(now + datetime.timedelta(days=365 * 10)) \
+        .serial_number(x509.random_serial_number()) \
+        .public_key(private_key.public_key()) \
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True, ) \
+        .sign(
+        private_key=private_key, algorithm=hashes.SHA256(),
+        backend=default_backend()
+    )
+
+    ssl_dir = os.path.join(basedir, 'ssl')
+    os.makedirs(ssl_dir, exist_ok=True)
+
+    with open(os.path.join(ssl_dir, "ca.crt"), "wb") as f:
+        f.write(cert.public_bytes(
+            encoding=serialization.Encoding.PEM,
+        ))
+
     db.session.commit()
+
     click.echo(f"New dimension created successfully")
 
 
@@ -184,380 +209,98 @@ def activate(dim):
     click.echo(f"dimension '{dim}' activated")
 
 
+@dm.command(help="""Generates a self signed certificate""")
+@click.option('--hostname')
+@click.option('--ip', multiple=True)
+@with_appcontext
+def certs(hostname, ip):
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    import ipaddress
+
+    d = Dimension.get_current()
+    s = Server.get_current()
+    if not d:
+        click.echo('You must join to a dimension in order to generate a certificate')
+        sys.exit(1)
+
+    ssl_dir = os.path.join(basedir, 'ssl')
+    # get CA crt and private key
+    with open(os.path.join(ssl_dir, 'ca.crt'), 'rb') as fd:
+        ca = x509.load_pem_x509_certificate(fd.read(), default_backend())
+    ca_priv_key = serialization.load_pem_private_key(data=d.private.save_pkcs1(), password=None,
+                                                     backend=default_backend())
+
+    hostname = hostname or s.name
+
+    # Generate our key
+    key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend(),
+    )
+
+    name = x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, hostname),
+        x509.NameAttribute(NameOID.COUNTRY_NAME, u"ES"),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"Barcelona"),
+        x509.NameAttribute(NameOID.LOCALITY_NAME, u"Barcelona"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"KnowTrade S.L."),
+        x509.NameAttribute(NameOID.COMMON_NAME, u"dimensigon.com"),
+    ])
+
+    # best practice seem to be to include the hostname in the SAN, which *SHOULD* mean COMMON_NAME is ignored.
+    alt_names = [x509.DNSName(hostname)]
+
+    # allow addressing by IP, for when you don't have real DNS (common in most testing scenarios
+    if ip:
+        for addr in ip:
+            # openssl wants DNSnames for ips...
+            alt_names.append(x509.DNSName(addr))
+            # ... whereas golang's crypto/tls is stricter, and needs IPAddresses
+            # note: older versions of cryptography do not understand ip_address objects
+            alt_names.append(x509.IPAddress(ipaddress.ip_address(addr)))
+
+    san = x509.SubjectAlternativeName(alt_names)
+
+    now = datetime.datetime.utcnow()
+    csr = x509.CertificateSigningRequestBuilder() \
+        .subject_name(name) \
+        .add_extension(san, critical=False) \
+        .sign(private_key=key, algorithm=hashes.SHA256(), backend=default_backend())
+
+    crt = x509.CertificateBuilder() \
+        .subject_name(csr.subject) \
+        .issuer_name(ca.subject) \
+        .public_key(csr.public_key()) \
+        .serial_number(x509.random_serial_number()) \
+        .not_valid_before(now - datetime.timedelta(1, 0, 0)) \
+        .not_valid_after(now + datetime.timedelta(days=10 * 365)) \
+        .sign(private_key=ca_priv_key, algorithm=hashes.SHA256(), backend=default_backend())
+
+    cert_pem = crt.public_bytes(encoding=serialization.Encoding.PEM)
+    key_pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+
+    )
+
+    with open(os.path.join(ssl_dir, 'cert.pem'), 'wb') as file:
+        file.write(cert_pem)
+
+    with open(os.path.join(ssl_dir, 'key.pem'), 'wb') as file:
+        file.write(key_pem)
+    os.chmod(os.path.join(ssl_dir, 'key.pem'), 0o600)
+
+
 @app.cli.command(help='Fill initial database data.')
 @with_appcontext
-def populate_db():
-    # migrate database to latest revision
-    # alembic_dir = os.path.join(basedir, 'migrations')
-    #
-    # if not os.path.exists(alembic_dir):
-    #     init()
-    #
-    # upgrade()
-
+def init_db():
     # Generate Server
+    model.Base.metadata.create_all(db.engine)
     Server.set_initial()
-
-
-class ProcessStopped:
-    code = 10
-
-
-class ProcessStoppedButPidFile(ProcessStopped):
-    code = 11
-
-
-class ProcessRunning:
-    code = 20
-
-
-class ProcessRunningButNotResponding(ProcessRunning):
-    code = 21
-
-
-class ProcessAlreadyRunning(ProcessRunning):
-    code = 22
-
-
-class ProcessUnknown:
-    code = 30
-
-
-class ProcessPidFileNotFound(ProcessUnknown):
-    code = 31
-
-
-if PLATFORM == 'Linux':
-    import gunicorn.app.base
-
-
-    class StandaloneApplication(gunicorn.app.base.BaseApplication):
-
-        def __init__(self, app, options=None):
-            self.options = options or {}
-            self.application = app
-            super().__init__()
-
-        def load_config(self):
-            config = {key: value for key, value in self.options.items()
-                      if key in self.cfg.settings and value is not None}
-            for key, value in config.items():
-                self.cfg.set(key.lower(), value)
-
-        def load(self):
-            return self.application
-
-
-    class Daemon:
-        """
-        A generic daemon class.
-
-        Usage: subclass the Daemon class and override the run() method
-        """
-
-        def __init__(self, pidfile, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null', daemon=True):
-            self.stdin = stdin
-            self.stdout = stdout
-            self.stderr = stderr
-            self.pidfile = pidfile
-            self.daemon = daemon
-
-        def daemonize(self):
-            """
-            do the UNIX double-fork magic, see Stevens' "Advanced
-            Programming in the UNIX Environment" for details (ISBN 0201563177)
-            http://www.erlenstar.demon.co.uk/unix/faq_2.html#SEC16
-            """
-            try:
-                pid = os.fork()
-                if pid > 0:
-                    # exit first parent
-                    return pid
-            except OSError as e:
-                sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
-                sys.exit(1)
-
-            # decouple from parent environment
-            os.chdir("/")
-            os.setsid()
-            os.umask(0)
-
-            # do second fork
-            try:
-                pid = os.fork()
-                if pid > 0:
-                    # exit from second parent
-                    sys.exit(0)
-            except OSError as e:
-                sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
-                sys.exit(1)
-
-            os.chdir(basedir)
-            # redirect standard file descriptors
-            sys.stdout.flush()
-            sys.stderr.flush()
-            si = open(self.stdin, 'r')
-            so = open(self.stdout, 'a+')
-            se = open(self.stderr, 'a+', 1)
-            os.dup2(si.fileno(), sys.stdin.fileno())
-            os.dup2(so.fileno(), sys.stdout.fileno())
-            os.dup2(se.fileno(), sys.stderr.fileno())
-
-            self.set_pid()
-            return 0
-
-        def delpid(self):
-            try:
-                os.remove(self.pidfile)
-            except FileNotFoundError:
-                pass
-
-        def set_pid(self):
-            # write pidfile
-            atexit.register(self.delpid)
-            pid = str(os.getpid())
-            with open(self.pidfile, 'w') as pidfile:
-                pidfile.write(f"{pid}\n")
-
-        def get_pid(self):
-            try:
-                with open(self.pidfile, 'r') as pf:
-                    pid = int(pf.read().strip())
-            except IOError:
-                pid = None
-            return pid
-
-        def status(self, silently=False):
-            # Check for a pidfile to see if the daemon already runs
-            pid = self.get_pid()
-
-            if pid:
-                if psutil.pid_exists(pid):
-                    # process running.
-                    return ProcessRunning
-                else:
-                    sys.stdout.write(f"Process death but pidfile exists\n") if not silently else None
-                    return ProcessStoppedButPidFile
-            else:
-                sys.stdout.write(f"Process stopped\n") if not silently else None
-                return ProcessStopped
-
-        def start(self, silently=False):
-            """
-            Start the daemon
-            """
-            # Check for a pidfile to see if the daemon already runs
-            rc = self.status(silently=True)
-            if issubclass(rc, ProcessRunning):
-                if silently:
-                    return rc
-                else:
-                    sys.stdout.write('Process already running\n') if not silently else None
-                    return rc
-
-            # Start the daemon
-            if self.daemon:
-                pid = self.daemonize()
-            else:
-                self.set_pid()
-                pid = 0
-            if pid > 0:
-                initial = time.time()
-                while True:
-                    rc = self.status(silently=True)
-                    if issubclass(rc, ProcessStopped):
-                        time.sleep(0.1)
-                    else:
-                        break
-                    if time.time() - initial > 30:
-                        break
-                if issubclass(rc, ProcessRunning):
-                    sys.stdout.write('Process running\n') if not silently else None
-                    return ProcessRunning
-                else:
-                    if issubclass(rc, ProcessStopped):
-                        sys.stdout.write('Unable to start process\n') if not silently else None
-                    elif issubclass(rc, ProcessUnknown):
-                        sys.stdout.write('Unable to determine process status\n') if not silently else None
-                    return rc
-            else:
-                self.run()
-
-        def stop(self, timeout=30, silently=False):
-            """
-            Stop the daemon
-            """
-            # Get the pid from the pidfile
-
-            pid = self.get_pid()
-
-            if not pid:
-                message = "pidfile %s does not exist. Daemon not running?\n"
-                sys.stderr.write(message % self.pidfile) if not silently else None
-                return ProcessUnknown
-
-            # Try killing the daemon process
-            try:
-                start = time.time()
-                while int(time.time() - start) < timeout:
-                    os.kill(pid, signal.SIGTERM)
-                    time.sleep(0.1)
-                if int(time.time() - start) >= timeout:
-                    os.kill(pid, signal.SIGKILL)
-            except OSError as err:
-                err = str(err)
-                if err.find("No such process") > 0:
-                    if os.path.exists(self.pidfile):
-                        os.remove(self.pidfile)
-                else:
-                    print(str(err))
-                    sys.exit(1)
-            sys.stdout.write('Process stopped\n') if not silently else None
-            return ProcessStopped
-
-        def restart(self, silently=False):
-            """
-            Restart the daemon
-            """
-            rc = self.stop()
-            if issubclass(rc, ProcessRunning):
-                sys.stdout.write("Unable to stop process\n") if not silently else None
-                return rc
-            return self.start(silently=silently)
-
-        def run(self):
-            """
-            You should override this method when you subclass Daemon. It will be called after the process has been
-            daemonized by start() or restart().
-            """
-            raise NotImplemented
-
-list_of_choices = ['start', 'stop', 'restart', 'status']
-
-
-def main():
-    # set initial variables
-    parser = argparse.ArgumentParser(description='Starts dimensigon process.')
-    parser.add_argument('--attached', '-a', action='store_true',
-                        help='run server attached to current terminal')
-    parser.add_argument('action', choices=list_of_choices, help='Action to perform.')
-
-    args = parser.parse_args()
-
-    port = os.environ.get('FLASK_RUN_PORT') or app.config.get('FLASK_RUN_PORT') or defaults.LOOPBACK_PORT
-    host = os.environ.get('SERVER_IP') or app.config.get('SERVER_HOST') or '0.0.0.0'
-    keyfile = os.environ.get('KEY_FILE')
-    certfile = os.environ.get('CERT_FILE')
-    ca_certs = os.environ.get('CA_CERTS')
-    listen = [f'127.0.0.1:{defaults.LOOPBACK_PORT}', f'{host}:{port}']
-    workers = os.environ.get('WORKERS') or multiprocessing.cpu_count() * 2
-    threads = os.environ.get('THREADS') or multiprocessing.cpu_count() * 2
-    detached = False if os.environ.get('DETACHED').lower() == 'false' else not args.attached
-    stdout = os.environ.get('STDOUT') or 'dimensigon.out'
-    stderr = os.environ.get('STDERR') or 'dimensigon.err'
-
-    if PLATFORM == 'Windows':
-        raise NotImplementedError('use flask instead')
-        # from waitress import serve
-        #
-        # options = {'host': host,
-        #            'port': port,
-        #            'threads': threads}
-        # serve(app, **options)
-    elif PLATFORM == 'Linux':
-
-        options = {
-            'bind': listen,
-            'threads': threads,
-            'workers': workers,
-            'keyfile': keyfile,
-            'certfile': certfile,
-            'ca_certs': ca_certs,
-            'errorlog': 'gunicorn.log',
-            'accesslog': 'access.log',
-            'capture_output': False,
-            # 'logconfig_dict': dict(
-            #     loggers={
-            #         "gunicorn.error": {
-            #             "level": "INFO",
-            #             "handlers": ["error_console"],
-            #             "propagate": False,
-            #             "qualname": "gunicorn.error"
-            #         },
-            #
-            #         "gunicorn.access": {
-            #             "level": "INFO",
-            #             "handlers": ["console"],
-            #             "propagate": False,
-            #             "qualname": "gunicorn.access"
-            #         }
-            #     },
-            #     formatters={
-            #         "generic": {
-            #             "format": "%(asctime)s [%(process)d] [%(module)s] [%(funcName)s] [%(name)s] [%(levelname)s] %(message)s",
-            #             "datefmt": "[%Y-%m-%d %H:%M:%S %z]",
-            #             "class": "logging.Formatter"
-            #         }
-            #     })
-
-        }
-
-        class ProcessRunningButNoHealtcheck(ProcessRunning):
-            code = 12
-
-        class Dimensigon(Daemon):
-            def run(self):
-                if not self.daemon:
-                    options.pop('errorlog')
-                    options.pop('accesslog')
-
-                sa = StandaloneApplication(app, options)
-                sa.run()
-
-            def status(self, silently=False):
-                rc = super().status(silently)
-                if issubclass(rc, ProcessRunning):
-                    pid = self.get_pid()
-                    try:
-                        if certfile:
-                            r = requests.get(f"https://127.0.0.1:{defaults.LOOPBACK_PORT}/healthcheck", timeout=10,
-                                             verify=False)
-                        else:
-                            r = requests.get(f"http://127.0.0.1:{defaults.LOOPBACK_PORT}/healthcheck", timeout=10,
-                                             verify=False)
-                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-                        sys.stdout.write(
-                            f"Process running with pid {pid} but not responding to requests\n") if not silently else None
-                        return ProcessRunningButNotResponding
-                    else:
-                        if not 200 <= r.status_code < 300:
-                            sys.stdout.write(
-                                f"Process running with pid {pid} but unable to get healthcheck\n") if not silently else None
-                            return ProcessRunningButNoHealtcheck
-                        else:
-                            sys.stdout.write(f"Process running with pid {pid}\n") if not silently else None
-                            return ProcessRunning
-                return rc
-
-    daemon = Dimensigon(pidfile=PIDFILE, stdout=stdout, stderr=stderr, daemon=detached)
-
-    rc = 1
-    if args.action == 'start':
-        rc = daemon.start().code
-        # if issubclass(rc, ProcessRunning):
-        #     sys.stdout.write("Process started.\n")
-        # else:
-        #     sys.stdout.write(f"Unable to start process. Check {stderr}\n")
-        # rc = rc.code
-    elif args.action == 'stop':
-        rc = daemon.stop().code
-    elif args.action == 'restart':
-        rc = daemon.restart(silently=False).code
-    elif args.action == 'status':
-        rc = daemon.status().code
-
-    sys.exit(rc)
-
-
-if __name__ == "__main__":
-    main()

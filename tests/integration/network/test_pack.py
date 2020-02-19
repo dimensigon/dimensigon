@@ -1,5 +1,3 @@
-import base64
-import pickle
 import uuid
 from unittest import TestCase
 from unittest.mock import patch
@@ -68,6 +66,23 @@ class TestPack_msg_pickle(TestCase):
             unpacked_msg = unpack_msg(packed_msg, symmetric_key=self.token)
 
         unpacked_msg = unpack_msg(packed_msg, pub_key=self.pub_key, priv_key=self.priv_key, symmetric_key=self.token)
+
+        self.assertDictEqual({'source': self.source, 'destination': self.dest, 'data': self.data}, packed_msg)
+        self.assertDictEqual(self.data, unpacked_msg)
+
+    def test_pack_unpack_with_symmetric_key_force_key(self):
+        packed_msg = pack_msg(self.data, self.dest, self.source, self.pub_key, self.priv_key, symmetric_key=self.token,
+                              add_key=True)
+        self.assertIn('source', packed_msg)
+        self.assertIn('destination', packed_msg)
+        self.assertIn('key', packed_msg)
+        self.assertIn('signature', packed_msg)
+        self.assertIn('data', packed_msg)
+
+        with self.assertRaises(ValueError) as e:
+            unpacked_msg = unpack_msg(packed_msg, symmetric_key=self.token)
+
+        unpacked_msg = unpack_msg(packed_msg, pub_key=self.pub_key, priv_key=self.priv_key)
 
         self.assertDictEqual({'source': self.source, 'destination': self.dest, 'data': self.data}, packed_msg)
         self.assertDictEqual(self.data, unpacked_msg)
@@ -188,6 +203,23 @@ class TestPack_msg_json(TestCase):
             unpacked_msg = unpack_msg(packed_msg, symmetric_key=self.token)
 
         unpacked_msg = unpack_msg(packed_msg, pub_key=self.pub_key, priv_key=self.priv_key, symmetric_key=self.token)
+
+        self.assertDictEqual({'source': self.source, 'destination': self.dest, 'data': self.data}, packed_msg)
+        self.assertDictEqual(self.data, unpacked_msg)
+
+    def test_pack_unpack_with_symmetric_key_force_key(self):
+        packed_msg = pack_msg(self.data, self.dest, self.source, self.pub_key, self.priv_key, symmetric_key=self.token,
+                              add_key=True)
+        self.assertIn('source', packed_msg)
+        self.assertIn('destination', packed_msg)
+        self.assertIn('key', packed_msg)
+        self.assertIn('signature', packed_msg)
+        self.assertIn('data', packed_msg)
+
+        with self.assertRaises(ValueError) as e:
+            unpacked_msg = unpack_msg(packed_msg, symmetric_key=self.token)
+
+        unpacked_msg = unpack_msg(packed_msg, pub_key=self.pub_key, priv_key=self.priv_key)
 
         self.assertDictEqual({'source': self.source, 'destination': self.dest, 'data': self.data}, packed_msg)
         self.assertDictEqual(self.data, unpacked_msg)

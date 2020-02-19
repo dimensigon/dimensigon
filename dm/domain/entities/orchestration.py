@@ -3,53 +3,55 @@ import uuid
 from collections import ChainMap
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import event, orm
 from sqlalchemy.orm import object_session
 
 from dm.domain.entities import ActionTemplate
 from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
 from dm.domain.exceptions import CycleError
+from dm.model import Base
 from dm.utils.dag import DAG
 from dm.utils.typos import UUID, JSON
-from dm.web import db
 
-step_step = db.Table('D_step_step',
-                     db.Column('parent_step_id', UUID, db.ForeignKey('D_step.id'), primary_key=True),
-                     db.Column('step_id', UUID, db.ForeignKey('D_step.id'), primary_key=True),
+step_step = sa.Table('D_step_step',
+                     Base.metadata,
+                     sa.Column('parent_step_id', UUID, sa.ForeignKey('D_step.id'), primary_key=True),
+                     sa.Column('step_id', UUID, sa.ForeignKey('D_step.id'), primary_key=True),
                      )
 
 
-class Step(db.Model, EntityReprMixin, DistributedEntityMixin):
+class Step(Base, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = "D_step"
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
-    orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'), nullable=False)
-    action_template_id = db.Column(UUID, db.ForeignKey('D_action_template.id'), nullable=False)
-    undo = db.Column(db.Boolean, nullable=False)
-    stop_on_error = db.Column(db.Boolean, default=True, nullable=False)
-    step_parameters = db.Column(JSON, default={})
-    step_expected_output = db.Column(db.Text)
-    step_expected_rc = db.Column(db.Integer)
-    step_system_kwargs = db.Column(JSON, default={})
-    last_modified_at = db.Column(db.DateTime, nullable=False)
+    id = sa.Column(UUID, primary_key=True, default=uuid.uuid4)
+    orchestration_id = sa.Column(UUID, sa.ForeignKey('D_orchestration.id'), nullable=False)
+    action_template_id = sa.Column(UUID, sa.ForeignKey('D_action_template.id'), nullable=False)
+    undo = sa.Column(sa.Boolean, nullable=False)
+    stop_on_error = sa.Column(sa.Boolean, default=True, nullable=False)
+    step_parameters = sa.Column(JSON, default={})
+    step_expected_output = sa.Column(sa.Text)
+    step_expected_rc = sa.Column(sa.Integer)
+    step_system_kwargs = sa.Column(JSON, default={})
+    last_modified_at = sa.Column(sa.DateTime, nullable=False)
 
-    orchestration = db.relationship("Orchestration", primaryjoin="Step.orchestration_id==Orchestration.id",
-                                    back_populates="steps")
-    action_template = db.relationship("ActionTemplate", primaryjoin="Step.action_template_id==ActionTemplate.id",
-                                      backref="steps")
+    orchestration = orm.relationship("Orchestration", primaryjoin="Step.orchestration_id==Orchestration.id",
+                                     back_populates="steps")
+    action_template = orm.relationship("ActionTemplate", primaryjoin="Step.action_template_id==ActionTemplate.id",
+                                       backref="steps")
 
-    _parent_steps = db.relationship("Step", secondary="D_step_step",
-                                    primaryjoin="D_step.c.id==D_step_step.c.step_id",
-                                    secondaryjoin="D_step.c.id==D_step_step.c.parent_step_id",
-                                    back_populates="_children_steps")
+    _parent_steps = orm.relationship("Step", secondary="D_step_step",
+                                     primaryjoin="D_step.c.id==D_step_step.c.step_id",
+                                     secondaryjoin="D_step.c.id==D_step_step.c.parent_step_id",
+                                     back_populates="_children_steps")
 
-    _children_steps = db.relationship("Step", secondary="D_step_step",
-                                      primaryjoin="D_step.c.id==D_step_step.c.parent_step_id",
-                                      secondaryjoin="D_step.c.id==D_step_step.c.step_id",
-                                      back_populates="_parent_steps")
+    _children_steps = orm.relationship("Step", secondary="D_step_step",
+                                       primaryjoin="D_step.c.id==D_step_step.c.parent_step_id",
+                                       secondaryjoin="D_step.c.id==D_step_step.c.step_id",
+                                       back_populates="_parent_steps")
 
     __table_args__ = (
-        db.UniqueConstraint('orchestration_id', 'action_template_id', 'undo', name='D_step_uq01'),)
+        sa.UniqueConstraint('orchestration_id', 'action_template_id', 'undo', name='D_step_uq01'),)
 
     def __init__(self, orchestration, undo: bool, stop_on_error: bool,
                  action_template: ActionTemplate, step_expected_output: t.Optional[str] = None,
@@ -205,18 +207,18 @@ def receive_before_update(mapper, connection, target):
         target.last_modified_at = datetime.now()
 
 
-class Orchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
+class Orchestration(Base, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_orchestration'
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
-    name = db.Column(db.String(80), nullable=False)
-    version = db.Column(db.Integer, nullable=False)
-    desc = db.Column(db.Text)
+    id = sa.Column(UUID, primary_key=True, default=uuid.uuid4)
+    name = sa.Column(sa.String(80), nullable=False)
+    version = sa.Column(sa.Integer, nullable=False)
+    desc = sa.Column(sa.Text)
 
-    steps = db.relationship("Step", primaryjoin="Step.orchestration_id==Orchestration.id",
-                            back_populates="orchestration")
+    steps = orm.relationship("Step", primaryjoin="Step.orchestration_id==Orchestration.id",
+                             back_populates="orchestration")
 
-    __table_args__ = (db.UniqueConstraint('name', 'version', name='D_orchestration_uq01'),)
+    __table_args__ = (sa.UniqueConstraint('name', 'version', name='D_orchestration_uq01'),)
 
     def __init__(self, name: str, version: int, description: t.Optional[str] = None, steps: t.List[Step] = None,
                  dependencies: t.Union[t.Dict[Step, t.List[Step]], t.List[t.Tuple[Step, Step]]] = None,

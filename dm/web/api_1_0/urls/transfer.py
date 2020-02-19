@@ -6,13 +6,13 @@ import jsonschema
 from flask import request, g, current_app
 from flask_jwt_extended import jwt_required
 
+from dm import db
 from dm.domain.entities import Transfer, Software
 from dm.domain.entities.transfer import Status as TransferStatus
 from dm.use_cases.interactor import DEFAULT_CHUNK_SIZE
 from dm.utils.helpers import md5
-from dm.web import db
 from dm.web.api_1_0 import api_bp
-from dm.web.api_1_0.routes import UUID_pattern, join
+from dm.web.api_1_0.routes import UUID_pattern
 from dm.web.decorators import securizer, forward_or_dispatch
 
 schema_transfers = {

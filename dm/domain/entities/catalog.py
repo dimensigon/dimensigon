@@ -1,12 +1,14 @@
 from datetime import datetime
 
-from dm.web import db
+import sqlalchemy as sa
+
+from dm.model import Base
 
 
-class Catalog(db.Model):
+class Catalog(Base):
     __tablename__ = 'L_catalog'
-    entity = db.Column(db.String(40), primary_key=True, unique=True)
-    last_modified_at = db.Column(db.DateTime, nullable=False)
+    entity = sa.Column(sa.String(40), primary_key=True, unique=True)
+    last_modified_at = sa.Column(sa.DateTime, nullable=False)
 
     def __init__(self, entity: str, last_modified_at: datetime):
         self.entity = entity
@@ -14,6 +16,3 @@ class Catalog(db.Model):
 
     def __repr__(self):
         return f'<{self.__class__.__name__}({self.entity}, {self.last_modified_at})>'
-
-
-

@@ -3,9 +3,12 @@ import typing as t
 import uuid
 from datetime import datetime
 
+import sqlalchemy as sa
+from sqlalchemy.orm import relationship
+
 from dm.domain.entities.base import EntityReprMixin
+from dm.model import Base
 from dm.utils.typos import UUID
-from dm.web import db
 
 if t.TYPE_CHECKING:
     pass
@@ -21,21 +24,21 @@ class Status(enum.Enum):
     ERROR = enum.auto()
 
 
-class Execution(db.Model, EntityReprMixin):
+class Execution(Base, EntityReprMixin):
     __tablename__ = 'L_execution'
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
-    step_id = db.Column(db.Integer(), db.ForeignKey('D_step.id'), nullable=False)
-    status = db.Column(db.Enum(Status))
-    start_time = db.Column(db.DateTime, nullable=False, default=datetime.now)
-    end_time = db.Column(db.DateTime, nullable=True)
-    rc = db.Column(db.Integer, nullable=True)
-    stdout = db.Column(db.Text, nullable=True)
-    stderr = db.Column(db.Text, nullable=True)
-    executor = db.Column(UUID, nullable=True)
-    server_id = db.Column(UUID, db.ForeignKey('D_server.id'), nullable=False)
-    service_id = db.Column(UUID, db.ForeignKey('D_service.id'), nullable=False)
+    id = sa.Column(UUID, primary_key=True, default=uuid.uuid4)
+    step_id = sa.Column(sa.Integer(), sa.ForeignKey('D_step.id'), nullable=False)
+    status = sa.Column(sa.Enum(Status))
+    start_time = sa.Column(sa.DateTime, nullable=False, default=datetime.now)
+    end_time = sa.Column(sa.DateTime, nullable=True)
+    rc = sa.Column(sa.Integer, nullable=True)
+    stdout = sa.Column(sa.Text, nullable=True)
+    stderr = sa.Column(sa.Text, nullable=True)
+    executor = sa.Column(UUID, nullable=True)
+    server_id = sa.Column(UUID, sa.ForeignKey('D_server.id'), nullable=False)
+    service_id = sa.Column(UUID, sa.ForeignKey('D_service.id'), nullable=False)
 
-    step = db.relationship("Step")
-    service = db.relationship("Service", back_populates="executions")
-    server = db.relationship("Server")
+    step = relationship("Step")
+    service = relationship("Service", back_populates="executions")
+    server = relationship("Server")

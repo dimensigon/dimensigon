@@ -1,31 +1,35 @@
 import uuid
 from datetime import datetime
 
+import sqlalchemy as sa
+from sqlalchemy.orm import relationship
+
 from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
+from dm.model import Base
 from dm.utils.typos import UUID, Kwargs, JSON
-from dm.web import db
 
 
-class ServiceOrchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
+class ServiceOrchestration(Base, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_service_orchestration'
-    id = db.Column(UUID, primary_key=True)
-    service_id = db.Column(UUID, db.ForeignKey('D_service.id'))
-    orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'))
-    execution_time = db.Column(db.DateTime, default=datetime.now())
+    id = sa.Column(UUID, primary_key=True)
+    service_id = sa.Column(UUID, sa.ForeignKey('D_service.id'))
+    orchestration_id = sa.Column(UUID, sa.ForeignKey('D_orchestration.id'))
+    execution_time = sa.Column(sa.DateTime, default=datetime.now())
 
 
-class Service(db.Model, EntityReprMixin, DistributedEntityMixin):
+class Service(Base, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_service'
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
-    name = db.Column(db.String(255), nullable=False)
-    details = db.Column(JSON)
-    created_on = db.Column(db.DateTime, nullable=False, default=datetime.now)
-    last_ping = db.Column(db.DateTime)
-    status = db.Column(db.String(40))
+    id = sa.Column(UUID, primary_key=True, default=uuid.uuid4)
+    name = sa.Column(sa.String(255), nullable=False)
+    details = sa.Column(JSON)
+    created_on = sa.Column(sa.DateTime, nullable=False, default=datetime.now)
+    last_ping = sa.Column(sa.DateTime)
+    status = sa.Column(sa.String(40))
 
-    executions = db.relationship("Execution", back_populates="service")
-    orchestrations = db.relationship("Orchestration", secondary="D_service_orchestration", order_by="ServiceOrchestration.execution_time")
+    executions = relationship("Execution", back_populates="service")
+    orchestrations = relationship("Orchestration", secondary="D_service_orchestration",
+                                  order_by="ServiceOrchestration.execution_time")
 
     def __init__(self, name: str, details: Kwargs, status: str, created_on: datetime = datetime.now(),
                  last_ping: datetime = None, id: uuid.UUID = None, **kwargs):

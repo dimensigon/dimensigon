@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -214,9 +215,23 @@ def start_and_check():
 
     return True
 
+
 def stop_daemon():
-    cp = subprocess.run(['python', 'dimensigon.py', 'stop'], capture_output=True, env=os.environ, timeout=10)
-    return cp.returncode
+    # cp = subprocess.run(['python', 'dimensigon.py', 'stop'], capture_output=True, env=os.environ, timeout=10)
+    if os.path.exists('gunicorn.pid'):
+        with open('gunicorn.pid') as fd:
+            pid = int(fd.read())
+        os.kill(signal.SIGTERM, pid)
+    procs = [1]
+    now = time.time()
+    while procs and time.time() - now < 30:
+        time.sleep(0.2)
+        procs = [proc for proc in psutil.process_iter() if
+                 proc.name() == 'gunicorn' and len(proc.cmdline()) > 1 and 'dimensigon:app' in proc.cmdline()]
+    if len(procs) > 0:
+        for proc in procs:
+            os.kill(signal.SIGKILL, proc.pid)
+    return 0
 
 
 def kill_daemons():
@@ -344,6 +359,7 @@ class ReturnCodes(Enum):
     ERROR_INSTALLING_PACKAGE = 3
     ERROR_IMPORTING_PACKAGE = 4
     ERROR_STARTING_OLD_VERSION = 5
+
 
 ###################################
 #             MAIN                #
