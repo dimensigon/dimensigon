@@ -1,5 +1,4 @@
 import uuid
-from itertools import count
 from unittest import TestCase
 from unittest.mock import PropertyMock
 

@@ -15,8 +15,8 @@ import yaml
 from cryptography.fernet import Fernet
 from flask import current_app
 
-from dm import defaults
 import dm.defaults as d
+from dm import defaults
 
 
 class AttributeDict(dict):
@@ -80,6 +80,20 @@ def generate_url(destination, uri, protocol='https'):
     return f"{protocol}://{forwarder.name}:{forwarder.port}{uri}"
 
 
+def generate_symmetric_key():
+    return Fernet.generate_key()
+
+
+def encrypt_symmetric(data, key):
+    cipher_suite = Fernet(key)
+    return cipher_suite.encrypt(data)
+
+
+def decrypt_symmetric(data, key):
+    cipher_suite = Fernet(key)
+    return cipher_suite.decrypt(data)
+
+
 def encrypt(data: bytes, symmetric_key: bytes = None) -> \
         t.Tuple[bytes, t.Optional[bytes]]:
     """
@@ -97,9 +111,8 @@ def encrypt(data: bytes, symmetric_key: bytes = None) -> \
     """
     new_symmetric_key = None
     if not symmetric_key:
-        symmetric_key = new_symmetric_key = Fernet.generate_key()
-    cipher_suite = Fernet(symmetric_key)
-    cipher_data = cipher_suite.encrypt(data)
+        symmetric_key = new_symmetric_key = generate_symmetric_key()
+    cipher_data = encrypt_symmetric(data, symmetric_key)
     return cipher_data, new_symmetric_key
 
 

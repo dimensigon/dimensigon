@@ -1,8 +1,6 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-import rsa
-
 from dm.utils.helpers import convert, update_config_yaml
 
 

@@ -3,7 +3,7 @@ import functools
 import json
 
 import rsa
-from flask import current_app, request, session, url_for, g
+from flask import request, session, url_for, g
 from flask_jwt_extended import get_jwt_identity
 
 from dm.domain.entities import Server
@@ -50,22 +50,30 @@ def securizer(func):
                 try:
                     cipher_key = base64.b64decode(request.json.get('key')) if 'key' in request.json else session.get(
                         'cipher_key', None)
-                    if request.json and get_jwt_identity() != 'test':
-                        data = unpack_msg(request.json,
-                                          pub_key=getattr(getattr(current_app, 'dimension', None), 'public', None),
-                                          priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
-                                          cipher_key=cipher_key)
-
-                        try:
-                            json.dumps(data)
-                        except TypeError:
-                            pass
+                    if request.json:
+                        if request.path == url_for('api_1_0.join'):
+                            temp_pub_key = rsa.PublicKey.load_pkcs1(request.json.pop('my_pub_key').encode('ascii'))
+                            data = unpack_msg(request.json,
+                                              pub_key=temp_pub_key,
+                                              priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
+                                              cipher_key=cipher_key)
                         else:
-                            # data packed is still json. We recreate the request.json with the unpacked data
-                            for key in list(request.json.keys()):
-                                request.json.pop(key)
-                            for key, val in data.items():
-                                request.json[key] = val
+                            if get_jwt_identity() != 'test':
+                                data = unpack_msg(request.json,
+                                                  pub_key=getattr(getattr(g, 'dimension', None), 'public', None),
+                                                  priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
+                                                  cipher_key=cipher_key)
+
+                            try:
+                                json.dumps(data)
+                            except TypeError:
+                                pass
+                            else:
+                                # data packed is still json. We recreate the request.json with the unpacked data
+                                for key in list(request.json.keys()):
+                                    request.json.pop(key)
+                                for key, val in data.items():
+                                    request.json[key] = val
                     else:
                         data = request.json
                     g.unpacked_data = data
@@ -89,21 +97,20 @@ def securizer(func):
 
         if isinstance(rv, dict):
             if 'error' not in rv:
-                if request.base_url == url_for('api_1_0.join'):
-                    temp_pub_key = request.get_json().get('pub')
+                if request.path == url_for('api_1_0.join'):
                     rv = pack_msg(data=rv, pub_key=temp_pub_key,
-                                  priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
+                                  priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
                                   cipher_key=cipher_key)
                 else:
                     if get_jwt_identity() != 'test':
-                        rv = pack_msg(data=rv, pub_key=getattr(getattr(current_app, 'dimension', None), 'public', None),
-                                      priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
+                        rv = pack_msg(data=rv, pub_key=getattr(getattr(g, 'dimension', None), 'public', None),
+                                      priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
                                       cipher_key=cipher_key)
 
         if isinstance(rv, list):
             if get_jwt_identity() != 'test':
-                rv = pack_msg(data=rv, pub_key=getattr(getattr(current_app, 'dimension', None), 'public', None),
-                              priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
+                rv = pack_msg(data=rv, pub_key=getattr(getattr(g, 'dimension', None), 'public', None),
+                              priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
                               cipher_key=cipher_key)
 
         if rest:

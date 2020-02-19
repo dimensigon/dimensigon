@@ -4,13 +4,14 @@ from itertools import count
 from unittest import TestCase, mock
 
 from dm.domain.catalog_manager import CatalogManager
-from dm.domain.entities import ActionTemplate, ActionType, Step, Orchestration
 from dm.domain.schemas import set_container
 from dm.framework.data.dao import InMemoryDao
 from dm.framework.exceptions import IdAlreadyExists
 from dm.framework.interfaces.dao import IDao
 from dm.framework.utils.dependency_injection import Container, Scopes as ContainerScope, Scopes, set_global_container
 from dm.repositories import ActionTemplateRepo, StepRepo, OrchestrationRepo
+
+from dm.domain.entities import ActionTemplate, ActionType, Step, Orchestration
 
 
 class TestActionRepo(TestCase):

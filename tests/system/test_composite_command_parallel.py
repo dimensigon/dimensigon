@@ -1,8 +1,9 @@
 import datetime
 from unittest import TestCase, mock
 
-from dm.use_cases.deployment import UndoCommand, Execution, Command, CompositeCommand
 from dm.utils.async_operator import AsyncOperator
+
+from dm.use_cases.deployment import UndoCommand, Execution, Command, CompositeCommand
 
 
 class PickableMock(mock.Mock):

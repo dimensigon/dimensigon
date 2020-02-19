@@ -1,18 +1,15 @@
-import time
 import os
 import time
 import uuid
-from asyncio import Future
-import aiohttp
-import requests
-from asynctest import patch, TestCase, MagicMock, PropertyMock
+
+from asynctest import patch, TestCase
+from testfixtures import LogCapture
 
 from dm.domain.entities.log import Log
 from dm.utils.helpers import encode
 from dm.web import create_app, repo, interactor
+from tests.helpers import set_response_from_mock, wait_mock_called
 from tests.system.data import Server1, Server2
-from tests.helpers import set_response_from_mock, wait_mock_called, captured_output
-from testfixtures import LogCapture
 
 DEST_FOLDER = os.path.dirname(os.path.abspath(__file__))
 

@@ -1,11 +1,10 @@
-import json
+import typing as t
 import uuid
 from enum import Enum, auto
-from flask import json
+
 from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
 from dm.utils.typos import UUID
 from dm.web import db
-import typing as t
 
 
 class Family(Enum):

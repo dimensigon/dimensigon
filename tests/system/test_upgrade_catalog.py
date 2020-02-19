@@ -1,18 +1,14 @@
-import copy
 import datetime
 import json
-import pickle
 from unittest import TestCase, mock
 
 import requests
 from returns.pipeline import is_successful
-from returns.result import Result, Success, Failure
+from returns.result import Result, Success
 
-from config import Config
 import dm
-from dm.use_cases.exceptions import CatalogMismatch, CommunicationError
-
-from dm.utils.helpers import encode, encode
+from dm.use_cases.exceptions import CatalogMismatch
+from dm.utils.helpers import encode
 from dm.web import create_app, catalog_manager, repo, interactor
 from tests.system.data import Server1, Server2, delta
 

@@ -36,7 +36,8 @@ def pack_msg(data,
              pub_key: rsa.PublicKey = None,
              priv_key: rsa.PrivateKey = None,
              cipher_key: bytes = None,
-             symmetric_key: bytes = None) -> t.Dict[str, t.Any]:
+             symmetric_key: bytes = None,
+             add_key=False) -> t.Dict[str, t.Any]:
     """
     formats data in a well known encrypted structure. See Return.
 
@@ -96,8 +97,8 @@ def pack_msg(data,
         msg.update(destination=str(destination.id) if isinstance(destination, Server) else destination)
     if source:
         msg.update(source=str(source.id) if isinstance(source, Server) else source)
-    if pub_key and new_symmetric_key:
-        msg.update(key=base64.b64encode(rsa.encrypt(new_symmetric_key, pub_key)).decode('ascii'))
+    if pub_key and (new_symmetric_key or add_key):
+        msg.update(key=base64.b64encode(rsa.encrypt(new_symmetric_key or symmetric_key, pub_key)).decode('ascii'))
     if priv_key:
         signature = rsa.sign(json.dumps(msg).encode('ascii'), priv_key, 'SHA-512')
         msg.update(signature=base64.b64encode(signature).decode('ascii'))
@@ -244,7 +245,7 @@ def proxy_request(request: 'flask.Request', destination: Server) -> requests.Res
     return requests.request(request.method, url, stream=True, **kwargs)
 
 
-def ping(server: Server, source: Server, retries=3, timeout=3):
+def ping(server: Server, source: Server, retries=3, timeout=3, verify=False):
     tries = 0
     cost = None
     elapsed = None
@@ -255,7 +256,7 @@ def ping(server: Server, source: Server, retries=3, timeout=3):
                 server.route.gateway.url('root.ping') if server.route.gateway else server.url('root.ping'),
                 json={'source': str(source.id)},
                 headers={'D-Destination': str(server.id)},
-                verify=False,
+                verify=verify,
                 timeout=timeout)
         except (TimeoutError, requests.exceptions.ConnectionError):
             # unable to reach actual server through current gateway

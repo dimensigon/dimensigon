@@ -35,7 +35,7 @@ __all__ = [
 ]
 
 from dm.utils.helpers import get_distributed_entities
-from dm.web import db, session_scope
+from dm.web import db
 
 for name, entity in get_distributed_entities():
     def receive_before_insert(mapper, connection, target):
@@ -59,19 +59,19 @@ for name, entity in get_distributed_entities():
     event.listen(entity, 'before_update', receive_before_update)
 
 
-
 @event.listens_for(db.session, 'after_commit')
 def receive_after_commit(session):
     # TODO: run this peace of code in a thread to allow the request end while executing the queries
     if 'catalog' in g:
-        with session_scope() as s:
-            for e, last_modified_at in g.catalog.items():
-                # last_modified_at = s.query(func.max(e.last_modified_at)).scalar()
-                c = s.query(Catalog).filter_by(entity=e.__name__).first()
-                if c is None:
-                    c = Catalog(entity=e.__name__, last_modified_at=last_modified_at)
-                else:
-                    if c.last_modified_at < last_modified_at:
-                        c.last_modified_at = last_modified_at
-                s.add(c)
-                s.commit()
+        # create a different session as the request session is already commited
+        s = db.sessionmaker(db.engine)()
+        for e, last_modified_at in g.catalog.items():
+            # last_modified_at = s.query(func.max(e.last_modified_at)).scalar()
+            c = s.query(Catalog).filter_by(entity=e.__name__).first()
+            if c is None:
+                c = Catalog(entity=e.__name__, last_modified_at=last_modified_at)
+            else:
+                if c.last_modified_at < last_modified_at:
+                    c.last_modified_at = last_modified_at
+            s.add(c)
+            s.commit()

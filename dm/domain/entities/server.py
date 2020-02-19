@@ -104,7 +104,7 @@ class Server(db.Model, EntityReprMixin, DistributedEntityMixin):
             if ip == '0.0.0.0':
                 ip = defaults.IP
             server = Server(name=server_name,
-                            port=os.environ.get('FLASK_RUN_PORT') or current_app.config.get('FLASK_RUN_PORT'),
+                            port=5000,
                             ip=defaults.IP, me=True)
             db.session.add(server)
             db.session.commit()

@@ -1,18 +1,16 @@
+import atexit
 import typing as t
-from contextlib import contextmanager
 
+from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, g
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import sessionmaker
 
 from config import config_by_name
-from .extensions.job_background import JobBackground
 from .helpers import BaseQueryJSON
 
 db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
-ajl = JobBackground()
 
 
 def create_app(config_name):
@@ -28,17 +26,17 @@ def create_app(config_name):
     # EXTENSIONS
     db.init_app(app)
     jwt.init_app(app)
-    ajl.init_app(app)
-    from ..use_cases.interactor import run_job_updater
-    run_job_updater(app)
-    # TODO: check ssl redirection and Talisman library
-    # if app.config['SSL_REDIRECT']:
-    #     from flask_talisman import Talisman
-    #     talisman = Talisman(app)
+
+    if app.config.get('AUTOUPGRADE'):
+        app.scheduler = BackgroundScheduler()
+        from ..use_cases.background_tasks import check_new_versions
+        app.scheduler.start()
+        app.scheduler.add_job(func=check_new_versions, args=(1,), trigger="interval", days=1)
+
+        # Shut down the scheduler when exiting the app
+        atexit.register(lambda: app.scheduler.shutdown())
 
     app.before_request(load_global_data_into_context)
-    if not app.config['TESTING']:
-        app.before_first_request(start_background_tasks)
 
     # API version 0
     from dm.web.routes import root_bp
@@ -49,36 +47,7 @@ def create_app(config_name):
     return app
 
 
-def start_background_tasks():
-    print("Set background tasks")
-    from dm.use_cases.interactor import check_new_versions
-    if not ajl.queue.is_alive():
-        ajl.start(5)
-        ajl.schedule.every(15).minutes.do(check_new_versions, (600,), {})
-
-
 def load_global_data_into_context():
     from dm.domain.entities import Server, Dimension
     g.server = Server.get_current()
     g.dimension = Dimension.get_current()
-
-
-@contextmanager
-def session_scope():
-    """Provide a transactional scope around a series of operations."""
-    # configure Session class with desired options
-    Session = sessionmaker()
-
-    # associate it with our custom Session class
-    Session.configure(bind=db.engine)
-
-    # work with the session
-    session = Session()
-    try:
-        yield session
-        session.commit()
-    except:
-        session.rollback()
-        raise
-    finally:
-        session.close()

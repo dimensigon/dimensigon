@@ -7,7 +7,8 @@ import responses
 
 from dm.domain.entities import Server, Software, SoftwareServerAssociation, Transfer
 from dm.network.gateway import pack_msg
-from dm.use_cases.interactor import check_new_versions, SoftwareFamily, Dimension, TransferStatus
+from dm.use_cases.background_tasks import check_new_versions
+from dm.use_cases.interactor import SoftwareFamily, Dimension, TransferStatus
 from dm.web import create_app, db
 
 gogs_content = """

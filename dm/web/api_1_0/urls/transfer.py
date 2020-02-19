@@ -12,7 +12,7 @@ from dm.use_cases.interactor import DEFAULT_CHUNK_SIZE
 from dm.utils.helpers import md5
 from dm.web import db
 from dm.web.api_1_0 import api_bp
-from dm.web.api_1_0.routes import UUID_pattern, join
+from dm.web.api_1_0.routes import UUID_pattern
 from dm.web.decorators import securizer, forward_or_dispatch
 
 schema_transfers = {

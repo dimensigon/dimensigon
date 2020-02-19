@@ -1,6 +1,6 @@
 import re
 
-from flask import abort, jsonify, make_response
+from flask import abort
 from flask_sqlalchemy import BaseQuery
 
 

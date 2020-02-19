@@ -3,14 +3,13 @@ import typing as t
 import uuid
 
 from asynctest import TestCase, mock
+from dm.domain.catalog_manager import CatalogManager
 from returns.pipeline import is_successful
 
 import dm.network.exceptions as ne
 import dm.use_cases.exceptions as ue
-from dm.domain.catalog_manager import CatalogManager
 from dm.domain.entities import Server
 from dm.domain.locker import LockState, UnlockState
-import dm.network.gateway as gtw
 from dm.use_cases.base import Scope
 from dm.use_cases.interactor import Interactor
 

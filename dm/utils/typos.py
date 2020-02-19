@@ -2,7 +2,6 @@ import ipaddress
 import json
 import typing as t
 import uuid
-from abc import ABC
 
 import rsa
 from sqlalchemy import types

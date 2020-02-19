@@ -2,23 +2,22 @@
 
 
 # Generic/Built-in
-import argparse
 import functools
 import logging
 import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
-from collections import ChainMap
 from datetime import datetime
 from enum import Enum
 
+import click
 import psutil
 import requests
-from dotenv import load_dotenv
 
 import dm.defaults as defaults
 
@@ -31,10 +30,13 @@ __maintainer__ = "Joan Prat"
 __email__ = "joan.prat@dimensigon.com"
 __status__ = "Dev"
 
-# Script variables
-PYPI_URL = 'https://pypi.org/pypi/{PACKAGE}/json'
+import warnings
 
+warnings.filterwarnings("ignore")
+
+# Script variables
 HOME = os.path.dirname(os.path.abspath(__file__))
+ROOT_HOME = os.path.dirname(HOME)
 DM_HOME = os.path.join(HOME, 'dm')
 SOFTWARE = os.path.join(HOME, 'software')
 TMP = os.environ.get('TMP')
@@ -43,9 +45,10 @@ EXCLUDE_PATTERN = r"(\.pyc|\.ini)$"  # files to be excluded from backup
 HEALTHCHECK_URI = '/healthcheck'  # health check URI
 SOFTWARE_URI = '/software'
 FAILED_VERSIONS = '.failed_versions'
-MAX_TIME_WAITING = 300
+MAX_TIME_WAITING = 5
 VERIFY_SSL = False
 PACKAGE_NAME = 'dimensigon'
+pid_file = 'gunicorn.pid'
 
 # max time elevator will wait for the process to start and ask for the health check response
 
@@ -53,7 +56,7 @@ PACKAGE_NAME = 'dimensigon'
 exc_dirs = ('__pycache__', '.git', '.idea', 'tests', 'migrations', 'tmp', 'bin')
 
 exc_pattern = re.compile(EXCLUDE_PATTERN)
-config_files = ['.env', 'sqlite.db']
+config_files = ['.env', 'sqlite.db', 'ssl', 'gunicorn.conf.py']
 
 FORMAT = '%(asctime)-15s %(filename)s %(levelname)-8s %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.INFO)
@@ -100,12 +103,13 @@ def find_process_by_name(process_name):
     return None
 
 
-def get_healtcheck(url, token=None, tries=1, delay=3, backoff=1):
+def get_url(url, token=None, tries=1, delay=3, backoff=1):
     mtries, mdelay = tries, delay
     hc = {}
     while mtries > 0:
         try:
-            r = requests.get(url + "/healthcheck", headers={"Authentication": f"Bearer {token}"}, timeout=2,
+            headers = {"Authentication": f"Bearer {token}"} if token else None
+            r = requests.get(url, headers=headers, timeout=2,
                              verify=VERIFY_SSL)
             if r.status_code == 401:
                 r = requests.get(url + "/healthcheck", verify=VERIFY_SSL, timeout=2)
@@ -114,7 +118,7 @@ def get_healtcheck(url, token=None, tries=1, delay=3, backoff=1):
             break
         except Exception as e:
             msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
-            print(msg)
+            logging.debug(msg)
             time.sleep(mdelay)
             mtries -= 1
             mdelay *= backoff
@@ -124,20 +128,13 @@ def get_healtcheck(url, token=None, tries=1, delay=3, backoff=1):
         return hc
 
 
-def check_services(health_check):
-    status = None
-    for service in health_check.get('services', []):
-        if service.get('status') != 'ALIVE':
-            status = False
-            break
-        else:
-            status = True
-    return status
-
-
-def check_daemon():
-    cp = subprocess.run(['python', 'dimensigon.py', 'status'], env=os.environ)
-    return cp.returncode
+def daemon_running():
+    if os.path.exists(pid_file):
+        with open(pid_file) as fd:
+            pid = int(fd.read())
+        return len([proc for proc in psutil.process_iter() if proc.pid == pid]) > 0
+    else:
+        return False
 
 
 def get_func_find_proc():
@@ -148,75 +145,62 @@ def get_func_find_proc():
     return func
 
 
-#
-#
-# def collect_initial_config():
-#     if platform.system() == 'Windows':
-#         func = get_func_find_proc()
-#         proc_list = func()
-#         for p in proc_list:
-#             args = p.cmdline()
-#             host_op = '-h' if '-h' in args else '--host' if '--host' in args else None
-#             if host_op:
-#                 ip = args[args.index(host_op) + 1]
-#             else:
-#                 ip = '127.0.0.1'
-#             port_op = '-p' if '-p' in args else '--port' if '--port' in args else None
-#             if port_op:
-#                 port = args[args.index(port_op) + 1]
-#             else:
-#                 if 'FLASK_RUN_PORT' in p.environ():
-#                     port = p.environ()['FLASK_RUN_PORT']
-#                 else:
-#                     port = 5000
-#             protocol = 'https' if '--cert' in args else 'http'
-#
-#             config = {'protocol': protocol, 'ip': ip, 'port': port, 'venv': config.get('venv', None)}
-#
-#     else:
-#         config = load_config_wsgi()
-#     with open('config.yaml') as fd:
-#         yaml_config = yaml.load(fd, Loader=yaml.FullLoader)
-#     config = ChainMap(yaml_config[0], config)
-#
-#     config['elevator'].update(localhost=f"{config['protocol']}://{config['ip']}:{config['port']}")
-#
-#     return config
-
-def start_daemon():
-    cp = subprocess.run(['python', 'dimensigon.py', 'start'], capture_output=True, env=os.environ, timeout=10)
+def start_daemon(silently=True):
+    # cp = subprocess.run(['python', 'dimensigon.py', 'start'], capture_output=True, env=os.environ, timeout=10)
+    cp = subprocess.run(
+        ['gunicorn', '-c', 'gunicorn.conf.py', '--keyfile=ssl/key.pem', '--certfile=ssl/cert.pem', '--daemon',
+         'dimensigon:app'],
+        env=os.environ, timeout=10)
+    sys.stdout.write(cp.stdout) if not silently and cp.stdout else None
+    sys.stdout.write(cp.stderr) if not silently and cp.stderr else None
     return cp.returncode
 
 
-def start_and_check():
+def start_and_check(url, tries=MAX_TIME_WAITING // 5):
     # start new version & check health
-    try:
-        rc = start_daemon()
-    except Exception as e:
-        logging.exception("Unable to start daemon.")
-        return False
-    else:
-        logging.debug("Daemon started")
-
-    rc = check_daemon()
-    if rc == 10:
-        d = 5
-        tries = MAX_TIME_WAITING // d
-        hc = get_healtcheck(config['dm_url'], tries=tries, delay=d)
+    start_daemon()
+    # wait to be able to create pid file
+    time.sleep(0.2)
+    if daemon_running():
+        hc = get_url(url, tries=tries, delay=5)
         if hc:
             version_running = hc.get('version', False)
 
-            sc = check_services(hc)
+            # sc = check_services(hc)
+            sc = True
             if sc is True:
                 logging.info(f"New version {version_running} up & running with all services alive")
             else:
                 logging.info(f"New version {version_running} up & running with services not alive")
-
+        else:
+            return False
+    else:
+        return False
     return True
 
+
 def stop_daemon():
-    cp = subprocess.run(['python', 'dimensigon.py', 'stop'], capture_output=True, env=os.environ, timeout=10)
-    return cp.returncode
+    # cp = subprocess.run(['python', 'dimensigon.py', 'stop'], capture_output=True, env=os.environ, timeout=10)
+    def get_procs():
+        return [proc for proc in psutil.process_iter() if
+                proc.name() == 'gunicorn' and len(proc.cmdline()) > 1 and 'dimensigon:app' in proc.cmdline()]
+
+    if os.path.exists('gunicorn.pid'):
+        with open('gunicorn.pid') as fd:
+            pid = int(fd.read())
+        os.kill(pid, signal.SIGTERM)
+    else:
+        for proc in get_procs():
+            os.kill(proc.pid, signal.SIGTERM)
+    procs = get_procs()
+    now = time.time()
+    while procs and time.time() - now < 30:
+        time.sleep(0.2)
+        procs = get_procs()
+    if len(procs) > 0:
+        for proc in procs:
+            os.kill(proc.pid, signal.SIGKILL)
+    return 0
 
 
 def kill_daemons():
@@ -241,79 +225,9 @@ def kill_daemons():
     return False if proc_list else True
 
 
-# def install(package, version=None, capture_output=True):
-#     if version:
-#         spec_pkg = [f"{package}=={version}"]
-#     else:
-#         if isinstance(package, (list, tuple)):
-#             spec_pkg = list(package)
-#         else:
-#             spec_pkg = [package]
-#     cmd = [sys.executable, "-m", "pip", "install", "--upgrade"]
-#     cmd.extend(spec_pkg)
-#     return subprocess.run(cmd, capture_output=capture_output, timeout=300)
-#
-#
-# def pull_software(git_repo=None):
-#     try:
-#         repo = git.Repo()
-#     except git.exc.InvalidGitRepositoryError:
-#         repo = None
-#     if repo is None:
-#         # first time. Clone from remote
-#         repo = git.Repo.clone_from(git_repo, HOME)
-#     pull_info = repo.remote('origin').pull('master')[0]
-
-
-# def clone_repo(source: str, dest: str, branch: str = 'master', ssl: bool = False) -> git.Repo:
-#     return git.Repo.clone_from(source, dest,
-#                                branch=branch, config=f'http.sslVerify={str(ssl).lower()}',
-#                                )
-
-# def get_software_from(url, ver):
-#     data = {'packages': ['dm>' + '.'.join([f'{v}' for v in ver])]}
-#
-#     response = requests.get(url, data)
-#     if response.status_code == 200:
-#         cd = response.headers.get('Content-Disposition')
-#         match = re.match('attachment; filename="(?P<filename>.+)"', cd)
-#         if match:
-#             name = match.groupdict().get('filename')
-#         else:
-#             name = data.get('packages')
-#         with open(os.path.join(config['SOFTWARE'], name), "wb") as handle:
-#             for data in response.iter_content(chunk_size=1024 * 1024):
-#                 handle.write(data)
-#         return os.path.join(config['SOFTWARE'], name)
-#     else:
-#         return None
-
-#
-# def get_software_data(config):
-#     from pkg_resources import parse_version
-#     resp = requests.get(f"{config['elevator']['localhost']}{config['SOFTWARE_URI']}?filter[name]=Dimensigon",
-#                         headers={f"Authorization: Bearer {config['elevator']['token']}"}, verify=VERIFY_SSL)
-#     soft = (None, None)
-#     if resp.status_code == 200:
-#         data = resp.json()
-#         soft = max(data, key=lambda x: parse_version(['version']))
-#         if resp.status_code == 200:
-#             return soft, config['elevator']['localhost']
-#     else:
-#         # try with neighbours
-#         for neighbour in config['elevator']['neighbours']:
-#             resp = requests.get(f"{neighbour}{config['SOFTWARE_URI']}?filter[name]=Dimensigon",
-#                                 headers={f"Authorization: Bearer {config['elevator']['token']}"}, verify=VERIFY_SSL)
-#             if resp == 200:
-#                 data = resp.json()
-#                 soft = max(data, key=lambda x: parse_version(['version']))
-#                 return soft, neighbour
-#     return soft
-
-
-def get_version_from_file():
+def get_version_from_file(root=''):
     current_version = None
-    with open('dm/__init__.py', 'r') as fd:
+    with open(os.path.join(root, 'dm/__init__.py'), 'r') as fd:
         for line in fd.readlines():
             if line.startswith('__version__'):
                 current_version = line.split('=')[1].strip().strip('"')
@@ -322,7 +236,7 @@ def get_version_from_file():
 
 
 def get_current_version(url, token=None):
-    hc = get_healtcheck(url, token)
+    hc = get_url(url, token)
     current_version = hc.get('version', None)
     if current_version is None:
         # try to get version from file
@@ -345,22 +259,22 @@ class ReturnCodes(Enum):
     ERROR_IMPORTING_PACKAGE = 4
     ERROR_STARTING_OLD_VERSION = 5
 
-###################################
-#             MAIN                #
-###################################
-def main(config):
+
+def upgrade(config):
     # backup data
 
-    logging.info(f"Backing up data")
-    backup_filename = shutil.make_archive(os.path.join(TMP, BACKUP_FILENAME), 'gztar', HOME)
+    # logging.info(f"Backing up data")
+    # backup_filename = shutil.make_archive(os.path.join(TMP, BACKUP_FILENAME), 'gztar', HOME)
 
-    old_version = get_current_version(config.get('dm_url'), config.get('token'))
+    old_version = get_current_version(config.get('dm_url') + '/healthcheck', config.get('token'))
 
     # deploy new version
-    dest_folder = os.path.join(os.path.dirname(HOME), 'dimensigon_new')
-    os.mkdir(dest_folder)
+
     logging.info(f"Unzipping file {config['file']}")
-    shutil.unpack_archive(config['file'], dest_folder)
+    dest_folder = os.path.join(ROOT_HOME, 'dimensigon_' + config.get('version'))
+    os.makedirs(dest_folder)
+    shutil.unpack_archive(config['file'], TMP)
+    shutil.move(os.path.join(TMP, 'dimensigon'), dest_folder)
 
     # copy config files and DB from old version to new version
     logging.info("Importing configuration and database from current_version")
@@ -368,35 +282,30 @@ def main(config):
         shutil.copy2(file, dest_folder)
 
     # stop old version
-    rc = check_daemon()
-    if 9 < rc < 20:
-        logging.info("Stopping old version")
-        stopped = stop_daemon()
+    logging.info("Stopping old version")
+    stopped = stop_daemon()
 
     os.chdir(dest_folder)
-    new_version = get_version_from_file()
 
     # TODO: execute DB migrations
 
     # if new version not running
-    if not start_and_check():
-        logging.info(f"New version not running. Reverting changes to version '{old_version}'")
-        os.chdir(config['HOME'])
+    if not start_and_check(config.get('dm_url')):
 
-        # save failed version
-        with open(FAILED_VERSIONS, 'a') as fd:
-            fd.write(f'{new_version}\n')
+        logging.info(f"New version not running. Reverting changes to version '{old_version}'")
 
         # kill daemon if running
         stop_daemon()
 
-        # restore backup
+        os.chdir(config['HOME'])
 
-        unzip_software(backup_filename, DM_HOME)
+        # save failed version
+        with open(FAILED_VERSIONS, 'a') as fd:
+            fd.write(f"{config.get('version')}\n")
 
         # start old version
         logging.info("Starting old version")
-        if not start_and_check():
+        if not start_and_check(config.get('dm_url')):
             logging.error(f"Unable to start old version {old_version}")
             stop_daemon()
             return ReturnCodes.ERROR_STARTING_OLD_VERSION
@@ -434,28 +343,43 @@ def main(config):
             #         program_healthy = start_daemon_check_health()
 
 
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.option('--verify-ssl', is_flag=True, help='verify ssl')
+@click.argument('deployable')
+@click.argument('version')
+def upgrade(verify_ssl, deployable, version, ):
+    # dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+    # if os.path.exists(dotenv_path):
+    #     load_dotenv(dotenv_path)
+    #
+
+    if not os.path.exists(deployable):
+        click.echo(f"deployable '{deployable}' does not exist")
+        sys.exit(1)
+    sys.exit(upgrade(
+        dict(deployable=deployable, version=version, verify_ssl=verify_ssl, git_repo=os.environ.get('GIT_REPO'),
+             dm_url=f"https://127.0.0.1:{defaults.LOOPBACK_PORT}/")))
+
+
+@cli.command()
+def start():
+    if not start_and_check(f"https://127.0.0.1:{defaults.LOOPBACK_PORT}/healthcheck"):
+        logging.info('Unable to start process. Check log for more info')
+        stop_daemon()
+        sys.exit(1)
+    else:
+        sys.exit(0)
+
+
+@cli.command()
+def stop():
+    stop_daemon()
+
+
 if __name__ == '__main__':
-
-    dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-    if os.path.exists(dotenv_path):
-        load_dotenv(dotenv_path)
-
-    parser = argparse.ArgumentParser(description='Process some integers.')
-    # parser.add_argument('--token', '-t', required=True,
-    #                     help='token used for communication with dimensigon')
-    parser.add_argument('--deployable', '-d', required=True,
-                        help='new file to be installed')
-    parser.add_argument('--verify-ssl', action='store_true',
-                        help='new file to be installed')
-
-    args = parser.parse_args()
-    VERIFY_SSL = args.verify_ssl
-    command_line_args = {k: v for k, v in vars(args).items() if v is not None}
-
-    combined = ChainMap(command_line_args, os.environ)
-    local_config = {'dm_url': f"http://127.0.0.1:{defaults.LOOPBACK_PORT}/"}
-
-    local_config.update(git_repo=os.environ.get('GIT_REPO'))
-    config = ChainMap(local_config, command_line_args)
-
-    sys.exit(main(config))
+    cli()

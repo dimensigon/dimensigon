@@ -2,8 +2,9 @@ import threading
 from unittest import TestCase
 from unittest.mock import Mock
 
-from dm.web import create_app, ajl
 from dm.web.extensions.job_background import TaskStatus
+
+from dm.web import create_app, ajl
 
 
 class TestJobBackground(TestCase):

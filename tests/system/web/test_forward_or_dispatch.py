@@ -1,15 +1,13 @@
 import io
-import json
 from unittest import TestCase, mock
 
 import requests
 from flask import url_for
 
 import config
-from dm.domain.entities import Dimension, Server
+from dm.domain.entities import Server
 from dm.web import create_app, db, set_variables
 from dm.web.errors import UnknownServer
-from tests.helpers import initial_test_data
 
 
 class TestForwardOrDispatch(TestCase):
