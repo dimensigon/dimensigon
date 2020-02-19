@@ -134,6 +134,3 @@ def check_new_versions(timeout_wait_transfer=None, refresh_interval=None):
             stdout.close()
     else:
         logger.debug(f"No version to upgrade")
-
-
-def check_neighbours():
