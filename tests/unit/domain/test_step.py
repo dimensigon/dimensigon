@@ -2,7 +2,7 @@ import uuid
 from unittest import TestCase, mock
 from unittest.mock import PropertyMock
 
-from dm.domain.entities import ActionTemplate, ActionType
+from dm.domain.entities import ActionType
 from dm.domain.entities.orchestration import Step
 
 

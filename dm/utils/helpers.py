@@ -1,3 +1,4 @@
+import asyncio
 import configparser
 import datetime
 import hashlib
@@ -5,6 +6,7 @@ import inspect
 import logging
 import os
 import platform
+import re
 import sys
 import typing as t
 from collections import Iterable, ChainMap
@@ -14,8 +16,8 @@ import yaml
 from cryptography.fernet import Fernet
 from flask import current_app
 
-from dm import defaults
 import dm.defaults as d
+from dm import defaults
 
 
 class AttributeDict(dict):
@@ -79,6 +81,20 @@ def generate_url(destination, uri, protocol='https'):
     return f"{protocol}://{forwarder.name}:{forwarder.port}{uri}"
 
 
+def generate_symmetric_key():
+    return Fernet.generate_key()
+
+
+def encrypt_symmetric(data, key):
+    cipher_suite = Fernet(key)
+    return cipher_suite.encrypt(data)
+
+
+def decrypt_symmetric(data, key):
+    cipher_suite = Fernet(key)
+    return cipher_suite.decrypt(data)
+
+
 def encrypt(data: bytes, symmetric_key: bytes = None) -> \
         t.Tuple[bytes, t.Optional[bytes]]:
     """
@@ -96,9 +112,8 @@ def encrypt(data: bytes, symmetric_key: bytes = None) -> \
     """
     new_symmetric_key = None
     if not symmetric_key:
-        symmetric_key = new_symmetric_key = Fernet.generate_key()
-    cipher_suite = Fernet(symmetric_key)
-    cipher_data = cipher_suite.encrypt(data)
+        symmetric_key = new_symmetric_key = generate_symmetric_key()
+    cipher_data = encrypt_symmetric(data, symmetric_key)
     return cipher_data, new_symmetric_key
 
 
@@ -145,10 +160,11 @@ def get_logger(self=None):
 def get_distributed_entities() -> t.List[t.Tuple['str', t.Any]]:
     from dm.domain.entities.base import DistributedEntityMixin
     entities = []
-    for name, cls in inspect.getmembers(sys.modules['dm.domain.entities'], inspect.isclass):
-        if issubclass(cls, DistributedEntityMixin):
-            entities.append((name, cls))
-    return entities
+    for name, cls in inspect.getmembers(sys.modules['dm.domain.entities'],
+                                        lambda x: (inspect.isclass(x) and issubclass(x, DistributedEntityMixin))):
+        entities.append((name, cls))
+
+    return sorted(entities, key=lambda x: x[1].order or 99999)
 
 
 def md5(fname):
@@ -240,3 +256,49 @@ def collect_initial_config():
         config = config.new_child(load_config_wsgi())
 
     return config
+
+
+def get_filename_from_cd(cd):
+    """
+    Get filename from content-disposition
+    """
+    if not cd:
+        return None
+    fname = re.findall('filename=(.+)', cd)
+    if len(fname) == 0:
+        return None
+    return fname[0]
+
+
+def run(aw):
+    if sys.version_info >= (3, 7):
+        return asyncio.run(aw)
+
+    # Emulate asyncio.run() on older versions
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(aw)
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+
+def generate_dimension(name):
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from dm.domain.entities import Dimension
+
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=4096,
+        backend=default_backend()
+    )
+    priv_pem = private_key.private_bytes(encoding=serialization.Encoding.PEM,
+                                         format=serialization.PrivateFormat.TraditionalOpenSSL,
+                                         encryption_algorithm=serialization.NoEncryption())
+    pub_pem = private_key.public_key().public_bytes(encoding=serialization.Encoding.PEM,
+                                                    format=serialization.PublicFormat.PKCS1)
+
+    return Dimension(name=name, private=priv_pem, public=pub_pem)

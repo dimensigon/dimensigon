@@ -1,7 +1,6 @@
 import datetime
 from unittest import TestCase, mock
 
-
 from dm.use_cases.deployment import UndoCommand, CompositeCommand, Execution, Command
 
 

@@ -1,3 +1,5 @@
+beautifulsoup4
+schedule
 gunicorn
 waitress
 PyYAML
@@ -19,3 +21,5 @@ psutil
 returns
 gitpython
 python-dotenv
+netifaces
+apscheduler

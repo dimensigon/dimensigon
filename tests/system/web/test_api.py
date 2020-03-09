@@ -10,7 +10,7 @@ class TestApi(TestCase):
         """Create and configure a new app instance for each test."""
         # create a temporary file to isolate the database for each test
         # create the app with common test config
-        self.app = create_app('dev')
+        self.app = create_app('test')
         self.app_context = self.app.app_context()
         self.app_context.push()
         # db.create_all()

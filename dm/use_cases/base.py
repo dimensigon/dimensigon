@@ -1,6 +1,5 @@
 import typing as t
 from dataclasses import dataclass
-from enum import Enum
 
 import dm.use_cases.deployment as dpl
 from dm.domain.entities import ActionType
@@ -19,15 +18,6 @@ class Token:
     @property
     def uid(self):
         return self.source + '.' + self.destination + '.' + str(self.id)
-
-
-class Scope(Enum):
-    UPGRADE = 10
-    ORCHESTRATION = 30
-    CATALOG = 40
-
-    def __lt__(self, other):
-        return self.value < other.value
 
 
 # class IGateway(ABC):

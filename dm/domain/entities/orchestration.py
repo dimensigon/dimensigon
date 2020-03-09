@@ -1,10 +1,8 @@
 import typing as t
 import uuid
 from collections import ChainMap
-from datetime import datetime
 
-from sqlalchemy import event, orm
-from sqlalchemy.orm import object_session
+from sqlalchemy import orm
 
 from dm.domain.entities import ActionTemplate
 from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
@@ -21,7 +19,7 @@ step_step = db.Table('D_step_step',
 
 class Step(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = "D_step"
-
+    order = 30
     id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'), nullable=False)
     action_template_id = db.Column(UUID, db.ForeignKey('D_action_template.id'), nullable=False)
@@ -192,21 +190,9 @@ class Step(db.Model, EntityReprMixin, DistributedEntityMixin):
                 self._children_steps.remove(step)
 
 
-@event.listens_for(Step, 'before_insert')
-def receive_before_insert(mapper, connection, target):
-    target.orchestration.last_modified_at = datetime.now()
-    target.last_modified_at = datetime.now()
-
-
-@event.listens_for(Step, 'before_update')
-def receive_before_update(mapper, connection, target):
-    if object_session(target).is_modified(target, include_collections=False):
-        target.orchestration.last_modified_at = datetime.now()
-        target.last_modified_at = datetime.now()
-
-
 class Orchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_orchestration'
+    order = 20
 
     id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(80), nullable=False)
@@ -561,14 +547,3 @@ class Orchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
     def subtree(self, steps: t.Union[t.List[Step], t.Iterable[Step]]) -> t.Dict[Step, t.List[Step]]:
         return self._graph.subtree(steps)
 
-
-
-@event.listens_for(Orchestration, 'before_insert')
-def receive_before_insert(mapper, connection, target):
-    target.last_modified_at = datetime.now()
-
-
-@event.listens_for(Orchestration, 'before_update')
-def receive_before_update(mapper, connection, target):
-    if object_session(target).is_modified(target, include_collections=False):
-        target.last_modified_at = datetime.now()

@@ -2,8 +2,6 @@ import datetime
 from dataclasses import dataclass
 from unittest import TestCase, mock
 
-
-
 # function to mock the time
 from dm.use_cases.mediator import SessionManager, SessionExpired
 

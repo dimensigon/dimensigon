@@ -1,12 +1,12 @@
-import uuid
+import time
 from datetime import datetime
 from enum import Enum, auto
 
 from flask import current_app
 
 import dm.defaults
-from dm.domain.entities.base import EntityReprMixin
-from dm.utils.typos import UUID
+from dm.domain.entities import Software
+from dm.domain.entities.base import EntityReprMixin, UUIDEntityMixin
 from dm.web import db
 
 
@@ -19,10 +19,9 @@ class Status(Enum):
     CANCELED = auto()
 
 
-class Transfer(db.Model, EntityReprMixin):
+class Transfer(db.Model, UUIDEntityMixin, EntityReprMixin):
     __tablename__ = "L_transfer"
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     software_id = db.Column(db.ForeignKey('D_software.id'), nullable=False)
     dest_path = db.Column(db.Text, nullable=False)
     filename = db.Column(db.String(256), nullable=False)
@@ -33,6 +32,15 @@ class Transfer(db.Model, EntityReprMixin):
     ended_on = db.Column(db.DateTime())
 
     software = db.relationship("Software", uselist=False)
+
+    def __init__(self, software: Software, dest_path: str, filename: str, num_chunks: int, status: Status = None,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.software = software
+        self.dest_path = dest_path
+        self.filename = filename
+        self.num_chunks = num_chunks
+        self.status = status or Status.WAITING_CHUNKS
 
     def to_json(self):
         try:
@@ -49,3 +57,16 @@ class Transfer(db.Model, EntityReprMixin):
             json.update(ended_on=self.ended_on)
 
         return json
+
+    def wait_transfer(self, timeout=None, refresh_interval: float = None) -> Status:
+        timeout = timeout or 300
+        refresh_interval = refresh_interval or 1
+        start = time.time()
+        db.session.refresh(self)
+        delta = 0
+        while self.status in (Status.IN_PROGRESS, Status.WAITING_CHUNKS) and delta < timeout:
+            time.sleep(refresh_interval)
+            db.session.refresh(self)
+            delta = time.time() - start
+
+        return self.status

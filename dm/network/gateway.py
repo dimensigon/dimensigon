@@ -1,17 +1,20 @@
 import base64
+import copy
 import json
 import pickle
 import typing as t
 
 import aiohttp
-import flask
 import requests
 import rsa
-from flask import g
 
 from dm.domain.entities import Server
 from dm.utils.helpers import generate_url, encrypt, decrypt
+from .exceptions import NotValidMessage
 from .. import defaults
+
+if t.TYPE_CHECKING:
+    import flask
 
 """
 Singleton class that allows communication between servers. create a routes dict like follows:
@@ -28,13 +31,15 @@ Create dict like servers
 """
 
 
+
 def pack_msg(data,
              destination: t.Union[Server, str] = None,
              source: t.Union[Server, str] = None,
              pub_key: rsa.PublicKey = None,
              priv_key: rsa.PrivateKey = None,
              cipher_key: bytes = None,
-             symmetric_key: bytes = None) -> t.Dict[str, t.Any]:
+             symmetric_key: bytes = None,
+             add_key=False) -> t.Dict[str, t.Any]:
     """
     formats data in a well known encrypted structure. See Return.
 
@@ -59,7 +64,7 @@ def pack_msg(data,
     returns a dict with the following structure:
         { "destination": "UUID",
           "source": "UUID",
-          "data": "encrypted_data",
+          "enveloped_data": "encrypted_data",
           "key": "encrypted symmetric key",
           "signature": "current data signature"
         }
@@ -67,34 +72,38 @@ def pack_msg(data,
     if no priv_key specified it does not encrypt the data. 'key' and 'signature' will not append to the structure.
     if symmetric_key or cipher_key given, 'key' will not append to the structure
     """
-    pickled = False
     try:
-        dumped_data = json.dumps(data).encode('utf-8')
+        dumped_data: bytes = json.dumps(data).encode('utf-8')
     except TypeError:
-        pickled = True
-        dumped_data = pickle.dumps(data)
+        dumped_data: bytes = pickle.dumps(data)
+
+    # get symmetric_key
     if cipher_key:
         if not priv_key:
             raise ValueError('priv_key must be provided to decrypt cipher_key')
         else:
             symmetric_key = rsa.decrypt(cipher_key, priv_key=priv_key)
 
+    # encrypt data
     if pub_key or symmetric_key:
-        data, new_symmetric_key = encrypt(dumped_data if isinstance(dumped_data, bytes) else dumped_data.encode('utf-8'),
-                                          symmetric_key=symmetric_key)
+        encrypted_data, new_symmetric_key = encrypt(
+            dumped_data,
+            symmetric_key=symmetric_key)
     else:
-        data, new_symmetric_key = dumped_data, None
+        encrypted_data, new_symmetric_key = dumped_data, None
 
-    msg = dict(data=base64.b64encode(data).decode('ascii'))
+    msg = dict(enveloped_data=base64.b64encode(encrypted_data).decode('ascii'))
 
     if destination:
+        # warnings.warn("The 'destination' parameter is deprecated, "
+        #               "use 'D-Destination header' instead", DeprecationWarning, 2)
         msg.update(destination=str(destination.id) if isinstance(destination, Server) else destination)
     if source:
         msg.update(source=str(source.id) if isinstance(source, Server) else source)
-    if pub_key and new_symmetric_key:
-        msg.update(key=base64.b64encode(rsa.encrypt(new_symmetric_key, pub_key)).decode('ascii'))
+    if pub_key and (new_symmetric_key or add_key):
+        msg.update(key=base64.b64encode(rsa.encrypt(new_symmetric_key or symmetric_key, pub_key)).decode('ascii'))
     if priv_key:
-        signature = rsa.sign(json.dumps(msg).encode('ascii'), priv_key, 'SHA-512')
+        signature = rsa.sign(json.dumps(msg, sort_keys=True).encode('ascii'), priv_key, 'SHA-512')
         msg.update(signature=base64.b64encode(signature).decode('ascii'))
     return msg
 
@@ -123,33 +132,36 @@ def unpack_msg(msg, pub_key: rsa.PublicKey = None, priv_key: rsa.PrivateKey = No
     -------
 
     """
+    if 'enveloped_data' not in msg:
+        raise NotValidMessage('msg was not packed')
     if 'signature' in msg:
         if not pub_key:
-            raise ValueError('No public key specified')
-        signature = base64.b64decode(msg.pop('signature').encode('ascii'))
-        rsa.verify(json.dumps(msg).encode(), signature, pub_key)
+            raise ValueError('No public key specified to validate signature')
+        signature = base64.b64decode(msg.get('signature').encode('ascii'))
+        msg_to_validate = copy.deepcopy(msg)
+        msg_to_validate.pop('signature')
+        rsa.verify(json.dumps(msg_to_validate, sort_keys=True).encode('ascii'), signature, pub_key)
 
-    cipher_key = base64.b64decode(msg.pop('key', '').encode('ascii')) or cipher_key
+    cipher_key = base64.b64decode(msg.get('key', '').encode('ascii')) or cipher_key
     if cipher_key:
         if not priv_key:
-            raise ValueError('No private key specified')
+            raise ValueError('No private key specified to decrpyt cipher_key')
         else:
             symmetric_key = rsa.decrypt(cipher_key, priv_key)
 
-    data = msg.pop('data')
+    enveloped_data = msg.get('enveloped_data')
 
     if symmetric_key:
-        data = decrypt(base64.b64decode(data.encode('ascii')), symmetric_key)
+        unloaded_data = decrypt(base64.b64decode(enveloped_data.encode('ascii')), symmetric_key)
     else:
-        data = base64.b64decode(data.encode('ascii'))
+        unloaded_data = base64.b64decode(enveloped_data.encode('ascii'))
 
     try:
-        data = pickle.loads(data)
+        data = pickle.loads(unloaded_data)
     except pickle.PickleError:
-        data = json.loads(data)
+        data = json.loads(unloaded_data)
 
-    msg.update(data=data)
-    return msg.get('data')
+    return data
 
 
 def send_message(destination: Server, source: Server, pub_key=None, priv_key=None, raise_for_status=True, data=None) -> \
@@ -173,7 +185,7 @@ def send_message(destination: Server, source: Server, pub_key=None, priv_key=Non
     """
     url = generate_url(destination, uri='/socket', protocol=defaults.PROTOCOL)
     json = pack_msg(destination, source, pub_key, priv_key, data=data)
-    r = requests.post(url, json=json)
+    r = requests.post(url, json=json, verify=False)
     # TODO Handle errors codes in HTTP to convert to understandable errors in Domain Application
     if raise_for_status:
         r.raise_for_status()
@@ -211,7 +223,7 @@ async def async_send_message(destination: Server, source: Server, pub_key=None, 
         return await r.text(), r.status
 
 
-def proxy_request(request: flask.Request, destination: Server) -> requests.Response:
+def proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
     url = destination.url() + request.full_path
     json = request.get_json()
 
@@ -236,10 +248,10 @@ def proxy_request(request: flask.Request, destination: Server) -> requests.Respo
 
     kwargs['cookies'] = cookies
 
-    return requests.request(request.method, url, stream=True, **kwargs)
+    return requests.request(request.method, url, stream=True, verify=verify, **kwargs)
 
 
-def ping(server: Server, retries=3, timeout=3):
+def ping(server: Server, source: Server, retries=3, timeout=3, verify=False):
     tries = 0
     cost = None
     elapsed = None
@@ -248,14 +260,14 @@ def ping(server: Server, retries=3, timeout=3):
             tries += 1
             resp = requests.post(
                 server.route.gateway.url('root.ping') if server.route.gateway else server.url('root.ping'),
-                json={'source': str(g.server.id), 'destination': str(server.id)},
-                verify=False,
+                json={'source': str(source.id)},
+                headers={'D-Destination': str(server.id)},
+                verify=verify,
                 timeout=timeout)
         except (TimeoutError, requests.exceptions.ConnectionError):
-            # unable to reach actual server through current gateway, we will get the new gateway
+            # unable to reach actual server through current gateway
             resp = None
         if resp is not None and resp.status_code == 200:
             cost = resp.json().get('hops', 0)
             elapsed = resp.elapsed
     return cost, elapsed
-

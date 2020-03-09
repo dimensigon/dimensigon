@@ -1,9 +1,6 @@
 import uuid
-from itertools import count
-from unittest import TestCase
+from unittest import TestCase, mock
 from unittest.mock import PropertyMock
-
-from asynctest import mock
 
 import dm.domain.entities as e
 from dm.domain.exceptions import CycleError

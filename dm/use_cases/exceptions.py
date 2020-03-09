@@ -1,5 +1,7 @@
 import typing as t
 
+from dm.utils.typos import UUID
+
 """
 Exceptions for Use Case errors
 IDs from 1000 to 1999
@@ -19,9 +21,19 @@ class ServersMustNotBeBlank(UseCaseException):
 class ErrorServerLock(UseCaseException):
     _id = 1002
 
-    def __init__(self, server, msg, *args):
+    def __init__(self, server: UUID, msg, code, *args):
         self.server = server
-        super().__init__(msg, *args)
+        self.code = code
+        self.msg = msg
+
+        super().__init__(*args)
+
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) \
+               and self.server == other.server \
+               and self.code == other.code \
+               and self.msg == other.msg \
+               and self.args == other.args
 
 
 class UpgradeCatalog(UseCaseException):
@@ -35,7 +47,8 @@ class CatalogMismatch(UpgradeCatalog):
 class ErrorLock(UseCaseException):
     _id = 1003
 
-    def __init__(self, errors: t.List[ErrorServerLock]):
+    def __init__(self, scope, errors: t.List[ErrorServerLock]):
+        self.scope = scope
         self.errors = errors
 
     def __iter__(self) -> 'ErrorLock':
@@ -48,6 +61,17 @@ class ErrorLock(UseCaseException):
             return self.errors[self.n]
         raise StopIteration
 
+    def __str__(self):
+        return '\n'.join([f"Server {e.server}: {e.code}, {e.msg}" for e in self])
+
+
+class ErrorUnLock(ErrorLock):
+    ...
+
+
+class ErrorPreventingLock(ErrorLock):
+    ...
+
 
 class MediatorError(Exception):
     """Error related with Class Mediator"""
@@ -55,3 +79,11 @@ class MediatorError(Exception):
 
 class CommunicationError(MediatorError):
     """An error occurred while trying to communicate with a server"""
+
+
+class TransferTimeout(UseCaseException):
+    """A timeout while waiting for transfer to end"""
+
+
+class TransferError(UseCaseException):
+    """Error ocurred when trying to send chunks"""

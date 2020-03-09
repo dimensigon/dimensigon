@@ -1,7 +1,7 @@
-from unittest import TestCase, mock
+from unittest import TestCase
 from unittest.mock import patch
+
 from dm.domain.entities import ActionType, ActionTemplate, Orchestration
-from dm.domain.entities.orchestration import Step
 from dm.use_cases.interactor import Interactor
 
 

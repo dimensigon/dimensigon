@@ -11,12 +11,13 @@ from flask import g
 
 import dm.domain.exceptions as de
 import dm.use_cases.exceptions as ue
-from dm.domain.entities import Server, Dimension, Catalog
+from dm.domain.entities import Server, Dimension
+from dm.domain.entities.locker import Scope
 from dm.network import TypeMsg
 from dm.network import gateway as gtw
-from dm.use_cases.base import Token, Scope
+from dm.use_cases.base import Token
 from dm.use_cases.deployment import Command
-from dm.utils.helpers import get_now, get_distributed_entities
+from dm.utils.helpers import get_now
 from dm.utils.typos import Callback, Kwargs
 
 
@@ -450,14 +451,6 @@ class Mediator:
             ret = True, None
         return ret
 
-    def local_get_delta_catalog(self, data_mark: datetime.datetime) -> t.Dict[str, t.List[Kwargs]]:
-        data = {}
-        for name, obj in get_distributed_entities():
-            c = Catalog.get(name)
-            repo_data = obj.query.filter(obj.last_modified_at > data_mark)
-            if repo_data:
-                data.update({name: repo_data})
-        return data
 
     def remote_get_delta_catalog(self, data_mark: str, server: Server) -> t.Dict[str, t.List[Kwargs]]:
         response, code = gtw.send_message(destination=server, source=self.server,

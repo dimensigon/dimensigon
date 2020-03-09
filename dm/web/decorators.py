@@ -1,13 +1,14 @@
 import base64
 import functools
-import json
 
 import rsa
-from flask import current_app, request, session, url_for, g
+from flask import request, url_for, g, current_app
 
 from dm.domain.entities import Server
-from dm.network.gateway import unpack_msg, pack_msg
+from dm.network.exceptions import NotValidMessage
+from dm.web import db
 from dm.web.errors import UnknownServer
+from dm.web.network import unpack_msg, pack_msg, unpack_msg2, pack_msg2
 
 
 def forward_or_dispatch(func):
@@ -34,6 +35,7 @@ def forward_or_dispatch(func):
             else:
                 return UnknownServer(destination_id).format()
         else:
+            g.source = db.session.query(Server).get(request.headers.get('D-Source')) or request.headers.get('D-Source')
             value = func(*args, **kwargs)
             return value
 
@@ -43,34 +45,32 @@ def forward_or_dispatch(func):
 def securizer(func):
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
+        # cipher_key = session.get('cipher_key', None)
         cipher_key = None
         if request.method != 'GET':
             if request.is_json:
+                g.original_json = request.get_json()
+                cipher_key = base64.b64decode(request.json.get('key')) if 'key' in request.json else cipher_key
+                # session['cipher_key'] = cipher_key
                 try:
-                    cipher_key = base64.b64decode(request.json.get('key')) if 'key' in request.json else session.get(
-                        'cipher_key', None)
-                    if request.json:
-                        data = unpack_msg(request.json,
-                                          pub_key=getattr(getattr(current_app, 'dimension', None), 'public', None),
-                                          priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
-                                          cipher_key=cipher_key)
-
-                        try:
-                            json.dumps(data)
-                        except TypeError:
-                            pass
-                        else:
-                            # data packed is still json. We recreate the request.json with the unpacked data
-                            for key in list(request.json.keys()):
-                                request.json.pop(key)
-                            for key, val in data.items():
-                                request.json[key] = val
+                    if request.path == url_for('api_1_0.join'):
+                        temp_pub_key = rsa.PublicKey.load_pkcs1(request.json.pop('my_pub_key').encode('ascii'))
+                        data = unpack_msg2(request.get_json(),
+                                           pub_key=temp_pub_key,
+                                           priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
+                                           cipher_key=cipher_key)
                     else:
-                        data = request.json
-                    g.unpacked_data = data
-                except rsa.pkcs1.VerificationError as e:
+                        data = unpack_msg(request.get_json())
+                except (rsa.pkcs1.VerificationError, NotValidMessage) as e:
                     return {'error': str(e),
                             'message': request.get_json()}, 400
+                if current_app.config['SECURIZER']:
+                    # fill json request with unpacked data
+                    for key in list(request.json.keys()):
+                        request.json.pop(key)
+                    for key, val in data.items():
+                        request.json[key] = val
+
             else:
                 return {'error': 'Content Type must be application/json'}, 400
 
@@ -88,24 +88,18 @@ def securizer(func):
 
         if isinstance(rv, dict):
             if 'error' not in rv:
-                if request.base_url == url_for('api_1_0.join'):
-                    temp_pub_key = request.get_json().get('pub')
-                    rv = pack_msg(data=rv, pub_key=temp_pub_key,
-                                  priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
-                                  cipher_key=cipher_key)
+                if request.path == url_for('api_1_0.join'):
+                    rv = pack_msg2(data=rv, pub_key=temp_pub_key,
+                                   priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
+                                   cipher_key=cipher_key)
                 else:
-                    rv = pack_msg(data=rv, pub_key=getattr(getattr(current_app, 'dimension', None), 'public', None),
-                                  priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
-                                  cipher_key=cipher_key)
+                    rv = pack_msg(data=rv)
 
         if isinstance(rv, list):
-            rv = pack_msg(data=rv, pub_key=getattr(getattr(current_app, 'dimension', None), 'public', None),
-                          priv_key=getattr(getattr(current_app, 'dimension', None), 'private', None),
-                          cipher_key=cipher_key)
+            rv = pack_msg(data=rv)
 
         if rest:
             rv = (rv,) + rest
         return rv
 
     return wrapper_decorator
-

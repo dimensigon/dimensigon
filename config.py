@@ -1,5 +1,5 @@
+import logging
 import os
-import sys
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -10,19 +10,26 @@ class Config(object):
     CSRF_ENABLED = True
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'hard to guess string'
     PROPAGATE_EXCEPTIONS = True
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_TRACK_MODIFICATIONS = True
     DATETIME_FORMAT = "%d/%m/%Y, %H:%M:%S"
     SSL_REDIRECT = False
+    SSL_VERIFY = False
 
-    @staticmethod
-    def init_app(app):
-        pass
+    GIT_REPO = 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
+    SOFTWARE_DIR = os.path.join(basedir, 'software')
+    AUTOUPGRADE = True
+    PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
+    SECURIZER = True
+
+    @classmethod
+    def init_app(cls, app):
+        os.makedirs(cls.SOFTWARE_DIR, exist_ok=True)
 
 
 class ProductionConfig(Config):
     DEBUG = False
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-                              'sqlite:///' + os.path.join(basedir, 'data.sqlite')
+                              'sqlite:///' + os.path.join(basedir, 'sqlite.db')
 
     @classmethod
     def init_app(cls, app):
@@ -49,9 +56,25 @@ class ProductionConfig(Config):
 
         import logging
         from logging import StreamHandler
-        file_handler = StreamHandler()
-        file_handler.setLevel(logging.INFO)
-        app.logger.addHandler(file_handler)
+        stream_handler = StreamHandler()
+        stream_handler.setLevel(logging.INFO)
+        app.logger.addHandler(stream_handler)
+
+
+class GunicornConfig(ProductionConfig):
+
+    @classmethod
+    def init_app(cls, app):
+        Config.init_app(app)
+        # from logging import FileHandler
+        # file_handler = FileHandler('dimensigon.log')
+        # file_handler.setLevel(logging.INFO)
+        # app.logger.addHandler(file_handler)
+        # fmt = logging.Formatter(
+        #     "%(asctime)s [%(process)d] [%(module)s] [%(funcName)s] [%(name)s] [%(levelname)s] %(message)s")
+        # file_handler.setFormatter(fmt)
+        # for hdlr in app.logger.handlers:
+        #     hdlr.setFormatter(fmt)
 
 
 class UnixConfig(ProductionConfig):
@@ -69,9 +92,19 @@ class UnixConfig(ProductionConfig):
 
 class TestingConfig(Config):
     TESTING = True
-    SERVER_NAME = 'localhost.localdomain'
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    AUTOUPGRADE = False
+    SERVER_NAME = 'test'
+    PREFERRED_URL_SCHEME = 'http'
+    SECURIZER = False
 
+    @classmethod
+    def init_app(cls, app):
+        super().init_app(app)
+        loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+        for logger in loggers:
+            logger.handlers = []
+        logging.root.handlers = []
 
 class DevelopmentConfig(Config):
     DEVELOPMENT = True
@@ -80,15 +113,15 @@ class DevelopmentConfig(Config):
     # SERVER_NAME = 'localhost.localdomain'
     SQLALCHEMY_DATABASE_URI = os.environ.get('DEV_DATABASE_URL') or \
                               'sqlite:///' + os.path.join(basedir, 'dimensigon-dev.db')
+    AUTOUPGRADE = False
 
-    # @staticmethod
-    # def init_app(app):
-    #     Config.init_app(app)
-    #     import logging
-    #     from logging import StreamHandler
-    #     file_handler = StreamHandler(sys.stdout)
-    #     file_handler.setLevel(logging.INFO)
-    #     app.logger.addHandler(file_handler)
+    @classmethod
+    def init_app(cls, app):
+        Config.init_app(app)
+        import logging
+
+        for h in app.logger.handlers:
+            h.setLevel(logging.DEBUG)
 
 
 config_by_name = dict(
@@ -97,4 +130,5 @@ config_by_name = dict(
     production=ProductionConfig(),
     default=DevelopmentConfig(),
     unix=UnixConfig(),
+    gunicorn=GunicornConfig()
 )

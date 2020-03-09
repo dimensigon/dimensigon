@@ -1,19 +1,26 @@
+import atexit
+import threading
 import typing as t
-from contextlib import contextmanager
-from pprint import pprint
 
-from flask import Flask, g
+from apscheduler.schedulers.background import BackgroundScheduler
+from flask import Flask, g, _app_ctx_stack
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import sessionmaker
 
 from config import config_by_name
-from .extensions.job_background import JobBackground
 from .helpers import BaseQueryJSON
 
-db = SQLAlchemy(query_class=BaseQueryJSON)
+
+def scopefunc():
+    try:
+        return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident())
+    except:
+        return str(threading.get_ident())
+
+
+db = SQLAlchemy(query_class=BaseQueryJSON, session_options=dict(scopefunc=scopefunc))
+# db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
-ajl = JobBackground()
 
 
 def create_app(config_name):
@@ -22,22 +29,25 @@ def create_app(config_name):
         app.config.from_mapping(config_name)
     elif config_name in config_by_name:
         app.config.from_object(config_by_name[config_name])
+        config_by_name[config_name].init_app(app)
     else:
         app.config.from_object(config_name)
-
-    config_by_name[config_name].init_app(app)
-    # AUTHENTICATION CONFIG
+        if hasattr(config_name, 'init_app'):
+            config_name.init_app(app)
 
     # EXTENSIONS
     db.init_app(app)
     jwt.init_app(app)
-    ajl.init_app(app)
-    # with app.app_context():
-    #     ajl.queue.start()
-    # TODO: check ssl redirection and Talisman library
-    # if app.config['SSL_REDIRECT']:
-    #     from flask_talisman import Talisman
-    #     talisman = Talisman(app)
+
+    if app.config.get('AUTOUPGRADE'):
+        app.scheduler = BackgroundScheduler()
+        from ..use_cases.background_tasks import check_new_versions, check_catalog
+        app.scheduler.start()
+        app.scheduler.add_job(func=check_new_versions, args=(app,), trigger="interval", minutes=2)
+        app.scheduler.add_job(func=check_catalog, args=(app,), trigger="interval", minutes=2)
+
+        # Shut down the scheduler when exiting the app
+        atexit.register(lambda: app.scheduler.shutdown())
 
     app.before_request(load_global_data_into_context)
 
@@ -52,26 +62,5 @@ def create_app(config_name):
 
 def load_global_data_into_context():
     from dm.domain.entities import Server, Dimension
-    g.server = Server.query.filter_by(_me=True)
-    g.dimension = Dimension.query.filter_by(current=True)
-
-
-@contextmanager
-def session_scope():
-    """Provide a transactional scope around a series of operations."""
-    # configure Session class with desired options
-    Session = sessionmaker()
-
-    # associate it with our custom Session class
-    Session.configure(bind=db.engine)
-
-    # work with the session
-    session = Session()
-    try:
-        yield session
-        session.commit()
-    except:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+    g.server = Server.get_current()
+    g.dimension = Dimension.get_current()

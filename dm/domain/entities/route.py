@@ -12,8 +12,15 @@ class Route(db.Model):
     destination = db.relationship("Server", foreign_keys=[destination_id], back_populates="route")
     gateway = db.relationship("Server", foreign_keys=[gateway_id])
 
+    def __init__(self, destination, gateway, cost):
+        self.destination = destination
+        self.gateway = gateway
+        self.cost = cost
+
     def __str__(self):
-        return f"Route(destination={getattr(self.destination, 'id', None)}, gateway={getattr(self.gateway, 'id', None)})"
+        return f"Route(destination={getattr(self.destination, 'id', None)}, " \
+               f"gateway={getattr(self.gateway, 'id', None)}, " \
+               f"cost={self.cost})"
 
     def __repr__(self):
         return str(self)

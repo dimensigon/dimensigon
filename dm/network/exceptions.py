@@ -12,6 +12,14 @@ class TimeoutError(GatewayError):
     """Timeout reached while trying to execute the process"""
 
 
+class UnpackError(GatewayError):
+    """Error raised when unpacking message"""
+
+
+class NotValidMessage(UnpackError):
+    """Message is not packed"""
+
+
 class UnknownMessageType(GatewayError):
     """an unknown message type was received"""
 

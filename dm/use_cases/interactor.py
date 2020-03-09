@@ -1,5 +1,6 @@
 import base64
 import concurrent
+import json
 import os
 import threading
 import time
@@ -12,29 +13,22 @@ import aiohttp
 import requests
 import rsa
 from flask import current_app, g
-from flask_jwt_extended import create_access_token
-from returns.pipeline import is_successful
-from returns.result import Result
-from returns.result import safe
+from flask_jwt_extended import create_access_token, get_jwt_identity
 
 import dm.use_cases.deployment as dpl
 import dm.use_cases.exceptions as ue
-from dm.domain.entities import Orchestration, Log, Server, SoftwareServerAssociation
-from dm.domain.entities.route import Route
-from dm.domain.exceptions import StateAlreadyInUnlock
-from dm.domain.locker import PriorityLocker
-from dm.network.gateway import unpack_msg, ping, pack_msg
-from dm.use_cases.base import OperationFactory, Scope
-from dm.use_cases.exceptions import ServersMustNotBeBlank, ErrorLock
-from dm.use_cases.helpers import get_servers_from_scope
+from dm import defaults
+from dm.domain.entities import *
+from dm.domain.entities import bypass_datamark_update
+from dm.domain.entities.locker import Scope
+from dm.domain.locker_memory import PriorityLocker
+from dm.use_cases.base import OperationFactory
+from dm.use_cases.lock import lock_scope
 from dm.use_cases.mediator import Mediator
 from dm.utils.decorators import logged
 from dm.utils.helpers import get_distributed_entities, convert
 from dm.web import db
-
-if t.TYPE_CHECKING:
-    from dm import Server
-    from dm import Params
+from dm.web.network import unpack_msg, pack_msg, ping, get, HTTPBearerAuth
 
 
 @logged
@@ -126,80 +120,6 @@ class Interactor:
 
         return res_do, res_undo, cc.execution
 
-    @safe
-    def lock(self, scope: Scope, servers: t.List['Server'] = None) -> None:
-        """
-        locks the Locker if allowed
-        Parameters
-        ----------
-        scope
-            scope that lock will affect.
-        servers
-            if scope set to Scope.ORCHESTRATION,
-        Returns
-        -------
-        Result
-        """
-
-        if scope.ORCHESTRATION == scope and servers is None:
-            raise ServersMustNotBeBlank()
-
-        servers = servers or get_servers_from_scope(scope)
-        self._lockers[scope].preventing_lock(lockers=self._lockers, applicant=servers)
-        try:
-            self._mediator.lock_unlock('L', scope, servers=servers)
-            self._lockers[scope].lock(applicant=servers)
-        except ErrorLock as e:
-            error_servers = [es.server for es in e]
-            locked_servers = list(set(servers) - set(error_servers))
-            self._mediator.lock_unlock('U', scope, servers=locked_servers)
-            try:
-                self._lockers[scope].unlock(applicant=servers)
-            except StateAlreadyInUnlock:
-                pass
-            raise
-
-    @safe
-    def unlock(self, scope: Scope):
-        """
-        unlocks the Locker if allowed
-        Parameters
-        ----------
-        scope
-
-        Returns
-        -------
-
-        """
-        servers = self._lockers[scope].applicant
-        self._lockers[scope].unlock(applicant=servers)
-        self._mediator.lock_unlock('U', scope, servers)
-
-    @safe
-    def upgrade_catalog(self, server):
-        result = self.lock(Scope.UPGRADE, [server])
-        if is_successful(result):
-            delta_catalog = self._mediator.remote_get_delta_catalog(data_mark=self._catalog.max_data_mark,
-                                                                    server=server)
-            de = get_distributed_entities()
-            inside = set([name for name, cls in de])
-
-            outside = set(delta_catalog.keys())
-
-            if len(inside ^ outside) > 0:
-                raise ue.CatalogMismatch(inside ^ outside)
-
-            for name, cls in de:
-                if name in delta_catalog:
-                    for dto in delta_catalog[name]:
-                        o = cls(**dto)
-                        db.session.add(o)
-
-            result = self.unlock(Scope.UPGRADE)
-            return result
-        else:
-            return result
-
     def _main_send_data_logs(self, delay, app=None):
 
         def send_data_log(log: 'Log'):
@@ -274,6 +194,45 @@ class Interactor:
             del log
 
 
+def upgrade_catalog(catalog, check_mismatch=True):
+    de = get_distributed_entities()
+    inside = set([name for name, cls in de])
+    current_app.logger.debug(f'Actual entities: {inside}')
+
+    outside = set(catalog.keys())
+    current_app.logger.debug(f'Remote entities: {outside}')
+
+    if check_mismatch and len(inside ^ outside) > 0:
+        raise ue.CatalogMismatch(inside ^ outside)
+
+    with bypass_datamark_update():
+        for name, cls in de:
+            if name in catalog:
+                if len(catalog[name]) > 0:
+                    current_app.logger.debug(
+                        f"Adding/Modifying new '{name}' entities: \n{json.dumps(catalog[name], indent=2, sort_keys=True)}")
+                for dto in catalog[name]:
+                    o = cls.from_json(dto)
+                    db.session.add(o)
+
+        db.session.commit()
+
+
+def upgrade_catalog_from_server(server):
+    with lock_scope(Scope.UPGRADE, [server, Server.get_current()]):
+        catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
+        if catalog_ver:
+            resp = get(server, 'api_1_0.catalog',
+                       view_data=dict(data_mark=catalog_ver.strftime(defaults.DATEMARK_FORMAT)),
+                       headers={'Authorization': 'Bearer ' + create_access_token(get_jwt_identity())})
+
+            if 199 < resp[1] < 300:
+                delta_catalog = resp[0]
+            else:
+                current_app.logger.error(f"Unable to get a valid response from server {server}: {resp[1]}")
+            upgrade_catalog(delta_catalog)
+
+
 def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False) -> t.List[Server]:
     """Gets route tables of all neighbours and updates its own table based on jump weights.
     Needs a Flask App Context to run.
@@ -292,7 +251,7 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     # get all neighbours
     if check_current_neighbours:
         for server in Server.get_neighbours():
-            cost, time = ping(server)
+            cost, time = ping(server, g.server)
             if cost is None:
                 server.route.cost = None
                 server.route.gateway = None
@@ -308,30 +267,23 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
 
     if discover_new_neighbours:
         for server in Server.get_not_neighbours():
-            try:
-                requests.get(server.url('root.healthcheck'),
-                             timeout=0.5,
-                             verify=False)
-            except (requests.exceptions.ConnectTimeout, TimeoutError):
-                pass
-            else:
+
+            resp = get(server, 'root.healthcheck', timeout=0.5)
+
+            if 199 < resp[1] < 200:
                 server.route.cost = 0
                 server.route.gateway = None
-    db.session.commit()
     token = create_access_token(identity='root')
     pool_responses = []
     temp_table_routes: t.Dict[uuid.UUID, t.List[Route]] = {}
     for server in Server.get_neighbours():
-        pool_responses.append(
-            requests.get(server.url('api_1_0.routes'),
-                         headers={'Authorization': f'Bearer {token}'}, verify=False))
+        pool_responses.append(get(server, 'api_1_0.routes', auth=HTTPBearerAuth(token)))
 
     changed_routes = []
     for resp in pool_responses:
         if (isinstance(resp, aiohttp.ClientResponse) and resp.status == 200) or (
                 isinstance(resp, (requests.Response,)) and resp.status_code == 200):
-            msg = unpack_msg(resp.json(), getattr(g.dimension, 'public', None),
-                             getattr(g.dimension, 'private', None))
+            msg = resp.json()
             resp.close()
 
             likely_gateway_server_entity = Server.query.get(msg.get('server_id'))
@@ -343,7 +295,7 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
                 if route_json.gateway:
                     # noinspection PyTypeChecker
                     route_json.gateway = uuid.UUID(route_json.gateway)
-                if route_json.destination != g.server.id and route_json.gateway != g.server.id:
+                if route_json.destination != Server.get_current().id and route_json.gateway != g.server.id:
                     if route_json.destination not in temp_table_routes:
                         temp_table_routes.update({route_json.destination: []})
                     if route_json.cost is not None:
@@ -397,7 +349,7 @@ def _send_chunk(url: str, transfer_id: str, chunk: int, chunk_size: int, file: s
 
 
 def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path: str,
-                  set_progress: t.Callable[[int], None],
+                  set_progress: t.Callable[..., None],
                   chunk_size: int = DEFAULT_CHUNK_SIZE,
                   max_senders: int = DEFAULT_MAX_SENDERS) \
         -> t.Optional[t.List[t.Tuple[int, t.Union[Exception, requests.Response]]]]:
@@ -406,19 +358,24 @@ def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path
     if ssa.software.size_bytes % chunk_size:
         chunks += 1
 
+    dim = Dimension.get_current()
+    # create transfer
     ssa = SoftwareServerAssociation.query.filter_by(software=ssa.software, server=dest_server)
 
     json_msg = dict(software_id=ssa.software, num_chunks=chunks, filename=os.path.basename(ssa.path),
                     dest_path=dest_path)
-    msg = pack_msg(data=json_msg, pub_key=g.dimension.public, priv_key=g.dimension.private)
+    msg = pack_msg(data=json_msg, pub_key=getattr(dim, 'public'), priv_key=getattr(dim, 'private'))
     cipher_key = base64.b64decode(msg.get('key', '').encode('ascii'))
     s = requests.Session()
-    resp = s.post(dest_server.url('transfers'), msg, headers={'D-Destination': str(dest_server.id)})
+    resp = s.post(dest_server.url('transfers'), msg, headers={'D-Destination': str(dest_server.id)},
+                  verify=current_app.config['SSL_VERIFY'])
 
     if resp.status_code == 202:
-        set_progress(5)
         json_resp = resp.json()
-        transfer_id = json_resp.get('transfer_id')
+        data = unpack_msg(json_resp.get('transfer_id'), priv_key=getattr(dim, 'private'),
+                          pub_key=getattr(dim, 'public'), cipher_key=cipher_key)
+        transfer_id = data.get('transfer_id')
+        set_progress(5, data=dict(transfer_id=transfer_id))
         url = dest_server.url('transfer', transfer_id=transfer_id)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_senders) as executor:
             future_to_chunk = {executor.submit(_send_chunk, (

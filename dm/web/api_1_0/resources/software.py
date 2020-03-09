@@ -1,39 +1,16 @@
 import os
-import re
 
 import jsonschema
 from flask import request
 from flask_jwt_extended import jwt_required
-
-from dm.domain.entities import Software, SoftwareFamily, Server, SoftwareServerAssociation
-from dm.utils.helpers import md5
-from dm.web import db
-from dm.web.api_1_0.routes import UUID_pattern
-
-from dm.web.decorators import securizer, forward_or_dispatch
 from flask_restful import Resource
 
+from dm.domain.entities import Software, Server, SoftwareServerAssociation
+from dm.utils.helpers import md5
+from dm.web import db
+from dm.web.decorators import securizer, forward_or_dispatch
 from dm.web.helpers import filter_query
-
-family_list = [f.name.lower() for f in SoftwareFamily]
-
-post_software_schema = {
-    "type": "object",
-    "properties": {
-        "name": {"type": "string"},
-        "version": {"type": "string"},
-        "family": {"type": "string",
-                   "pattern": "^" + "|".join(family_list) + "$"},
-        "server_id": {"type": "string",
-                      "pattern": UUID_pattern},
-        "file": {"type": "string"}
-    },
-    "required": ["name", "version", "family"],
-    "dependencies": {
-        "server_id": ["file"],
-        "file": ["server_id"],
-    }
-}
+from dm.web.json_schemas import post_software_schema, put_software_servers_schema, patch_software_schema
 
 
 def set_software_server(soft, server, file, recalculate_data=False):
@@ -67,7 +44,7 @@ class SoftwareList(Resource):
         json = request.get_json()
         jsonschema.validate(json, post_software_schema)
 
-        soft = Software(name=json['name'], version=json['version'], family=SoftwareFamily[json['family'].upper()])
+        soft = Software(name=json['name'], version=json['version'], family=json['family'])
         if 'server_id' in json:
             server = Server.query.get_or_404(json['server_id'])
             set_software_server(soft, server, json['file'])
@@ -85,31 +62,6 @@ class SoftwareResource(Resource):
     @forward_or_dispatch
     def get(self, software_id):
         return Software.query.get_or_404(software_id).to_json()
-
-
-patch_software_schema = {
-    "type": "object",
-    "properties": {
-        "server_id": {"type": "string",
-                      "pattern": UUID_pattern},
-        "file": {"type": "string"},
-        "recalculate_data": {"type": "boolean"}
-    },
-    "required": ["server_id", "path"]
-}
-
-put_software_servers_schema = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "server_id": {"type": "string",
-                          "pattern": UUID_pattern},
-            "file": {"type": "string"}
-        },
-        "required": ["server_id", "path"]
-    }
-}
 
 
 # software/<software_id>/servers
