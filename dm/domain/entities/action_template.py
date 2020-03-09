@@ -1,8 +1,8 @@
-import uuid
+import copy
 from enum import Enum, auto
 
-from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
-from dm.utils.typos import JSON, UUID, Params
+from dm.domain.entities.base import UUIDistributedEntityMixin
+from dm.utils.typos import JSON, Params
 from dm.web import db
 
 
@@ -14,10 +14,9 @@ class ActionType(Enum):
     TEST = auto()
 
 
-class ActionTemplate(db.Model, EntityReprMixin, DistributedEntityMixin):
+class ActionTemplate(db.Model, UUIDistributedEntityMixin):
     __tablename__ = 'D_action_template'
-
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
+    order = 10
     name = db.Column(db.String(40), nullable=False)
     version = db.Column(db.Integer, nullable=False)
     action_type = db.Column(db.Enum(ActionType), nullable=False)
@@ -29,9 +28,8 @@ class ActionTemplate(db.Model, EntityReprMixin, DistributedEntityMixin):
 
     def __init__(self, name: str, version: int, action_type: ActionType, code: str, parameters: Params = None,
                  expected_output: str = None, expected_rc: int = None, system_kwargs: Params = None,
-                 id: uuid.UUID = None,
                  **kwargs):
-        DistributedEntityMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.name = name
         self.version = version
         self.action_type = action_type
@@ -40,8 +38,21 @@ class ActionTemplate(db.Model, EntityReprMixin, DistributedEntityMixin):
         self.expected_output = expected_output
         self.expected_rc = expected_rc
         self.system_kwargs = system_kwargs or {}
-        self.id = id
 
     # systems = db.relationship("System", secondary='D_action_system', back_populates="actions")
 
     __table_args__ = (db.UniqueConstraint('name', 'version', name='D_action_template_uq01'),)
+
+    def to_json(self):
+        data = super().to_json()
+        data.update(name=self.name, version=self.version,
+                    action_type=self.action_type.name,
+                    code=self.code, parameters=self.parameters, expected_output=self.expected_output,
+                    expected_rc=self.expected_rc, system_kwargs=self.system_kwargs)
+        return data
+
+    @classmethod
+    def from_json(cls, kwargs):
+        kwargs = copy.deepcopy(kwargs)
+        kwargs['action_type'] = ActionType[kwargs.get('action_type')]
+        return super().from_json(kwargs)

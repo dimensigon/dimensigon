@@ -1,0 +1,307 @@
+import typing as t
+
+import aiohttp
+import requests
+from flask import current_app as __ca, g, current_app
+from requests.auth import AuthBase
+
+from dm.domain.entities import Server, Dimension
+from dm.network.exceptions import NotValidMessage
+from dm.network.gateway import pack_msg as _pack_msg, unpack_msg as _unpack_msg, ping as _ping
+from dm.utils.typos import Kwargs
+
+Response = t.Tuple[t.Union[t.Dict, t.AnyStr, Exception], int]
+
+
+def pack_msg(data, *args, **kwargs):
+    if not __ca.config['SECURIZER']:
+        return data
+    else:
+        # if not ('symmetric_key' in kwargs or 'cipher_key' in kwargs):
+        #     try:
+        #         kwargs['cipher_key'] = session.get('cipher_key')
+        #     except RuntimeError:
+        #         pass
+        # if generate_key:
+        #     kwargs.pop('symmetric_key', None)
+        #     kwargs.pop('cipher_key', None)
+        dim = getattr(g, 'dimension', None)
+        if dim is None:
+            dim = Dimension.get_current()
+            if dim is None:
+                raise ValueError('No dimension found but SECURIZER set')
+        return _pack_msg(data, *args, source=Server.get_current(),
+                         pub_key=dim.public,
+                         priv_key=dim.private,
+                         **kwargs)
+
+
+def pack_msg2(data, *args, **kwargs):
+    if not __ca.config['SECURIZER']:
+        return data
+    else:
+        return _pack_msg(data, *args, **kwargs)
+
+
+def unpack_msg(data, *args, **kwargs):
+    if not __ca.config['SECURIZER']:
+        return data
+    else:
+        # if 'key' in data:
+        #     cipher_key = base64.b64decode(data.get('key'))
+        # else:
+        #     try:
+        #         cipher_key = session.get('cipher_key', None)
+        #     except RuntimeError:
+        #         cipher_key = None
+        # try:
+        #     session['cipher_key'] = cipher_key
+        # except RuntimeError:
+        #     pass
+        if not 'error' in data:
+            dim = getattr(g, 'dimension', None)
+            if dim is None:
+                dim = Dimension.get_current()
+                if dim is None:
+                    raise ValueError('No dimension found but SECURIZER set')
+            return _unpack_msg(data, *args, pub_key=dim.public,
+                               priv_key=dim.private, **kwargs)
+        else:
+            return data
+
+
+def unpack_msg2(data, *args, **kwargs):
+    if not __ca.config['SECURIZER']:
+        return data
+    else:
+        if not 'error' in data:
+            return _unpack_msg(data, *args, **kwargs)
+        else:
+            return data
+
+
+def ping(server, *args, **kwargs):
+    return _ping(server, source=Server.get_current(), *args, **kwargs)
+
+
+class HTTPBearerAuth(AuthBase):
+    def __init__(self, token):
+        self.token = token
+
+    def __eq__(self, other):
+        return self.token == getattr(other, 'token', None)
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __call__(self, r):
+        if hasattr(r, 'headers'):
+            r.headers['Authorization'] = 'Bearer ' + self.token
+        else:
+            r['headers']['Authorization'] = 'Bearer ' + self.token
+            r.pop('auth')
+        return r
+
+
+def _prepare_url(server: Server, view_or_url: str, **view_data):
+    if view_or_url.startswith('\\'):
+        url = server.url() + 'view_or_url'
+    else:
+        view_data = view_data or {}
+        url = server.url(view_or_url, **view_data)
+    return url
+
+
+def _prepare_headers(server, headers=None):
+    headers = headers or {}
+    headers.update({'D-Destination': str(server.id)})
+    headers.update({'D-Source': str(Server.get_current().id)})
+    return headers
+
+
+def request(method, server, view_or_url, view_data=None, session=None, **kwargs) -> Response:
+    exception = None
+    content = None
+    status = None
+    headers = None
+
+    if not session:
+        session = requests.session()
+
+    url = _prepare_url(server, view_or_url, **view_data or {})
+    kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
+
+    if 'data' in kwargs:
+        kwargs['json'] = pack_msg(kwargs['data'])
+    elif 'json' in kwargs:
+        kwargs['json'] = pack_msg(kwargs['json'])
+
+    kwargs['verify'] = current_app.config['SSL_VERIFY']
+    func = getattr(session, method)
+
+    try:
+        resp: requests.Response = func(url, **kwargs)
+    except Exception as e:
+        exception = e
+
+    if exception is None:
+        status = resp.status_code
+        if 199 < resp.status_code < 300:
+            json_data = None
+            try:
+                json_data = resp.json()
+            except ValueError:
+                pass
+
+            if json_data:
+                try:
+                    content = unpack_msg(json_data)
+                except NotValidMessage:
+                    current_app.logger.warning(f'Not a Valid Message: {json_data}')
+                    raise
+        else:
+            try:
+                content = resp.json()
+            except ValueError:
+                content = resp.text
+    else:
+        content = exception
+        current_app.logger.error(f'Error while trying to connect with {url}: {exception}')
+
+    return content, status
+
+
+def get(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+        params: Kwargs = None, **kwargs):
+    """Sends a GET request."""
+    return request('get', server, view_or_url, view_data=view_data, session=session, params=params, **kwargs)
+
+
+def options(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
+    r"""Sends an OPTIONS request."""
+
+    return request('options', server, view_or_url, view_data=view_data, session=session, **kwargs)
+
+
+def head(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
+    r"""Sends a HEAD request."""
+    return request('head', server, view_or_url, view_data=view_data, session=session, **kwargs)
+
+
+def post(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
+         json=None, **kwargs):
+    r"""Sends a POST request."""
+    return request('post', server, view_or_url, view_data=view_data, session=session, data=data, json=json, **kwargs)
+
+
+def put(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
+        **kwargs):
+    r"""Sends a PUT request."""
+    return request('put', server, view_or_url, view_data=view_data, session=session, data=data, **kwargs)
+
+
+def patch(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
+          **kwargs):
+    r"""Sends a PATCH request."""
+    return request('patch', server, view_or_url, view_data=view_data, session=session, data=data, **kwargs)
+
+
+def delete(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
+    r"""Sends a DELETE request."""
+    return request('delete', server, view_or_url, view_data=view_data, session=session, **kwargs)
+
+
+async def async_request(method, server, view_or_url, view_data=None, session=None, **kwargs) -> Response:
+    exception = None
+    content = None
+    json_data = None
+    status = None
+    headers = None
+
+    if not session:
+        _session = aiohttp.ClientSession()
+    else:
+        _session = session
+
+    url = _prepare_url(server, view_or_url, **view_data or {})
+    kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
+
+    if 'auth' in kwargs:
+        kwargs['auth'](kwargs)
+
+    if 'json' in kwargs:
+        kwargs['json'] = pack_msg(kwargs['json'])
+
+    kwargs['ssl'] = current_app.config['SSL_VERIFY']
+
+    func = getattr(_session, method)
+
+    try:
+        async with func(url, **kwargs) as resp:
+            status = resp.status
+            try:
+                json_data = await resp.json()
+            except ValueError:
+                content = await resp.text()
+    except Exception as e:
+        exception = e
+    if not session:
+        await _session.close()
+
+    if json_data:
+        try:
+            content = unpack_msg(json_data)
+        except NotValidMessage:
+            current_app.logger.warning(f'Not a Valid Message: {json_data}')
+            raise
+    elif exception:
+        content = exception
+
+    return content, status
+
+
+async def async_get(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+                    params: Kwargs = None, **kwargs) -> Response:
+    """Sends a GET request."""
+    return await async_request('get', server, view_or_url, view_data=view_data, session=session, params=params,
+                               **kwargs)
+
+
+async def async_options(server: Server, view_or_url: str, view_data: Kwargs = None,
+                        session: aiohttp.ClientSession = None,
+                        **kwargs) -> aiohttp.ClientResponse:
+    r"""Sends an OPTIONS request."""
+
+    return await async_request('options', server, view_or_url, view_data=view_data, session=session, **kwargs)
+
+
+async def async_head(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+                     **kwargs) -> aiohttp.ClientResponse:
+    r"""Sends a HEAD request."""
+    return await async_request('head', server, view_or_url, view_data=view_data, session=session, **kwargs)
+
+
+async def async_post(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+                     json=None, **kwargs) -> aiohttp.ClientResponse:
+    r"""Sends a POST request."""
+    return await async_request('post', server, view_or_url, view_data=view_data, session=session, json=json,
+                               **kwargs)
+
+
+async def async_put(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+                    **kwargs) -> aiohttp.ClientResponse:
+    r"""Sends a PUT request."""
+    return async_request('put', server, view_or_url, view_data=view_data, session=session, **kwargs)
+
+
+async def async_patch(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+                      **kwargs) -> aiohttp.ClientResponse:
+    r"""Sends a PATCH request."""
+    return await async_request('patch', server, view_or_url, view_data=view_data, session=session, **kwargs)
+
+
+async def async_delete(server: Server, view_or_url: str, view_data: Kwargs = None,
+                       session: aiohttp.ClientSession = None,
+                       **kwargs) -> aiohttp.ClientResponse:
+    r"""Sends a DELETE request."""
+    return await async_request('delete', server, view_or_url, view_data=view_data, session=session, **kwargs)

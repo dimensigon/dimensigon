@@ -4,6 +4,7 @@ from datetime import datetime
 
 import rsa
 
+from dm import defaults
 from dm.domain.entities.base import EntityReprMixin
 from dm.utils.typos import PrivateKey, PublicKey, UUID
 from dm.web import db
@@ -34,10 +35,19 @@ class Dimension(db.Model, EntityReprMixin):
         self.created_at = created_at
         self.current = current
 
-    @staticmethod
-    def get_current() -> 'Dimension':
-        return Dimension.query.filter_by(current=True).one_or_none()
+    @classmethod
+    def get_current(cls) -> 'Dimension':
+        return db.session.query(cls).filter_by(current=True).one_or_none()
 
     def to_json(self):
         return {'id': str(self.id), 'name': self.name, 'private': self.private.save_pkcs1().decode('ascii'),
-                'public': self.public.save_pkcs1().decode('ascii'), 'created_at': self.created_at}
+                'public': self.public.save_pkcs1().decode('ascii'),
+                'created_at': self.created_at.strftime(defaults.DATETIME_FORMAT)}
+
+    @classmethod
+    def from_json(cls, kwargs):
+        return cls(id=kwargs.get('id'), name=kwargs.get('name'),
+                   private=rsa.PrivateKey.load_pkcs1(kwargs.get('private')),
+                   public=rsa.PublicKey.load_pkcs1(kwargs.get('public')),
+                   created_at=datetime.strptime(kwargs.get('created_at'), defaults.DATETIME_FORMAT)
+                   )

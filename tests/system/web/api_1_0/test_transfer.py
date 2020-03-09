@@ -7,7 +7,7 @@ from unittest.mock import patch
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Software, SoftwareFamily, SoftwareServerAssociation, Server, Transfer, TransferStatus
+from dm.domain.entities import Software, SoftwareServerAssociation, Server, Transfer, TransferStatus
 from dm.network.gateway import pack_msg, unpack_msg
 from dm.web import create_app, set_variables, db
 
@@ -35,7 +35,7 @@ class TestTransferURL(TestCase):
             db.create_all()
             set_variables()
             server = Server.query.get(self.app.server_id)
-            soft = Software(name='test_software', version=1, family=SoftwareFamily.MIDDLEWARE, size_bytes=62,
+            soft = Software(name='test_software', version=1, size_bytes=62,
                             checksum=self.checksum_file)
 
             ssa = SoftwareServerAssociation(software=soft, server=server, path=os.path.join(os.getcwd(), self.filename))

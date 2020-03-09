@@ -1,7 +1,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from dm.utils.helpers import convert, update_config_yaml
+from dm.utils.helpers import convert, update_config_yaml, get_distributed_entities
 
 
 class TestConvert(TestCase):
@@ -25,3 +25,10 @@ class TestConvert(TestCase):
         update_config_yaml('dm.port', 5000)
         mocked_save.assert_called_with({'dm': {'port': 5000, 'host': '0.0.0.0'}, 'elevator': True}, 'config.yaml')
 
+    def test_get_distributed_entities(self):
+        import dm.domain.entities
+        entities = get_distributed_entities()
+
+        for name, cls in entities:
+            self.assertTrue(hasattr(cls, 'last_modified_at'))
+            self.assertTrue(name in dm.domain.entities.__all__)

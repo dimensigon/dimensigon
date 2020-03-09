@@ -20,6 +20,7 @@ import psutil
 import requests
 
 import dm.defaults as defaults
+import gunicorn_conf as conf
 
 __author__ = "Joan Prat "
 __copyright__ = "Copyright 2019, The Dimensigon project"
@@ -46,9 +47,8 @@ HEALTHCHECK_URI = '/healthcheck'  # health check URI
 SOFTWARE_URI = '/software'
 FAILED_VERSIONS = '.failed_versions'
 MAX_TIME_WAITING = 5
-VERIFY_SSL = False
+SSL_VERIFY = False
 PACKAGE_NAME = 'dimensigon'
-pid_file = 'gunicorn.pid'
 
 # max time elevator will wait for the process to start and ask for the health check response
 
@@ -56,10 +56,11 @@ pid_file = 'gunicorn.pid'
 exc_dirs = ('__pycache__', '.git', '.idea', 'tests', 'migrations', 'tmp', 'bin')
 
 exc_pattern = re.compile(EXCLUDE_PATTERN)
-config_files = ['.env', 'sqlite.db', 'ssl', 'gunicorn.conf.py']
+config_files = ['.env', 'sqlite.db', 'ssl', 'gunicorn_conf.py']
+pid_file = os.path.join(HOME, conf.pidfile)
 
 FORMAT = '%(asctime)-15s %(filename)s %(levelname)-8s %(message)s'
-logging.basicConfig(format=FORMAT, level=logging.INFO)
+logging.basicConfig(format=FORMAT, level=logging.DEBUG)
 
 
 # FUNCTIONS
@@ -110,9 +111,9 @@ def get_url(url, token=None, tries=1, delay=3, backoff=1):
         try:
             headers = {"Authentication": f"Bearer {token}"} if token else None
             r = requests.get(url, headers=headers, timeout=2,
-                             verify=VERIFY_SSL)
+                             verify=SSL_VERIFY)
             if r.status_code == 401:
-                r = requests.get(url + "/healthcheck", verify=VERIFY_SSL, timeout=2)
+                r = requests.get(url + "/healthcheck", verify=SSL_VERIFY, timeout=2)
             r.raise_for_status()
             hc = r.json()
             break
@@ -147,18 +148,26 @@ def get_func_find_proc():
 
 def start_daemon(silently=True):
     # cp = subprocess.run(['python', 'dimensigon.py', 'start'], capture_output=True, env=os.environ, timeout=10)
+    cmd = ['gunicorn',
+           '-c', os.path.join(HOME, 'gunicorn_conf.py'),
+           '--keyfile', os.path.join(HOME, 'ssl', 'key.pem'),
+           '--certfile', os.path.join(HOME, 'ssl', 'cert.pem'),
+           '--daemon',
+           'dimensigon:app']
+    logging.debug('Running ' + ' '.join(cmd))
     cp = subprocess.run(
-        ['gunicorn', '-c', 'gunicorn.conf.py', '--keyfile=ssl/key.pem', '--certfile=ssl/cert.pem', '--daemon',
-         'dimensigon:app'],
-        env=os.environ, timeout=10)
-    sys.stdout.write(cp.stdout) if not silently and cp.stdout else None
-    sys.stdout.write(cp.stderr) if not silently and cp.stderr else None
+        cmd,
+        cwd=HOME, timeout=10)
+
+    sys.stdout.write(cp.stdout.decode()) if not silently and cp.stdout else None
+    if cp.stderr:
+        sys.stderr.write(cp.stderr.decode())
     return cp.returncode
 
 
 def start_and_check(url, tries=MAX_TIME_WAITING // 5):
     # start new version & check health
-    start_daemon()
+    start_daemon(logging.root.level != logging.DEBUG)
     # wait to be able to create pid file
     time.sleep(0.2)
     if daemon_running():
@@ -188,7 +197,14 @@ def stop_daemon():
     if os.path.exists('gunicorn.pid'):
         with open('gunicorn.pid') as fd:
             pid = int(fd.read())
-        os.kill(pid, signal.SIGTERM)
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            logging.warning("pid file exists but no process running. Removing pid file")
+            try:
+                os.remove('gunicorn.pid')
+            except:
+                pass
     else:
         for proc in get_procs():
             os.kill(proc.pid, signal.SIGTERM)
@@ -352,7 +368,7 @@ def cli():
 @click.option('--verify-ssl', is_flag=True, help='verify ssl')
 @click.argument('deployable')
 @click.argument('version')
-def upgrade(verify_ssl, deployable, version, ):
+def upgrade(SSL_VERIFY, deployable, version, ):
     # dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
     # if os.path.exists(dotenv_path):
     #     load_dotenv(dotenv_path)
@@ -362,7 +378,7 @@ def upgrade(verify_ssl, deployable, version, ):
         click.echo(f"deployable '{deployable}' does not exist")
         sys.exit(1)
     sys.exit(upgrade(
-        dict(deployable=deployable, version=version, verify_ssl=verify_ssl, git_repo=os.environ.get('GIT_REPO'),
+        dict(deployable=deployable, version=version, SSL_VERIFY=SSL_VERIFY, git_repo=os.environ.get('GIT_REPO'),
              dm_url=f"https://127.0.0.1:{defaults.LOOPBACK_PORT}/")))
 
 

@@ -12,28 +12,16 @@ from dm.use_cases.interactor import DEFAULT_CHUNK_SIZE
 from dm.utils.helpers import md5
 from dm.web import db
 from dm.web.api_1_0 import api_bp
-from dm.web.api_1_0.routes import UUID_pattern
 from dm.web.decorators import securizer, forward_or_dispatch
+from dm.web.json_schemas import schema_transfers
 
-schema_transfers = {
-    "type": "object",
-    "properties": {
-        "software_id": {"type": "string",
-                        "pattern": UUID_pattern},
-        "dest_path": {"type": "string"},
-        "filename": {"type": "string"},
-        "num_chunks": {"type": "integer",
-                       "minimum": 0}
-    },
-    "required": ["software_id"]
-}
 TEMPORAL_DIRECTORY = '.tmp'
 
 
 @api_bp.route('/transfers/', methods=['GET', 'POST'])
-@securizer
-@jwt_required
 @forward_or_dispatch
+@jwt_required
+@securizer
 def transfers():
     if request.method == 'GET':
         return [t.to_json() for t in Transfer.query.all()]
@@ -60,24 +48,14 @@ def transfers():
         return {'transfer_id': str(t.id)}, 202
 
 
-schema_transfer = {
-    "type": "object",
-    "properties": {
-        "transfer_id": {"type": "string",
-                        "pattern": UUID_pattern},
-        "chunk": {"type": "integer",
-                  "minimum": 0},
-        "content": {"type": "bytes"},
-    },
-    "required": ["transfer_id", "chunk", "content"]
-}
+
 CHUNK_READ_BUFFER = DEFAULT_CHUNK_SIZE
 
 
 @api_bp.route('/transfers/<transfer_id>', methods=['GET', 'POST', 'PATCH'])
-@securizer
-@jwt_required
 @forward_or_dispatch
+@jwt_required
+@securizer
 def transfer(transfer_id):
     if request.method == 'GET':
         trans = Transfer.query.get(transfer_id)

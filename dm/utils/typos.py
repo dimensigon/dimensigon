@@ -1,5 +1,6 @@
 import ipaddress
 import json
+import pickle
 import typing as t
 import uuid
 
@@ -8,7 +9,8 @@ from sqlalchemy import types
 from sqlalchemy.dialects.postgresql import UUID as pUUID
 from sqlalchemy.ext.mutable import MutableDict
 
-Kwargs = Params = t.NewType('Params', t.Union[t.Dict['str', t.Any]])
+Kwargs = t.Union[t.Dict['str', t.Any]]
+Params = t.NewType('Params', t.Union[t.Dict['str', t.Any]])
 Id = t.TypeVar('Id', int, str, uuid.UUID)
 Ids = t.Sequence[Id]
 Id_or_Ids = t.Union[Id, Ids]
@@ -185,4 +187,18 @@ class IP(BaseTypeDecorator):
     def process_result_value(self, value, dialect):
         if value is not None:
             value = ipaddress.ip_address(value)
+        return value
+
+
+class Pickle(BaseTypeDecorator):
+    impl = types.BLOB
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            value = pickle.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            value = pickle.loads(value)
         return value

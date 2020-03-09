@@ -1,3 +1,4 @@
+import logging
 import os
 
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -9,18 +10,19 @@ class Config(object):
     CSRF_ENABLED = True
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'hard to guess string'
     PROPAGATE_EXCEPTIONS = True
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_TRACK_MODIFICATIONS = True
     DATETIME_FORMAT = "%d/%m/%Y, %H:%M:%S"
     SSL_REDIRECT = False
+    SSL_VERIFY = False
 
     GIT_REPO = 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
     SOFTWARE_DIR = os.path.join(basedir, 'software')
     AUTOUPGRADE = True
+    PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
+    SECURIZER = True
 
     @classmethod
     def init_app(cls, app):
-        from flask.logging import default_handler
-        app.logger.removeHandler(default_handler)
         os.makedirs(cls.SOFTWARE_DIR, exist_ok=True)
 
 
@@ -91,7 +93,18 @@ class UnixConfig(ProductionConfig):
 class TestingConfig(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    AUTOUPGRADE = False
+    SERVER_NAME = 'test'
+    PREFERRED_URL_SCHEME = 'http'
+    SECURIZER = False
 
+    @classmethod
+    def init_app(cls, app):
+        super().init_app(app)
+        loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+        for logger in loggers:
+            logger.handlers = []
+        logging.root.handlers = []
 
 class DevelopmentConfig(Config):
     DEVELOPMENT = True

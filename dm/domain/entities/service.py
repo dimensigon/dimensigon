@@ -8,6 +8,7 @@ from dm.web import db
 
 class ServiceOrchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_service_orchestration'
+    order = 50
     id = db.Column(UUID, primary_key=True)
     service_id = db.Column(UUID, db.ForeignKey('D_service.id'))
     orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'))
@@ -16,6 +17,7 @@ class ServiceOrchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
 
 class Service(db.Model, EntityReprMixin, DistributedEntityMixin):
     __tablename__ = 'D_service'
+    order = 40
 
     id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(255), nullable=False)

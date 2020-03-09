@@ -1,3 +1,4 @@
+import asyncio
 import configparser
 import datetime
 import hashlib
@@ -159,10 +160,11 @@ def get_logger(self=None):
 def get_distributed_entities() -> t.List[t.Tuple['str', t.Any]]:
     from dm.domain.entities.base import DistributedEntityMixin
     entities = []
-    for name, cls in inspect.getmembers(sys.modules['dm.domain.entities'], inspect.isclass):
-        if issubclass(cls, DistributedEntityMixin):
-            entities.append((name, cls))
-    return entities
+    for name, cls in inspect.getmembers(sys.modules['dm.domain.entities'],
+                                        lambda x: (inspect.isclass(x) and issubclass(x, DistributedEntityMixin))):
+        entities.append((name, cls))
+
+    return sorted(entities, key=lambda x: x[1].order or 99999)
 
 
 def md5(fname):
@@ -266,3 +268,37 @@ def get_filename_from_cd(cd):
     if len(fname) == 0:
         return None
     return fname[0]
+
+
+def run(aw):
+    if sys.version_info >= (3, 7):
+        return asyncio.run(aw)
+
+    # Emulate asyncio.run() on older versions
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(aw)
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+
+def generate_dimension(name):
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from dm.domain.entities import Dimension
+
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=4096,
+        backend=default_backend()
+    )
+    priv_pem = private_key.private_bytes(encoding=serialization.Encoding.PEM,
+                                         format=serialization.PrivateFormat.TraditionalOpenSSL,
+                                         encryption_algorithm=serialization.NoEncryption())
+    pub_pem = private_key.public_key().public_bytes(encoding=serialization.Encoding.PEM,
+                                                    format=serialization.PublicFormat.PKCS1)
+
+    return Dimension(name=name, private=priv_pem, public=pub_pem)

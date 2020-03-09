@@ -5,8 +5,9 @@ from asynctest import TestCase, mock
 from dm.utils.async_operator import AsyncOperator, CompletedProcess
 
 from dm.domain.entities import Server
+from dm.domain.entities.locker import Scope
 from dm.network import TypeMsg
-from dm.use_cases.base import Scope, Token
+from dm.use_cases.base import Token
 from dm.use_cases.deployment import UndoCommand, TestOperation, Command, Execution
 from dm.use_cases.exceptions import ErrorLock
 from dm.use_cases.mediator import Mediator

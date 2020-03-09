@@ -1,4 +1,5 @@
 import threading
+import threading
 import typing as t
 from abc import ABC
 
@@ -76,6 +77,12 @@ class LockState(State):
         return
 
 
+# def uid_to_class(uid):
+#     for name, cls in inspect.getmembers(sys.modules[__name__], lambda c: inspect.isclass(c) and issubclass(c, State)):
+#         if getattr(cls, 'id', None) == uid:
+#             return cls
+#
+
 class Locker:
     """
     class that holds the state of the lock
@@ -144,7 +151,7 @@ class PriorityLocker:
 
     """
 
-    def __init__(self, priority: Comparable):
+    def __init__(self, priority: Comparable, persistent=False, uid=None):
         """
 
         Parameters

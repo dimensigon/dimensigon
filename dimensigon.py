@@ -3,9 +3,14 @@ import os
 import platform
 import sys
 
+import click
+import requests
+import rsa
 from dotenv import load_dotenv
-
-from dm.utils.helpers import generate_symmetric_key
+from flask import Flask
+from flask.cli import with_appcontext
+from flask_jwt_extended import create_access_token
+from flask_migrate import Migrate
 
 basedir = os.path.dirname(os.path.abspath(__file__))
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -22,19 +27,16 @@ if os.environ.get('FLASK_COVERAGE'):
     COV = coverage.coverage(branch=True, include='app/*')
     COV.start()
 
-import click
-import requests
-import rsa
-from flask import Flask
-from flask.cli import with_appcontext
-from flask_migrate import Migrate
-
 from dm.domain.entities import *
 from dm.domain.entities import Dimension
 from dm.domain.entities.orchestration import Step
-from dm.network.gateway import pack_msg, unpack_msg
+from dm.web.network import pack_msg2, unpack_msg2
 from dm.web import create_app, db
-from flask_jwt_extended import create_access_token
+
+from dm.domain.entities.bootstrap import set_initial
+from dm.domain.entities.locker import Locker
+from dm.use_cases.interactor import upgrade_catalog, update_table_routing_cost
+from dm.utils.helpers import generate_symmetric_key, generate_dimension
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
 migrate = Migrate(app, db)
@@ -50,8 +52,8 @@ migrate = Migrate(app, db)
 def make_shell_context():
     return dict(db=db, app=app, ActionTemplate=ActionTemplate, Step=Step, Orchestration=Orchestration, Catalog=Catalog,
                 Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service,
-                Software=Software, SoftwareFamily=SoftwareFamily, SoftwareServerAssociation=SoftwareServerAssociation,
-                Transfer=Transfer, create_access_token=create_access_token)
+                Software=Software, SoftwareServerAssociation=SoftwareServerAssociation,
+                Transfer=Transfer, Locker=Locker, create_access_token=create_access_token)
 
 
 @app.cli.command()
@@ -114,35 +116,46 @@ token: Authentication Token used for authentication to the reference server""")
 @with_appcontext
 def join(server, token, ssl, verify):
     protocol = "https" if ssl else "http"
-    resp = requests.get(f"{protocol}://{server}/api/v1.0/join/public", headers={'Authorization': 'Bearer ' + token},
-                        verify=verify)
-    resp.raise_for_status()
-    pub_key = rsa.PublicKey.load_pkcs1(resp.content)
+    with requests.Session() as session:
+        # TODO: send ca.cert from the dimension
+        resp = session.get(f"{protocol}://{server}/api/v1.0/join/public", headers={'Authorization': 'Bearer ' + token},
+                           verify=verify)
+        resp.raise_for_status()
+        pub_key = rsa.PublicKey.load_pkcs1(resp.content)
 
-    # Generate Public and Private Temporal Keys
-    tmp_pub, tmp_priv = rsa.newkeys(2048, poolsize=8)
-    symmetric_key = generate_symmetric_key()
-    data = pack_msg(data={}, pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key, add_key=True)
-    data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
-    click.echo("Joining to dimension")
-    resp = requests.post(f"{protocol}://{server}/api/v1.0/join", json=data,
-                         headers={'Authorization': 'Bearer ' + token}, verify=verify)
-    resp.raise_for_status()
-    resp_data = unpack_msg(resp.json(), pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key)
-    if 'id' in resp_data:
-        priv_key = rsa.PrivateKey.load_pkcs1(resp_data.get('private'))
-        dim = Dimension(id=resp_data.get('id'), name=resp_data.get('name'), public=pub_key, private=priv_key,
-                        created_at=resp_data.get('created_at'), current=True)
-        db.session.add(dim)
-
-        db.session.commit()
-
-    click.echo('Joined to the dimension')
+        # Generate Public and Private Temporal Keys
+        tmp_pub, tmp_priv = rsa.newkeys(2048, poolsize=8)
+        symmetric_key = generate_symmetric_key()
+        data = pack_msg2(data=Server.get_current().to_json(), pub_key=pub_key, priv_key=tmp_priv,
+                         symmetric_key=symmetric_key, add_key=True)
+        data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
+        click.echo("Joining to dimension")
+        resp = session.post(f"{protocol}://{server}/api/v1.0/join", json=data,
+                            headers={'Authorization': 'Bearer ' + token}, verify=verify)
+        resp.raise_for_status()
+        resp_data = unpack_msg2(resp.json(), pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key)
+        if 'Dimension' in resp_data:
+            dim = Dimension.from_json(resp_data.pop('Dimension'))
+            dim.current = True
+            db.session.add(dim)
+            reference_server_id = resp_data.pop('me')
+            # remove catalog
+            for c in Catalog.query.all():
+                db.session.delete(c)
+            upgrade_catalog(resp_data)
+            # set reference server as a neighbour
+            reference_server = Server.query.get(reference_server_id)
+            if not reference_server:
+                raise ValueError(f"Server id {reference_server_id} not found in catalog")
+            reference_server.route.cost = 0
+            update_table_routing_cost(True)
+            db.session.commit()
+            click.echo('Joined to the dimension')
 
 
 @dm.command(help="""Create a token for joining the dimension.""")
 def token():
-    click.echo(create_access_token('join', expires_delta=datetime.timedelta(minutes=15)))
+    click.echo(create_access_token('join', expires_delta=datetime.timedelta(minutes=300)))
 
 
 @dm.command(help="""Create a dimension from scratch. Must provide a name for the dimension""")
@@ -152,22 +165,14 @@ def new(name):
     from cryptography import x509
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
     import datetime
 
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=4096,
-        backend=default_backend()
-    )
-    priv_pem = private_key.private_bytes(encoding=serialization.Encoding.PEM,
-                                         format=serialization.PrivateFormat.TraditionalOpenSSL,
-                                         encryption_algorithm=serialization.NoEncryption())
-    pub_pem = private_key.public_key().public_bytes(encoding=serialization.Encoding.PEM,
-                                                    format=serialization.PublicFormat.PKCS1)
     count = Dimension.query.count()
-    dim = Dimension(name=name, private=priv_pem, public=pub_pem, current=count == 0)
+    dim = generate_dimension(name)
+
+    private_key = serialization.load_pem_private_key(dim.private.save_pkcs1(), password=None, backend=default_backend())
+    dim.current = count == 0
     db.session.add(dim)
 
     now = datetime.datetime.utcnow()
@@ -304,6 +309,10 @@ def certs(hostname, ip):
         file.write(key_pem)
     os.chmod(os.path.join(ssl_dir, 'key.pem'), 0o600)
 
+    click.echo("Certificates generated")
+    click.echo("cert: " + os.path.join(ssl_dir, 'cert.pem'))
+    click.echo("key: " + os.path.join(ssl_dir, 'key.pem'))
+
 
 @dm.command(help='Fill initial server')
 @with_appcontext
@@ -318,4 +327,6 @@ def populate_db():
 
     # Generate Server
     # db.create_all()
-    Server.set_initial()
+    db.create_all()
+    set_initial()
+    db.session.commit()

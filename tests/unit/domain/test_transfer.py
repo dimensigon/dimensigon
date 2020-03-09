@@ -1,7 +1,7 @@
 import threading
 from unittest import TestCase
 
-from dm.domain.entities import Server, Dimension, Software, SoftwareFamily, Transfer, TransferStatus
+from dm.domain.entities import Server, Dimension, Software, Transfer, TransferStatus
 from dm.web import create_app, db
 
 
@@ -25,7 +25,7 @@ class TestTransfer(TestCase):
         self.app_context.pop()
 
     def test_wait_transfer(self):
-        s = Software(name='test', version='1', family=SoftwareFamily.MIDDLEWARE)
+        s = Software(name='test', version='1')
         t = Transfer(software=s, dest_path='', filename='', num_chunks=0)
 
         db.session.add_all([s, t])
