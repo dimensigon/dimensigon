@@ -1,7 +1,9 @@
+import json
 import typing as t
 
 import aiohttp
 import requests
+from aiohttp import ContentTypeError
 from flask import current_app as __ca, g, current_app
 from requests.auth import AuthBase
 
@@ -96,11 +98,18 @@ class HTTPBearerAuth(AuthBase):
 
     def __call__(self, r):
         if hasattr(r, 'headers'):
-            r.headers['Authorization'] = 'Bearer ' + self.token
+            r.headers.update(self.header)
         else:
-            r['headers']['Authorization'] = 'Bearer ' + self.token
-            r.pop('auth')
+            r['headers'].update(self.header)
+            r.pop('auth', None)
         return r
+
+    @property
+    def header(self):
+        return {'Authorization': str(self)}
+
+    def __str__(self):
+        return 'Bearer ' + self.token
 
 
 def _prepare_url(server: Server, view_or_url: str, **view_data):
@@ -123,7 +132,7 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     exception = None
     content = None
     status = None
-    headers = None
+    json_data = None
 
     if not session:
         session = requests.session()
@@ -131,9 +140,7 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     url = _prepare_url(server, view_or_url, **view_data or {})
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
-    if 'data' in kwargs:
-        kwargs['json'] = pack_msg(kwargs['data'])
-    elif 'json' in kwargs:
+    if 'json' in kwargs and kwargs['json']:
         kwargs['json'] = pack_msg(kwargs['json'])
 
     kwargs['verify'] = current_app.config['SSL_VERIFY']
@@ -146,27 +153,26 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
 
     if exception is None:
         status = resp.status_code
-        if 199 < resp.status_code < 300:
-            json_data = None
-            try:
-                json_data = resp.json()
-            except ValueError:
-                pass
+        try:
+            json_data = resp.json()
+        except (ValueError,):
+            content = resp.text
 
-            if json_data:
-                try:
-                    content = unpack_msg(json_data)
-                except NotValidMessage:
-                    current_app.logger.warning(f'Not a Valid Message: {json_data}')
-                    raise
-        else:
+        if json_data:
             try:
-                content = resp.json()
-            except ValueError:
-                content = resp.text
+                content = unpack_msg(json_data)
+            except NotValidMessage:
+                current_app.logger.debug(
+                    f"Response from request {url} is not encrypted: {status}\n"
+                    f"Content: {json.dumps(json_data, indent=4)}\n"
+                    f"Header-Response: {json.dumps(dict(resp.headers), indent=4)}\n"
+                    f"Headers: {json.dumps(kwargs['headers'], indent=4)}\n"
+                    f"Authorization: {kwargs.get('auth')}"
+                )
+                content = json_data
     else:
         content = exception
-        current_app.logger.error(f'Error while trying to connect with {url}: {exception}')
+        current_app.logger.error(f'Error while trying to request to {url}: {exception}')
 
     return content, status
 
@@ -191,19 +197,19 @@ def head(server: Server, view_or_url: str, view_data: Kwargs = None, session: re
 def post(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
          json=None, **kwargs):
     r"""Sends a POST request."""
-    return request('post', server, view_or_url, view_data=view_data, session=session, data=data, json=json, **kwargs)
+    return request('post', server, view_or_url, view_data=view_data, session=session, json=json, **kwargs)
 
 
 def put(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
         **kwargs):
     r"""Sends a PUT request."""
-    return request('put', server, view_or_url, view_data=view_data, session=session, data=data, **kwargs)
+    return request('put', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
 def patch(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
           **kwargs):
     r"""Sends a PATCH request."""
-    return request('patch', server, view_or_url, view_data=view_data, session=session, data=data, **kwargs)
+    return request('patch', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
 def delete(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
@@ -229,8 +235,7 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     if 'auth' in kwargs:
         kwargs['auth'](kwargs)
 
-    if 'json' in kwargs:
-        kwargs['json'] = pack_msg(kwargs['json'])
+    kwargs['json'] = pack_msg(kwargs.get('json') or {})
 
     kwargs['ssl'] = current_app.config['SSL_VERIFY']
 
@@ -241,7 +246,7 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
             status = resp.status
             try:
                 json_data = await resp.json()
-            except ValueError:
+            except (ContentTypeError, ValueError):
                 content = await resp.text()
     except Exception as e:
         exception = e
@@ -252,10 +257,17 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
         try:
             content = unpack_msg(json_data)
         except NotValidMessage:
-            current_app.logger.warning(f'Not a Valid Message: {json_data}')
-            raise
+            current_app.logger.debug(
+                f"Response from request {url} is not encrypted: {status}\n"
+                f"Content: {json.dumps(json_data, indent=4)}\n"
+                f"Header-Response: {json.dumps(dict(resp.headers), indent=4)}\n"
+                f"Headers: {json.dumps(kwargs['headers'], indent=4)}\n"
+                f"Authorization: {kwargs.get('auth')}"
+            )
+            content = json_data
     elif exception:
         content = exception
+        current_app.logger.error(f'Error while trying to request to {url}: {exception}')
 
     return content, status
 
@@ -269,39 +281,39 @@ async def async_get(server: Server, view_or_url: str, view_data: Kwargs = None, 
 
 async def async_options(server: Server, view_or_url: str, view_data: Kwargs = None,
                         session: aiohttp.ClientSession = None,
-                        **kwargs) -> aiohttp.ClientResponse:
+                        **kwargs) -> Response:
     r"""Sends an OPTIONS request."""
 
     return await async_request('options', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
 async def async_head(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
-                     **kwargs) -> aiohttp.ClientResponse:
+                     **kwargs) -> Response:
     r"""Sends a HEAD request."""
     return await async_request('head', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
 async def async_post(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
-                     json=None, **kwargs) -> aiohttp.ClientResponse:
+                     json=None, **kwargs) -> Response:
     r"""Sends a POST request."""
     return await async_request('post', server, view_or_url, view_data=view_data, session=session, json=json,
                                **kwargs)
 
 
 async def async_put(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
-                    **kwargs) -> aiohttp.ClientResponse:
+                    json=None, **kwargs) -> Response:
     r"""Sends a PUT request."""
-    return async_request('put', server, view_or_url, view_data=view_data, session=session, **kwargs)
+    return await async_request('put', server, view_or_url, view_data=view_data, session=session, json=json, **kwargs)
 
 
 async def async_patch(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
-                      **kwargs) -> aiohttp.ClientResponse:
+                      json=None, **kwargs) -> Response:
     r"""Sends a PATCH request."""
-    return await async_request('patch', server, view_or_url, view_data=view_data, session=session, **kwargs)
+    return await async_request('patch', server, view_or_url, view_data=view_data, session=session, json=json, **kwargs)
 
 
 async def async_delete(server: Server, view_or_url: str, view_data: Kwargs = None,
                        session: aiohttp.ClientSession = None,
-                       **kwargs) -> aiohttp.ClientResponse:
+                       **kwargs) -> Response:
     r"""Sends a DELETE request."""
     return await async_request('delete', server, view_or_url, view_data=view_data, session=session, **kwargs)

@@ -23,8 +23,10 @@ class TestApi(TestCase):
         db.create_all()
         set_initial()
 
-        self.soft = Software(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='test', version='1')
-        self.soft2 = Software(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'), name='test', version='2')
+        self.soft = Software(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='test', version='1',
+                             filename='file')
+        self.soft2 = Software(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'), name='test', version='2',
+                              filename='file')
         self.ssa = SoftwareServerAssociation(software=self.soft, server=Server.get_current(), path='/root')
         db.session.add_all([self.soft, self.soft2, self.ssa])
         db.session.commit()

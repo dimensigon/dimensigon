@@ -3,6 +3,7 @@ import functools
 
 import rsa
 from flask import request, url_for, g, current_app
+from jsonschema import validate, ValidationError
 
 from dm.domain.entities import Server
 from dm.network.exceptions import NotValidMessage
@@ -64,7 +65,7 @@ def securizer(func):
                 except (rsa.pkcs1.VerificationError, NotValidMessage) as e:
                     return {'error': str(e),
                             'message': request.get_json()}, 400
-                if current_app.config['SECURIZER']:
+                if current_app.config['SECURIZER'] and data:
                     # fill json request with unpacked data
                     for key in list(request.json.keys()):
                         request.json.pop(key)
@@ -72,7 +73,8 @@ def securizer(func):
                         request.json[key] = val
 
             else:
-                return {'error': 'Content Type must be application/json'}, 400
+                if request.data:
+                    return {'error': 'Content Type must be application/json'}, 400
 
         rest = tuple()
         rv = func(*args, **kwargs)
@@ -103,3 +105,20 @@ def securizer(func):
         return rv
 
     return wrapper_decorator
+
+
+def validate_schema(schema_name=None, **methods):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kw):
+            schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
+            if schema:
+                try:
+                    validate(request.json, schema)
+                except ValidationError as e:
+                    return {"error": e.message}, 400
+            return f(*args, **kw)
+
+        return wrapper
+
+    return decorator

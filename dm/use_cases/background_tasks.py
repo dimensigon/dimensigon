@@ -15,13 +15,13 @@ from pkg_resources import parse_version
 from dm import __version__ as dm_version, defaults
 from dm.domain.entities import Software, SoftwareServerAssociation, Server, Dimension, Transfer, \
     TransferStatus, Catalog, Scope
-from dm.network.gateway import pack_msg, unpack_msg
 from dm.use_cases import exceptions as ue
 from dm.use_cases.interactor import upgrade_catalog_from_server
 from dm.use_cases.lock import lock_scope
-from dm.utils.helpers import get_filename_from_cd, md5, run
+from dm.utils import asyncio
+from dm.utils.helpers import get_filename_from_cd, md5
 from dm.web import db
-from dm.web.network import async_get
+from dm.web.network import async_get, HTTPBearerAuth, post
 
 logger = logging.getLogger('dm.background')
 
@@ -77,28 +77,31 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
                 max_version = parse_version('0')
             new_versions = [gogs_ver for gogs_ver in gogs_versions if gogs_ver > max_version]
 
-            try:
-                with lock_scope(Scope.CATALOG):
-                    logger.info(f"Downloading new versions {', '.join(map(str, new_versions))}")
-                    with requests.Session() as s:
-                        for new_version in new_versions:
-                            r = s.get(base_url + gogs_versions[new_version], verify=current_app.config['SSL_VERIFY'])
-                            filename = get_filename_from_cd(
-                                r.headers.get(
-                                    'content-disposition')) or f"dimensigon-{gogs_versions[new_version].rsplit('/', 1)[-1]}"
-                            file = os.path.join(current_app.config['SOFTWARE_DIR'], filename)
-                            open(file, 'wb').write(r.content)
+            if new_versions:
+                try:
+                    with lock_scope(Scope.CATALOG):
+                        logger.info(f"Downloading new versions {', '.join(map(str, new_versions))}")
+                        with requests.Session() as s:
+                            for new_version in new_versions:
+                                r = s.get(base_url + gogs_versions[new_version],
+                                          verify=current_app.config['SSL_VERIFY'])
+                                filename = get_filename_from_cd(
+                                    r.headers.get(
+                                        'content-disposition')) or f"dimensigon-{gogs_versions[new_version].rsplit('/', 1)[-1]}"
+                                file = os.path.join(current_app.config['SOFTWARE_DIR'], filename)
+                                open(file, 'wb').write(r.content)
 
-                            soft = Software(name='dimensigon', version=str(new_version), family='MIDDLEWARE',
-                                            filename=filename, size=r.headers.get('content-length'), checksum=md5(file))
-                            ssa = SoftwareServerAssociation(software=soft, server=current_server,
-                                                            path=current_app.config['SOFTWARE_DIR'])
-                            db.session.add(soft)
-                            db.session.add(ssa)
+                                soft = Software(name='dimensigon', version=str(new_version), family='MIDDLEWARE',
+                                                filename=filename, size=r.headers.get('content-length'),
+                                                checksum=md5(file))
+                                ssa = SoftwareServerAssociation(software=soft, server=current_server,
+                                                                path=current_app.config['SOFTWARE_DIR'])
+                                db.session.add(soft)
+                                db.session.add(ssa)
 
-                    db.session.commit()
-            except ue.ErrorLock as e:
-                pass
+                        db.session.commit()
+                except ue.ErrorLock as e:
+                    pass
 
         software_list: t.List = Software.query.filter_by(name='dimensigon').all()
         software_list.sort(key=lambda s: parse_version(s.version))
@@ -115,39 +118,45 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
                 file = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
                 if not os.path.exists(file):
                     ssa = min(soft2deploy.ssas, key=lambda x: x.server.route.cost or 999999)
-                    logger.debug(f"Getting software from server {ssa.server.id}")
-                    r = requests.post(url=ssa.server.url('api_1_0.software_send'),
-                                      json=pack_msg({"software_id": str(soft2deploy.id),
-                                                     "dest_server_id": str(current_server.id),
-                                                     "dest_path": current_app.config['SOFTWARE_DIR'],
-                                                     "chunk_size": 1024 * 1024 * 4,
-                                                     "max_senders": os.environ.get('WORKERS', 2)},
-                                                    pub_key=current_dimension.public,
-                                                    priv_key=current_dimension.private),
-                                      headers={'D-Destination': str(ssa.server.id)},
-                                      verify=app.config['SSL_VERIFY'])
-                    r.raise_for_status()
-                    data = unpack_msg(r.json(), pub_key=current_dimension.public,
-                                      priv_key=current_dimension.private)
-                    trans_id = data.get('transfer_id')
-                    logger.debug(f"Transfer ID {trans_id} generated")
-                    trans: Transfer = Transfer.query.get(trans_id)
-                    status = trans.wait_transfer(timeout=timeout_wait_transfer, refresh_interval=refresh_interval)
-                    if status == TransferStatus.COMPLETED:
-                        deployable = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
-                    elif status in (TransferStatus.IN_PROGRESS, TransferStatus.WAITING_CHUNKS):
-                        logger.debug(f"Timeout while waiting transfer ID {trans_id} to be completed")
-                        raise ue.TransferTimeout()
+                    logger.debug(f"Getting software from server {ssa.server}")
+                    resp = post(ssa.server, 'api_1_0.software_send',
+                                json={"software_id": str(soft2deploy.id),
+                                      "dest_server_id": str(current_server.id),
+                                      "dest_path": current_app.config[
+                                          'SOFTWARE_DIR'],
+                                      "chunk_size": 1024 * 1024 * 4,
+                                      "max_senders": os.environ.get('WORKERS', 2)},
+                                auth=HTTPBearerAuth(create_access_token('upgrader')))
+
+                    if 199 < resp[1] < 300:
+                        try:
+                            trans_id = resp[0]['transfer_id']
+                        except KeyError:
+                            msg = f"transfer_id not found in data {resp[0]}"
+                            logger.error(msg)
+                            raise RuntimeError(msg)
+                        logger.debug(f"Transfer ID {trans_id} generated")
+                        trans: Transfer = Transfer.query.get(trans_id)
+                        status = trans.wait_transfer(timeout=timeout_wait_transfer, refresh_interval=refresh_interval)
+                        if status == TransferStatus.COMPLETED:
+                            deployable = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
+                        elif status in (TransferStatus.IN_PROGRESS, TransferStatus.WAITING_CHUNKS):
+                            logger.debug(f"Timeout while waiting transfer ID {trans_id} to be completed")
+                            raise ue.TransferTimeout()
+                        else:
+                            logger.debug(f"Error while waiting transfer ID {trans_id} to be completed")
+                            raise ue.TransferError(status)
                     else:
-                        logger.debug(f"Error while waiting transfer ID {trans_id} to be completed")
-                        raise ue.TransferError(status)
+                        logger.error(f'Unable to get file from server: {resp[0]}')
+                        deployable = None
                 else:
                     deployable = file
             if deployable:
                 logger.info(f"Upgrading to version {soft2deploy.version}")
                 stdout = open('elevator.out', 'a')
-                subprocess.Popen(['python', 'elevator.py', '-d', deployable],
-                                 stdin=None, stdout=stdout, stderr=stdout, close_fds=True, env=os.environ)
+                cmd = ['python', 'elevator.py', 'upgrade', deployable, soft2deploy.version]
+                logger.debug(f"Running command {' '.join(cmd)}")
+                subprocess.Popen(cmd, stdin=None, stdout=stdout, stderr=stdout, close_fds=True, env=os.environ)
                 stdout.close()
         else:
             logger.debug(f"No version to upgrade")
@@ -181,7 +190,7 @@ async def _get_neighbour_catalog_data_mark():
 def check_catalog(app):
     with app.app_context():
         logger.debug("Starting check catalog from neighbours")
-        data = run(_get_neighbour_catalog_data_mark())
+        data = asyncio.run(_get_neighbour_catalog_data_mark())
         reference_server = None
         catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
         if catalog_ver:

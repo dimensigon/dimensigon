@@ -1,4 +1,3 @@
-import asyncio
 import configparser
 import datetime
 import hashlib
@@ -270,18 +269,7 @@ def get_filename_from_cd(cd):
     return fname[0]
 
 
-def run(aw):
-    if sys.version_info >= (3, 7):
-        return asyncio.run(aw)
 
-    # Emulate asyncio.run() on older versions
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(aw)
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
 
 
 def generate_dimension(name):

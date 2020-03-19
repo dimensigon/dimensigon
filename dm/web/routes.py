@@ -2,7 +2,6 @@ import os
 import signal
 from functools import partial
 
-import jsonschema
 from flask import Blueprint, request, current_app
 
 import dm
@@ -10,7 +9,7 @@ from dm import defaults
 from dm.domain import entities
 from dm.domain.entities import Server
 from dm.web import db
-from dm.web.decorators import forward_or_dispatch, securizer
+from dm.web.decorators import forward_or_dispatch, validate_schema
 from dm.web.json_schemas import schema_healthcheck
 from elevator import __version__ as elevator_ver
 
@@ -36,7 +35,7 @@ def shutdown_server():
 
 @root_bp.route('/healthcheck', methods=['GET', 'POST'])
 @forward_or_dispatch
-@securizer
+@validate_schema(POST=schema_healthcheck)
 def healthcheck():
     if request.method == 'GET':
         # catalog_ver = current_app.catalog_manager.max_data_mark
@@ -53,7 +52,6 @@ def healthcheck():
                 }
     elif request.method == 'POST':
         data = request.json
-        jsonschema.validate(data, schema_healthcheck)
 
         if data.get('action') == 'stop':
             shutdown_server()

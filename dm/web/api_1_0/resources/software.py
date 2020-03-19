@@ -1,6 +1,5 @@
 import os
 
-import jsonschema
 from flask import request
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
@@ -8,7 +7,7 @@ from flask_restful import Resource
 from dm.domain.entities import Software, Server, SoftwareServerAssociation
 from dm.utils.helpers import md5
 from dm.web import db
-from dm.web.decorators import securizer, forward_or_dispatch
+from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
 from dm.web.helpers import filter_query
 from dm.web.json_schemas import post_software_schema, put_software_servers_schema, patch_software_schema
 
@@ -37,12 +36,12 @@ class SoftwareList(Resource):
         query = filter_query(Software, request.args)
         return [soft.to_json() for soft in query.all()]
 
-    @securizer
-    @jwt_required
     @forward_or_dispatch
+    @jwt_required
+    @securizer
+    @validate_schema(post_software_schema)
     def post(self):
         json = request.get_json()
-        jsonschema.validate(json, post_software_schema)
 
         soft = Software(name=json['name'], version=json['version'], family=json['family'])
         if 'server_id' in json:
@@ -73,12 +72,12 @@ class SoftwareServers(Resource):
         soft = Software.query.get_or_404(software_id)
         return [ssa.server.to_json() for ssa in soft.ssas]
 
-    @securizer
-    @jwt_required
     @forward_or_dispatch
+    @jwt_required
+    @securizer
+    @validate_schema(put_software_servers_schema)
     def put(self, software_id):
         json = request.get_json()
-        jsonschema.validate(json, put_software_servers_schema)
 
         soft = Software.query.get_or_404(software_id)
 
@@ -92,12 +91,12 @@ class SoftwareServers(Resource):
 
         db.session.commit()
 
-    @securizer
-    @jwt_required
     @forward_or_dispatch
+    @jwt_required
+    @securizer
+    @validate_schema(patch_software_schema)
     def patch(self, software_id):
         json = request.get_json()
-        jsonschema.validate(json, patch_software_schema)
 
         soft = Software.query.get_or_404(software_id)
         server = Server.query.get_or_404(json['server_id'])

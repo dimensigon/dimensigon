@@ -40,7 +40,8 @@ class Dimension(db.Model, EntityReprMixin):
         return db.session.query(cls).filter_by(current=True).one_or_none()
 
     def to_json(self):
-        return {'id': str(self.id), 'name': self.name, 'private': self.private.save_pkcs1().decode('ascii'),
+        return {'id': str(self.id) if self.id else None, 'name': self.name,
+                'private': self.private.save_pkcs1().decode('ascii'),
                 'public': self.public.save_pkcs1().decode('ascii'),
                 'created_at': self.created_at.strftime(defaults.DATETIME_FORMAT)}
 

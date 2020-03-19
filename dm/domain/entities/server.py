@@ -30,7 +30,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
 
     # software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
 
-    # __table_args__ = (db.UniqueConstraint('name', 'ip', 'port', name='D_server_uq01'),)
+    __table_args__ = (db.UniqueConstraint('name', name='D_server_uq01'),)
 
     def __init__(self, name: str, ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address] = None,
                  port: int = 5000,
@@ -50,7 +50,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
         self.route = Route(destination=self, gateway=gateway, cost=cost)
 
     def __str__(self):
-        return f"{self.name} {self.id}"
+        return f"{self.name}"
 
     def url(self, view: str = None, **values) -> str:
         """

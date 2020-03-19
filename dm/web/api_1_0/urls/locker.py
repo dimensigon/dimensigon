@@ -1,6 +1,5 @@
 import threading
 
-import jsonschema
 from flask import request, current_app, g
 from flask_jwt_extended import jwt_required
 
@@ -8,7 +7,7 @@ from dm import defaults
 from dm.domain.entities.locker import Scope, State, Locker
 from dm.web import db
 from dm.web.api_1_0 import api_bp
-from dm.web.decorators import securizer, forward_or_dispatch
+from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
 from dm.web.json_schemas import schema_lock
 
 
@@ -25,10 +24,10 @@ def revert_preventing(app, scope, applicant):
 @forward_or_dispatch
 @jwt_required
 @securizer
+@validate_schema(POST=schema_lock)
 def locker():
     if request.method == 'POST':
         json = request.get_json()
-        jsonschema.validate(json, schema_lock)
         l: Locker = Locker.query.with_for_update().get(Scope[json['scope']])
         current_app.logger.debug(f"Lock request for {json.get('action')} on {json.get('scope')} from {g.source.name}")
         if json['action'] == 'PREVENT':

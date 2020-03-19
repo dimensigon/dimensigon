@@ -1,7 +1,11 @@
 import re
+import threading
+import typing as t
 
-from flask import abort
+from flask import abort, current_app
 from flask_sqlalchemy import BaseQuery
+
+from dm.utils.asyncio import run
 
 
 class BaseQueryJSON(BaseQuery):
@@ -42,3 +46,15 @@ def filter_query(entity, filters):
         else:
             query = query.filter(column == v)
     return query
+
+
+def run_in_background(aw: t.Coroutine):
+    app = current_app._get_current_object()
+
+    def thread_with_app_context():
+        with app.app_context():
+            run(aw)
+
+    th = threading.Thread(target=thread_with_app_context)
+    # th.daemon = True
+    th.start()

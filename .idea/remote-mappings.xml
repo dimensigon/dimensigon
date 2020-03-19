@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RemoteMappingsManager">
+    <list>
+      <list>
+        <remote-mappings server-id="python@sftp://dimensigon@dimensigon-dev1:22/home/dimensigon/venv/bin/python3">
+          <settings>
+            <list>
+              <mapping local-root="$PROJECT_DIR$/venv" remote-root="/home/dimensigon/venv" />
+            </list>
+          </settings>
+        </remote-mappings>
+      </list>
+    </list>
+  </component>
+</project>

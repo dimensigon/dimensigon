@@ -25,8 +25,8 @@ class TestTransfer(TestCase):
         self.app_context.pop()
 
     def test_wait_transfer(self):
-        s = Software(name='test', version='1')
-        t = Transfer(software=s, dest_path='', filename='', num_chunks=0)
+        s = Software(name='test', version='1', filename='file')
+        t = Transfer(software=s, dest_path='', num_chunks=0)
 
         db.session.add_all([s, t])
         db.session.commit()
