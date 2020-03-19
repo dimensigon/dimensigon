@@ -1,22 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <module type="PYTHON_MODULE" version="4">
   <component name="NewModuleRootManager">
-    <content url="file://$MODULE_DIR$">
-      <excludeFolder url="file://$MODULE_DIR$/bin" />
-      <excludeFolder url="file://$MODULE_DIR$/log" />
-      <excludeFolder url="file://$MODULE_DIR$/migrations" />
-      <excludeFolder url="file://$MODULE_DIR$/software" />
-      <excludeFolder url="file://$MODULE_DIR$/ssl" />
-      <excludeFolder url="file://$MODULE_DIR$/tmp" />
-      <excludeFolder url="file://$MODULE_DIR$/venv" />
-      <excludeFolder url="file://$MODULE_DIR$/venv3.8" />
-      <excludePattern pattern="desktop.ini" />
-    </content>
-    <orderEntry type="jdk" jdkName="Python 3.6 (dimensigon)" jdkType="Python SDK" />
+    <content url="file://$MODULE_DIR$" />
+    <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
   <component name="PyDocumentationSettings">
-    <option name="format" value="NUMPY" />
-    <option name="myDocStringFormat" value="NumPy" />
+    <option name="format" value="PLAIN" />
+    <option name="myDocStringFormat" value="Plain" />
+  </component>
+  <component name="TemplatesService">
+    <option name="TEMPLATE_CONFIGURATION" value="Jinja2" />
+    <option name="TEMPLATE_FOLDERS">
+      <list>
+        <option value="$MODULE_DIR$/venv/lib/python3.6/site-packages/alembic/templates" />
+      </list>
+    </option>
   </component>
 </module>
