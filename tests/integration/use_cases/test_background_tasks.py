@@ -118,7 +118,7 @@ class TestCheckNewVersions(TestCase):
 
         self.assertEqual(
             (['python', 'elevator.py', 'upgrade',
-              os.path.join(self.app.config['SOFTWARE_DIR'], 'dimensigon-v0.1.a1.tar.gz'), '0.1a1'],),
+              os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon-v0.1.a1.tar.gz'), '0.1a1'],),
             mock_popen.call_args[0])
 
     @patch('dm.use_cases.background_tasks.lock_scope')
@@ -169,7 +169,7 @@ class TestCheckNewVersions(TestCase):
         soft = Software(name='dimensigon', version='0.2',
                         filename='dimensigon-v0.2.tar.gz', size=10, checksum=b'10')
         ssa = SoftwareServerAssociation(software=soft, server=Server.get_current(),
-                                        path=self.app.config['SOFTWARE_DIR'])
+                                        path=self.app.config['SOFTWARE_REPO'])
         db.session.add(soft)
         db.session.add(ssa)
         db.session.commit()
@@ -177,7 +177,7 @@ class TestCheckNewVersions(TestCase):
         check_new_versions()
 
         self.assertEqual((['python', 'elevator.py', 'upgrade',
-                           os.path.join(self.app.config['SOFTWARE_DIR'], 'dimensigon-v0.2.tar.gz'),
+                           os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon-v0.2.tar.gz'),
                            '0.2'],),
                          mock_popen.call_args[0])
 
@@ -221,7 +221,7 @@ class TestCheckNewVersions(TestCase):
         soft = Software(name='dimensigon', version='0.2',
                         filename='dimensigon-0.2.tar.gz', size=10, checksum=b'10')
         ssa = SoftwareServerAssociation(software=soft, server=r_server,
-                                        path=self.app.config['SOFTWARE_DIR'])
+                                        path=self.app.config['SOFTWARE_REPO'])
         db.session.add(r_server)
         db.session.add(soft)
         db.session.add(ssa)
@@ -241,7 +241,7 @@ class TestCheckNewVersions(TestCase):
         check_new_versions(timeout_wait_transfer=0.1, refresh_interval=0.05)
 
         self.assertEqual((['python', 'elevator.py', 'upgrade',
-                           os.path.join(self.app.config['SOFTWARE_DIR'], 'dimensigon-0.2.tar.gz'), '0.2'],),
+                           os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon-0.2.tar.gz'), '0.2'],),
                          mock_popen.call_args[0])
 
 

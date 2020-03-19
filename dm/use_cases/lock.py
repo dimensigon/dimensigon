@@ -10,7 +10,8 @@ import dm.use_cases.exceptions as ue
 from dm.domain.entities import Server
 from dm.domain.entities.locker import Scope
 from dm.use_cases.helpers import get_servers_from_scope
-from dm.utils.helpers import is_iterable_not_string, run
+from dm.utils.asyncio import run
+from dm.utils.helpers import is_iterable_not_string
 from dm.web.network import async_post, HTTPBearerAuth
 
 

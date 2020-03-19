@@ -88,14 +88,14 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
                                 filename = get_filename_from_cd(
                                     r.headers.get(
                                         'content-disposition')) or f"dimensigon-{gogs_versions[new_version].rsplit('/', 1)[-1]}"
-                                file = os.path.join(current_app.config['SOFTWARE_DIR'], filename)
+                                file = os.path.join(current_app.config['SOFTWARE_REPO'], filename)
                                 open(file, 'wb').write(r.content)
 
                                 soft = Software(name='dimensigon', version=str(new_version), family='MIDDLEWARE',
                                                 filename=filename, size=r.headers.get('content-length'),
                                                 checksum=md5(file))
                                 ssa = SoftwareServerAssociation(software=soft, server=current_server,
-                                                                path=current_app.config['SOFTWARE_DIR'])
+                                                                path=current_app.config['SOFTWARE_REPO'])
                                 db.session.add(soft)
                                 db.session.add(ssa)
 
@@ -115,7 +115,7 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
                 deployable = os.path.join(ssa[0].path, soft2deploy.filename)
             else:
                 # get software if not in folder
-                file = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
+                file = os.path.join(current_app.config['SOFTWARE_REPO'], soft2deploy.filename)
                 if not os.path.exists(file):
                     ssa = min(soft2deploy.ssas, key=lambda x: x.server.route.cost or 999999)
                     logger.debug(f"Getting software from server {ssa.server}")
@@ -123,7 +123,7 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
                                 json={"software_id": str(soft2deploy.id),
                                       "dest_server_id": str(current_server.id),
                                       "dest_path": current_app.config[
-                                          'SOFTWARE_DIR'],
+                                          'SOFTWARE_REPO'],
                                       "chunk_size": 1024 * 1024 * 4,
                                       "max_senders": os.environ.get('WORKERS', 2)},
                                 auth=HTTPBearerAuth(create_access_token('upgrader')))
@@ -139,7 +139,7 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
                         trans: Transfer = Transfer.query.get(trans_id)
                         status = trans.wait_transfer(timeout=timeout_wait_transfer, refresh_interval=refresh_interval)
                         if status == TransferStatus.COMPLETED:
-                            deployable = os.path.join(current_app.config['SOFTWARE_DIR'], soft2deploy.filename)
+                            deployable = os.path.join(current_app.config['SOFTWARE_REPO'], soft2deploy.filename)
                         elif status in (TransferStatus.IN_PROGRESS, TransferStatus.WAITING_CHUNKS):
                             logger.debug(f"Timeout while waiting transfer ID {trans_id} to be completed")
                             raise ue.TransferTimeout()

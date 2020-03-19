@@ -29,7 +29,7 @@ __author__ = "Joan Prat "
 __copyright__ = "Copyright 2019, The Dimensigon project"
 __credits__ = ["Joan Prat", "Daniel Moya"]
 __license__ = ""
-__version__ = "0.0.1"
+__version__ = "0.0-a2"
 __maintainer__ = "Joan Prat"
 __email__ = "joan.prat@dimensigon.com"
 __status__ = "Dev"
@@ -302,7 +302,6 @@ def _upgrade(config):
     shutil.unpack_archive(config['deployable'], TMP)
     shutil.copytree(os.path.join(TMP, 'dimensigon'), new_home)
     shutil.rmtree(os.path.join(TMP, 'dimensigon'))
-    os.rmdir(os.path.join(TMP, 'dimensigon'))
 
     # copy config files and DB from old version to new version
     logging.info("Importing configuration and database from current_version")
@@ -399,8 +398,11 @@ def upgrade(deployable, version):
         click.echo(f"deployable '{deployable}' does not exist")
         sys.exit(1)
 
-    with open(FAILED_VERSIONS, 'r') as fd:
-        failed_versions = parse_version(fd.readlines())
+    if os.path.exists(FAILED_VERSIONS):
+        with open(FAILED_VERSIONS, 'r') as fd:
+            failed_versions = parse_version(fd.readlines())
+    else:
+        failed_versions = []
 
     if parse_version(version) in failed_versions:
         click.echo(f"version {version} already tried with error. Waiting next version")

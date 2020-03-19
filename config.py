@@ -16,14 +16,15 @@ class Config(object):
     SSL_VERIFY = False
 
     GIT_REPO = 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
-    SOFTWARE_DIR = os.path.join(basedir, 'software')
+    SOFTWARE_REPO = os.path.abspath(
+        os.environ.get('DM_SOFTWARE_REPO', os.path.join(os.path.expanduser("~"), 'software')))
     AUTOUPGRADE = True
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
 
     @classmethod
     def init_app(cls, app):
-        os.makedirs(cls.SOFTWARE_DIR, exist_ok=True)
+        os.makedirs(cls.SOFTWARE_REPO, exist_ok=True)
 
 
 class ProductionConfig(Config):

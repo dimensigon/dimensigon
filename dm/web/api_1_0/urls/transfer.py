@@ -39,8 +39,7 @@ def transfers():
         if pending > 0:
             return {"error": f"There is already a transfer sending software {soft.id}"}, 400
 
-        dest_path = data.get('dest_path', os.path.abspath(
-            os.environ.get('DM_SOFTWARE_REPO', os.path.join(os.path.expanduser("~"), 'software'))))
+        dest_path = data.get('dest_path', current_app.config['SOFTWARE_REPO'])
         file = os.path.join(dest_path, soft.filename)
 
         if not data.get('force', False):
