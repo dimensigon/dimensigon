@@ -1,23 +1,25 @@
 import datetime
+import json
+import math
+import os
 import threading
 import uuid
 
-import jsonschema
 import requests
 from flask import request, g, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
 
-from dm import defaults
+from dm import defaults as d, defaults
 from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Orchestration, Scope
 from dm.use_cases.interactor import send_software, update_table_routing_cost
 from dm.use_cases.lock import lock_scope
 from dm.utils.helpers import get_distributed_entities
-from dm.utils.talkback import Talkback
 from dm.web import db
 from dm.web.api_1_0 import api_bp
-from dm.web.decorators import securizer, forward_or_dispatch
+from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
+from dm.web.helpers import run_in_background
 from dm.web.json_schemas import schema_software_send, schema_routes
-from dm.web.network import ping as ping_server
+from dm.web.network import ping as ping_server, HTTPBearerAuth, post
 
 
 @api_bp.route('/')
@@ -38,37 +40,49 @@ def join_public():
 @forward_or_dispatch
 @jwt_required
 @securizer
+@validate_schema(schema_software_send)
 def software_send():
     # Validate Data
-    json = request.get_json()
-    jsonschema.validate(json, schema_software_send)
+    data = request.get_json()
 
-    software = Software.query.get(json['software_id'])
+    software = Software.query.get(data['software_id'])
     if not software:
-        return {"error": f"Software id '{json['software_id']}' not found"}, 404
-    dest_server = Server.query.get(json['dest_server_id'])
+        return {"error": f"Software id '{data['software_id']}' not found"}, 404
+
+    dest_server = Server.query.get(data['dest_server_id'])
     if not dest_server:
-        return {"error": f"Server id '{json['dest_server_id']}' not found"}, 404
+        return {"error": f"Server id '{data['dest_server_id']}' not found"}, 404
 
-    kwargs = {}
+    ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
+    if not ssa:
+        return {'error': f"no Software Server Association found for software {data['software_id']} and "
+                         f"server {data['dest_server_id']}"}, 404
 
-    if 'chunk_size' in json:
-        kwargs.update(chunk_size=json.get('chunk_size'))
-    if 'max_senders' in json:
-        kwargs.update(max_senders=json.get('max_senders'))
+    chunk_size = min(data.get('chunk_size', d.CHUNK_SIZE), d.CHUNK_SIZE)
+    max_senders = min(data.get('max_senders', d.MAX_SENDERS), d.MAX_SENDERS)
+    chunks = math.ceil(ssa.software.size / chunk_size)
 
-    ssa = SoftwareServerAssociation.query.filter_by(server=dest_server, software=software)
-    kwargs.update(ssa=ssa.id, dest_server=dest_server.id, dest_path=json.get('dest_path'))
+    auth = HTTPBearerAuth(create_access_token(get_jwt_identity(), expires_delta=None))
 
-    talk = Talkback()
+    json_msg = dict(software_id=str(software.id), num_chunks=chunks, dest_path=data.get('dest_path'))
 
-    kwargs.update(talkback=talk)
+    resp, code = post(dest_server, 'api_1_0.transfers', json=json_msg, auth=auth)
 
-    th = threading.Thread(target=send_software, name='send_software', kwargs=kwargs)
-    th.start()
-    if talk.wait_exists('transfer_id', timeout=40):
-        return {'transfer_id': str(talk.get('transfer_id'))}, 202
-    return {'error': 'unable to get transfer_id'}
+    if code == 202:
+        transfer_id = resp.get('transfer_id')
+    else:
+        current_app.logger.error(f"Error while creating transfer on {dest_server.url('api_1_0.transfers')}\n"
+                                 f"Data: {json.dumps(json_msg, indent=4)}\n"
+                                 f"Error: {resp}")
+        transfer_id = None
+
+    if transfer_id:
+        file = os.path.join(ssa.path, software.filename)
+        run_in_background(send_software(dest_server=dest_server, transfer_id=transfer_id, file=file, chunks=chunks,
+                                        chunk_size=chunk_size, max_senders=max_senders, auth=auth))
+
+        return {'transfer_id': transfer_id}, 202
+    return {'error': f'unable to create transfer on {dest_server}', 'response': resp, 'code': code}, 400
 
 
 @api_bp.route('/catalog/<string:data_mark>', methods=['GET', 'POST'])
@@ -101,6 +115,7 @@ def fetch_catalog(data_mark):
 @api_bp.route('/routes', methods=['GET', 'POST', 'PATCH'])
 @jwt_required
 @securizer
+@validate_schema(POST=schema_routes, PATCH=schema_routes)
 def routes():
     if request.method == 'GET':
         route_table = []
@@ -110,13 +125,13 @@ def routes():
         return {'server_id': str(g.server.id),
                 'route_list': route_table}
     elif request.method == 'POST':
-        json = request.get_json()
-        jsonschema.validate(json, schema_routes)
+        data = request.get_json()
+
         kwargs = {}
-        if 'discover_new_neighbours' in json:
-            kwargs.update(discover_new_neighbours=json.get('discover_new_neighbours'))
-        if 'check_current_neighbours' in json:
-            kwargs.update(check_current_neighbours=json.get('check_current_neighbours'))
+        if 'discover_new_neighbours' in data:
+            kwargs.update(discover_new_neighbours=data.get('discover_new_neighbours'))
+        if 'check_current_neighbours' in data:
+            kwargs.update(check_current_neighbours=data.get('check_current_neighbours'))
 
         new_routes = update_table_routing_cost(**kwargs)
 
@@ -133,15 +148,13 @@ def routes():
         db.session.commit()
 
     elif request.method == 'PATCH':
-        # Validate Data
-        json = request.get_json()
-        jsonschema.validate(json, schema_routes)
+        data = request.get_json()
 
-        likely_gateway_server = Server.query.get(json.get('server_id'))
+        likely_gateway_server = Server.query.get(data.get('server_id'))
         new_routes = []
         if not likely_gateway_server:
-            return {"error": f"Server id '{json.get('server_id')}' not found"}, 404
-        for new_route in json.get('route_list', []):
+            return {"error": f"Server id '{data.get('server_id')}' not found"}, 404
+        for new_route in data.get('route_list', []):
             target_server = Server.query.get(new_route.get('destination'))
             # process routes whose gateway is g.server
             if str(g.server.id) != new_route.get('gateway'):
@@ -161,7 +174,7 @@ def routes():
 
         # Seek my routes whose gateway is the likely_gateway_server
         for target_server in Server.query.join(Route.destination).filter(Route.gateway == likely_gateway_server).all():
-            for new_route in json.get('route_list', []):
+            for new_route in data.get('route_list', []):
                 if new_route.get('cost'):
                     target_server.route.cost = new_route.get('cost') + 1
                 else:

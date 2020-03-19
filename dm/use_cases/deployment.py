@@ -3,8 +3,9 @@ import subprocess
 import threading
 import typing as t
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
+
+from dataclasses import dataclass
 
 from dm.utils.dag import DAG
 from dm.utils.helpers import convert

@@ -32,9 +32,10 @@ schema_software_send = {
                            "pattern": UUID_pattern},
         "dest_path": {"type": "string"},
         "chunk_size": {"type": "integer",
-                       "minimum": 1024 * 1024 * 2,
+                       # "minimum": 1024 * 1024 * 2,
                        "maximum": 1024 * 1024 * 500,
-                       "multipleOf": 1024},
+                       # "multipleOf": 1024
+                       },
         "max_senders": {"type": "integer",
                         "minimum": 0}
     },
@@ -136,7 +137,8 @@ schema_transfers = {
         "dest_path": {"type": "string"},
         "filename": {"type": "string"},
         "num_chunks": {"type": "integer",
-                       "minimum": 0}
+                       "minimum": 0},
+        "force": {"type": "boolean"}
     },
     "required": ["software_id"]
 }

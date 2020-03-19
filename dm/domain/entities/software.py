@@ -1,4 +1,5 @@
 import copy
+import os
 import typing as t
 
 from dm.domain.entities import Server
@@ -41,6 +42,10 @@ class SoftwareServerAssociation(db.Model, DistributedEntityMixin):
         else:
             return cls(**kwargs)
 
+    @property
+    def file(self):
+        return os.path.join(self.path or '', self.software.filename or '')
+
 
 class Software(db.Model, UUIDistributedEntityMixin):
     __tablename__ = "D_software"
@@ -58,7 +63,7 @@ class Software(db.Model, UUIDistributedEntityMixin):
     __table_args__ = (
         db.UniqueConstraint('name', 'version', name='D_software_u01'),)
 
-    def __init__(self, name, version, family=None, filename=None, size=None, checksum=None, **kwargs):
+    def __init__(self, name, version, filename, family=None, size=None, checksum=None, **kwargs):
         super().__init__(**kwargs)
         self.name = name
         self.version = version
@@ -77,3 +82,6 @@ class Software(db.Model, UUIDistributedEntityMixin):
     def from_json(cls, kwargs):
         kwargs = copy.deepcopy(kwargs)
         return super().from_json(kwargs)
+
+    def __str__(self):
+        return f"{self.name}.{self.version}"

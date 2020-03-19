@@ -11,7 +11,6 @@ from concurrent.futures.thread import ThreadPoolExecutor
 
 import aiohttp
 import requests
-import rsa
 from flask import current_app, g
 from flask_jwt_extended import create_access_token, get_jwt_identity
 
@@ -25,10 +24,12 @@ from dm.domain.locker_memory import PriorityLocker
 from dm.use_cases.base import OperationFactory
 from dm.use_cases.lock import lock_scope
 from dm.use_cases.mediator import Mediator
+from dm.utils import asyncio
 from dm.utils.decorators import logged
 from dm.utils.helpers import get_distributed_entities, convert
+from dm.utils.typos import Id
 from dm.web import db
-from dm.web.network import unpack_msg, pack_msg, ping, get, HTTPBearerAuth
+from dm.web.network import ping, get, HTTPBearerAuth, async_post, async_patch
 
 
 @logged
@@ -328,94 +329,67 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     return changed_routes
 
 
-DEFAULT_CHUNK_SIZE = 20971520  # 20 MB
-DEFAULT_MAX_SENDERS = 4
+async def send_software(dest_server: Server, transfer_id: Id, file, chunks: int, chunk_size: int,
+                        max_senders: int, auth=None):
+    async def send_chunk(server: Server, view: str, chunk):
+        json_msg = {}
+        json_msg.update(transfer_id=transfer_id)
+        json_msg.update(chunk=chunk)
 
+        with open(file, 'rb') as fd:
+            fd.seek(chunk * chunk_size)
+            chunk_content = base64.b64encode(fd.read(chunk_size)).decode('ascii')
+        json_msg.update(content=chunk_content)
 
-def _send_chunk(url: str, transfer_id: str, chunk: int, chunk_size: int, file: str, cipher_key: bytes,
-                priv_key: rsa.PrivateKey,
-                session: requests.Session, dest_id: str):
-    json_msg = {}
-    json_msg.update(transfer_id=transfer_id)
-    json_msg.update(chunk=chunk)
+        return await async_post(server, view_or_url=view,
+                                view_data=dict(transfer_id=str(transfer_id)), json=json_msg, auth=auth,
+                                session=session)
 
-    with open(file, 'rb') as fd:
-        fd.seek(chunk * chunk_size)
-        chunk_content = fd.read(chunk_size)
-    json_msg.update(content=chunk_content)
+    sem = asyncio.Semaphore(max_senders)
+    responses = {}
+    async with aiohttp.ClientSession() as session:
+        async with sem:
+            for chunk in range(0, chunks):
+                task = asyncio.create_task(send_chunk(dest_server, 'api_1_0.transfer', chunk))
+                responses.update({chunk: task})
 
-    packed_msg = pack_msg(data=json_msg, cipher_key=cipher_key, priv_key=priv_key)
-    return session.post(url, json=packed_msg, headers={'D-Destination': dest_id})
+        retry_chunks = []
+        for chunk, task in responses.items():
+            resp = await task
+            if resp[1] != 201:
+                retry_chunks.append(chunk)
 
-
-def send_software(ssa: SoftwareServerAssociation, dest_server: Server, dest_path: str,
-                  set_progress: t.Callable[..., None],
-                  chunk_size: int = DEFAULT_CHUNK_SIZE,
-                  max_senders: int = DEFAULT_MAX_SENDERS) \
-        -> t.Optional[t.List[t.Tuple[int, t.Union[Exception, requests.Response]]]]:
-    set_progress(0)
-    chunks = ssa.software.size_bytes // chunk_size
-    if ssa.software.size_bytes % chunk_size:
-        chunks += 1
-
-    dim = Dimension.get_current()
-    # create transfer
-    ssa = SoftwareServerAssociation.query.filter_by(software=ssa.software, server=dest_server)
-
-    json_msg = dict(software_id=ssa.software, num_chunks=chunks, filename=os.path.basename(ssa.path),
-                    dest_path=dest_path)
-    msg = pack_msg(data=json_msg, pub_key=getattr(dim, 'public'), priv_key=getattr(dim, 'private'))
-    cipher_key = base64.b64decode(msg.get('key', '').encode('ascii'))
-    s = requests.Session()
-    resp = s.post(dest_server.url('transfers'), msg, headers={'D-Destination': str(dest_server.id)},
-                  verify=current_app.config['SSL_VERIFY'])
-
-    if resp.status_code == 202:
-        json_resp = resp.json()
-        data = unpack_msg(json_resp.get('transfer_id'), priv_key=getattr(dim, 'private'),
-                          pub_key=getattr(dim, 'public'), cipher_key=cipher_key)
-        transfer_id = data.get('transfer_id')
-        set_progress(5, data=dict(transfer_id=transfer_id))
-        url = dest_server.url('transfer', transfer_id=transfer_id)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_senders) as executor:
-            future_to_chunk = {executor.submit(_send_chunk, (
-                url, transfer_id, chunk, chunk_size, ssa.path, cipher_key, g.dimension.private, s,
-                str(dest_server.id))): chunk for chunk in range(1, chunks + 1)}
-            retry_chunks = []
-            for future in concurrent.futures.as_completed(future_to_chunk):
-                chunk = future_to_chunk[future]
-                try:
-                    data = future.result()
-                except Exception as exc:
-                    retry_chunks.append(chunk)
-                else:
-                    if data.status_code != 200:
-                        retry_chunks.append(chunk)
         if len(retry_chunks) == 0:
-            set_progress(100)
+            data, code = await async_patch(dest_server, 'api_1_0.transfer', view_data={'transfer_id': transfer_id},
+                                           session=session,
+                                           auth=auth)
+            if code != 204:
+                current_app.logger.error(
+                    f"Transfer {transfer_id}: Unable to create file at destination {dest_server.name}: "
+                    f"{code}, {data}")
         else:
-            set_progress(50)
-        if retry_chunks:
-            url = dest_server.url('transfer', transfer_id=transfer_id)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_senders) as executor:
-                future_to_chunk = {executor.submit(_send_chunk, (
-                    url, transfer_id, chunk, chunk_size, ssa.path, cipher_key, g.dimension.private, s,
-                    str(dest_server.id))): chunk for chunk in retry_chunks}
-                error_chunks = []
-                for future in concurrent.futures.as_completed(future_to_chunk):
-                    chunk = future_to_chunk[future]
-                    try:
-                        data = future.result()
-                    except Exception as exc:
-                        error_chunks.append((chunk, exc))
-                    else:
-                        if data.status_code != 200:
-                            error_chunks.append((chunk, data))
+            responses = {}
+            async with sem:
+                for chunk in retry_chunks:
+                    task = asyncio.create_task(
+                        send_chunk(dest_server, 'api_1_0.transfer'))
+                    responses.update({chunk: task})
+
+            error_chunks = []
+            for chunk, task in responses.items():
+                resp = await task
+                if resp[1] != 201:
+                    error_chunks.append(chunk)
             if error_chunks:
-                return error_chunks
+                chunks, resp = list(zip(*[(chunk, r) for chunk, r in responses.items() if r[1] != 201]))
+                errors = '\n'.join([str(r) for r in resp])
+                current_app.logger.error(f"Error while trying to send chunks {', '.join(chunks)} to server")
             else:
-                set_progress(100)
-        else:
-            return None
-    else:
-        raise RuntimeError(resp.content)
+                data, code = await async_patch(dest_server, 'api_1_0.transfer',
+                                               view_data={'transfer_id': transfer_id},
+                                               session=session,
+                                               auth=auth)
+                if code != 204:
+                    current_app.logger.error(
+                        f"Transfer {transfer_id}: Unable to create file at destination {dest_server.name}: "
+                        f"{code}, {data}")

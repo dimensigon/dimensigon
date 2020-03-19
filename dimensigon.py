@@ -39,13 +39,13 @@ from dm.use_cases.interactor import upgrade_catalog, update_table_routing_cost
 from dm.utils.helpers import generate_symmetric_key, generate_dimension
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
-migrate = Migrate(app, db)
+migrate = Migrate(db)
 
-
-#
-# @click.group(cls=FlaskGroup, create_app=create_app)
-# def cli():
-#     """Management script for the Wiki application."""
+with app.app_context():
+    if db.engine.url.drivername == 'sqlite':
+        migrate.init_app(app, db, render_as_batch=True)
+    else:
+        migrate.init_app(app, db)
 
 
 @app.shell_context_processor
