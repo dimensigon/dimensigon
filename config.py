@@ -98,6 +98,7 @@ class TestingConfig(Config):
     SERVER_NAME = 'test'
     PREFERRED_URL_SCHEME = 'http'
     SECURIZER = False
+    DEBUG = False
 
     @classmethod
     def init_app(cls, app):

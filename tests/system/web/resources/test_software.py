@@ -1,6 +1,5 @@
 import os
-import uuid
-from unittest import TestCase, mock
+from unittest import TestCase
 
 from flask import url_for
 
@@ -32,9 +31,6 @@ class TestSoftwareList(TestCase):
         self.soft2_json = soft2.to_json()
         self.soft3_json = soft3.to_json()
 
-        Software.metadata.tables['D_software']._columns['id'].default.arg = mock.MagicMock(
-            return_value=uuid.UUID('11111111-2222-3333-4444-555555550004'))
-
     def tearDown(self) -> None:
         db.session.remove()
         db.drop_all()
@@ -58,16 +54,7 @@ class TestSoftwareList(TestCase):
 
         self.assertListEqual([self.soft1_json, self.soft3_json], resp.get_json())
 
-    def test_post_without_server(self):
-        Software.metadata.tables['D_software']._columns['id'].default.arg = mock.MagicMock(
-            side_effect=[uuid.UUID('11111111-2222-3333-4444-555555550004')])
-        data = dict(name="Dimensigon", version="0.0.3", family='middleware')
-        resp = self.client.post(url_for('api_1_0.softwarelist'), headers=authorization_header(), json=data)
-
-        self.assertEqual(201, resp.status_code)
-        self.assertDictEqual({'software_id': '11111111-2222-3333-4444-555555550004'}, resp.get_json())
-
-    def test_post_with_server(self):
+    def test_post(self):
         size = os.path.getsize(__file__)
         checksum = md5(__file__)
         filename = os.path.basename(__file__)
@@ -76,9 +63,8 @@ class TestSoftwareList(TestCase):
         resp = self.client.post(url_for('api_1_0.softwarelist'), headers=authorization_header(), json=data)
 
         self.assertEqual(201, resp.status_code)
-        self.assertDictEqual({'software_id': '11111111-2222-3333-4444-555555550004'}, resp.get_json())
 
-        soft = Software.query.get('11111111-2222-3333-4444-555555550004')
+        soft = Software.query.filter_by(name="Dimensigon", version="0.0.3").one()
         self.assertEqual(size, soft.size)
         self.assertEqual(checksum, soft.checksum)
         self.assertEqual(filename, soft.filename)

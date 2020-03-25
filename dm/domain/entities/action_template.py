@@ -29,7 +29,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
     def __init__(self, name: str, version: int, action_type: ActionType, code: str, parameters: Params = None,
                  expected_output: str = None, expected_rc: int = None, system_kwargs: Params = None,
                  **kwargs):
-        super().__init__(**kwargs)
+        UUIDistributedEntityMixin.__init__(self, **kwargs)
         self.name = name
         self.version = version
         self.action_type = action_type

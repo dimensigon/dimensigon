@@ -56,7 +56,6 @@ class TestElevator(TestCase):
         mock_shutil.unpack_archive.assert_called_once_with(self.deployable, self.temp_dir)
         self.assertEqual(((os.path.join(self.temp_dir, 'dimensigon'), self.new_home),),
                          mock_shutil.copytree.call_args_list[0])
-        mock_rmdir.assert_called_once_with(os.path.join(self.temp_dir, 'dimensigon'))
 
         # copy config files and DB from old version to new version
         self.assertGreaterEqual(mock_shutil.copy2.call_count, 1)
@@ -117,7 +116,6 @@ class TestElevator(TestCase):
         mock_shutil.unpack_archive.assert_called_once_with(self.deployable, self.temp_dir)
         self.assertEqual(((os.path.join(self.temp_dir, 'dimensigon'), self.new_home),),
                          mock_shutil.copytree.call_args_list[0])
-        mock_rmdir.assert_called_once_with(os.path.join(self.temp_dir, 'dimensigon'))
 
         # copy config files and DB from old version to new version
         self.assertGreaterEqual(mock_shutil.copy2.call_count, 1)

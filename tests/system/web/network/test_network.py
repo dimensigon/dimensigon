@@ -10,7 +10,8 @@ from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Server, ActionTemplate, ActionType
 from dm.domain.entities.bootstrap import set_initial
-from dm.utils.helpers import generate_dimension, run
+from dm.utils.asyncio import run
+from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth, get, post, async_get, async_post
 
@@ -118,8 +119,6 @@ class TestNetwork(TestCase):
 
             return resp.status_code, resp.headers, resp.data
 
-        responses.add_callback(responses.POST, re.compile('https?://127\.0\.0\.1:.*'),
-                               callback=partial(requests_callback_client, self.client))
         responses.add_callback(responses.GET, re.compile('https?://127\.0\.0\.1:.*'),
                                callback=partial(requests_callback_client, self.client))
 

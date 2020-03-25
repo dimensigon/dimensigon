@@ -10,8 +10,7 @@ from collections import ChainMap
 from concurrent.futures.thread import ThreadPoolExecutor
 
 import aiohttp
-import requests
-from flask import current_app, g
+from flask import current_app
 from flask_jwt_extended import create_access_token, get_jwt_identity
 
 import dm.use_cases.deployment as dpl
@@ -21,6 +20,7 @@ from dm.domain.entities import *
 from dm.domain.entities import bypass_datamark_update
 from dm.domain.entities.locker import Scope
 from dm.domain.locker_memory import PriorityLocker
+from dm.network.low_level import check_host
 from dm.use_cases.base import OperationFactory
 from dm.use_cases.lock import lock_scope
 from dm.use_cases.mediator import Mediator
@@ -250,12 +250,22 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     None
     """
     # get all neighbours
+    me = Server.get_current()
     if check_current_neighbours:
         for server in Server.get_neighbours():
-            cost, time = ping(server, g.server)
+            cost, time = ping(server, me, retries=1, timeout=1)
             if cost is None:
+                server.route.gate = None
+                server.route.proxy_server = None
                 server.route.cost = None
-                server.route.gateway = None
+                # try another gate
+                for gate in server.gates:
+                    if check_host(ip=gate.dns or gate.ip, port=gate.port, retry=2, delay=0.001, timeout=0.1):
+                        server.route.gate = gate
+                        server.route.proxy_server = None
+                        server.route.cost = 0
+                    break
+
             # try:
             #     requests.get(server.url('root.healthcheck'), timeout=0.5,
             #                  verify=False)
@@ -268,44 +278,52 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
 
     if discover_new_neighbours:
         for server in Server.get_not_neighbours():
+            for gate in server.gates:
+                if check_host(ip=gate.dns or gate.ip, port=gate.port, retry=2, delay=0.001, timeout=0.1):
+                    server.route.gate = gate
+                    server.route.proxy_server = None
+                    server.route.cost = 0
+                    break
 
-            resp = get(server, 'root.healthcheck', timeout=0.5)
-
-            if 199 < resp[1] < 200:
-                server.route.cost = 0
-                server.route.gateway = None
     token = create_access_token(identity='root')
     pool_responses = []
     temp_table_routes: t.Dict[uuid.UUID, t.List[Route]] = {}
-    for server in Server.get_neighbours():
+    neighoburs = Server.get_neighbours()
+    for server in neighoburs:
         pool_responses.append(get(server, 'api_1_0.routes', auth=HTTPBearerAuth(token)))
 
     changed_routes = []
     for resp in pool_responses:
-        if (isinstance(resp, aiohttp.ClientResponse) and resp.status == 200) or (
-                isinstance(resp, (requests.Response,)) and resp.status_code == 200):
-            msg = resp.json()
-            resp.close()
+        if resp[1] == 200:
+            msg = resp[0]
 
-            likely_gateway_server_entity = Server.query.get(msg.get('server_id'))
+            likely_proxy_server_entity = Server.query.get(msg.get('server_id'))
 
             for route_json in msg['route_list']:
                 route_json = convert(route_json)
                 # noinspection PyTypeChecker
-                route_json.destination = uuid.UUID(route_json.destination)
-                if route_json.gateway:
+                route_json.destination = uuid.UUID(route_json.destination_id)
+                if route_json.gate_id:
                     # noinspection PyTypeChecker
-                    route_json.gateway = uuid.UUID(route_json.gateway)
-                if route_json.destination != Server.get_current().id and route_json.gateway != g.server.id:
-                    if route_json.destination not in temp_table_routes:
-                        temp_table_routes.update({route_json.destination: []})
+                    route_json.gate_id = uuid.UUID(route_json.gate_id)
+                if route_json.proxy_server_id:
+                    # noinspection PyTypeChecker
+                    route_json.proxy_server_id = uuid.UUID(route_json.proxy_server_id)
+                if route_json.destination_id != me.id \
+                        and route_json.proxy_server_id != me.id \
+                        and route_json.gate_id not in [g.id for g in me.gates]:
+                    if route_json.destination_id not in temp_table_routes:
+                        temp_table_routes.update({route_json.destination_id: []})
                     if route_json.cost is not None:
                         route_json.cost += 1
-                        route_json.gateway = likely_gateway_server_entity.id
-                        temp_table_routes[route_json.destination].append(route_json)
+                        route_json.proxy_server_id = likely_proxy_server_entity.id
+                        temp_table_routes[route_json.destination_id].append(route_json)
                     elif route_json.cost is None:
                         # remove a routing if gateway cannot reach the destination
-                        temp_table_routes[route_json.destination].append(route_json)
+                        temp_table_routes[route_json.destination_id].append(route_json)
+        else:
+            s = neighoburs[pool_responses.index(resp)]
+            current_app.logger.error(f"Error while connecting with {s}. Error: {resp[1]}, {resp[0]}")
 
     # Select new routes based on neighbour routes
     MAX_COST = 9999999
@@ -318,10 +336,10 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
         temp_table_routes[destination_id].sort(key=lambda x: x.cost or MAX_COST)
         if len(temp_table_routes[destination_id]) > 0:
             min_route = temp_table_routes[destination_id][0]
-            gateway = Server.query.get(min_route['gateway'])
+            proxy_server = Server.query.get(min_route['proxy_server_id'])
             cost = min_route['cost']
-            if route.gateway != gateway or route.cost != cost:
-                route.gateway = gateway
+            if route.proxy_server != proxy_server or route.cost != cost:
+                route.proxy_server = proxy_server
                 route.cost = cost
                 changed_routes.append(route.to_json())
                 break

@@ -248,26 +248,4 @@ def proxy_request(request: 'flask.Request', destination: Server, verify=False) -
 
     kwargs['cookies'] = cookies
 
-    return requests.request(request.method, url, stream=True, verify=verify, **kwargs)
-
-
-def ping(server: Server, source: Server, retries=3, timeout=3, verify=False):
-    tries = 0
-    cost = None
-    elapsed = None
-    while tries < retries:
-        try:
-            tries += 1
-            resp = requests.post(
-                server.route.gateway.url('root.ping') if server.route.gateway else server.url('root.ping'),
-                json={'source': str(source.id)},
-                headers={'D-Destination': str(server.id)},
-                verify=verify,
-                timeout=timeout)
-        except (TimeoutError, requests.exceptions.ConnectionError):
-            # unable to reach actual server through current gateway
-            resp = None
-        if resp is not None and resp.status_code == 200:
-            cost = resp.json().get('hops', 0)
-            elapsed = resp.elapsed
-    return cost, elapsed
+    return requests.request(request.method, url, verify=verify, **kwargs)

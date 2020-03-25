@@ -15,6 +15,10 @@ Id = t.TypeVar('Id', int, str, uuid.UUID)
 Ids = t.Sequence[Id]
 Id_or_Ids = t.Union[Id, Ids]
 
+IPs = t.Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+
+Gate = t.Union[t.Tuple[t.Union[str, IPs], int]]
+
 Callback = t.Tuple[t.Callable[[], None], t.Tuple, t.Dict]
 
 Priority = t.TypeVar('T')

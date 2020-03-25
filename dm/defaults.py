@@ -13,7 +13,7 @@ ips = list(filter(lambda x: x != '127.0.0.1', itertools.chain(
     *[[ip['addr'] for ip in netifaces.ifaddresses(iface).get(netifaces.AF_INET, [])] for iface in
       netifaces.interfaces()])))
 
-IP = ips[0]
+DEFAULT_PORT = 8000
 LOOPBACK_PORT = 20194
 MAX_WAITING_TIME = 300  # time in seconds waiting tasks to finish
 
@@ -22,3 +22,4 @@ TIMEOUT_PREVENTING_LOCK = 600  # max time in seconds locker will be in PREVENTIN
 
 CHUNK_SIZE = 20971520  # 20 MB
 MAX_SENDERS = 4
+

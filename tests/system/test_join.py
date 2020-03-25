@@ -9,7 +9,7 @@ import rsa
 from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
 
-from dimensigon import join
+from dimensigon import join, Gate
 from dm.domain.entities import Server, Dimension, Catalog
 from dm.domain.entities.bootstrap import set_initial
 from dm.web import create_app, db
@@ -27,6 +27,10 @@ class TestApi(TestCase):
         self.app_join.config['SERVER_NAME'] = 'new'
         with self.app_join.app_context():
             set_initial()
+            me = Server.get_current()
+            # remove Gates
+            [db.session.delete(g) for g in me.gates]
+            Gate(me, port=8000, dns='new')
             db.session.commit()
             self.server_new = Server.get_current().to_json()
         self.app = create_app('test')
@@ -37,6 +41,11 @@ class TestApi(TestCase):
         mock_now.return_value = datetime.datetime(2019, 3, 1)
         with self.app.app_context():
             set_initial()
+            me = Server.get_current()
+            # remove Gates
+            [db.session.delete(g) for g in me.gates]
+            Gate(me, port=8000, dns='node1')
+            db.session.commit()
             d = Dimension(name='test', current=True, public=self.d_public, private=self.d_private)
             db.session.add(d)
             db.session.commit()
@@ -53,13 +62,15 @@ class TestApi(TestCase):
             db.session.remove()
             db.drop_all()
 
+    @patch('dm.domain.entities.route.check_host')
     @patch('dm.domain.entities.get_now')
     @patch('dimensigon.rsa.newkeys')
     @aioresponses()
-    def test_join_command(self, mock_rsa, mock_now, m):
+    def test_join_command(self, mock_rsa, mock_now, mock_check, m):
         mock_now.return_value = datetime.datetime(2019, 5, 1)
 
         mock_rsa.return_value = (self.l_public, self.l_private)
+        mock_check.return_value = True
 
         def request_callback(request, client):
             method_func = getattr(client, request.method.lower())
@@ -69,10 +80,8 @@ class TestApi(TestCase):
 
         def callback_client(url, **kwargs):
             kwargs.pop('allow_redirects')
-            # workarround for https://github.com/pnuckowski/aioresponses/issues/111
-            headers = {'Authorization': f"Bearer {create_access_token('test')}"}
 
-            r = self.client.post(url.path, json=kwargs['json'], headers=headers)
+            r = self.client.post(url.path, json=kwargs['json'], headers=kwargs['headers'])
 
             return CallbackResult(r.data, status=r.status_code)
 
@@ -105,6 +114,6 @@ class TestApi(TestCase):
             self.assertDictEqual(self.dimension, Dimension.get_current().to_json())
             s = Server.query.get(self.server_node1.get('id'))
             self.assertEqual(0, s.route.cost)
-            self.assertEqual(1, len(Catalog.query.all()))
+            self.assertListEqual([('Gate',), ('Server',)], db.session.query(Catalog.entity).order_by('entity').all())
             self.assertEqual(datetime.datetime(2019, 5, 1),
                              Catalog.query.filter_by(entity='Server').one().last_modified_at)
