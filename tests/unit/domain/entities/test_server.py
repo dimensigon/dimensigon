@@ -2,7 +2,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from dm import defaults
-from dm.domain.entities import Server, Dimension
+from dm.domain.entities import Server
 from dm.web import create_app, db
 
 
@@ -14,63 +14,84 @@ class TestServer(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         db.create_all()
-        Server.set_initial()
-        d = Dimension(name='test', current=True)
-        db.session.add(d)
-        db.session.commit()
-        self.client = self.app.test_client(use_cookies=True)
-        self.n1 = Server(name='n1', ip='1.1.1.1', gateway=None, cost=0)
-        self.n2 = Server(name='n2', ip='2.2.2.2', dns_name='n2_dns', gateway=None, cost=0)
-        self.n3 = Server(name='n3', gateway=None, cost=0)
-        self.r1 = Server(name='r1', ip='3.3.3.3', gateway=self.n1, cost=1)
-        self.r2 = Server(name='r1', ip='4.4.4.4', dns_name='r2_dns', gateway=self.n2, cost=1)
-        db.session.add_all([self.n1, self.n2, self.r1, self.r2])
-        db.session.commit()
 
     def tearDown(self) -> None:
         db.session.remove()
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.domain.entities.server.url_for')
-    def test_url(self, mock_url):
-        self.assertEqual('http://1.1.1.1:5000', self.n1.url())
-        self.assertEqual('http://n2_dns:5000', self.n2.url())
-        self.assertEqual('http://n3:5000', self.n3.url())
-        self.assertEqual('http://1.1.1.1:5000', self.r1.url())
-        self.assertEqual('http://n2_dns:5000', self.r2.url())
+    def test_create_server(self):
+        s = Server('test')
+        self.assertEqual(0, len(s.gates))
 
-        mock_url.return_value = '/'
+        s = Server('test', dns_or_ip='dns')
+        self.assertEqual(1, len(s.gates))
+        self.assertIsNone(s.gates[0].ip)
+        self.assertEqual('dns', s.gates[0].dns)
+        self.assertEqual(defaults.DEFAULT_PORT, s.gates[0].port)
 
-        self.assertEqual('http://1.1.1.1:5000/', self.n1.url('api'))
+        s = Server('test', port=5000)
+        self.assertEqual(1, len(s.gates))
+        self.assertIsNone(s.gates[0].ip)
+        self.assertEqual('test', s.gates[0].dns)
+        self.assertEqual(5000, s.gates[0].port)
 
-        mock_url.assert_called_once_with('api')
+        s = Server('test', dns_or_ip='dns', port=5000)
+        self.assertEqual(1, len(s.gates))
+        self.assertIsNone(s.gates[0].ip)
+        self.assertEqual('dns', s.gates[0].dns)
+        self.assertEqual(5000, s.gates[0].port)
 
-        self.assertEqual(f'http://127.0.0.1:{defaults.LOOPBACK_PORT}/', Server.get_current().url('api'))
+        # create with gates
+        s = Server('test', gates=[('gdns', 6000)])
+        self.assertEqual(1, len(s.gates))
+        self.assertIsNone(s.gates[0].ip)
+        self.assertEqual('gdns', s.gates[0].dns)
+        self.assertEqual(6000, s.gates[0].port)
 
-    @patch('dm.domain.entities.server.url_for')
-    def test_url_prefered_url_scheme(self, mock_url):
-        mock_url.return_value = '/'
+        s = Server('test', dns_or_ip='dns', gates=[('gdns', 6000)])
+        self.assertEqual(2, len(s.gates))
+        self.assertIsNone(s.gates[0].ip)
+        self.assertEqual('dns', s.gates[0].dns)
+        self.assertEqual(defaults.DEFAULT_PORT, s.gates[0].port)
+        self.assertIsNone(s.gates[1].ip)
+        self.assertEqual('gdns', s.gates[1].dns)
+        self.assertEqual(6000, s.gates[1].port)
 
-        self.app.config['PREFERRED_URL_SCHEME'] = 'https'
-        self.assertEqual(f'https://127.0.0.1:{defaults.LOOPBACK_PORT}/', Server.get_current().url('api'))
+        s = Server('test', port=5000, gates=[('gdns', 6000)])
+        self.assertEqual(2, len(s.gates))
+        self.assertIsNone(s.gates[0].ip)
+        self.assertEqual('test', s.gates[0].dns)
+        self.assertEqual(5000, s.gates[0].port)
+        self.assertIsNone(s.gates[1].ip)
+        self.assertEqual('gdns', s.gates[1].dns)
+        self.assertEqual(6000, s.gates[1].port)
+
+        s = Server('test', dns_or_ip='dns', port=5000, gates=[('gdns', 6000)])
+        self.assertEqual(2, len(s.gates))
+        self.assertIsNone(s.gates[0].ip)
+        self.assertEqual('dns', s.gates[0].dns)
+        self.assertEqual(5000, s.gates[0].port)
+        self.assertIsNone(s.gates[1].ip)
+        self.assertEqual('gdns', s.gates[1].dns)
+        self.assertEqual(6000, s.gates[1].port)
+
+    @patch('dm.domain.entities.server.Gate')
+    def test_create_server_dict_gate(self, mock_gate):
+        dest = Server('dest', gates=[{'id': 1}])
+
+        mock_gate.from_json.called_once_with({'id': 1})
 
     def test_to_from_json(self):
-        smashed = Server.from_json(self.n1.to_json())
+        s = Server('server', dns_or_ip='dns', gates=[('gdns', 6000)])
+        self.assertDictEqual({'name': 'server', 'granules': []}, s.to_json())
+        db.session.add(s)
+        db.session.commit()
 
-        self.assertEqual(self.n1.id, smashed.id)
-        self.assertEqual(self.n1.name, smashed.name)
-        self.assertEqual(self.n1.ip, smashed.ip)
-        self.assertEqual(self.n1.port, smashed.port)
-        self.assertEqual(self.n1.dns_name, smashed.dns_name)
-        self.assertEqual(self.n1.granules, smashed.granules)
-        self.assertEqual(self.n1.last_modified_at, smashed.last_modified_at)
+        smashed = Server.from_json(s.to_json())
 
-    # def test_get_neighbours(self):
-    #     self.fail()
-    #
-    # def test_get_not_neighbours(self):
-    #     self.fail()
-    #
-    # def test_get_current(self):
-    #     self.fail()
+        self.assertIs(s, smashed)
+        self.assertEqual(s.id, smashed.id)
+        self.assertEqual(s.name, smashed.name)
+        self.assertEqual(s.granules, smashed.granules)
+        self.assertEqual(s.last_modified_at, smashed.last_modified_at)

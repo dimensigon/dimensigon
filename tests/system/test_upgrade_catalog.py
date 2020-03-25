@@ -8,7 +8,7 @@ import responses
 from flask_jwt_extended import create_access_token
 
 import dm.use_cases.exceptions as ue
-from dm.domain.entities import Server, ActionTemplate, ActionType, Catalog
+from dm.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate
 from dm.domain.entities.bootstrap import set_initial
 from dm.use_cases.interactor import upgrade_catalog_from_server
 from dm.utils.typos import Params
@@ -44,7 +44,7 @@ class TestUpgradeCatalog(TestCase):
     @responses.activate
     def test_upgrade_catalog(self, mock_lock, mock_entities, mock_now):
         mock_lock.return_value.__enter__.return_value = 'applicant'
-        mock_entities.return_value = [('ActionTemplate', ActionTemplate), ('Server', Server)]
+        mock_entities.return_value = [('ActionTemplate', ActionTemplate), ('Server', Server), ('Gate', Gate)]
         mock_now.return_value = datetime.datetime(2019, 4, 1, 0)
 
         at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='mkdir', version=1,
@@ -55,8 +55,10 @@ class TestUpgradeCatalog(TestCase):
         db.session.commit()
 
         s = Server(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234bbb1'), name='server',
-                   last_modified_at=datetime.datetime(2019, 4, 1, 0), cost=0)
+                   last_modified_at=datetime.datetime(2019, 4, 1, 0))
         s_json = s.to_json()
+        g = Gate(server=s, port=80, dns='server', last_modified_at=datetime.datetime(2019, 4, 1, 0))
+        g_json = g.to_json()
 
         at2 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'), name='rmdir', version=1,
                              action_type=ActionType.NATIVE,
@@ -70,7 +72,7 @@ class TestUpgradeCatalog(TestCase):
         at1_json['code'] = 'mkdir -p {dir}'
         responses.add(method='GET',
                       url=re.compile('^' + s.url('api_1_0.catalog', data_mark='12345').replace('12345', '')),
-                      json={"ActionTemplate": [at1_json, at2_json], "Server": [s_json]})
+                      json={"ActionTemplate": [at1_json, at2_json], "Server": [s_json], "Gate": [g_json]})
 
         upgrade_catalog_from_server(s)
 
@@ -92,7 +94,8 @@ class TestUpgradeCatalog(TestCase):
         mock_lock.return_value.__enter__.return_value = 'applicant'
         mock_entities.return_value = [('ActionTemplate', ActionTemplate)]
 
-        s = Server('server', last_modified_at=datetime.datetime(2019, 4, 1, 0), cost=0)
+        s = Server('server', last_modified_at=datetime.datetime(2019, 4, 1, 0))
+        g = Gate(server=s, port=80)
 
         responses.add(method='GET',
                       url=re.compile('^' + s.url('api_1_0.catalog', data_mark='12345').replace('12345', '')),
@@ -111,7 +114,7 @@ class TestUpgradeCatalog(TestCase):
         mock_lock.return_value.__enter__.return_value = 'applicant'
         mock_entities.return_value = [('ActionTemplate', ActionTemplate), ('Server', Server)]
 
-        s = Server('server', last_modified_at=datetime.datetime(2019, 4, 1, 0), cost=0)
+        s = Server('server', last_modified_at=datetime.datetime(2019, 4, 1, 0), port=8000)
 
         at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='mkdir', version=1,
                              action_type=ActionType.NATIVE,

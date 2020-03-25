@@ -190,7 +190,7 @@ class Step(db.Model, EntityReprMixin, DistributedEntityMixin):
                 self._children_steps.remove(step)
 
 
-class Orchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
+class Orchestration(db.Model, EntityReprMixin, DistributedEntityMixin, ):
     __tablename__ = 'D_orchestration'
     order = 20
 

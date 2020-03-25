@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="dimensigon">
+  <component name="PublishConfigData" serverName="dimensigon">
     <serverData>
       <paths name="Copy of project-level server 'dimensigon@dimensigon-dev1:22'">
         <serverdata>
@@ -45,6 +45,5 @@
         </serverdata>
       </paths>
     </serverData>
-    <option name="myAutoUpload" value="ALWAYS" />
   </component>
 </project>

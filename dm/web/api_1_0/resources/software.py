@@ -12,17 +12,17 @@ from dm.web.helpers import filter_query
 from dm.web.json_schemas import post_software_schema, put_software_servers_schema, patch_software_schema
 
 
-def set_software_server(soft, server, file, recalculate_data=False):
+def set_software_server(soft, server, path, recalculate_data=False):
+    file = os.path.join(path, soft.filename)
     if not os.path.exists(file):
         return {"error": f"file '{file}' not found"}, 404
 
-    if soft.size is None or recalculate_data:
-        try:
-            soft.size = os.path.getsize(file)
-            soft.checksum = md5(file)
-        except Exception as e:
-            return {"error": f"Error while trying to access file '{file}': {e}"}, 500
-    return SoftwareServerAssociation(software=soft, server=server, path=os.path.dirname(file))
+    if soft.size != os.path.getsize(file):
+        return {"error": f"file '{file}' is not of size {soft.size}"}, 400
+    if soft.checksum == md5(file):
+        return {"error": f"checksum error on file '{file}'"}, 400
+
+    return SoftwareServerAssociation(software=soft, server=server, path=path)
 
 
 # /software
@@ -42,12 +42,16 @@ class SoftwareList(Resource):
     @validate_schema(post_software_schema)
     def post(self):
         json = request.get_json()
+        server = Server.query.get_or_404(json['server_id'])
 
-        soft = Software(name=json['name'], version=json['version'], family=json['family'])
-        if 'server_id' in json:
-            server = Server.query.get_or_404(json['server_id'])
-            set_software_server(soft, server, json['file'])
-            soft.filename = os.path.basename(json['file'])
+        file = json['file']
+        if not os.path.exists(file):
+            return {"error": f"file '{file}' not found in current server"}, 404
+
+        soft = Software(name=json['name'], version=json['version'], filename=os.path.basename(json['file']),
+                        size=os.path.getsize(file), checksum=md5(file),
+                        family=json.get('family', None))
+        set_software_server(soft, server, os.path.dirname(json['file']))
 
         db.session.add(soft)
         db.session.commit()
@@ -101,7 +105,7 @@ class SoftwareServers(Resource):
         soft = Software.query.get_or_404(software_id)
         server = Server.query.get_or_404(json['server_id'])
 
-        ssa = set_software_server(soft, server, json['file'], recalculate_data=json.get('recalculate_data', False))
+        ssa = set_software_server(soft, server, json['path'], recalculate_data=json.get('recalculate_data', False))
         db.session.add(ssa)
         db.session.commit()
         return '', 204

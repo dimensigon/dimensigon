@@ -9,7 +9,7 @@ import responses
 from aioresponses import aioresponses
 
 import dm
-from dm.domain.entities import Server, Software, SoftwareServerAssociation, Transfer
+from dm.domain.entities import Server, Software, SoftwareServerAssociation, Transfer, Route
 from dm.domain.entities.bootstrap import set_initial
 from dm.use_cases.background_tasks import check_new_versions, check_catalog
 from dm.use_cases.interactor import Dimension, TransferStatus
@@ -217,7 +217,8 @@ class TestCheckNewVersions(TestCase):
                       body=requests.exceptions.ConnectionError('No connection'))
 
         mock_exists.return_value = False
-        r_server = Server(name='RemoteServer', ip='8.8.8.8', port=5000, dns_name='remoteserver.local', cost=0)
+        r_server = Server(name='remoteserver', port=8000)
+        Route(destination=r_server, cost=0)
         soft = Software(name='dimensigon', version='0.2',
                         filename='dimensigon-0.2.tar.gz', size=10, checksum=b'10')
         ssa = SoftwareServerAssociation(software=soft, server=r_server,
@@ -233,8 +234,7 @@ class TestCheckNewVersions(TestCase):
 
         responses.add(method='POST',
                       # TODO: change static url for url_for
-                      url=f"http://remoteserver.local:5000/api/v1.0/software/send",
-                      # url=f"https://remoteserver.local:5000{url_for('api_1_0.software_send')}",
+                      url=f"http://remoteserver:8000/api/v1.0/software/send",
                       json=pack_msg(data={'transfer_id': str(t.id)})
                       )
 
@@ -269,8 +269,10 @@ class TestCheckCatalog(TestCase):
     def test_check_catalog(self, mock_upgrade, mock_now, mock_lock, m):
         mock_lock.__enter__.return_value = None
         mock_now.return_value = datetime(2019, 4, 1)
-        s1 = Server('node1', cost=0)
-        s2 = Server('node2', cost=0)
+        s1 = Server('node1', port=8000)
+        Route(destination=s1, cost=0)
+        s2 = Server('node2', port=8000)
+        Route(destination=s2, cost=0)
         db.session.add_all([s1, s2])
         db.session.commit()
 
@@ -290,8 +292,10 @@ class TestCheckCatalog(TestCase):
     def test_check_catalog_no_upgrade(self, mock_upgrade, mock_now, mock_lock, m):
         mock_lock.__enter__.return_value = None
         mock_now.return_value = datetime(2019, 4, 1)
-        s1 = Server('node1', cost=0)
-        s2 = Server('node2', cost=0)
+        s1 = Server('node1', port=8000)
+        Route(destination=s1, cost=0)
+        s2 = Server('node2', port=8000)
+        Route(destination=s2, cost=0)
         db.session.add_all([s1, s2])
         db.session.commit()
 

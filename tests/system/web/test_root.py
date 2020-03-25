@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from dm.domain.entities import Server
+from dm.domain.entities.bootstrap import set_initial
 from dm.web import create_app, db
 
 
@@ -9,14 +9,13 @@ class TestRoot(TestCase):
         """Create and configure a new app instance for each test."""
         # create a temporary file to isolate the database for each test
         # create the app with common test config
-        from config import TestingConfig
-        TestingConfig.AUTOUPGRADE = True
-        self.app = create_app(TestingConfig)
+        self.app = create_app('test')
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
         db.create_all()
-        Server.set_initial()
+        set_initial()
+        db.session.commit()
 
     def tearDown(self):
         db.session.remove()

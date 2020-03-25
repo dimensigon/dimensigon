@@ -63,8 +63,8 @@ class PygtailTest(unittest.TestCase):
         self.test_read()
         new_line = 'çÃô\n'
         self.append(new_line)
-        pygtail = Pygtail(self.logfile.name, encoding='ansi')
-        self.assertEqual(pygtail.read(), 'Ã§ÃƒÃ´\n')
+        pygtail = Pygtail(self.logfile.name, encoding='ascii', errors='ignore')
+        self.assertEqual(pygtail.read(), '\n')
         self.append(new_line)
         pygtail = Pygtail(self.logfile.name, encoding='utf-8')
         self.assertEqual(pygtail.read(), new_line)

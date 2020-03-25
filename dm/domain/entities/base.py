@@ -36,22 +36,25 @@ class DistributedEntityMixin(JSONEntity):
 
     @classmethod
     def from_json(cls, kwargs):
-        last_modified_at = kwargs.pop('last_modified_at')
-        last_modified_at = datetime.strptime(last_modified_at, defaults.DATEMARK_FORMAT)
-        kwargs.update(last_modified_at=last_modified_at)
+        if 'last_modified_at' in kwargs:
+            last_modified_at = kwargs.pop('last_modified_at')
+            last_modified_at = datetime.strptime(last_modified_at, defaults.DATEMARK_FORMAT)
+            kwargs.update(last_modified_at=last_modified_at)
 
 
 class UUIDEntityMixin:
     id = Column(UUID, primary_key=True, default=uuid.uuid4)
 
     def __init__(self, **kwargs):
-        self.id = uuid.UUID(kwargs['id']) if isinstance(kwargs['id'], six.string_types) else kwargs['id']
+        if 'id' in kwargs:
+            self.id = uuid.UUID(kwargs['id']) if isinstance(kwargs['id'], six.string_types) else kwargs['id']
 
 
 class UUIDistributedEntityMixin(UUIDEntityMixin, DistributedEntityMixin):
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        UUIDEntityMixin.__init__(self, **kwargs)
+        DistributedEntityMixin.__init__(self, **kwargs)
 
     def to_json(self):
         data = super().to_json()

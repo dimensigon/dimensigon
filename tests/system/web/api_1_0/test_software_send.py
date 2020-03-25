@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import time
+import traceback
 from functools import partial
 from unittest import TestCase
 
@@ -12,7 +13,7 @@ from aioresponses import aioresponses
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, Dimension, Software, SoftwareServerAssociation, Transfer, TransferStatus
+from dm.domain.entities import Server, Dimension, Software, SoftwareServerAssociation, Transfer, TransferStatus, Route
 from dm.domain.entities.bootstrap import set_initial
 from dm.utils.helpers import generate_dimension, md5
 from dm.web import create_app, db
@@ -36,8 +37,10 @@ class TestApi(TestCase):
         self.headers = {"Authorization": f"Bearer {create_access_token('test')}"}
         self.software_content = b"new data"
         self.filename = 'test.tar.gz'
-        os.makedirs('src', exist_ok=True)
-        with open(os.path.join('src', self.filename), 'wb') as fd:
+        self.src_path = os.path.join(basedir, 'src')
+        self.file = os.path.join(self.src_path, self.filename)
+        os.makedirs(self.src_path, exist_ok=True)
+        with open(self.file, 'wb') as fd:
             fd.write(self.software_content)
         self.dst_path = os.path.join(basedir, 'dst')
         try:
@@ -45,42 +48,42 @@ class TestApi(TestCase):
         except FileNotFoundError:
             pass
         os.makedirs(self.dst_path, exist_ok=True)
-        self.src_path = os.path.join(basedir, 'src')
-        self.file = os.path.join(self.src_path, self.filename)
+
         self.software_checksum = md5(self.file)
 
-        set_initial()
-        server = Server.get_current()
+        set_initial(server=False)
+        server = Server('src', port=8000, me=True)
         soft = Software(name='test', version=1, family='DB', size=8, filename=self.filename,
                         checksum=self.software_checksum)
-        ssa = SoftwareServerAssociation(software=soft, server=Server.get_current(), path=self.src_path)
-        db.session.add_all([soft, ssa, self.dim])
+        ssa = SoftwareServerAssociation(software=soft, server=server, path=self.src_path)
+        db.session.add_all([server, soft, ssa, self.dim])
 
         db.session.commit()
 
-        self.json_server = server.to_json()
+        self.json_src_server = server.to_json(add_gates=True)
         self.json_soft = soft.to_json()
         self.json_ssa = ssa.to_json()
 
         self.dest_app = create_app('test')
-        self.dest_app.config['SERVER_NAME'] = 'dest'
         self.dest_app.config['SECURIZER'] = True
         self.dest_app_client = self.dest_app.test_client()
         with self.dest_app.app_context():
-            set_initial()
-            server = Server.from_json(self.json_server)
-            server.route.cost = 0
-            db.session.add(server)
+            set_initial(server=False)
+            me = Server('dest', port=8000, me=True)
+            db.session.add(me)
+            src_server = Server.from_json(self.json_src_server)
+            Route(src_server, cost=0)
+            db.session.add(src_server)
             db.session.add(Software.from_json(self.json_soft))
             db.session.add(SoftwareServerAssociation.from_json(self.json_ssa))
             dim = Dimension.from_json(self.json_dim)
             dim.current = True
             db.session.add(dim)
             db.session.commit()
-            self.json_dest_server = Server.get_current().to_json()
+            self.json_dest_server = me.to_json(add_gates=True)
 
         dest = Server.from_json(self.json_dest_server)
-        dest.route.cost = 0
+        Route(dest, cost=0)
         db.session.add(dest)
         db.session.commit()
 
@@ -109,7 +112,10 @@ class TestApi(TestCase):
     def test_software_send(self, m):
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
-            resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
+            try:
+                resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
+            except Exception as e:
+                return 500, {}, traceback.format_exc()
 
             return resp.status_code, resp.headers, resp.data
 

@@ -117,7 +117,8 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
                 # get software if not in folder
                 file = os.path.join(current_app.config['SOFTWARE_REPO'], soft2deploy.filename)
                 if not os.path.exists(file):
-                    ssa = min(soft2deploy.ssas, key=lambda x: x.server.route.cost or 999999)
+                    ssa = min(soft2deploy.ssas,
+                              key=lambda x: (x.server.route.cost or 999999) if x.server.route is not None else 999999)
                     logger.debug(f"Getting software from server {ssa.server}")
                     resp = post(ssa.server, 'api_1_0.software_send',
                                 json={"software_id": str(soft2deploy.id),

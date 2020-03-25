@@ -29,7 +29,7 @@ def locker():
     if request.method == 'POST':
         json = request.get_json()
         l: Locker = Locker.query.with_for_update().get(Scope[json['scope']])
-        current_app.logger.debug(f"Lock request for {json.get('action')} on {json.get('scope')} from {g.source.name}")
+        current_app.logger.debug(f"Lock request for {json.get('action')} on {json.get('scope')} from {g.source}")
         if json['action'] == 'PREVENT':
             # check status from current scope
             if l.state == State.UNLOCKED:
@@ -53,7 +53,7 @@ def locker():
             if l.state == State.PREVENTING and l.applicant == json['applicant']:
                 l.state = State.LOCKED
                 db.session.commit()
-                current_app.logger.debug(f"Lock from {g.source.name} on {l.scope.name} acquired")
+                current_app.logger.debug(f"Lock from {g.source} on {l.scope.name} acquired")
                 return {'message': 'Locked'}, 200
             else:
                 return {'error': 'Unable to lock.'}, 409

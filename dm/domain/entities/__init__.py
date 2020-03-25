@@ -10,6 +10,7 @@ from .action_template import ActionTemplate, ActionType
 from .catalog import Catalog
 from .dimension import Dimension
 from .execution import Execution
+from .gate import Gate
 from .locker import Locker, State, Scope
 from .log import Log
 from .orchestration import Orchestration
@@ -25,6 +26,7 @@ __all__ = [
     "Catalog",
     "Dimension",
     "Execution",
+    "Gate",
     "Orchestration",
     "Log",
     "Route",

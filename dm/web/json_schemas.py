@@ -52,7 +52,7 @@ post_software_schema = {
                       "pattern": UUID_pattern},
         "file": {"type": "string"}
     },
-    "required": ["name", "version", "family"],
+    "required": ["name", "version", "server_id", "file"],
     "dependencies": {
         "server_id": ["file"],
         "file": ["server_id"],
@@ -64,8 +64,7 @@ patch_software_schema = {
     "properties": {
         "server_id": {"type": "string",
                       "pattern": UUID_pattern},
-        "file": {"type": "string"},
-        "recalculate_data": {"type": "boolean"}
+        "path": {"type": "string"},
     },
     "required": ["server_id", "path"]
 }

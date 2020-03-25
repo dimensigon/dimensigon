@@ -7,7 +7,6 @@ from flask_jwt_extended import create_access_token
 
 from dm import defaults
 from dm.domain.entities import Server, ActionTemplate, ActionType
-from dm.domain.entities.bootstrap import set_initial
 from dm.web import create_app, db
 
 
@@ -28,25 +27,28 @@ class TestApi(TestCase):
         db.drop_all()
         self.app_context.pop()
 
+    @patch('dm.web.api_1_0.urls.use_cases.get_distributed_entities')
     @patch('dm.domain.entities.get_now')
-    def test_catalog(self, mock_now):
+    def test_catalog(self, mock_now, mock_get):
         mock_now.return_value = datetime.datetime(2019, 4, 2)
+        mock_get.return_value = [('ActionTemplate', ActionTemplate)]
         # add data
-        set_initial()
-        at1 = ActionTemplate(name='ActionTest1', version=1, action_type=ActionType.ORCHESTRATION, code='')
+        s = Server('test', post=8000, me=True)
+        db.session.add(s)
+        # db.session.commit()
 
+        at1 = ActionTemplate(name='ActionTest1', version=1, action_type=ActionType.ORCHESTRATION, code='')
         db.session.add(at1)
 
         resp = self.client.get(
             url_for('api_1_0.catalog', data_mark=datetime.datetime(2019, 4, 1).strftime(defaults.DATEMARK_FORMAT)),
             headers=self.headers)
 
-        self.assertDictEqual({'ActionTemplate': [at1.to_json()], 'Server': [Server.get_current().to_json()]},
+        self.assertDictEqual({'ActionTemplate': [at1.to_json()]},
                              resp.json)
 
         mock_now.return_value = datetime.datetime(2019, 4, 2, 1)
         at2 = ActionTemplate(name='ActionTest2', version=1, action_type=ActionType.ORCHESTRATION, code='')
-
         db.session.add(at2)
 
         resp = self.client.get(
