@@ -22,7 +22,7 @@ class TestLogResourceList(TestCase):
         db.session.add(s)
         self.user = User(user='user', active=False)
         db.session.add(self.user)
-        db.session.commit
+        db.session.commit()
 
     def tearDown(self) -> None:
         db.session.remove()
