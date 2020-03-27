@@ -104,6 +104,15 @@ class TestLogResource(TestCase):
         db.session.add_all([self.node1, self.node2, self.log])
         db.session.commit()
 
+    def test_get(self):
+        resp = self.client.get(url_for('api_1_0.logresource', log_id=str(self.log.id)), headers=self.auth.header)
+        self.assertEqual(200, resp.status_code)
+
+        self.assertEqual(self.log.to_json(), resp.get_json())
+
+        resp = self.client.get(url_for('api_1_0.logresource', log_id='aaaa'), headers=self.auth.header)
+        self.assertEqual(404, resp.status_code)
+
     def test_patch(self):
         patch_log_json = {"src_server_id": str(self.node2.id), }
 
