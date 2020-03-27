@@ -269,9 +269,6 @@ def get_filename_from_cd(cd):
     return fname[0]
 
 
-
-
-
 def generate_dimension(name):
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import serialization
@@ -290,3 +287,7 @@ def generate_dimension(name):
                                                     format=serialization.PublicFormat.PKCS1)
 
     return Dimension(name=name, private=priv_pem, public=pub_pem)
+
+
+def remove_prefix(s, prefix):
+    return s[len(prefix):] if s.startswith(prefix) else s

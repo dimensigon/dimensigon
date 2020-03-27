@@ -153,3 +153,40 @@ schema_transfer = {
     },
     "required": ["transfer_id", "chunk", "content"]
 }
+
+schema_post_log = {
+    "type": "object",
+    "properties": {
+        "file": {"type": "string"},
+        "data": {"type": "string"},
+    },
+    "required": ["data"]
+}
+
+schema_create_log = {
+    "type": "object",
+    "properties": {
+        "src_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "target": {"type": "string"},
+        "include": {"type": "string"},
+        "exclude": {"type": "string"},
+        "dst_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "dest_folder": {"type": "string"},
+        "recursive": {"type": "boolean"},
+    },
+    "required": ["src_server_id", "target", "dst_server_id"],
+    "additionalProperties": False
+}
+
+schema_patch_log = {
+    "type": "object",
+    "properties": {
+        "include": {"type": "string"},
+        "exclude": {"type": "string"},
+        "dest_folder": {"type": "string"},
+        "recursive": {"type": "boolean"},
+    },
+    "additionalProperties": False
+}

@@ -48,8 +48,11 @@ def filter_query(entity, filters):
     return query
 
 
-def run_in_background(aw: t.Coroutine):
-    app = current_app._get_current_object()
+def run_in_background(aw: t.Coroutine, app=None):
+    try:
+        app = current_app._get_current_object()
+    except RuntimeError:
+        app = app
 
     def thread_with_app_context():
         with app.app_context():

@@ -11,7 +11,7 @@ from jsonschema import ValidationError
 from werkzeug.exceptions import HTTPException
 
 from config import config_by_name
-from .helpers import BaseQueryJSON
+from .helpers import BaseQueryJSON, run_in_background
 
 
 def scopefunc():
@@ -38,16 +38,22 @@ def create_app(config_name):
         if hasattr(config_name, 'init_app'):
             config_name.init_app(app)
 
+    from ..use_cases.log_sender import LogSender
     # EXTENSIONS
     db.init_app(app)
     jwt.init_app(app)
+    log_sender = LogSender()
 
-    if app.config.get('AUTOUPGRADE'):
+    if not app.config['TESTING']:
         app.scheduler = BackgroundScheduler()
         from ..use_cases.background_tasks import check_new_versions, check_catalog
         app.scheduler.start()
-        app.scheduler.add_job(func=check_new_versions, args=(app,), trigger="interval", minutes=15)
+
+        if app.config.get('AUTOUPGRADE'):
+            app.scheduler.add_job(func=check_new_versions, args=(app,), trigger="interval", minutes=15)
         app.scheduler.add_job(func=check_catalog, args=(app,), trigger="interval", minutes=5)
+        app.scheduler.add_job(func=run_in_background, args=(log_sender.send_new_data(), app), trigger="interval",
+                              minutes=5)
 
         # Shut down the scheduler when exiting the app
         atexit.register(lambda: app.scheduler.shutdown())
