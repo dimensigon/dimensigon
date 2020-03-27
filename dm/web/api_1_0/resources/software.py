@@ -108,4 +108,4 @@ class SoftwareServers(Resource):
         ssa = set_software_server(soft, server, json['path'], recalculate_data=json.get('recalculate_data', False))
         db.session.add(ssa)
         db.session.commit()
-        return '', 204
+        return {'software_id': software_id}, 204
