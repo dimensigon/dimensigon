@@ -32,18 +32,29 @@ class BaseQueryJSON(BaseQuery):
         return rv
 
 
-def filter_query(entity, filters):
+def filter_query(entity, filters, exclude: t.Container = None):
+    """Generates a sqlalchemy query object filtered by filters.
+
+    entity: entity to filter
+    filters: filters in JSON API format https://jsonapi.org/format/#fetching-filtering
+    exclude: columns to exclude on filter
+
+    """
     filters = [(re.search('^filter\[(\w+)\]$', k).group(1), v) for k, v in filters.items() if
                k.startswith('filter[')]
     query = entity.query
     for k, v in filters:
         column = getattr(entity, k, None)
-        if not column:
+        if not column or column in exclude:
             return {'error': f'Invalid filter column: {k}'}, 404
         if ',' in v:
             values = v.split(',')
             query = query.filter(column.in_(values))
         else:
+            if v.lower() == 'true':
+                v = True
+            elif v.lower() == 'false':
+                v = False
             query = query.filter(column == v)
     return query
 

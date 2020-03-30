@@ -183,10 +183,34 @@ schema_create_log = {
 schema_patch_log = {
     "type": "object",
     "properties": {
-        "include": {"type": "string"},
-        "exclude": {"type": "string"},
+        "include": {"type": "string",
+                    "format": "regex"},
+        "exclude": {"type": "string",
+                    "format": "regex"},
         "dest_folder": {"type": "string"},
         "recursive": {"type": "boolean"},
+    },
+    "additionalProperties": False
+}
+
+schema_create_user = {
+    "type": "object",
+    "properties": {
+        "user": {"type": "string"},
+        "password": {"type": "string"},
+        "email": {"type": "string",
+                  "format": "email"}
+    },
+    "required": ["user", "password", "email"],
+    "additionalProperties": False
+}
+
+schema_patch_user = {
+    "type": "object",
+    "properties": {
+        "email": {"type": "string",
+                  "format": "email"},
+        "active": {"type": "boolean"}
     },
     "additionalProperties": False
 }

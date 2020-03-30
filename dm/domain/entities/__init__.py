@@ -19,6 +19,7 @@ from .server import Server
 from .service import Service
 from .software import Software, SoftwareServerAssociation
 from .transfer import Transfer, Status as TransferStatus
+from .user import User
 
 __all__ = [
     "ActionTemplate",
@@ -27,8 +28,9 @@ __all__ = [
     "Dimension",
     "Execution",
     "Gate",
-    "Orchestration",
+    "Locker",
     "Log",
+    "Orchestration",
     "Route",
     "Service",
     "Server",
@@ -36,7 +38,7 @@ __all__ = [
     "SoftwareServerAssociation",
     "Transfer",
     "TransferStatus",
-    "Locker"
+    "User",
 ]
 
 catalog = threading.local()

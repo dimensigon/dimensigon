@@ -39,7 +39,7 @@ from dm.use_cases.interactor import upgrade_catalog, update_table_routing_cost
 from dm.utils.helpers import generate_symmetric_key, generate_dimension
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
-migrate = Migrate(db)
+migrate = Migrate(db, user_module_prefix="sa.")
 
 with app.app_context():
     if db.engine.url.drivername == 'sqlite':

@@ -2,12 +2,14 @@ import os
 import signal
 from functools import partial
 
-from flask import Blueprint, request, current_app
+from flask import Blueprint, request, current_app, jsonify
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_refresh_token_required, get_jwt_identity
 
 import dm
 from dm import defaults
 from dm.domain import entities
 from dm.domain.entities import Server
+from dm.domain.entities.user import User
 from dm.web import db
 from dm.web.decorators import forward_or_dispatch, validate_schema
 from dm.web.json_schemas import schema_healthcheck
@@ -55,13 +57,40 @@ def healthcheck():
 
         if data.get('action') == 'stop':
             shutdown_server()
-            return '', 202
+            return jsonify(''), 202
         elif data.get('action') == 'restart':
-            return {'message': 'restart is not implemented'}, 500
+            return jsonify({'message': 'restart is not implemented'}), 500
 
 
 @root_bp.route('/ping', methods=['POST'])
 @forward_or_dispatch
 def ping():
     resp = request.get_json()
-    return resp
+    return jsonify(resp)
+
+
+@root_bp.route('/login', methods=['POST'])
+@forward_or_dispatch
+def login():
+    user = User.get_by_user(user=request.json.get('username', None))
+    password = request.json.get('password', None)
+    if not user or not user.verify_password(password):
+        return {"error": "Bad username or password"}, 401
+
+    # Use create_access_token() and create_refresh_token() to create our
+    # access and refresh tokens
+    ret = {
+        'access_token': create_access_token(identity=str(user.id)),
+        'refresh_token': create_refresh_token(identity=str(user.id))
+    }
+    return jsonify(ret), 200
+
+
+@root_bp.route('/refresh', methods=['POST'])
+@jwt_refresh_token_required
+def refresh():
+    current_user = get_jwt_identity()
+    ret = {
+        'access_token': create_access_token(identity=current_user)
+    }
+    return jsonify(ret), 200
