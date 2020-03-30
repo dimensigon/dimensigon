@@ -41,7 +41,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
 
     # systems = db.relationship("System", secondary='D_action_system', back_populates="actions")
 
-    __table_args__ = (db.UniqueConstraint('name', 'version', name='D_action_template_uq01'),)
+    __table_args__ = (db.UniqueConstraint('name', 'version'),)
 
     def to_json(self):
         data = super().to_json()

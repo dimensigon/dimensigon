@@ -19,7 +19,7 @@ class Gate(db.Model, UUIDistributedEntityMixin):
     ip = db.Column(IPType)
     port = db.Column(db.Integer, nullable=False)
 
-    __table_args__ = (db.UniqueConstraint('server_id', 'ip', 'dns', name='D_gate_uq01'),)
+    __table_args__ = (db.UniqueConstraint('server_id', 'ip', 'dns'),)
 
     server = db.relationship("Server", back_populates="gates")
 

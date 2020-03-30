@@ -47,7 +47,7 @@ class Step(db.Model, EntityReprMixin, DistributedEntityMixin):
                                       back_populates="_parent_steps")
 
     __table_args__ = (
-        db.UniqueConstraint('orchestration_id', 'action_template_id', 'undo', name='D_step_uq01'),)
+        db.UniqueConstraint('orchestration_id', 'action_template_id', 'undo'),)
 
     def __init__(self, orchestration, undo: bool, stop_on_error: bool,
                  action_template: ActionTemplate, step_expected_output: t.Optional[str] = None,

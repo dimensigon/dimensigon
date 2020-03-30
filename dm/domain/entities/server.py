@@ -23,7 +23,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
     __tablename__ = 'D_server'
     order = 10
 
-    name = db.Column(db.String(255), nullable=False)
+    name = db.Column(db.String(255), nullable=False, unique=True)
     granules = db.Column(ScalarListType())
     _me = db.Column("me", db.Boolean, default=False)
 
@@ -32,8 +32,6 @@ class Server(db.Model, UUIDistributedEntityMixin):
     gates = db.relationship("Gate", back_populates="server")
 
     # software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
-
-    __table_args__ = (db.UniqueConstraint('name', name='D_server_uq01'),)
 
     def __init__(self, name: str, granules=None, dns_or_ip=None, port=None,
                  gates: t.List[t.Union[TGate, t.Dict[str, t.Any]]] = None, me=False, **kwargs):
@@ -185,7 +183,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
         return server
 
     @classmethod
-    def get_current(cls):
+    def get_current(cls) -> 'Server':
         return db.session.query(cls).filter_by(_me=True).one()
 
     @staticmethod

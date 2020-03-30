@@ -24,7 +24,7 @@ class Log(db.Model, UUIDistributedEntityMixin):
     source_server = db.relationship("Server", foreign_keys=[src_server_id])
     destination_server = db.relationship("Server", foreign_keys=[dst_server_id])
 
-    __table_args__ = (db.UniqueConstraint('src_server_id', 'target', 'dst_server_id', name='D_log_uq01'),)
+    __table_args__ = (db.UniqueConstraint('src_server_id', 'target', 'dst_server_id'),)
 
     def __init__(self, source_server: 'Server', target: str, destination_server: 'Server', dest_folder=None,
                  include=None, exclude=None, recursive=False, **kwargs):

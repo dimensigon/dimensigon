@@ -23,7 +23,17 @@
           </excludedPaths>
         </serverdata>
       </paths>
-      <paths name="dimensigon@dimensigon-dev1:22">
+      <paths name="Copy of project-level server 'dimensigon@dimensigon-node3'">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/dimensigon/dimensigon" local="$PROJECT_DIR$" />
+          </mappings>
+          <excludedPaths>
+            <excludedPath local="true" path="$PROJECT_DIR$/.env" />
+          </excludedPaths>
+        </serverdata>
+      </paths>
+      <paths name="dimensigon@dimensigon-node1">
         <serverdata>
           <mappings>
             <mapping deploy="/home/dimensigon/dimensigon" local="$PROJECT_DIR$" web="" />
@@ -34,7 +44,17 @@
           </excludedPaths>
         </serverdata>
       </paths>
-      <paths name="dimensigon@dimensigon-dev2:22">
+      <paths name="dimensigon@dimensigon-node2">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/dimensigon/dimensigon" local="$PROJECT_DIR$" />
+          </mappings>
+          <excludedPaths>
+            <excludedPath local="true" path="$PROJECT_DIR$/.env" />
+          </excludedPaths>
+        </serverdata>
+      </paths>
+      <paths name="dimensigon@dimensigon-node3">
         <serverdata>
           <mappings>
             <mapping deploy="/home/dimensigon/dimensigon" local="$PROJECT_DIR$" />
