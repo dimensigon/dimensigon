@@ -203,41 +203,44 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
 
 
 def get(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
-        params: Kwargs = None, **kwargs):
+        params: Kwargs = None, **kwargs) -> Response:
     """Sends a GET request."""
     return request('get', server, view_or_url, view_data=view_data, session=session, params=params, **kwargs)
 
 
-def options(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
+def options(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+            **kwargs) -> Response:
     r"""Sends an OPTIONS request."""
 
     return request('options', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-def head(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
+def head(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+         **kwargs) -> Response:
     r"""Sends a HEAD request."""
     return request('head', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
 def post(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
-         json=None, **kwargs):
+         json=None, **kwargs) -> Response:
     r"""Sends a POST request."""
     return request('post', server, view_or_url, view_data=view_data, session=session, json=json, **kwargs)
 
 
 def put(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
-        **kwargs):
+        **kwargs) -> Response:
     r"""Sends a PUT request."""
     return request('put', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
 def patch(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
-          **kwargs):
+          **kwargs) -> Response:
     r"""Sends a PATCH request."""
     return request('patch', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-def delete(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
+def delete(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+           **kwargs) -> Response:
     r"""Sends a DELETE request."""
     return request('delete', server, view_or_url, view_data=view_data, session=session, **kwargs)
 

@@ -169,7 +169,8 @@ class TestLockScopeFullChain(TestCase):
             self.assertEqual(datetime(2019, 4, 3), Catalog.query.get('SoftwareServerAssociation').last_modified_at)
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('ActionTemplate').last_modified_at)
 
-        check_catalog(self.app2)
+        with self.app2.app_context():
+            check_catalog()
 
         with self.app2.app_context():
             soft = Software.query.get('aaaaaaaa-1234-5678-1234-56781234aaa1')

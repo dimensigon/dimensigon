@@ -45,7 +45,7 @@ def filter_query(entity, filters, exclude: t.Container = None):
     query = entity.query
     for k, v in filters:
         column = getattr(entity, k, None)
-        if not column or column in exclude:
+        if not column or k in (exclude or []):
             return {'error': f'Invalid filter column: {k}'}, 404
         if ',' in v:
             values = v.split(',')

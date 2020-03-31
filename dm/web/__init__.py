@@ -39,17 +39,18 @@ jwt = JWTManager()
 class FlaskApp(Flask):
     def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
         from ..use_cases.log_sender import LogSender
+        from ..use_cases.background_tasks import process_catalog_route_table
         if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
             bs = BackgroundScheduler()
             self.extensions['scheduler'] = bs
             ls = LogSender()
             self.extensions['log_sender'] = ls
-            from ..use_cases.background_tasks import check_new_versions, check_catalog
+            from ..use_cases.background_tasks import process_check_new_versions
             bs.start()
 
             if self.config.get('AUTOUPGRADE'):
-                bs.add_job(func=check_new_versions, args=(self,), trigger="interval", minutes=15)
-            bs.add_job(func=check_catalog, args=(self,), trigger="interval", minutes=5)
+                bs.add_job(func=process_check_new_versions, args=(self,), trigger="interval", minutes=15)
+            bs.add_job(func=process_catalog_route_table, args=(self,), trigger="interval", minutes=5)
             bs.add_job(func=run_in_background, args=(ls.send_new_data(), self),
                        trigger="interval",
                        minutes=5)

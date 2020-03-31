@@ -11,7 +11,7 @@ from aioresponses import aioresponses
 import dm
 from dm.domain.entities import Server, Software, SoftwareServerAssociation, Transfer, Route
 from dm.domain.entities.bootstrap import set_initial
-from dm.use_cases.background_tasks import check_new_versions, check_catalog
+from dm.use_cases.background_tasks import process_check_new_versions, check_catalog
 from dm.use_cases.interactor import Dimension, TransferStatus
 from dm.web import create_app, db
 from dm.web.network import pack_msg
@@ -114,7 +114,7 @@ class TestCheckNewVersions(TestCase):
 
         mock_md5.return_value = b"md5"
         mock_exists.return_value = False
-        check_new_versions(self.app)
+        process_check_new_versions(self.app)
 
         self.assertEqual(
             (['python', 'elevator.py', 'upgrade',
@@ -146,7 +146,7 @@ class TestCheckNewVersions(TestCase):
 
         mock_md5.return_value = b"md5"
         mock_exists.return_value = False
-        check_new_versions(self.app)
+        process_check_new_versions()
 
         self.assertFalse(mock_popen.called)
 
@@ -174,7 +174,7 @@ class TestCheckNewVersions(TestCase):
         db.session.add(ssa)
         db.session.commit()
 
-        check_new_versions()
+        process_check_new_versions()
 
         self.assertEqual((['python', 'elevator.py', 'upgrade',
                            os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon-v0.2.tar.gz'),
@@ -198,7 +198,7 @@ class TestCheckNewVersions(TestCase):
 
         mock_md5.return_value = b"md5"
         mock_exists.return_value = False
-        check_new_versions()
+        process_check_new_versions()
 
         self.assertFalse(mock_popen.called)
 
@@ -238,7 +238,7 @@ class TestCheckNewVersions(TestCase):
                       json=pack_msg(data={'transfer_id': str(t.id)})
                       )
 
-        check_new_versions(timeout_wait_transfer=0.1, refresh_interval=0.05)
+        process_check_new_versions(timeout_wait_transfer=0.1, refresh_interval=0.05)
 
         self.assertEqual((['python', 'elevator.py', 'upgrade',
                            os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon-0.2.tar.gz'), '0.2'],),
@@ -281,7 +281,7 @@ class TestCheckCatalog(TestCase):
         m.get(url=s2.url('root.healthcheck'),
               payload=dict(version=dm.__version__, catalog_version='20190401000000000001'))
 
-        check_catalog(self.app)
+        check_catalog()
 
         mock_upgrade.assert_called_once_with(s2)
 
@@ -304,13 +304,13 @@ class TestCheckCatalog(TestCase):
         m.get(url=s2.url('root.healthcheck'),
               payload=dict(version=dm.__version__, catalog_version='20190401000000000000'))
 
-        check_catalog(self.app)
+        check_catalog()
 
         self.assertEqual(0, mock_upgrade.call_count)
 
         m.get(url=s1.url('root.healthcheck'), exception=aiohttp.ClientError())
         m.get(url=s2.url('root.healthcheck'), exception=aiohttp.ClientError())
 
-        check_catalog(self.app)
+        check_catalog()
 
         self.assertEqual(0, mock_upgrade.call_count)

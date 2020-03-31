@@ -11,7 +11,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_tok
 
 from dm import defaults as d, defaults
 from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Orchestration, Scope
-from dm.use_cases.interactor import send_software, update_table_routing_cost
+from dm.use_cases.background_tasks import table_routing_process
+from dm.use_cases.interactor import send_software
 from dm.use_cases.lock import lock_scope
 from dm.utils.helpers import get_distributed_entities
 from dm.web import db
@@ -133,21 +134,7 @@ def routes():
         if 'check_current_neighbours' in data:
             kwargs.update(check_current_neighbours=data.get('check_current_neighbours'))
 
-        new_routes = update_table_routing_cost(**kwargs)
-
-        # send new information in background
-        msg = {'server_id': str(g.server.id),
-               'route_list': [
-                   r.to_json()
-                   for r in db.session.dirty
-               ]}
-        if len(db.session.dirty) > 0:
-            for s in Server.get_neighbours():
-                th = threading.Thread(target=requests.patch,
-                                      kwargs={'url': s.url('api_1_0.routes'), 'data': msg,
-                                              'headers': dict(Authorization=request.headers['Authorization'])})
-                th.daemon = True
-                th.start()
+        table_routing_process(**kwargs)
 
         db.session.commit()
 
@@ -199,7 +186,7 @@ def routes():
                                                   'headers': dict(Authorization=request.headers['Authorization'])})
                     th.start()
 
-    return '', 204
+    return {}, 204
 
 
 @api_bp.route('/launch/<string:orchestration_id>', methods=['POST'])

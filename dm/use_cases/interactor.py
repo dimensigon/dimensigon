@@ -234,7 +234,7 @@ def upgrade_catalog_from_server(server):
             upgrade_catalog(delta_catalog)
 
 
-def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False) -> t.List[Server]:
+def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False) -> t.List[Route]:
     """Gets route tables of all neighbours and updates its own table based on jump weights.
     Needs a Flask App Context to run.
 
@@ -341,7 +341,7 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
             if route.proxy_server != proxy_server or route.cost != cost:
                 route.proxy_server = proxy_server
                 route.cost = cost
-                changed_routes.append(route.to_json())
+                changed_routes.append(route)
                 break
 
     return changed_routes
