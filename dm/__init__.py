@@ -6,4 +6,3 @@ __version__ = "0.1-a5"
 __maintainer__ = "Joan Prat"
 __email__ = "joan.prat@dimensigon.com"
 __status__ = "development"
-
