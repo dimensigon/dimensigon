@@ -132,6 +132,9 @@ class Pygtail(LoggerMixin):
         data = stat(self.file)
         return data.st_ino or data.st_ctime_ns
 
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and other.file_id == self.file_id
+
     def __del__(self):
         if self._filehandle():
             self._filehandle().close()

@@ -4,7 +4,7 @@ from unittest import TestCase
 from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, Scope, Locker, State, Dimension
+from dm.domain.entities import Server, Scope, Locker, State, Dimension, Route
 from dm.domain.entities.bootstrap import set_initial
 from dm.use_cases.lock import lock_scope
 from dm.utils.helpers import generate_dimension
@@ -32,8 +32,10 @@ class TestLockScope(TestCase):
 
     @aioresponses()
     def test_lock_scope(self, m):
-        n1 = Server("node1", cost=0)
-        n2 = Server("node2", cost=0)
+        n1 = Server("node1", port=8000)
+        Route(n1, cost=0)
+        n2 = Server("node2", port=8000)
+        Route(n2, cost=0)
         db.session.add_all([n1, n2])
         db.session.commit()
 
@@ -91,8 +93,10 @@ class TestLockScope(TestCase):
         dim = generate_dimension('dimension')
         dim.current = True
         db.session.add(dim)
-        n1 = Server("node1", cost=0)
-        n2 = Server("node2", cost=0)
+        n1 = Server("node1", port=8000)
+        Route(n1, cost=0)
+        n2 = Server("node2", port=8000)
+        Route(n2, cost=0)
         db.session.add_all([n1, n2])
         db.session.commit()
 
@@ -162,6 +166,9 @@ class TestLockScopeFullChain(TestCase):
         with self.app1.app_context():
             db.create_all()
             set_initial()
+            s = Server.get_current()
+            s.gates = []
+            s.add_new_gate('node1', 8000)
             dim = generate_dimension('dimension')
             dim.current = True
             db.session.add(dim)
@@ -173,10 +180,14 @@ class TestLockScopeFullChain(TestCase):
         with self.app2.app_context():
             db.create_all()
             set_initial()
+            s = Server.get_current()
+            s.gates = []
+            s.add_new_gate('node2', 8000)
             db.session.commit()
             self.s2_json = Server.get_current().to_json()
             s = Server.from_json(self.s1_json)
-            s.route.cost = 0
+            s.add_new_gate('node1', 8000)
+            Route(s, cost=0)
             db.session.add(s)
             dim = Dimension.from_json(self.dim_json)
             dim.current = True
@@ -185,7 +196,8 @@ class TestLockScopeFullChain(TestCase):
 
         with self.app1.app_context():
             s = Server.from_json(self.s2_json)
-            s.route.cost = 0
+            s.add_new_gate('node2', 8000)
+            Route(s, cost=0)
             db.session.add(s)
             db.session.commit()
 
@@ -214,7 +226,7 @@ class TestLockScopeFullChain(TestCase):
 
             return CallbackResult(r.data, status=r.status_code)
 
-        m.post(re.compile('https?://127\.0\.0\.1\.*'), callback=callback_client1, repeat=True)
+        m.post(re.compile('https?://node1.*'), callback=callback_client1, repeat=True)
         m.post(re.compile('https?://node2.*'), callback=callback_client2, repeat=True)
 
         with self.app1.app_context():

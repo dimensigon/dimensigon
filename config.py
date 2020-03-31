@@ -15,12 +15,14 @@ class Config(object):
     SSL_REDIRECT = False
     SSL_VERIFY = False
 
+
     GIT_REPO = 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
     SOFTWARE_REPO = os.path.abspath(
         os.environ.get('DM_SOFTWARE_REPO', os.path.join(os.path.expanduser("~"), 'software')))
     AUTOUPGRADE = True
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
+    SCHEDULER = False
 
     @classmethod
     def init_app(cls, app):
@@ -31,6 +33,7 @@ class ProductionConfig(Config):
     DEBUG = False
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
                               'sqlite:///' + os.path.join(basedir, 'sqlite.db')
+    SCHEDULER = True
 
     @classmethod
     def init_app(cls, app):
@@ -98,6 +101,7 @@ class TestingConfig(Config):
     SERVER_NAME = 'test'
     PREFERRED_URL_SCHEME = 'http'
     SECURIZER = False
+    DEBUG = False
 
     @classmethod
     def init_app(cls, app):

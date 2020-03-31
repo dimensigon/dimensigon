@@ -3,6 +3,7 @@
 
 # Generic/Built-in
 import functools
+import ipaddress
 import json
 import logging
 import os
@@ -20,9 +21,9 @@ from enum import Enum
 import click
 import psutil
 import requests
+from flask_migrate import init, migrate, upgrade as fm_upgrade
 from pkg_resources import parse_version
 
-import dm.defaults as defaults
 import gunicorn_conf as conf
 
 __author__ = "Joan Prat "
@@ -35,6 +36,8 @@ __email__ = "joan.prat@dimensigon.com"
 __status__ = "Dev"
 
 import warnings
+
+from dm.utils.helpers import get_ips_listening_for
 
 warnings.filterwarnings("ignore")
 
@@ -52,6 +55,7 @@ FAILED_VERSIONS = '.failed_versions'
 MAX_TIME_WAITING = 5
 SSL_VERIFY = False
 PACKAGE_NAME = 'dimensigon'
+global schema, host
 
 # max time elevator will wait for the process to start and ask for the health check response
 
@@ -62,8 +66,10 @@ exc_pattern = re.compile(EXCLUDE_PATTERN)
 config_files = ['.env', 'sqlite.db', 'gunicorn_conf.py', 'ssl', 'migrations']
 pid_file = os.path.join(HOME, conf.pidfile)
 
+
 FORMAT = '%(asctime)-15s %(filename)s %(levelname)-8s %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.DEBUG)
+logger = logging.getLogger('elevator')
 
 
 # FUNCTIONS
@@ -107,24 +113,34 @@ def find_process_by_name(process_name):
     return None
 
 
-def get_hc(url, token=None, tries=1, delay=3, backoff=1):
+def get_hc(token=None, tries=1, delay=3, backoff=1):
+    global schema, host
     mtries, mdelay = tries, delay
     hc = {}
     while mtries > 0:
         try:
+            r = None
             headers = {"Authentication": f"Bearer {token}"} if token else None
-            r = requests.get(url, headers=headers, timeout=2, verify=SSL_VERIFY)
-            if r.status_code == 401:
-                r = requests.get(url + "/healthcheck", verify=SSL_VERIFY, timeout=2)
+            try:
+                r = requests.get(f"{schema or 'https'}://{host}/healthcheck", headers=headers, timeout=2,
+                                 verify=SSL_VERIFY)
+            except requests.ReadTimeout:
+                r = requests.get(f"http://{host}/healthcheck", headers=headers, timeout=2)
+                schema = 'http'
+            else:
+                if not schema:
+                    schema = 'https'
             r.raise_for_status()
             hc = r.json()
             break
         except Exception as e:
             msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
-            logging.debug(msg)
-            time.sleep(mdelay)
+            logger.debug(msg)
             mtries -= 1
             mdelay *= backoff
+            if mtries > 0:
+                time.sleep(mdelay)
+
     if mtries == 0:
         return {}
     else:
@@ -157,7 +173,7 @@ def start_daemon(cwd=None, silently=True):
            '--certfile', os.path.join(cwd, 'ssl', 'cert.pem'),
            '--daemon',
            'dimensigon:app']
-    logging.debug('Running ' + ' '.join(cmd))
+    logger.debug('Running ' + ' '.join(cmd))
     cp = subprocess.run(
         cmd,
         cwd=cwd, timeout=10)
@@ -168,14 +184,14 @@ def start_daemon(cwd=None, silently=True):
     return cp.returncode
 
 
-def start_and_check(url, cwd=None, tries=MAX_TIME_WAITING // 5):
+def start_and_check(cwd=None, tries=MAX_TIME_WAITING // 5):
     # start new version & check health
-    start_daemon(cwd, logging.root.level != logging.DEBUG)
+    start_daemon(cwd, logger.level != logging.DEBUG)
     # wait to be able to create pid file
     time.sleep(0.2)
     if daemon_running():
-        hc = get_hc(url, tries=tries, delay=5)
-        logging.debug(f"Healthcheck from {url}: {json.dumps(hc, indent=4)}")
+        hc = get_hc(tries=tries, delay=5)
+        logger.debug(f"Healthcheck from {host}: {json.dumps(hc, indent=4)}")
 
         if 'version' in hc:
             version_running = hc.get('version', False)
@@ -183,9 +199,9 @@ def start_and_check(url, cwd=None, tries=MAX_TIME_WAITING // 5):
             # sc = check_services(hc)
             sc = True
             if sc is True:
-                logging.info(f"New version '{version_running}' up & running with all services alive")
+                logger.info(f"New version '{version_running}' up & running with all services alive")
             else:
-                logging.info(f"New version '{version_running}' up & running with services not alive")
+                logger.info(f"New version '{version_running}' up & running with services not alive")
         else:
             return False
     else:
@@ -205,7 +221,7 @@ def stop_daemon():
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
-            logging.warning("pid file exists but no process running. Removing pid file")
+            logger.warning("pid file exists but no process running. Removing pid file")
             try:
                 os.remove('gunicorn.pid')
             except:
@@ -256,8 +272,8 @@ def get_version_from_file(root=''):
     return current_version
 
 
-def get_current_version(url, token=None):
-    hc = get_hc(url, token)
+def get_current_version(token=None):
+    hc = get_hc(token)
     current_version = hc.get('version', None)
     if current_version is None:
         # try to get version from file
@@ -281,30 +297,53 @@ class ReturnCodes(Enum):
     ERROR_STARTING_OLD_VERSION = 5
 
 
+def get_host():
+    gates = get_ips_listening_for()
+    host = None
+    for g in gates:
+        ip = None
+        dns = None
+        try:
+            ip = ipaddress.ip_address(g[0])
+        except ValueError:
+            dns = g[0]
+        port = g[1]
+        if ip and ip.is_loopback:
+            host = f"{ip}:{port}"
+            break
+        else:
+            host = f"{dns}:{port}"
+    return host
+
+
 def _upgrade(config):
     # backup data
 
-    # logging.info(f"Backing up data")
+    # logger.info(f"Backing up data")
     # backup_filename = shutil.make_archive(os.path.join(TMP, BACKUP_FILENAME), 'gztar', HOME)
-
-    old_version = get_current_version(config.get('dm_url') + '/healthcheck', config.get('token'))
+    old_version = get_current_version(config.get('token'))
 
     # deploy new version
 
-    logging.info(f"Unzipping file {config['deployable']}")
+    logger.info(f"Unzipping file {config['deployable']}")
     new_home = os.path.join(DM_ROOT, 'dimensigon_' + config['version'])
     try:
         shutil.rmtree(new_home)
     except FileNotFoundError:
         pass
 
+    content_folder = os.path.basename(config['deployable']).rstrip('.gz').rstrip('.tar').rstrip('.zip')
     # extract new version
+    try:
+        shutil.rmtree(os.path.join(TMP, content_folder))
+    except FileNotFoundError:
+        pass
     shutil.unpack_archive(config['deployable'], TMP)
-    shutil.copytree(os.path.join(TMP, 'dimensigon'), new_home)
-    shutil.rmtree(os.path.join(TMP, 'dimensigon'))
+    shutil.copytree(os.path.join(TMP, content_folder), new_home)
+    shutil.rmtree(os.path.join(TMP, content_folder))
 
     # copy config files and DB from old version to new version
-    logging.info("Importing configuration and database from current_version")
+    logger.info("Importing configuration and database from current_version")
     for file in [os.path.join(HOME, f) for f in config_files]:
         if os.path.isfile(file):
             shutil.copy2(file, new_home)
@@ -313,38 +352,44 @@ def _upgrade(config):
                 shutil.copytree(file, os.path.join(new_home, os.path.basename(file)))
 
     # stop old version
-    logging.info("Stopping old version")
+    logger.info("Stopping old version")
     stopped = stop_daemon()
 
     # change working dir to new home
     os.chdir(new_home)
-    logging.debug(f"changed working directory to {os.getcwd()}")
+    logger.debug(f"changed working directory to {os.getcwd()}")
 
-    # TODO: execute DB migrations
+    from dimensigon import app
+    with app.app_context():
+        try:
+            migrate()
+        except:
+            init()
+            migrate()
+        fm_upgrade()
 
     #####################
     # start NEW version #
     #####################
-    if not start_and_check(config.get('dm_url'), cwd=new_home):
-
-        logging.info(f"New version not running. Reverting changes to version '{old_version}'")
+    if not start_and_check(cwd=new_home):
+        logger.info(f"New version not running. Reverting changes to version '{old_version}'")
 
         # kill daemon if running
         stop_daemon()
 
         os.chdir(HOME)
-        logging.debug(f"changed working directory to {os.getcwd()}")
+        logger.debug(f"changed working directory to {os.getcwd()}")
 
         # save failed version
         with open(FAILED_VERSIONS, 'a') as fd:
-            fd.write(f"{config['version']}\n")
+            fd.write(f"{config['version'].strip()}\n")
 
         #####################
         # start old version #
         #####################
-        logging.info("Starting old version")
-        if not start_and_check(config.get('dm_url')):
-            logging.error(f"Unable to start old version {old_version}")
+        logger.info("Starting old version")
+        if not start_and_check():
+            logger.error(f"Unable to start old version {old_version}")
             stop_daemon()
             return ReturnCodes.ERROR_STARTING_OLD_VERSION
 
@@ -395,28 +440,27 @@ def upgrade(deployable, version):
     #
 
     if not os.path.exists(os.path.abspath(deployable)):
-        click.echo(f"deployable '{deployable}' does not exist")
+        logger.error(f"deployable '{deployable}' does not exist")
         sys.exit(1)
 
     if os.path.exists(FAILED_VERSIONS):
         with open(FAILED_VERSIONS, 'r') as fd:
-            failed_versions = parse_version(fd.readlines())
+            failed_versions = [parse_version(v) for v in fd.readlines()]
     else:
         failed_versions = []
 
     if parse_version(version) in failed_versions:
-        click.echo(f"version {version} already tried with error. Waiting next version")
+        logger.error(f"version {version} already tried with error. Waiting next version")
         sys.exit(2)
 
     sys.exit(_upgrade(
-        dict(deployable=deployable, version=version, git_repo=os.environ.get('GIT_REPO'),
-             dm_url=f"https://127.0.0.1:{defaults.LOOPBACK_PORT}")))
+        dict(deployable=deployable, version=version, git_repo=os.environ.get('GIT_REPO'))))
 
 
 @cli.command()
 def start():
-    if not start_and_check(f"https://127.0.0.1:{defaults.LOOPBACK_PORT}/healthcheck"):
-        logging.info('Unable to start process. Check log for more info')
+    if not start_and_check():
+        logger.info('Unable to start process. Check log for more info')
         stop_daemon()
         sys.exit(1)
     else:
@@ -429,4 +473,6 @@ def stop():
 
 
 if __name__ == '__main__':
+    global host
+    host = get_host()
     cli()

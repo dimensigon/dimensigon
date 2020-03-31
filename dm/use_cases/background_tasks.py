@@ -16,22 +16,24 @@ from dm import __version__ as dm_version, defaults
 from dm.domain.entities import Software, SoftwareServerAssociation, Server, Dimension, Transfer, \
     TransferStatus, Catalog, Scope
 from dm.use_cases import exceptions as ue
-from dm.use_cases.interactor import upgrade_catalog_from_server
+from dm.use_cases.interactor import upgrade_catalog_from_server, update_table_routing_cost
 from dm.use_cases.lock import lock_scope
 from dm.utils import asyncio
 from dm.utils.helpers import get_filename_from_cd, md5
 from dm.web import db
-from dm.web.network import async_get, HTTPBearerAuth, post
+from dm.web.network import async_get, HTTPBearerAuth, post, patch
 
 logger = logging.getLogger('dm.background')
 
 
-def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=None):
+def process_check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=None):
     """
     checks if new version in repo
 
     Parameters
     ----------
+    app:
+        app to load the context
     timeout_wait_transfer:
         timeout waiting tranfer file to end.
     refresh_interval:
@@ -41,13 +43,14 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
     -------
 
     """
-    app = app or current_app
-    with app.app_context():
+    if app:
+        app.app_context.push()
+    try:
         current_server = Server.get_current()
         current_dimension = Dimension.get_current()
         logger.info('Starting Upgrade Process')
         base_url = os.environ.get('GIT_REPO') \
-                   or app.config.get('GIT_REPO') \
+                   or current_app.config.get('GIT_REPO') \
                    or 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
         releases_uri = '/dimensigon/dimensigon/releases'
         try:
@@ -117,7 +120,8 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
                 # get software if not in folder
                 file = os.path.join(current_app.config['SOFTWARE_REPO'], soft2deploy.filename)
                 if not os.path.exists(file):
-                    ssa = min(soft2deploy.ssas, key=lambda x: x.server.route.cost or 999999)
+                    ssa = min(soft2deploy.ssas,
+                              key=lambda x: (x.server.route.cost or 999999) if x.server.route is not None else 999999)
                     logger.debug(f"Getting software from server {ssa.server}")
                     resp = post(ssa.server, 'api_1_0.software_send',
                                 json={"software_id": str(soft2deploy.id),
@@ -160,6 +164,9 @@ def check_new_versions(app=None, timeout_wait_transfer=None, refresh_interval=No
                 stdout.close()
         else:
             logger.debug(f"No version to upgrade")
+    finally:
+        if app:
+            app.app_context.pull()
 
 
 async def _get_neighbour_catalog_data_mark():
@@ -187,33 +194,64 @@ async def _get_neighbour_catalog_data_mark():
     return server_responses
 
 
-def check_catalog(app):
-    with app.app_context():
-        logger.debug("Starting check catalog from neighbours")
-        data = asyncio.run(_get_neighbour_catalog_data_mark())
-        reference_server = None
-        catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
-        if catalog_ver:
-            for server, response in data.items():
-                if response[1] == 200 and 'catalog_version' in response[0]:
-                    new_catalog_ver = datetime.datetime.strptime(response[0]['catalog_version'],
-                                                                 defaults.DATEMARK_FORMAT)
-                    if new_catalog_ver > catalog_ver:
-                        if response[0]['version'] == dm_version:
-                            reference_server = server
-                            catalog_ver = new_catalog_ver
-                        else:
-                            logger.debug(
-                                f"Server {response[1]} has different software version {response[0]['version']}")
-                else:
-                    msg = f"Error while trying to get healthcheck from server {server.name}. "
-                    if response[1]:
-                        msg = msg + f"Response from server (code {response[1]}): {response[0]}"
+def check_catalog():
+    logger.debug("Starting check catalog from neighbours")
+    data = asyncio.run(_get_neighbour_catalog_data_mark())
+    reference_server = None
+    catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
+    if catalog_ver:
+        for server, response in data.items():
+            if response[1] == 200 and 'catalog_version' in response[0]:
+                new_catalog_ver = datetime.datetime.strptime(response[0]['catalog_version'],
+                                                             defaults.DATEMARK_FORMAT)
+                if new_catalog_ver > catalog_ver:
+                    if response[0]['version'] == dm_version:
+                        reference_server = server
+                        catalog_ver = new_catalog_ver
                     else:
-                        msg = msg + f"Exception: {response[0]}"
-                    logger.warning(msg)
-            if reference_server:
-                logger.info(f"New catalog found from server {reference_server.name}: {catalog_ver}")
-                upgrade_catalog_from_server(reference_server)
+                        logger.debug(
+                            f"Server {response[1]} has different software version {response[0]['version']}")
             else:
-                logger.info(f"No server with higher catalog found")
+                msg = f"Error while trying to get healthcheck from server {server.name}. "
+                if response[1]:
+                    msg = msg + f"Response from server (code {response[1]}): {response[0]}"
+                else:
+                    msg = msg + f"Exception: {response[0]}"
+                logger.warning(msg)
+        if reference_server:
+            logger.info(f"New catalog found from server {reference_server.name}: {catalog_ver}")
+            upgrade_catalog_from_server(reference_server)
+        else:
+            logger.info(f"No server with higher catalog found")
+
+
+def table_routing_process(discover_new_neighbours=False, check_current_neighbours=False):
+    new_routes = update_table_routing_cost(discover_new_neighbours, check_current_neighbours)
+
+    if len(new_routes) > 0:
+        msg = {'server_id': str(Server.get_current().id),
+               'route_list': [
+                   r.to_json()
+                   for r in new_routes
+               ]}
+        for s in Server.get_neighbours():
+            try:
+                r = patch(s, 'api_1_0.routes', json=msg, auth=HTTPBearerAuth(create_access_token('root')))
+                if r[1] != 204:
+                    logger.error(f"Unable to send new routing information to node {s}. {r[1]}, {r[0]}")
+            except Exception as e:
+                logger.error(
+                    f"Exception raised while trying to send new routing information to node {s}. Exception: {e}")
+
+
+def process_catalog_route_table(app=None):
+    if app:
+        app.app_context.push()
+        try:
+            table_routing_process(discover_new_neighbours=True, check_current_neighbours=True)
+
+            check_catalog()
+
+        finally:
+            if app:
+                app.app_context.pop()

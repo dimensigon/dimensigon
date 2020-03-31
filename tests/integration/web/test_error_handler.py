@@ -5,7 +5,6 @@ from flask_jwt_extended import create_access_token
 
 from dm.domain.entities.bootstrap import set_initial
 from dm.web import create_app, db
-from dm.web.json_schemas import schema_lock
 
 
 class TestApi(TestCase):
@@ -31,4 +30,4 @@ class TestApi(TestCase):
         resp = self.client.post(url_for('api_1_0.locker'), json={}, headers=self.headers)
 
         self.assertIn('error', resp.json)
-        self.assertDictEqual(schema_lock, resp.json['schema'])
+        self.assertTrue(resp.json['error'].startswith("'scope' is a required property"))

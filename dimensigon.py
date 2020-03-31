@@ -39,7 +39,7 @@ from dm.use_cases.interactor import upgrade_catalog, update_table_routing_cost
 from dm.utils.helpers import generate_symmetric_key, generate_dimension
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
-migrate = Migrate(db)
+migrate = Migrate(db, user_module_prefix="sa.")
 
 with app.app_context():
     if db.engine.url.drivername == 'sqlite':
@@ -126,8 +126,9 @@ def join(server, token, ssl, verify):
         # Generate Public and Private Temporal Keys
         tmp_pub, tmp_priv = rsa.newkeys(2048, poolsize=8)
         symmetric_key = generate_symmetric_key()
-        data = pack_msg2(data=Server.get_current().to_json(), pub_key=pub_key, priv_key=tmp_priv,
-                         symmetric_key=symmetric_key, add_key=True)
+        s = Server.get_current()
+        data = s.to_json(add_gates=True)
+        data = pack_msg2(data=data, pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key, add_key=True)
         data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
         click.echo("Joining to dimension")
         resp = session.post(f"{protocol}://{server}/api/v1.0/join", json=data,
@@ -147,7 +148,7 @@ def join(server, token, ssl, verify):
             reference_server = Server.query.get(reference_server_id)
             if not reference_server:
                 raise ValueError(f"Server id {reference_server_id} not found in catalog")
-            reference_server.route.cost = 0
+            Route(destination=reference_server, cost=0)
             update_table_routing_cost(True)
             db.session.commit()
             click.echo('Joined to the dimension')

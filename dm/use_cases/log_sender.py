@@ -1,73 +1,124 @@
-import asyncio
+import base64
+import logging
 import os
 import typing as t
 
-from dm.framework.utils.dependency_injection import Component, Inject
-from dm.framework.utils.functools import reify
-from dm.repositories.repositories import LogRepo
+from flask_jwt_extended import create_access_token
 
-from dm.use_cases.mediator import Mediator
-from dm.utils.decorators import logged
+from dm.domain.entities import Log, Server
+from dm.utils import asyncio
+from dm.utils.helpers import remove_prefix
+from dm.utils.pygtail import Pygtail
+from dm.utils.typos import Id
+from dm.web.network import async_post, HTTPBearerAuth
 
 MAX_LINES = 10000
 
+logger = logging.getLogger('dm.background')
 
-@logged
-class LogSender(Component):
-    log_repo: LogRepo = Inject()
 
-    def __init__(self, container: t.Container, mediator: Mediator):
-        super().__init__(container)
-        self.mediator = mediator
+class _PygtailBuffer(Pygtail):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._buffer = None
+
+    def fetch(self):
+        if self._buffer:
+            return self._buffer
+        else:
+            self._buffer = self.readlines(max_lines=MAX_LINES)
+        return self._buffer
+
+    def update_offset_file(self):
+        self._buffer = None
+        super().update_offset_file()
+
+
+class LogSender:
+
+    def __init__(self):
         self.buffer_data = None
         self.sending_data = True
+        self._mapper: t.Dict[Id, t.List[_PygtailBuffer]] = {}
 
-    @reify
+    @property
     def logs(self):
-        logs = [log for log in self.log_repo.all()]
-        self.buffer_data = [None] * len(logs)
-        return logs
+        return Log.query.filter_by(source_server=Server.get_current()).all()
 
-    def send_new_data(self, ids: t.List[int] = None):
-        if not ids:
-            # TODO check for new logs added
-            self.sending_data = True
-        self.logger.debug(f"Sending new data to servers")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    def update_mapper(self):
+        logs = self.logs
+        id2log = {log.id: log for log in logs}
+        # remove logs
+        for log_id in self._mapper.keys():
+            if log_id not in id2log:
+                del self._mapper[log_id]
+
+        # add new logs
+        for log in logs:
+            if log.id not in self._mapper:
+                self._mapper[log.id] = []
+            self.update_pytail_objects(log, self._mapper[log.id])
+
+    def update_pytail_objects(self, log: Log, pytail_list: t.List):
+        if os.path.isfile(log.target):
+            if len(pytail_list) == 0:
+                pytail_list.append(
+                    _PygtailBuffer(file=log.target, offset_mode='manual', offset_file=log.target + '.offset'))
+        else:
+            for folder, dirnames, filenames in os.walk(log.target):
+                for filename in filenames:
+                    if log._re_include.search(filename) and not log._re_exclude.search(filename):
+                        file = os.path.join(folder, filename)
+                        if not any(map(lambda p: p.file == file, pytail_list)):
+                            pytail_list.append(
+                                _PygtailBuffer(file=file, offset_mode='manual', offset_file=file + '.offset'))
+                if not log.recursive:
+                    break
+                new_dirnames = []
+                for dirname in dirnames:
+                    if log._re_include.search(dirname) and not log._re_exclude.search(dirname):
+                        new_dirnames.append(dirname)
+                dirnames[:] = new_dirnames
+
+    async def send_new_data(self):
+        logger.debug(f"Sending new data to servers")
+        self.update_mapper()
 
         tasks = []
-        task_id = []
 
-        for i in ids or range(len(self.logs)):
-            if self.buffer_data[i] is None:
-                self.buffer_data[i] = self.logs[i].readlines(max_lines=MAX_LINES)
-            if self.buffer_data[i]:
-                self.logger.debug(f"Sending data from '{self.logs[i].file}' to '{self.logs[i].server}'")
-                data = b''.join(self.buffer_data[i]) if self.logs[i].binary else ''.join(self.buffer_data[i])
-                tasks.append(self.mediator.send_data_log(os.path.basename(self.logs[i].file), self.logs[i].server,
-                                                         data, self.logs[i].dest_folder))
-                task_id.append(i)
-            else:
-                self.buffer_data[i] = None
-        pool_responses = loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+        auth = HTTPBearerAuth(create_access_token('root'))
+        for log_id, pb in self._mapper.items():
+            log = Log.query.get(log_id)
+            for pytail in pb:
+                data = pytail.fetch()
+                data = data.encode() if isinstance(data, str) else data
+                if log.dest_folder:
+                    if pytail.file == log.target:
+                        file = os.path.join(log.dest_folder, os.path.basename(log.target))
+                    else:
+                        file = os.path.join(log.dest_folder, remove_prefix(pytail.file, log.target).lstrip('/'))
+                else:
+                    file = pytail.file
+                task = asyncio.create_task(
+                    async_post(log.destination_server, 'api_1_0.logresource', view_data={'log_id': str(log_id)},
+                               json={"file": file, 'data': base64.b64encode(data).decode('ascii')},
+                               auth=auth))
 
-        loop.close()
+                tasks.append((task, pytail, log))
+                logger.debug(f"Sending data from '{pytail.file}' to '{log.destination_server}'")
 
-        pending_data = []
-        for i, response in zip(task_id, pool_responses):
+        for task, pytail, log in tasks:
+            response, status_code = await task
             if isinstance(response, Exception):
-                self.logger.error(
-                    f"Unable to send log information to '{self.logs[i].server}' from file '{self.logs[i].file}'. "
-                    f"HTTP code: {response.args[2]}. Response:\n{response.args[1]}")
+                logger.exception(
+                    f"Unable to send log information from '{pytail.file}' to '{log.destination_server}'",
+                    exc_info=response)
             else:
-                self.logger.debug(f"setting offset from '{self.logs[i].file}' to {self.logs[i]._offset}")
-                self.logs[i].update_offset_file()
-                if len(self.buffer_data[i]) == MAX_LINES:
-                    pending_data.append(i)
-                self.buffer_data[i] = None
-
-        if pending_data:
-            self.send_new_data(pending_data)
-        if not ids:
-            self.sending_data = False
+                if 199 < status_code < 300:
+                    pytail.update_offset_file()
+                    logger.debug(f"set offset from '{pytail.file}' to {pytail._offset}")
+                else:
+                    logger.error(
+                        f"Unable to send log information from '{pytail.file}' to '{log.destination_server}'. Error"
+                        f"{response[1]}, {response[0]}")

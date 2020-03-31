@@ -32,11 +32,12 @@ def forward_or_dispatch(func):
             destination = Server.query.get(destination_id)
             if destination:
                 resp = proxy_request(request=request, destination=destination)
-                return resp.raw.read(), resp.status_code, resp.headers
+                return resp.content, resp.status_code, dict(resp.headers)
             else:
                 return UnknownServer(destination_id).format()
         else:
-            g.source = db.session.query(Server).get(request.headers.get('D-Source')) or request.headers.get('D-Source')
+            g.source = db.session.query(Server).get(request.headers.get('D-Source')) or request.headers.get(
+                'D-Source') or request.remote_addr
             value = func(*args, **kwargs)
             return value
 
@@ -116,7 +117,7 @@ def validate_schema(schema_name=None, **methods):
                 try:
                     validate(request.json, schema)
                 except ValidationError as e:
-                    return {"error": e.message}, 400
+                    return {"error": str(e)}, 400
             return f(*args, **kw)
 
         return wrapper

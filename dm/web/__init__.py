@@ -1,5 +1,6 @@
 import atexit
 import json
+import os
 import threading
 import typing as t
 
@@ -8,10 +9,11 @@ from flask import Flask, g, _app_ctx_stack
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
 from jsonschema import ValidationError
+from sqlalchemy import MetaData
 from werkzeug.exceptions import HTTPException
 
 from config import config_by_name
-from .helpers import BaseQueryJSON
+from .helpers import BaseQueryJSON, run_in_background
 
 
 def scopefunc():
@@ -21,9 +23,41 @@ def scopefunc():
         return str(threading.get_ident())
 
 
-db = SQLAlchemy(query_class=BaseQueryJSON, session_options=dict(scopefunc=scopefunc))
+meta = MetaData(naming_convention={
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(column_0_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s"
+})
+
+db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta, session_options=dict(scopefunc=scopefunc))
 # db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
+
+
+class FlaskApp(Flask):
+    def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
+        from ..use_cases.log_sender import LogSender
+        from ..use_cases.background_tasks import process_catalog_route_table
+        if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
+            bs = BackgroundScheduler()
+            self.extensions['scheduler'] = bs
+            ls = LogSender()
+            self.extensions['log_sender'] = ls
+            from ..use_cases.background_tasks import process_check_new_versions
+            bs.start()
+
+            if self.config.get('AUTOUPGRADE'):
+                bs.add_job(func=process_check_new_versions, args=(self,), trigger="interval", minutes=15)
+            bs.add_job(func=process_catalog_route_table, args=(self,), trigger="interval", minutes=5)
+            bs.add_job(func=run_in_background, args=(ls.send_new_data(), self),
+                       trigger="interval",
+                       minutes=5)
+
+            # Shut down the scheduler when exiting the app
+            atexit.register(lambda: bs.shutdown())
+        super(FlaskApp, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
 
 
 def create_app(config_name):
@@ -41,16 +75,6 @@ def create_app(config_name):
     # EXTENSIONS
     db.init_app(app)
     jwt.init_app(app)
-
-    if app.config.get('AUTOUPGRADE'):
-        app.scheduler = BackgroundScheduler()
-        from ..use_cases.background_tasks import check_new_versions, check_catalog
-        app.scheduler.start()
-        app.scheduler.add_job(func=check_new_versions, args=(app,), trigger="interval", minutes=15)
-        app.scheduler.add_job(func=check_catalog, args=(app,), trigger="interval", minutes=5)
-
-        # Shut down the scheduler when exiting the app
-        atexit.register(lambda: app.scheduler.shutdown())
 
     app.before_request(load_global_data_into_context)
     app.register_error_handler(ValidationError, validation_error)

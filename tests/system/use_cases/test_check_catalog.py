@@ -10,10 +10,8 @@ import responses
 from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
 
-import config
-from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation
+from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, Locker
 from dm.domain.entities import Server, Dimension, Catalog
-from dm.domain.entities.bootstrap import set_initial
 from dm.use_cases.background_tasks import check_catalog
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
@@ -21,6 +19,8 @@ from dm.web import create_app, db
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 
+@patch('dm.use_cases.background_tasks.dm_version', '1')
+@patch('dm.web.routes.dm.__version__', '1')
 class TestLockScopeFullChain(TestCase):
 
     # @staticmethod
@@ -41,25 +41,21 @@ class TestLockScopeFullChain(TestCase):
     def setUp(self, mocked_now):
         """Create and configure a new app instance for each test."""
         # create the app with common test config
-        test = config.TestingConfig
-        # test.SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(basedir, 'node1.db')
-        self.app1 = create_app(test)
-        self.app1.config['SERVER_NAME'] = 'node1'
+        self.app1 = create_app('test')
         self.app1.config['SECURIZER'] = True
         self.client1 = self.app1.test_client()
-        # test.SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(basedir, 'node2.db')
-        self.app2 = create_app(test)
-        self.app2.config['SERVER_NAME'] = 'node2'
+        self.app2 = create_app('test')
         self.app2.config['SECURIZER'] = True
         self.client2 = self.app2.test_client()
 
         mocked_now.return_value = datetime(2019, 4, 1)
         with self.app1.app_context():
             db.create_all()
-            s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', me=True)
-            s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', cost=0)
+            Locker.fill_data()
+            s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000, me=True)
+            s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000)
+            Route(s2, cost=0)
             db.session.add_all([s1, s2])
-            set_initial()
             dim = generate_dimension('dimension')
             dim.current = True
             db.session.add(dim)
@@ -70,10 +66,11 @@ class TestLockScopeFullChain(TestCase):
 
         with self.app2.app_context():
             db.create_all()
-            s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', cost=0)
-            s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', me=True)
+            Locker.fill_data()
+            s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000)
+            Route(s1, cost=0)
+            s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000, me=True)
             db.session.add_all([s1, s2])
-            set_initial()
             db.session.commit()
             dim = Dimension.from_json(self.dim_json)
             dim.current = True
@@ -139,8 +136,8 @@ class TestLockScopeFullChain(TestCase):
             return CallbackResult('GET', status=r.status_code, body=r.data, content_type=r.content_type,
                                   headers=r.headers)
 
-        m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client2, repeat=True)
-        m.get(re.compile('https?://127\.0\.0\.1.*'), callback=callback_get_client2, repeat=True)
+        m.post(re.compile('https?://(127\.0\.0\.1|node2).*'), callback=callback_post_client2, repeat=True)
+        m.get(re.compile('https?://(127\.0\.0\.1|node2).*'), callback=callback_get_client2, repeat=True)
         m.post(re.compile('https?://node1'), callback=callback_post_client1, repeat=True)
         m.get(re.compile('https?://node1'), callback=callback_get_client1, repeat=True)
 
@@ -160,17 +157,20 @@ class TestLockScopeFullChain(TestCase):
                                callback=partial(requests_callback_client, self.client2))
 
         with self.app2.app_context():
-            self.assertEqual(1, Catalog.query.count())
+            self.assertListEqual([('Gate',), ('Server',)],
+                                 db.session.query(Catalog.entity).order_by(Catalog.entity).all())
             self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Server').last_modified_at)
 
         with self.app1.app_context():
-            self.assertEqual(4, Catalog.query.count())
+            self.assertEqual(5, Catalog.query.count())
             self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Server').last_modified_at)
+            self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Gate').last_modified_at)
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('Software').last_modified_at)
             self.assertEqual(datetime(2019, 4, 3), Catalog.query.get('SoftwareServerAssociation').last_modified_at)
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('ActionTemplate').last_modified_at)
 
-        check_catalog(self.app2)
+        with self.app2.app_context():
+            check_catalog()
 
         with self.app2.app_context():
             soft = Software.query.get('aaaaaaaa-1234-5678-1234-56781234aaa1')
@@ -178,8 +178,9 @@ class TestLockScopeFullChain(TestCase):
             soft = ActionTemplate.query.get('aaaaaaaa-1234-5678-1234-56781234aaa2')
             self.assertDictEqual(self.at_json, soft.to_json())
 
-            self.assertEqual(4, Catalog.query.count())
+            self.assertEqual(5, Catalog.query.count())
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('Software').last_modified_at)
             self.assertEqual(datetime(2019, 4, 3), Catalog.query.get('SoftwareServerAssociation').last_modified_at)
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('ActionTemplate').last_modified_at)
             self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Server').last_modified_at)
+            self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Gate').last_modified_at)

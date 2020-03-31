@@ -64,7 +64,7 @@ class Software(db.Model, UUIDistributedEntityMixin):
         db.UniqueConstraint('name', 'version', name='D_software_u01'),)
 
     def __init__(self, name, version, filename, family=None, size=None, checksum=None, **kwargs):
-        super().__init__(**kwargs)
+        UUIDistributedEntityMixin.__init__(self, **kwargs)
         self.name = name
         self.version = version
         self.family = family

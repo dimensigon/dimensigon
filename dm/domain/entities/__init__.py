@@ -10,6 +10,7 @@ from .action_template import ActionTemplate, ActionType
 from .catalog import Catalog
 from .dimension import Dimension
 from .execution import Execution
+from .gate import Gate
 from .locker import Locker, State, Scope
 from .log import Log
 from .orchestration import Orchestration
@@ -18,6 +19,7 @@ from .server import Server
 from .service import Service
 from .software import Software, SoftwareServerAssociation
 from .transfer import Transfer, Status as TransferStatus
+from .user import User
 
 __all__ = [
     "ActionTemplate",
@@ -25,8 +27,10 @@ __all__ = [
     "Catalog",
     "Dimension",
     "Execution",
-    "Orchestration",
+    "Gate",
+    "Locker",
     "Log",
+    "Orchestration",
     "Route",
     "Service",
     "Server",
@@ -34,7 +38,7 @@ __all__ = [
     "SoftwareServerAssociation",
     "Transfer",
     "TransferStatus",
-    "Locker"
+    "User",
 ]
 
 catalog = threading.local()

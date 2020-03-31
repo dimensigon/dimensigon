@@ -52,7 +52,7 @@ post_software_schema = {
                       "pattern": UUID_pattern},
         "file": {"type": "string"}
     },
-    "required": ["name", "version", "family"],
+    "required": ["name", "version", "server_id", "file"],
     "dependencies": {
         "server_id": ["file"],
         "file": ["server_id"],
@@ -64,8 +64,7 @@ patch_software_schema = {
     "properties": {
         "server_id": {"type": "string",
                       "pattern": UUID_pattern},
-        "file": {"type": "string"},
-        "recalculate_data": {"type": "boolean"}
+        "path": {"type": "string"},
     },
     "required": ["server_id", "path"]
 }
@@ -153,4 +152,65 @@ schema_transfer = {
         "content": {"type": "bytes"},
     },
     "required": ["transfer_id", "chunk", "content"]
+}
+
+schema_post_log = {
+    "type": "object",
+    "properties": {
+        "file": {"type": "string"},
+        "data": {"type": "string"},
+    },
+    "required": ["data"]
+}
+
+schema_create_log = {
+    "type": "object",
+    "properties": {
+        "src_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "target": {"type": "string"},
+        "include": {"type": "string"},
+        "exclude": {"type": "string"},
+        "dst_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "dest_folder": {"type": "string"},
+        "recursive": {"type": "boolean"},
+    },
+    "required": ["src_server_id", "target", "dst_server_id"],
+    "additionalProperties": False
+}
+
+schema_patch_log = {
+    "type": "object",
+    "properties": {
+        "include": {"type": "string",
+                    "format": "regex"},
+        "exclude": {"type": "string",
+                    "format": "regex"},
+        "dest_folder": {"type": "string"},
+        "recursive": {"type": "boolean"},
+    },
+    "additionalProperties": False
+}
+
+schema_create_user = {
+    "type": "object",
+    "properties": {
+        "user": {"type": "string"},
+        "password": {"type": "string"},
+        "email": {"type": "string",
+                  "format": "email"}
+    },
+    "required": ["user", "password", "email"],
+    "additionalProperties": False
+}
+
+schema_patch_user = {
+    "type": "object",
+    "properties": {
+        "email": {"type": "string",
+                  "format": "email"},
+        "active": {"type": "boolean"}
+    },
+    "additionalProperties": False
 }

@@ -11,7 +11,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_tok
 
 from dm import defaults as d, defaults
 from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Orchestration, Scope
-from dm.use_cases.interactor import send_software, update_table_routing_cost
+from dm.use_cases.background_tasks import table_routing_process
+from dm.use_cases.interactor import send_software
 from dm.use_cases.lock import lock_scope
 from dm.utils.helpers import get_distributed_entities
 from dm.web import db
@@ -119,7 +120,7 @@ def fetch_catalog(data_mark):
 def routes():
     if request.method == 'GET':
         route_table = []
-        for route in Route.query.filter(Route.destination != Server.get_current()).join(Route.destination).order_by(
+        for route in Route.query.join(Route.destination).order_by(
                 Server.name).all():
             route_table.append(route.to_json())
         return {'server_id': str(g.server.id),
@@ -133,53 +134,42 @@ def routes():
         if 'check_current_neighbours' in data:
             kwargs.update(check_current_neighbours=data.get('check_current_neighbours'))
 
-        new_routes = update_table_routing_cost(**kwargs)
-
-        # send new information in background
-        msg = {'server_id': str(g.server.id),
-               'route_list': [
-                   {'id': str(r.destination.id), 'gateway': str(r.gateway.id) if r.gateway else None, 'cost': r.cost}
-                   for r in db.session.dirty
-               ]}
-        if len(db.session.dirty) > 0:
-            for s in Server.get_neighbours():
-                current_app.queue.register(requests.patch, async_proc_kw={'url': s.url('api_1_0.routes'), 'data': msg})
+        table_routing_process(**kwargs)
 
         db.session.commit()
 
     elif request.method == 'PATCH':
         data = request.get_json()
-
-        likely_gateway_server = Server.query.get(data.get('server_id'))
+        likely_proxy_server = Server.query.get(data.get('server_id'))
         new_routes = []
-        if not likely_gateway_server:
+        if not likely_proxy_server:
             return {"error": f"Server id '{data.get('server_id')}' not found"}, 404
         for new_route in data.get('route_list', []):
-            target_server = Server.query.get(new_route.get('destination'))
-            # process routes whose gateway is g.server
-            if str(g.server.id) != new_route.get('gateway'):
-                cost, time = ping_server(target_server)
+            target_server = Server.query.get(new_route.get('destination_id'))
+            # process routes whose proxy_server is g.server
+            if str(g.server.id) != new_route.get('proxy_server_id'):
+                cost, time = ping_server(target_server, g.server)
                 if cost:
                     if new_route.get('cost') < cost:
-                        target_server.route.gateway = likely_gateway_server
+                        target_server.route.proxy_server = likely_proxy_server
                         target_server.route.cost = new_route.get('cost') + 1
                         new_routes.append(target_server.route)
                 else:
                     if new_route.get('cost'):
-                        target_server.route.gateway = likely_gateway_server
+                        target_server.route.proxy_server = likely_proxy_server
                         target_server.route.cost = new_route.get('cost') + 1
                     else:
-                        target_server.route.gateway, target_server.route.cost = None, None
+                        target_server.route.gate, target_server.route.proxy_server, target_server.route.cost = None, None, None
                     new_routes.append(target_server.route)
 
-        # Seek my routes whose gateway is the likely_gateway_server
-        for target_server in Server.query.join(Route.destination).filter(Route.gateway == likely_gateway_server).all():
+        # Seek my routes whose gateway is the likely_proxy_server
+        for target_server in Server.query.join(Route.destination).filter(
+                Route.proxy_server == likely_proxy_server).all():
             for new_route in data.get('route_list', []):
                 if new_route.get('cost'):
                     target_server.route.cost = new_route.get('cost') + 1
                 else:
-                    target_server.route.gateway = None
-                    target_server.route.cost = None
+                    target_server.route.gate, target_server.route.proxy_server, target_server.route.cost = None, None, None
                 new_routes.append(target_server.route)
         db.session.commit()
 
@@ -187,17 +177,16 @@ def routes():
         if new_routes:
             msg = {'server_id': str(g.server.id),
                    'route_list': [
-                       {'destination': str(r.destination), 'gateway': str(r.gateway.id) if r.gateway else None,
-                        'cost': r.cost}
+                       r.to_json()
                        for r in new_routes]}
             for s in Server.get_neighbours():
-                if s != likely_gateway_server:
+                if s != likely_proxy_server:
                     th = threading.Thread(target=requests.patch,
                                           kwargs={'url': s.url('api_1_0.routes'), 'json': msg,
                                                   'headers': dict(Authorization=request.headers['Authorization'])})
                     th.start()
 
-    return '', 204
+    return {}, 204
 
 
 @api_bp.route('/launch/<string:orchestration_id>', methods=['POST'])
@@ -225,7 +214,7 @@ def join():
         js = request.get_json()
         current_app.logger.debug(f"New server wanting to join: {js}")
         s = Server.from_json(js)
-        s.route.cost = 0
+        Route(destination=s, cost=0)
         with lock_scope(Scope.CATALOG):
             db.session.add(s)
             db.session.commit()

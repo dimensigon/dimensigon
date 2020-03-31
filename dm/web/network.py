@@ -4,12 +4,12 @@ import typing as t
 import aiohttp
 import requests
 from aiohttp import ContentTypeError
-from flask import current_app as __ca, g, current_app
+from flask import current_app as __ca, g, current_app, url_for
 from requests.auth import AuthBase
 
-from dm.domain.entities import Server, Dimension
+from dm.domain.entities import Server, Dimension, Gate
 from dm.network.exceptions import NotValidMessage
-from dm.network.gateway import pack_msg as _pack_msg, unpack_msg as _unpack_msg, ping as _ping
+from dm.network.gateway import pack_msg as _pack_msg, unpack_msg as _unpack_msg
 from dm.utils.typos import Kwargs
 
 Response = t.Tuple[t.Union[t.Dict, t.AnyStr, Exception], int]
@@ -82,8 +82,33 @@ def unpack_msg2(data, *args, **kwargs):
             return data
 
 
-def ping(server, *args, **kwargs):
-    return _ping(server, source=Server.get_current(), *args, **kwargs)
+def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, verify=False):
+    tries = 0
+    cost = None
+    elapsed = None
+
+    if isinstance(dest, Gate):
+        server = dest.server
+        schema = current_app.config['PREFERRED_URL_SCHEME'] or 'https'
+        url = f"{schema}://{dest}/{url_for('root.ping', _external=False)}"
+    else:
+        server = dest
+        url = dest.url('root.ping')
+    while tries < retries:
+        try:
+            tries += 1
+            resp = requests.post(url,
+                                 json={'source': str(source.id)},
+                                 headers={'D-Destination': str(server.id)},
+                                 verify=verify,
+                                 timeout=timeout)
+        except (TimeoutError, requests.exceptions.ConnectionError):
+            # unable to reach actual server through current gateway
+            resp = None
+        if resp is not None and resp.status_code == 200:
+            cost = resp.json().get('hops', 0)
+            elapsed = resp.elapsed
+    return cost, elapsed
 
 
 class HTTPBearerAuth(AuthBase):
@@ -178,41 +203,44 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
 
 
 def get(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
-        params: Kwargs = None, **kwargs):
+        params: Kwargs = None, **kwargs) -> Response:
     """Sends a GET request."""
     return request('get', server, view_or_url, view_data=view_data, session=session, params=params, **kwargs)
 
 
-def options(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
+def options(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+            **kwargs) -> Response:
     r"""Sends an OPTIONS request."""
 
     return request('options', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-def head(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
+def head(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+         **kwargs) -> Response:
     r"""Sends a HEAD request."""
     return request('head', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
 def post(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
-         json=None, **kwargs):
+         json=None, **kwargs) -> Response:
     r"""Sends a POST request."""
     return request('post', server, view_or_url, view_data=view_data, session=session, json=json, **kwargs)
 
 
 def put(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
-        **kwargs):
+        **kwargs) -> Response:
     r"""Sends a PUT request."""
     return request('put', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
 def patch(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
-          **kwargs):
+          **kwargs) -> Response:
     r"""Sends a PATCH request."""
     return request('patch', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-def delete(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, **kwargs):
+def delete(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+           **kwargs) -> Response:
     r"""Sends a DELETE request."""
     return request('delete', server, view_or_url, view_data=view_data, session=session, **kwargs)
 

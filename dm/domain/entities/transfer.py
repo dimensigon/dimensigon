@@ -34,7 +34,7 @@ class Transfer(db.Model, UUIDEntityMixin, EntityReprMixin):
 
     def __init__(self, software: Software, dest_path: str, num_chunks: int, status: Status = None,
                  **kwargs):
-        super().__init__(**kwargs)
+        UUIDEntityMixin.__init__(self, **kwargs)
         self.software = software
         self.dest_path = dest_path
         self.num_chunks = num_chunks
