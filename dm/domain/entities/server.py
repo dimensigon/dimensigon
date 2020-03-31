@@ -1,10 +1,8 @@
 import copy
 import ipaddress
-import itertools
 import socket
 import typing as t
 
-import netifaces
 from flask import current_app, url_for
 from sqlalchemy import or_
 
@@ -14,9 +12,8 @@ from .base import UUIDistributedEntityMixin
 from .gate import Gate
 from .route import Route
 from ... import defaults
-
-
 # TODO: handle multiple networks (IP gateways) on a server with netifaces
+from ...utils.helpers import get_ips_listening_for
 
 
 class Server(db.Model, UUIDistributedEntityMixin):
@@ -190,18 +187,9 @@ class Server(db.Model, UUIDistributedEntityMixin):
     def set_initial():
         server = Server.query.filter_by(_me=True).all()
         if len(server) == 0:
-            from gunicorn_conf import bind
+            gates = get_ips_listening_for()
             server_name = current_app.config.get('SERVER_NAME') or defaults.HOSTNAME
-            gates = []
-            for b in bind:
-                dns_or_ip, port = b.split(':')
-                if dns_or_ip == '0.0.0.0':
-                    ips = list(itertools.chain(
-                        *[[ip['addr'] for ip in netifaces.ifaddresses(iface).get(netifaces.AF_INET, [])] for iface in
-                          netifaces.interfaces()]))
-                    gates.extend([(ip, port) for ip in ips])
-                else:
-                    gates.append((dns_or_ip, port))
+
             server = Server(name=server_name,
                             gates=gates,
                             me=True)
