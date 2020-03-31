@@ -2,6 +2,7 @@ import configparser
 import datetime
 import hashlib
 import inspect
+import itertools
 import logging
 import os
 import platform
@@ -10,6 +11,7 @@ import sys
 import typing as t
 from collections import Iterable, ChainMap
 
+import netifaces
 import six
 import yaml
 from cryptography.fernet import Fernet
@@ -291,3 +293,18 @@ def generate_dimension(name):
 
 def remove_prefix(s, prefix):
     return s[len(prefix):] if s.startswith(prefix) else s
+
+
+def get_ips_listening_for() -> t.List[t.Tuple[str, int]]:
+    from gunicorn_conf import bind
+    gates = []
+    for b in bind:
+        dns_or_ip, port = b.split(':')
+        if dns_or_ip == '0.0.0.0':
+            ips = list(itertools.chain(
+                *[[ip['addr'] for ip in netifaces.ifaddresses(iface).get(netifaces.AF_INET, [])] for iface in
+                  netifaces.interfaces()]))
+            gates.extend([(ip, port) for ip in ips])
+        else:
+            gates.append((dns_or_ip, port))
+    return gates

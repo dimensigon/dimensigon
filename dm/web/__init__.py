@@ -1,5 +1,6 @@
 import atexit
 import json
+import os
 import threading
 import typing as t
 
@@ -35,6 +36,29 @@ db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta, session_options=dict(s
 jwt = JWTManager()
 
 
+class FlaskApp(Flask):
+    def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
+        from ..use_cases.log_sender import LogSender
+        if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
+            bs = BackgroundScheduler()
+            self.extensions['scheduler'] = bs
+            ls = LogSender()
+            self.extensions['log_sender'] = ls
+            from ..use_cases.background_tasks import check_new_versions, check_catalog
+            bs.start()
+
+            if self.config.get('AUTOUPGRADE'):
+                bs.add_job(func=check_new_versions, args=(self,), trigger="interval", minutes=15)
+            bs.add_job(func=check_catalog, args=(self,), trigger="interval", minutes=5)
+            bs.add_job(func=run_in_background, args=(ls.send_new_data(), self),
+                       trigger="interval",
+                       minutes=5)
+
+            # Shut down the scheduler when exiting the app
+            atexit.register(lambda: bs.shutdown())
+        super(FlaskApp, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
+
+
 def create_app(config_name):
     app = Flask('dm')
     if isinstance(config_name, t.Mapping):
@@ -47,25 +71,9 @@ def create_app(config_name):
         if hasattr(config_name, 'init_app'):
             config_name.init_app(app)
 
-    from ..use_cases.log_sender import LogSender
     # EXTENSIONS
     db.init_app(app)
     jwt.init_app(app)
-    log_sender = LogSender()
-
-    if not app.config['TESTING']:
-        app.scheduler = BackgroundScheduler()
-        from ..use_cases.background_tasks import check_new_versions, check_catalog
-        app.scheduler.start()
-
-        if app.config.get('AUTOUPGRADE'):
-            app.scheduler.add_job(func=check_new_versions, args=(app,), trigger="interval", minutes=15)
-        app.scheduler.add_job(func=check_catalog, args=(app,), trigger="interval", minutes=5)
-        app.scheduler.add_job(func=run_in_background, args=(log_sender.send_new_data(), app), trigger="interval",
-                              minutes=5)
-
-        # Shut down the scheduler when exiting the app
-        atexit.register(lambda: app.scheduler.shutdown())
 
     app.before_request(load_global_data_into_context)
     app.register_error_handler(ValidationError, validation_error)
