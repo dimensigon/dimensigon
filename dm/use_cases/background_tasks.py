@@ -43,8 +43,10 @@ def process_check_new_versions(app=None, timeout_wait_transfer=None, refresh_int
     -------
 
     """
+    ctx = None
     if app:
-        app.app_context.push()
+        ctx = app.app_context()
+        ctx.push()
     try:
         current_server = Server.get_current()
         current_dimension = Dimension.get_current()
@@ -165,8 +167,8 @@ def process_check_new_versions(app=None, timeout_wait_transfer=None, refresh_int
         else:
             logger.debug(f"No version to upgrade")
     finally:
-        if app:
-            app.app_context.pull()
+        if ctx:
+            ctx.pop()
 
 
 async def _get_neighbour_catalog_data_mark():
@@ -245,13 +247,15 @@ def table_routing_process(discover_new_neighbours=False, check_current_neighbour
 
 
 def process_catalog_route_table(app=None):
+    ctx = None
     if app:
-        app.app_context.push()
+        ctx = app.app_context()
+        ctx.push()
         try:
             table_routing_process(discover_new_neighbours=True, check_current_neighbours=True)
 
             check_catalog()
 
         finally:
-            if app:
-                app.app_context.pop()
+            if ctx:
+                ctx.pop()
