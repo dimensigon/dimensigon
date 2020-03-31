@@ -30,7 +30,7 @@ __author__ = "Joan Prat "
 __copyright__ = "Copyright 2019, The Dimensigon project"
 __credits__ = ["Joan Prat", "Daniel Moya"]
 __license__ = ""
-__version__ = "0.0-a2"
+__version__ = "0.0-a3"
 __maintainer__ = "Joan Prat"
 __email__ = "joan.prat@dimensigon.com"
 __status__ = "Dev"
@@ -42,6 +42,7 @@ from dm.utils.helpers import get_ips_listening_for
 warnings.filterwarnings("ignore")
 
 # Script variables
+BIN = os.path.dirname(sys.executable)
 HOME = os.path.dirname(os.path.abspath(__file__))
 DM_ROOT = os.path.dirname(HOME)
 DM_HOME = os.path.join(HOME, 'dm')
@@ -167,7 +168,7 @@ def get_func_find_proc():
 def start_daemon(cwd=None, silently=True):
     cwd = cwd or HOME
     # cp = subprocess.run(['python', 'dimensigon.py', 'start'], capture_output=True, env=os.environ, timeout=10)
-    cmd = ['gunicorn',
+    cmd = [os.path.join(BIN, 'gunicorn'),
            '-c', os.path.join(cwd, 'gunicorn_conf.py'),
            '--keyfile', os.path.join(cwd, 'ssl', 'key.pem'),
            '--certfile', os.path.join(cwd, 'ssl', 'cert.pem'),
