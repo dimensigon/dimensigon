@@ -25,3 +25,4 @@ class TestRoot(TestCase):
     def test_healthcheck(self):
         response = self.client.get('/healthcheck')
         self.assertEqual(200, response.status_code)
+        self.assertEqual('stopped', response.get_json().get('scheduler'))

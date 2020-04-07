@@ -53,7 +53,7 @@ def make_shell_context():
     return dict(db=db, app=app, ActionTemplate=ActionTemplate, Step=Step, Orchestration=Orchestration, Catalog=Catalog,
                 Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service,
                 Software=Software, SoftwareServerAssociation=SoftwareServerAssociation,
-                Transfer=Transfer, Locker=Locker, create_access_token=create_access_token)
+                Transfer=Transfer, Locker=Locker, Gate=Gate, create_access_token=create_access_token)
 
 
 @app.cli.command()
@@ -149,7 +149,7 @@ def join(server, token, ssl, verify):
             if not reference_server:
                 raise ValueError(f"Server id {reference_server_id} not found in catalog")
             Route(destination=reference_server, cost=0)
-            update_table_routing_cost(True)
+            # update_table_routing_cost(True)
             db.session.commit()
             click.echo('Joined to the dimension')
 

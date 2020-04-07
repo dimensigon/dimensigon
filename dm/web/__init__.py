@@ -1,4 +1,5 @@
 import atexit
+import datetime
 import json
 import os
 import threading
@@ -14,6 +15,7 @@ from werkzeug.exceptions import HTTPException
 
 from config import config_by_name
 from .helpers import BaseQueryJSON, run_in_background
+
 
 
 def scopefunc():
@@ -37,31 +39,37 @@ jwt = JWTManager()
 
 
 class FlaskApp(Flask):
-    def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
+
+    def start_background_tasks(self):
         from ..use_cases.log_sender import LogSender
         from ..use_cases.background_tasks import process_catalog_route_table
         if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
-            bs = BackgroundScheduler()
-            self.extensions['scheduler'] = bs
-            ls = LogSender()
-            self.extensions['log_sender'] = ls
-            from ..use_cases.background_tasks import process_check_new_versions
-            bs.start()
+            if self.extensions.get('scheduler') is None:
+                bs = BackgroundScheduler()
+                self.extensions['scheduler'] = bs
+                ls = LogSender()
+                self.extensions['log_sender'] = ls
+                from ..use_cases.background_tasks import process_check_new_versions
+                bs.start()
 
-            if self.config.get('AUTOUPGRADE'):
-                bs.add_job(func=process_check_new_versions, args=(self,), trigger="interval", minutes=15)
-            bs.add_job(func=process_catalog_route_table, args=(self,), trigger="interval", minutes=5)
-            bs.add_job(func=run_in_background, args=(ls.send_new_data(), self),
-                       trigger="interval",
-                       minutes=5)
+                if self.config.get('AUTOUPGRADE'):
+                    bs.add_job(func=process_check_new_versions, args=(self,), trigger="interval", minutes=90)
+                bs.add_job(func=process_catalog_route_table, args=(self,), trigger="interval", minutes=3,
+                           next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=15))
+                bs.add_job(func=run_in_background, args=(ls.send_new_data(), self),
+                           trigger="interval",
+                           minutes=5)
 
-            # Shut down the scheduler when exiting the app
-            atexit.register(lambda: bs.shutdown())
+                # Shut down the scheduler when exiting the app
+                atexit.register(lambda: bs.shutdown())
+
+    def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
+        self.start_background_tasks()
         super(FlaskApp, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
 
 
 def create_app(config_name):
-    app = Flask('dm')
+    app = FlaskApp('dm')
     if isinstance(config_name, t.Mapping):
         app.config.from_mapping(config_name)
     elif config_name in config_by_name:
@@ -76,7 +84,9 @@ def create_app(config_name):
     db.init_app(app)
     jwt.init_app(app)
 
+    app.before_first_request_funcs = [app.start_background_tasks, set_initial_status]
     app.before_request(load_global_data_into_context)
+
     app.register_error_handler(ValidationError, validation_error)
     app.register_error_handler(HTTPException, internal_server_error)
 
@@ -87,6 +97,10 @@ def create_app(config_name):
     app.register_blueprint(api_1_0_bp)
 
     return app
+
+def set_initial_status():
+    from ..domain.entities import Locker
+    Locker.set_initial()
 
 
 def validation_error(e: ValidationError):

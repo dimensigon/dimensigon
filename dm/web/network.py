@@ -1,4 +1,5 @@
 import json
+import logging
 import typing as t
 
 import aiohttp
@@ -7,6 +8,7 @@ from aiohttp import ContentTypeError
 from flask import current_app as __ca, g, current_app, url_for
 from requests.auth import AuthBase
 
+from dm import defaults
 from dm.domain.entities import Server, Dimension, Gate
 from dm.network.exceptions import NotValidMessage
 from dm.network.gateway import pack_msg as _pack_msg, unpack_msg as _unpack_msg
@@ -14,6 +16,7 @@ from dm.utils.typos import Kwargs
 
 Response = t.Tuple[t.Union[t.Dict, t.AnyStr, Exception], int]
 
+logger = logging.getLogger('dm.network')
 
 def pack_msg(data, *args, **kwargs):
     if not __ca.config['SECURIZER']:
@@ -86,6 +89,7 @@ def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, veri
     tries = 0
     cost = None
     elapsed = None
+    exc = None
 
     if isinstance(dest, Gate):
         server = dest.server
@@ -102,12 +106,22 @@ def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, veri
                                  headers={'D-Destination': str(server.id)},
                                  verify=verify,
                                  timeout=timeout)
-        except (TimeoutError, requests.exceptions.ConnectionError):
+        except requests.exceptions.ReadTimeout as e:
+            resp = None
+            exc = e
+        except requests.exceptions.ConnectionError as e:
             # unable to reach actual server through current gateway
             resp = None
+            exc = e
         if resp is not None and resp.status_code == 200:
             cost = resp.json().get('hops', 0)
             elapsed = resp.elapsed
+            tries = retries
+    if exc:
+        if isinstance(exc, requests.exceptions.ReadTimeout):
+            logger.warning(f'Timeout reached while trying to access to {url}')
+        elif isinstance(exc, requests.exceptions.ConnectionError):
+            logger.debug(f'Unable to connect with {url}')
     return cost, elapsed
 
 
@@ -165,11 +179,17 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     url = _prepare_url(server, view_or_url, **view_data or {})
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
+
+
     if 'json' in kwargs and kwargs['json']:
         kwargs['json'] = pack_msg(kwargs['json'])
 
     kwargs['verify'] = current_app.config['SSL_VERIFY']
     func = getattr(session, method)
+
+    if 'timeout' not in kwargs:
+        kwargs['timeout'] = defaults.TIMEOUT_REQUEST
+
 
     try:
         resp: requests.Response = func(url, **kwargs)
@@ -187,18 +207,20 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
             try:
                 content = unpack_msg(json_data)
             except NotValidMessage:
-                current_app.logger.debug(
-                    f"Response from request {url} is not encrypted: {status}\n"
-                    f"Content: {json.dumps(json_data, indent=4)}\n"
-                    f"Header-Response: {json.dumps(dict(resp.headers), indent=4)}\n"
-                    f"Headers: {json.dumps(kwargs['headers'], indent=4)}\n"
-                    f"Authorization: {kwargs.get('auth')}"
-                )
+                # logger.debug(
+                #     f"Response from request {url} is not encrypted: {status}\n"
+                #     f"Content: {json.dumps(json_data, indent=4)}\n"
+                #     f"Header-Response: {json.dumps(dict(resp.headers), indent=4)}\n"
+                #     f"Headers: {json.dumps(kwargs['headers'], indent=4)}\n"
+                #     f"Authorization: {kwargs.get('auth')}"
+                # )
                 content = json_data
     else:
         content = exception
-        current_app.logger.error(f'Error while trying to request to {url}: {exception}')
+        logger.error(f'Exception raised while trying to request to {url}: {exception}')
 
+    if not (status is None or 199 < status < 300):
+        logger.debug(f'Error while on request {method} to {url}: {status}, {content}')
     return content, status
 
 
@@ -267,6 +289,8 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
 
     kwargs['ssl'] = current_app.config['SSL_VERIFY']
 
+    if getattr(_session, 'timeout', None) is None:
+        _session.timeout = defaults.TIMEOUT_REQUEST
     func = getattr(_session, method)
 
     try:
@@ -285,17 +309,17 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
         try:
             content = unpack_msg(json_data)
         except NotValidMessage:
-            current_app.logger.debug(
-                f"Response from request {url} is not encrypted: {status}\n"
-                f"Content: {json.dumps(json_data, indent=4)}\n"
-                f"Header-Response: {json.dumps(dict(resp.headers), indent=4)}\n"
-                f"Headers: {json.dumps(kwargs['headers'], indent=4)}\n"
-                f"Authorization: {kwargs.get('auth')}"
-            )
+            # logger.debug(
+            #     f"Response from request {url} is not encrypted: {status}\n"
+            #     f"Content: {json.dumps(json_data, indent=4)}\n"
+            #     f"Header-Response: {json.dumps(dict(resp.headers), indent=4)}\n"
+            #     f"Headers: {json.dumps(kwargs['headers'], indent=4)}\n"
+            #     f"Authorization: {kwargs.get('auth')}"
+            # )
             content = json_data
     elif exception:
         content = exception
-        current_app.logger.error(f'Error while trying to request to {url}: {exception}')
+        logger.error(f'Error while trying to request to {url}: {exception}')
 
     return content, status
 

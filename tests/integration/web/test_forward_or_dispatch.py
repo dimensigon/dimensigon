@@ -32,7 +32,7 @@ class TestForwardOrDispatch(TestCase):
 
         self.srv1 = Server(id='bbbbbbbb-1234-5678-1234-56781234bbb1', name='server1',
                            dns_or_ip='192.168.1.9', port=7123)
-        Route(self.srv1)
+        Route(self.srv1, cost=0)
         self.srv2 = Server(id='bbbbbbbb-1234-5678-1234-56781234bbb2', name='server2',
                            dns_or_ip='192.168.1.10', port=7124)
         Route(self.srv2, proxy_server=self.srv1, cost=1)

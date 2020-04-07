@@ -51,7 +51,7 @@ class TestLockScopeFullChain(TestCase):
         mocked_now.return_value = datetime(2019, 4, 1)
         with self.app1.app_context():
             db.create_all()
-            Locker.fill_data()
+            Locker.set_initial()
             s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000, me=True)
             s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000)
             Route(s2, cost=0)
@@ -66,7 +66,7 @@ class TestLockScopeFullChain(TestCase):
 
         with self.app2.app_context():
             db.create_all()
-            Locker.fill_data()
+            Locker.set_initial()
             s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000)
             Route(s1, cost=0)
             s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000, me=True)

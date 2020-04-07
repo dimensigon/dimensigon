@@ -45,13 +45,17 @@ class Log(db.Model, UUIDistributedEntityMixin):
 
     def to_json(self):
         data = super().to_json()
+        if self.source_server.id is None or self.destination_server.id is None:
+            raise RuntimeError('Set ids for servers before')
         data.update(src_server_id=str(self.source_server.id), target=self.target, include=self.include,
                     exclude=self.exclude, dst_server_id=str(self.destination_server.id), dest_folder=self.dest_folder,
                     recursive=self.recursive)
         return data
 
-    def from_json(cls, kwargs):
+    @classmethod
+    def from_json(cls, kwargs) -> 'Log':
+        from dm.domain.entities import Server
         kwargs = copy.deepcopy(kwargs)
-        kwargs['source_server'] = Server.query.get(kwargs.pop('src_server_id'))
-        kwargs['destination_server'] = Server.query.get(kwargs.pop('dst_server_id'))
+        kwargs['source_server'] = db.session.query(Server).get(kwargs.pop('src_server_id'))
+        kwargs['destination_server'] = db.session.query(Server).get(kwargs.pop('dst_server_id'))
         return super().from_json(kwargs)

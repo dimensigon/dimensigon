@@ -6,12 +6,13 @@ import threading
 import time
 import typing as t
 import uuid
-from collections import ChainMap
+from collections import ChainMap, namedtuple
 from concurrent.futures.thread import ThreadPoolExecutor
 
 import aiohttp
 from flask import current_app
 from flask_jwt_extended import create_access_token, get_jwt_identity
+from sqlalchemy.testing.plugin.plugin_base import logging
 
 import dm.use_cases.deployment as dpl
 import dm.use_cases.exceptions as ue
@@ -26,7 +27,7 @@ from dm.use_cases.lock import lock_scope
 from dm.use_cases.mediator import Mediator
 from dm.utils import asyncio
 from dm.utils.decorators import logged
-from dm.utils.helpers import get_distributed_entities, convert
+from dm.utils.helpers import get_distributed_entities, convert, AttributeDict
 from dm.utils.typos import Id
 from dm.web import db
 from dm.web.network import ping, get, HTTPBearerAuth, async_post, async_patch
@@ -229,12 +230,17 @@ def upgrade_catalog_from_server(server):
 
             if 199 < resp[1] < 300:
                 delta_catalog = resp[0]
+                upgrade_catalog(delta_catalog)
             else:
-                current_app.logger.error(f"Unable to get a valid response from server {server}: {resp[1]}")
-            upgrade_catalog(delta_catalog)
+                current_app.logger.error(f"Unable to get a valid response from server {server}: {resp[1]}, {resp[0]}")
 
 
-def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False) -> t.List[Route]:
+
+TempRoute = namedtuple('TempRoute', ['proxy_server', 'gate', 'cost'])
+
+
+def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False) -> t.Dict[
+    Server, TempRoute]:
     """Gets route tables of all neighbours and updates its own table based on jump weights.
     Needs a Flask App Context to run.
 
@@ -250,21 +256,37 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     None
     """
     # get all neighbours
+    temp_table_routes: t.Dict[uuid.UUID, t.List[TempRoute]] = {}
+    changed_routes: t.Dict[Server, TempRoute] = {}
     me = Server.get_current()
+    not_neighbours = Server.get_not_neighbours()
+    current_app.logger.debug('Updating routing table')
+    not_neighbours_anymore = []
     if check_current_neighbours:
-        for server in Server.get_neighbours():
-            cost, time = ping(server, me, retries=1, timeout=1)
+        neighbours = Server.get_neighbours()
+        current_app.logger.debug(
+            f"Checking current neighbours: " + ', '.join([str(s) for s in neighbours]))
+        for server in neighbours:
+            route = server.route
+            cost, time = ping(server, me, retries=2, timeout=10)
             if cost is None:
-                server.route.gate = None
-                server.route.proxy_server = None
-                server.route.cost = None
+                default_gate = server.route.gate
+                temp = [None, None, None]
                 # try another gate
                 for gate in server.gates:
-                    if check_host(ip=gate.dns or gate.ip, port=gate.port, retry=2, delay=0.001, timeout=0.1):
-                        server.route.gate = gate
-                        server.route.proxy_server = None
-                        server.route.cost = 0
-                    break
+                    # check not to connect with localhost gate from current node and not to check already checked gate
+                    if gate != default_gate and ((gate.ip and not gate.ip.is_loopback) or (
+                            gate.dns and gate.dns != 'localhost')):
+                        if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=2, delay=1, timeout=10):
+                            temp[0] = None
+                            temp[1] = gate
+                            temp[2] = 0
+                            break
+                if temp[2] is None:
+                    not_neighbours_anymore.append(server)
+                if route.proxy_server != temp[0] or route.gate != temp[1] or route.cost != temp[2]:
+                    changed_routes[server] = TempRoute(*temp)
+                    route.proxy_server, route.gate, route.cost = temp
 
             # try:
             #     requests.get(server.url('root.healthcheck'), timeout=0.5,
@@ -275,34 +297,47 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
             # else:
             #     server.cost = 0
             #     server.gateway = None
+    if len(not_neighbours_anymore) > 0:
+        current_app.logger.debug(
+            f"Lost direct connection to the following nodes: " + ', '.join([str(s) for s in not_neighbours_anymore]))
 
     if discover_new_neighbours:
-        for server in Server.get_not_neighbours():
+        current_app.logger.debug(
+            f"Checking new neighbours: " + ', '.join([str(s) for s in not_neighbours_anymore]))
+        for server in not_neighbours:
             for gate in server.gates:
-                if check_host(ip=gate.dns or gate.ip, port=gate.port, retry=2, delay=0.001, timeout=0.1):
-                    server.route.gate = gate
-                    server.route.proxy_server = None
-                    server.route.cost = 0
-                    break
+                if (gate.ip and not gate.ip.is_loopback) or (gate.dns and gate.dns != 'localhost'):
+                    if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=2, delay=1, timeout=10):
+                        current_app.logger.debug(f'Node {server} is a new neighbour')
+                        if server.route:
+                            server.route.gate = gate
+                            server.route.proxy_server = None
+                            server.route.cost = 0
+                            db.session.add(server.route)
+                        else:
+                            r = Route(destination=server, proxy_server=None, gate=gate, cost=0)
+                            db.session.add(r)
+                        changed_routes[server] = TempRoute(None, server.route.gate, server.route.cost)
+                        break
 
     token = create_access_token(identity='root')
     pool_responses = []
-    temp_table_routes: t.Dict[uuid.UUID, t.List[Route]] = {}
     neighoburs = Server.get_neighbours()
     for server in neighoburs:
         pool_responses.append(get(server, 'api_1_0.routes', auth=HTTPBearerAuth(token)))
 
-    changed_routes = []
     for resp in pool_responses:
         if resp[1] == 200:
             msg = resp[0]
 
-            likely_proxy_server_entity = Server.query.get(msg.get('server_id'))
+            likely_proxy_server_entity = db.session.query(Server).get(msg.get('server_id'))
+            current_app.logger.debug(
+                f"route list got from server {likely_proxy_server_entity}: {json.dumps(msg['route_list'], indent=4)}")
 
             for route_json in msg['route_list']:
                 route_json = convert(route_json)
                 # noinspection PyTypeChecker
-                route_json.destination = uuid.UUID(route_json.destination_id)
+                route_json.destination_id = uuid.UUID(route_json.destination_id)
                 if route_json.gate_id:
                     # noinspection PyTypeChecker
                     route_json.gate_id = uuid.UUID(route_json.gate_id)
@@ -317,10 +352,13 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
                     if route_json.cost is not None:
                         route_json.cost += 1
                         route_json.proxy_server_id = likely_proxy_server_entity.id
-                        temp_table_routes[route_json.destination_id].append(route_json)
+                        route_json.gate_id = None
+                        temp_table_routes[route_json.destination_id].append(
+                            TempRoute(likely_proxy_server_entity.id, None, route_json.cost))
                     elif route_json.cost is None:
                         # remove a routing if gateway cannot reach the destination
-                        temp_table_routes[route_json.destination_id].append(route_json)
+                        temp_table_routes[route_json.destination_id].append(
+                            TempRoute(route_json.proxy_server_id, None, None))
         else:
             s = neighoburs[pool_responses.index(resp)]
             current_app.logger.error(f"Error while connecting with {s}. Error: {resp[1]}, {resp[0]}")
@@ -329,21 +367,30 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     MAX_COST = 9999999
     neighbour_ids = [s.id for s in Server.get_neighbours()]
     for destination_id in filter(lambda s: s not in neighbour_ids, temp_table_routes.keys()):
-        route = Route.query.filter_by(destination_id=destination_id).one_or_none()
+        route = db.session.query(Route).filter_by(destination_id=destination_id).one_or_none()
         if not route:
             # TODO: handle how to create new server. If through repository or through new routes
             continue
         temp_table_routes[destination_id].sort(key=lambda x: x.cost or MAX_COST)
         if len(temp_table_routes[destination_id]) > 0:
             min_route = temp_table_routes[destination_id][0]
-            proxy_server = Server.query.get(min_route['proxy_server_id'])
-            cost = min_route['cost']
+            proxy_server = db.session.query(Server).get(min_route.proxy_server)
+            cost = min_route.cost
             if route.proxy_server != proxy_server or route.cost != cost:
                 route.proxy_server = proxy_server
+                route.gate = None
                 route.cost = cost
-                changed_routes.append(route)
+                changed_routes[route.destination] = TempRoute(route.proxy_server,
+                                                              route.gate,
+                                                              route.cost)
+                db.session.add(route)
                 break
 
+    data = {}
+    for server, temp_route in changed_routes.items():
+        data.update({str(server): {'proxy_server': str(temp_route.proxy_server), 'gate': str(temp_route.gate),
+                                   'cost': str(temp_route.cost)}})
+    current_app.logger.debug(f'Changed routes from neighbours: {json.dumps(data, indent=4)}')
     return changed_routes
 
 

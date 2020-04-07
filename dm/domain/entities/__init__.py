@@ -1,6 +1,7 @@
 import threading
 from contextlib import contextmanager
 
+from flask import current_app
 from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker, object_session
 
@@ -106,6 +107,7 @@ def receive_after_commit(session):
             else:
                 if c.last_modified_at < last_modified_at:
                     c.last_modified_at = last_modified_at
+            current_app.logger.debug(f'changed catalog {c}')
             s.add(c)
             s.commit()
         catalog.data = {}

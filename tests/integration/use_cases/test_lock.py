@@ -26,9 +26,9 @@ class TestLockUnlock(TestCase):
         set_initial()
 
         self.n1 = Server("node1", port=8000)
-        Route(self.n1)
+        Route(self.n1, cost=0)
         self.n2 = Server("node2", port=8000)
-        Route(self.n2)
+        Route(self.n2, cost=0)
         db.session.add_all([self.n1, self.n2])
         db.session.commit()
 
@@ -179,9 +179,9 @@ class TestLock(TestCase):
         set_initial()
 
         self.n1 = Server("node1", port=8000)
-        Route(self.n1)
+        Route(self.n1, cost=0)
         self.n2 = Server("node2", port=8000)
-        Route(self.n2)
+        Route(self.n2, cost=0)
         db.session.add_all([self.n1, self.n2])
         db.session.commit()
 

@@ -8,7 +8,7 @@ import responses
 from flask_jwt_extended import create_access_token
 
 import dm.use_cases.exceptions as ue
-from dm.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate
+from dm.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate, Route
 from dm.domain.entities.bootstrap import set_initial
 from dm.use_cases.interactor import upgrade_catalog_from_server
 from dm.utils.typos import Params
@@ -59,6 +59,7 @@ class TestUpgradeCatalog(TestCase):
         s_json = s.to_json()
         g = Gate(server=s, port=80, dns='server', last_modified_at=datetime.datetime(2019, 4, 1, 0))
         g_json = g.to_json()
+        Route(s, cost=0)
 
         at2 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'), name='rmdir', version=1,
                              action_type=ActionType.NATIVE,
@@ -96,6 +97,7 @@ class TestUpgradeCatalog(TestCase):
 
         s = Server('server', last_modified_at=datetime.datetime(2019, 4, 1, 0))
         g = Gate(server=s, port=80)
+        Route(s, cost=0)
 
         responses.add(method='GET',
                       url=re.compile('^' + s.url('api_1_0.catalog', data_mark='12345').replace('12345', '')),
@@ -115,6 +117,7 @@ class TestUpgradeCatalog(TestCase):
         mock_entities.return_value = [('ActionTemplate', ActionTemplate), ('Server', Server)]
 
         s = Server('server', last_modified_at=datetime.datetime(2019, 4, 1, 0), port=8000)
+        Route(s, cost=0)
 
         at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='mkdir', version=1,
                              action_type=ActionType.NATIVE,

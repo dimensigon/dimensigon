@@ -47,9 +47,9 @@ def healthcheck():
         return {"version": dm.__version__,
                 "elevator_version": elevator_ver,
                 "catalog_version": catalog_ver.strftime(defaults.DATEMARK_FORMAT) if catalog_ver else None,
-                "scheduler": "running" if getattr(getattr(current_app, 'scheduler', None), 'running',
+                "scheduler": "running" if getattr(current_app.extensions.get('scheduler'), 'running',
                                                   None) else "stopped",
-                "neighbours": [str(server.id) for server in Server.get_neighbours()],
+                "neighbours": [str(server) for server in Server.get_neighbours()],
                 "services": []
                 }
     elif request.method == 'POST':

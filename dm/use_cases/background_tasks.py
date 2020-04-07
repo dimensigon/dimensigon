@@ -64,7 +64,7 @@ def process_check_new_versions(app=None, timeout_wait_transfer=None, refresh_int
         # get new versions from repo
         if r and r.status_code == 200:
             # get current software
-            software_list: t.List = Software.query.filter_by(name='dimensigon').all()
+            software_list: t.List = db.session.query(Software).filter_by(name='dimensigon').all()
             software_list.sort(key=lambda s: parse_version(s.version))
             gogs_versions = {}
 
@@ -231,19 +231,25 @@ def table_routing_process(discover_new_neighbours=False, check_current_neighbour
     new_routes = update_table_routing_cost(discover_new_neighbours, check_current_neighbours)
 
     if len(new_routes) > 0:
-        msg = {'server_id': str(Server.get_current().id),
-               'route_list': [
-                   r.to_json()
-                   for r in new_routes
-               ]}
-        for s in Server.get_neighbours():
-            try:
-                r = patch(s, 'api_1_0.routes', json=msg, auth=HTTPBearerAuth(create_access_token('root')))
-                if r[1] != 204:
-                    logger.error(f"Unable to send new routing information to node {s}. {r[1]}, {r[0]}")
-            except Exception as e:
-                logger.error(
-                    f"Exception raised while trying to send new routing information to node {s}. Exception: {e}")
+        # msg = {'server_id': str(Server.get_current().id),
+        #        'route_list': [
+        #            dict(destination_id=str(d.id),dm.l
+        #                 proxy_server_id=str(getattr(r.proxy_server, 'id')) if getattr(r.proxy_server, 'id', None) else None,
+        #                 gate_id=str(getattr(r.gate, 'id')) if getattr(r.gate, 'id', None) else None,
+        #                 cost=r.cost)
+        #            for d, r in new_routes.items()
+        #        ]}
+        # for s in Server.get_neighbours():
+        #     try:
+        #         r = patch(s, 'api_1_0.routes', json=msg, auth=HTTPBearerAuth(create_access_token('root')))
+        #         if r[1] != 204:
+        #             logger.error(f"Unable to send new routing information to node {s}. {r[1]}, {r[0]}")
+        #     except Exception as e:
+        #         logger.error(
+        #             f"Exception raised while trying to send new routing information to node {s}. Exception: {e}")
+        return True
+    else:
+        return False
 
 
 def process_catalog_route_table(app=None):
@@ -252,10 +258,10 @@ def process_catalog_route_table(app=None):
         ctx = app.app_context()
         ctx.push()
         try:
-            table_routing_process(discover_new_neighbours=True, check_current_neighbours=True)
-
+            if table_routing_process(discover_new_neighbours=True, check_current_neighbours=True):
+                db.session.commit()
             check_catalog()
-
+            db.session.commit()
         finally:
             if ctx:
                 ctx.pop()

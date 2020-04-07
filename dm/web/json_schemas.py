@@ -99,7 +99,7 @@ post_action_template_schema = {
     "required": ["name", "version", "action_type", "code"]
 }
 
-schema_routes = {
+patch_schema_routes = {
     "type": "object",
     "properties": {
         "discover_new_neighbours": {"type": "boolean"},
@@ -126,6 +126,15 @@ schema_routes = {
                         }
                         }
     }
+}
+
+post_schema_routes = {
+    "type": "object",
+    "properties": {
+        "discover_new_neighbours": {"type": "boolean"},
+        "check_current_neighbours": {"type": "boolean"}
+    },
+    "additionalProperties": False
 }
 
 schema_transfers = {
