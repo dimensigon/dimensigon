@@ -35,7 +35,8 @@ from dm.web import create_app, db
 
 from dm.domain.entities.bootstrap import set_initial
 from dm.domain.entities.locker import Locker
-from dm.use_cases.interactor import upgrade_catalog, update_table_routing_cost
+from dm.use_cases.interactor import upgrade_catalog
+from dm.use_cases.background_tasks import update_table_routing_cost
 from dm.utils.helpers import generate_symmetric_key, generate_dimension
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')

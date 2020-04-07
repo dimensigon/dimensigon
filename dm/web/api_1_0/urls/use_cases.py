@@ -12,8 +12,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_tok
 from dm import defaults as d, defaults
 from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Orchestration, Scope
 from dm.network.low_level import check_host
-from dm.use_cases.background_tasks import table_routing_process
-from dm.use_cases.interactor import send_software, update_table_routing_cost
+from dm.use_cases.background_tasks import table_routing_process, update_table_routing_cost
+from dm.use_cases.interactor import send_software
 from dm.use_cases.lock import lock_scope
 from dm.utils.helpers import get_distributed_entities
 from dm.web import db

@@ -16,8 +16,9 @@ from sqlalchemy.util import namedtuple
 import dm
 from dm.domain.entities import Server, Software, SoftwareServerAssociation, Transfer, Route, Gate
 from dm.domain.entities.bootstrap import set_initial
-from dm.use_cases.background_tasks import process_check_new_versions, check_catalog
-from dm.use_cases.interactor import Dimension, TransferStatus, update_table_routing_cost, TempRoute
+from dm.use_cases.background_tasks import process_check_new_versions, check_catalog, TempRoute, \
+    update_table_routing_cost
+from dm.use_cases.interactor import Dimension, TransferStatus
 from dm.web import create_app, db
 from dm.web.network import pack_msg
 

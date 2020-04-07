@@ -14,7 +14,7 @@ from dm.web.network import async_post, HTTPBearerAuth
 
 MAX_LINES = 10000
 
-logger = logging.getLogger('dm.background')
+logger = logging.getLogger('dm.background.log_sender')
 
 
 class _PygtailBuffer(Pygtail):
@@ -27,7 +27,7 @@ class _PygtailBuffer(Pygtail):
         if self._buffer:
             return self._buffer
         else:
-            self._buffer = self.readlines(max_lines=MAX_LINES)
+            self._buffer = ''.join(self.readlines(max_lines=MAX_LINES))
         return self._buffer
 
     def update_offset_file(self):
@@ -63,16 +63,20 @@ class LogSender:
     def update_pytail_objects(self, log: Log, pytail_list: t.List):
         if os.path.isfile(log.target):
             if len(pytail_list) == 0:
+                filename = '.' + os.path.basename(log.target) + '.offset'
+                path = os.path.dirname(log.target)
+                offset_file = os.path.join(path, filename)
                 pytail_list.append(
-                    _PygtailBuffer(file=log.target, offset_mode='manual', offset_file=log.target + '.offset'))
+                    _PygtailBuffer(file=log.target, offset_mode='manual', offset_file=offset_file))
         else:
             for folder, dirnames, filenames in os.walk(log.target):
                 for filename in filenames:
                     if log._re_include.search(filename) and not log._re_exclude.search(filename):
                         file = os.path.join(folder, filename)
+                        offset_file = os.path.join(folder, '.' + filename + '.offset')
                         if not any(map(lambda p: p.file == file, pytail_list)):
                             pytail_list.append(
-                                _PygtailBuffer(file=file, offset_mode='manual', offset_file=file + '.offset'))
+                                _PygtailBuffer(file=file, offset_mode='manual', offset_file=offset_file))
                 if not log.recursive:
                     break
                 new_dirnames = []
@@ -82,6 +86,7 @@ class LogSender:
                 dirnames[:] = new_dirnames
 
     async def send_new_data(self):
+
         logger.debug(f"Sending new data to servers")
         self.update_mapper()
 
@@ -117,7 +122,7 @@ class LogSender:
             else:
                 if 199 < status_code < 300:
                     pytail.update_offset_file()
-                    logger.debug(f"set offset from '{pytail.file}' to {pytail._offset}")
+                    logger.debug(f"Updated offset from '{pytail.file}'")
                 else:
                     logger.error(
                         f"Unable to send log information from '{pytail.file}' to '{log.destination_server}'. Error"

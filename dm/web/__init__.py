@@ -54,11 +54,11 @@ class FlaskApp(Flask):
 
                 if self.config.get('AUTOUPGRADE'):
                     bs.add_job(func=process_check_new_versions, args=(self,), trigger="interval", minutes=90)
-                bs.add_job(func=process_catalog_route_table, args=(self,), trigger="interval", minutes=3,
-                           next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=15))
-                bs.add_job(func=run_in_background, args=(ls.send_new_data(), self),
+                bs.add_job(func=process_catalog_route_table, name="catalog & route upgrade", args=(self,), trigger="interval", minutes=2,
+                           next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=5))
+                bs.add_job(func=run_in_background, name="log_sender", args=(ls.send_new_data, self),
                            trigger="interval",
-                           minutes=5)
+                           minutes=2, next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=30))
 
                 # Shut down the scheduler when exiting the app
                 atexit.register(lambda: bs.shutdown())
