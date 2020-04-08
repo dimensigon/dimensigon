@@ -1,3 +1,4 @@
+import functools
 import sys
 import time
 import typing as t
@@ -117,3 +118,10 @@ def captured_output() -> t.Tuple[StringIO, StringIO]:
 def authorization_header(identity='test'):
     access_token = create_access_token(identity=identity)
     return {"Authorization": f"Bearer {access_token}"}
+
+def patch_decorator(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kw):
+        return f(*args, **kw)
+
+    return wrapper

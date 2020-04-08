@@ -7,7 +7,7 @@ from flask_restful import Resource
 from dm.domain.entities import Software, Server, SoftwareServerAssociation
 from dm.utils.helpers import md5
 from dm.web import db
-from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
+from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
 from dm.web.json_schemas import post_software_schema, put_software_servers_schema, patch_software_schema
 
@@ -40,6 +40,7 @@ class SoftwareList(Resource):
     @jwt_required
     @securizer
     @validate_schema(post_software_schema)
+    @lock_catalog
     def post(self):
         json = request.get_json()
         server = Server.query.get_or_404(json['server_id'])
@@ -80,6 +81,7 @@ class SoftwareServers(Resource):
     @jwt_required
     @securizer
     @validate_schema(put_software_servers_schema)
+    @lock_catalog
     def put(self, software_id):
         json = request.get_json()
 
@@ -99,6 +101,7 @@ class SoftwareServers(Resource):
     @jwt_required
     @securizer
     @validate_schema(patch_software_schema)
+    @lock_catalog
     def patch(self, software_id):
         json = request.get_json()
 

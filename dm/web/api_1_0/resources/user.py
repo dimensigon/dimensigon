@@ -4,7 +4,7 @@ from flask_restful import Resource
 
 from dm.domain.entities.user import User
 from dm.web import db
-from dm.web.decorators import forward_or_dispatch, securizer, validate_schema
+from dm.web.decorators import forward_or_dispatch, securizer, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
 from dm.web.json_schemas import schema_create_user, schema_patch_user
 
@@ -22,6 +22,7 @@ class UserResourceList(Resource):
     @jwt_required
     @securizer
     @validate_schema(schema_create_user)
+    @lock_catalog
     def post(self):
         data = request.get_json()
         password = data.pop("password")
@@ -43,6 +44,7 @@ class UserResource(Resource):
     @jwt_required
     @securizer
     @validate_schema(schema_patch_user)
+    @lock_catalog
     def patch(self, user_id):
         user = User.query.get_or_404(user_id)
         data = request.get_json()
@@ -55,11 +57,11 @@ class UserResource(Resource):
             return {}, 204
         return {}, 202
 
-    @securizer
-    @jwt_required
-    @forward_or_dispatch
-    def delete(self, user_id):
-        user = User.query.get_or_404(user_id)
-        db.session.delete(user)
-        db.session.commit()
-        return {}, 204
+    # @securizer
+    # @jwt_required
+    # @forward_or_dispatch
+    # def delete(self, user_id):
+    #     user = User.query.get_or_404(user_id)
+    #     db.session.delete(user)
+    #     db.session.commit()
+    #     return {}, 204

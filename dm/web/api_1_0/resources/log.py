@@ -7,7 +7,7 @@ from flask_restful import Resource
 
 from dm.domain.entities import Log, Server
 from dm.web import db
-from dm.web.decorators import forward_or_dispatch, securizer, validate_schema
+from dm.web.decorators import forward_or_dispatch, securizer, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
 from dm.web.json_schemas import schema_post_log, schema_create_log, schema_patch_log
 
@@ -25,6 +25,7 @@ class LogResourceList(Resource):
     @jwt_required
     @securizer
     @validate_schema(schema_create_log)
+    @lock_catalog
     def post(self):
         data = request.get_json()
         source_server = Server.query.get_or_404(data.pop('src_server_id'))
@@ -67,6 +68,7 @@ class LogResource(Resource):
     @jwt_required
     @forward_or_dispatch
     @validate_schema(schema_patch_log)
+    @lock_catalog
     def patch(self, log_id):
         log = Log.query.get_or_404(log_id)
         data = request.get_json()
@@ -83,11 +85,11 @@ class LogResource(Resource):
             return {}, 204
         return {}, 202
 
-    @securizer
-    @jwt_required
-    @forward_or_dispatch
-    def delete(self, log_id):
-        log = Log.query.get_or_404(log_id)
-        db.session.delete(log)
-        db.session.commit()
-        return {}, 204
+    # @securizer
+    # @jwt_required
+    # @forward_or_dispatch
+    # def delete(self, log_id):
+    #     log = Log.query.get_or_404(log_id)
+    #     db.session.delete(log)
+    #     db.session.commit()
+    #     return {}, 204

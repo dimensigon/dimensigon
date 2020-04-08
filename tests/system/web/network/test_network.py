@@ -1,7 +1,9 @@
+import importlib
 import json
 import re
 from functools import partial
 from unittest import TestCase
+from unittest.mock import patch
 
 import aiohttp
 import responses
@@ -19,6 +21,11 @@ healthcheck_view = 'root.healthcheck'
 
 
 class TestNetwork(TestCase):
+
+    def run(self, result=None):
+        with patch('dm.web.decorators.lock'):
+            with patch('dm.web.decorators.unlock'):
+                super().run(result)
 
     def setUp(self):
         """Create and configure a new app instance for each test."""
@@ -562,6 +569,11 @@ class TestNetwork(TestCase):
 
 
 class TestNetworkWithSecurizer(TestCase):
+
+    def run(self, result=None):
+        with patch('dm.web.decorators.lock'):
+            with patch('dm.web.decorators.unlock'):
+                super().run(result)
 
     def setUp(self):
         """Create and configure a new app instance for each test."""

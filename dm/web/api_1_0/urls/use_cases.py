@@ -12,13 +12,13 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_tok
 from dm import defaults as d, defaults
 from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Orchestration, Scope
 from dm.network.low_level import check_host
-from dm.use_cases.background_tasks import table_routing_process
-from dm.use_cases.interactor import send_software, update_table_routing_cost
+from dm.use_cases.background_tasks import table_routing_process, update_table_routing_cost
+from dm.use_cases.interactor import send_software
 from dm.use_cases.lock import lock_scope
 from dm.utils.helpers import get_distributed_entities
 from dm.web import db
 from dm.web.api_1_0 import api_bp
-from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
+from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import run_in_background
 from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes
 from dm.web.network import ping as ping_server, HTTPBearerAuth, post, patch
@@ -261,15 +261,15 @@ def launch_orchestration(orchestration_id):
 @api_bp.route('/join', methods=['POST'])
 @securizer
 @jwt_required
+@lock_catalog
 def join():
     if get_jwt_identity() == 'join':
         js = request.get_json()
         current_app.logger.debug(f"New server wanting to join: {js}")
         s = Server.from_json(js)
         Route(destination=s, cost=0)
-        with lock_scope(Scope.CATALOG):
-            db.session.add(s)
-            db.session.commit()
+        db.session.add(s)
+        db.session.commit()
         dim = g.dimension.to_json()
         catalog = fetch_catalog(datetime.datetime(datetime.MINYEAR, 1, 1))
         catalog.update(Dimension=dim)

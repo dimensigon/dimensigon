@@ -1,4 +1,5 @@
 from unittest import TestCase
+from unittest.mock import patch
 
 from flask import url_for
 from flask_jwt_extended import create_access_token
@@ -23,7 +24,7 @@ class TestApi(TestCase):
         self.at1_json = {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
                          "action_type": "NATIVE",
                          "code": "mkdir {dir}",
-                         "last_modified_at": "20190101000530100000",
+                         "last_modified_at": "20190101.000530.100000",
                          "expected_output": None,
                          "expected_rc": None,
                          "name": "mkdir",
@@ -34,7 +35,7 @@ class TestApi(TestCase):
         self.at2_json = {"id": "aaaaaaaa-1234-5678-1234-56781234aaa2",
                          "action_type": "NATIVE",
                          "code": "rmdir {dir}",
-                         "last_modified_at": "20190101000530100000",
+                         "last_modified_at": "20190101.000530.100000",
                          "expected_output": None,
                          "expected_rc": None,
                          "name": "rmdir",
@@ -62,7 +63,7 @@ class TestApi(TestCase):
             {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
              "action_type": "NATIVE",
              "code": "mkdir {dir}",
-             "last_modified_at": "20190101000530100000",
+             "last_modified_at": "20190101.000530.100000",
              "expected_output": None,
              "expected_rc": None,
              "name": "mkdir",
@@ -73,7 +74,7 @@ class TestApi(TestCase):
             {"id": "aaaaaaaa-1234-5678-1234-56781234aaa2",
              "action_type": "NATIVE",
              "code": "rmdir {dir}",
-             "last_modified_at": "20190101000530100000",
+             "last_modified_at": "20190101.000530.100000",
              "expected_output": None,
              "expected_rc": None,
              "name": "rmdir",
@@ -92,7 +93,7 @@ class TestApi(TestCase):
             {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
              "action_type": "NATIVE",
              "code": "mkdir {dir}",
-             "last_modified_at": "20190101000530100000",
+             "last_modified_at": "20190101.000530.100000",
              "expected_output": None,
              "expected_rc": None,
              "name": "mkdir",

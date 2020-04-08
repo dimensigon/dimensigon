@@ -124,7 +124,7 @@ def lock(scope: Scope, servers: t.List[Server] = None) -> UUID:
     return applicant
 
 
-def unlock(scope: Scope, servers, applicant):
+def unlock(scope: Scope, applicant, servers=None):
     """
     unlocks the Locker if allowed
     Parameters

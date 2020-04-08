@@ -5,8 +5,10 @@ import rsa
 from flask import request, url_for, g, current_app
 from jsonschema import validate, ValidationError
 
-from dm.domain.entities import Server
+from dm.domain.entities import Server, Scope
 from dm.network.exceptions import NotValidMessage
+from dm.use_cases.lock import lock_scope, lock, unlock
+from dm.use_cases import exceptions as ue
 from dm.web import db
 from dm.web.errors import UnknownServer
 from dm.web.network import unpack_msg, pack_msg, unpack_msg2, pack_msg2
@@ -123,3 +125,41 @@ def validate_schema(schema_name=None, **methods):
         return wrapper
 
     return decorator
+
+
+def validate_schema(schema_name=None, **methods):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kw):
+            schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
+            if schema:
+                try:
+                    validate(request.json, schema)
+                except ValidationError as e:
+                    return {"error": str(e)}, 400
+            return f(*args, **kw)
+
+        return wrapper
+
+    return decorator
+
+
+def lock_catalog(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kw):
+        try:
+            applicant = lock(Scope.CATALOG)
+            current_app.logger.debug(f"Lock on CATALOG acquired")
+        except ue.ErrorLock as e:
+            return e.to_json(), 400
+        ret = f(*args, **kw)
+
+        try:
+            unlock(Scope.CATALOG, applicant=applicant)
+        except ue.ErrorLock as e:
+            current_app.logger.error(f"Error while trying to unlock: {e}")
+
+        return ret
+
+    return wrapper
+

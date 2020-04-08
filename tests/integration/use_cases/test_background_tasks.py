@@ -16,8 +16,9 @@ from sqlalchemy.util import namedtuple
 import dm
 from dm.domain.entities import Server, Software, SoftwareServerAssociation, Transfer, Route, Gate
 from dm.domain.entities.bootstrap import set_initial
-from dm.use_cases.background_tasks import process_check_new_versions, check_catalog
-from dm.use_cases.interactor import Dimension, TransferStatus, update_table_routing_cost, TempRoute
+from dm.use_cases.background_tasks import process_check_new_versions, check_catalog, TempRoute, \
+    update_table_routing_cost
+from dm.use_cases.interactor import Dimension, TransferStatus
 from dm.web import create_app, db
 from dm.web.network import pack_msg
 
@@ -282,9 +283,9 @@ class TestCheckCatalog(TestCase):
         db.session.commit()
 
         m.get(url=s1.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401000000000000'))
+              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
         m.get(url=s2.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401000000000001'))
+              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000001'))
 
         check_catalog()
 
@@ -305,9 +306,9 @@ class TestCheckCatalog(TestCase):
         db.session.commit()
 
         m.get(url=s1.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401000000000000'))
+              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
         m.get(url=s2.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401000000000000'))
+              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
 
         check_catalog()
 

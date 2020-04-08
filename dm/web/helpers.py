@@ -59,7 +59,9 @@ def filter_query(entity, filters, exclude: t.Container = None):
     return query
 
 
-def run_in_background(aw: t.Coroutine, app=None):
+def run_in_background(func: t.Callable, app=None, args=None, kwargs=None):
+    args = args or ()
+    kwargs = kwargs or {}
     try:
         app = current_app._get_current_object()
     except RuntimeError:
@@ -67,7 +69,7 @@ def run_in_background(aw: t.Coroutine, app=None):
 
     def thread_with_app_context():
         with app.app_context():
-            run(aw)
+            run(func(*args, **kwargs))
 
     th = threading.Thread(target=thread_with_app_context)
     # th.daemon = True
