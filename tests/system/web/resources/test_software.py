@@ -1,5 +1,6 @@
 import os
 from unittest import TestCase
+from unittest.mock import patch
 
 from flask import url_for
 
@@ -11,6 +12,11 @@ from tests.helpers import authorization_header
 
 
 class TestSoftwareList(TestCase):
+
+    def run(self, result=None):
+        with patch('dm.web.decorators.lock'):
+            with patch('dm.web.decorators.unlock'):
+                super().run(result)
 
     def setUp(self) -> None:
         self.app = create_app('test')

@@ -282,9 +282,9 @@ class TestCheckCatalog(TestCase):
         db.session.commit()
 
         m.get(url=s1.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401000000000000'))
+              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
         m.get(url=s2.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401000000000001'))
+              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000001'))
 
         check_catalog()
 
@@ -305,9 +305,9 @@ class TestCheckCatalog(TestCase):
         db.session.commit()
 
         m.get(url=s1.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401000000000000'))
+              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
         m.get(url=s2.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401000000000000'))
+              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
 
         check_catalog()
 

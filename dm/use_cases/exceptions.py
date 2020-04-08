@@ -61,6 +61,18 @@ class ErrorLock(UseCaseException):
             return self.errors[self.n]
         raise StopIteration
 
+    def to_json(self):
+        d = {'error': self.__class__.__name__}
+        d.update(servers=[])
+        for e in self:
+            if e.server.id:
+                d['servers'].append(dict(server_id=str(e.server.id), code=e.code,
+                                         response=e.msg if isinstance(e.msg, dict) else str(e.msg)))
+            else:
+                d['servers'].append(
+                    dict(server=str(e.server), code=e.code, response=e.msg if isinstance(e.msg, dict) else str(e.msg)))
+        return d
+
     def __str__(self):
         return '\n'.join([f"Server {e.server}: {e.code}, {e.msg}" for e in self])
 
