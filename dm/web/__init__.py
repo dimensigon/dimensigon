@@ -15,7 +15,7 @@ from werkzeug.exceptions import HTTPException
 
 from config import config_by_name
 from .helpers import BaseQueryJSON, run_in_background
-
+from ..use_cases.event_handler import EventHandler
 
 
 def scopefunc():
@@ -83,6 +83,7 @@ def create_app(config_name):
     # EXTENSIONS
     db.init_app(app)
     jwt.init_app(app)
+    app.events = EventHandler()
 
     app.before_first_request_funcs = [app.start_background_tasks, set_initial_status]
     app.before_request(load_global_data_into_context)

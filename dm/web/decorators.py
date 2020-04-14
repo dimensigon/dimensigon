@@ -7,8 +7,8 @@ from jsonschema import validate, ValidationError
 
 from dm.domain.entities import Server, Scope
 from dm.network.exceptions import NotValidMessage
-from dm.use_cases.lock import lock_scope, lock, unlock
 from dm.use_cases import exceptions as ue
+from dm.use_cases.lock import lock, unlock
 from dm.web import db
 from dm.web.errors import UnknownServer
 from dm.web.network import unpack_msg, pack_msg, unpack_msg2, pack_msg2

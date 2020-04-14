@@ -1,20 +1,22 @@
+import base64
 import datetime
 import json
 import math
 import os
+import pickle
 import threading
-import uuid
+import typing as t
 
-import requests
-from flask import request, g, current_app
+from flask import request, g, current_app, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
 
 from dm import defaults as d, defaults
-from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Orchestration, Scope
+from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Execution, \
+    ExecutionStatus
 from dm.network.low_level import check_host
-from dm.use_cases.background_tasks import table_routing_process, update_table_routing_cost
+from dm.use_cases.background_tasks import update_table_routing_cost
+from dm.use_cases.event_handler import Event
 from dm.use_cases.interactor import send_software
-from dm.use_cases.lock import lock_scope
 from dm.utils.helpers import get_distributed_entities
 from dm.web import db
 from dm.web.api_1_0 import api_bp
@@ -22,6 +24,10 @@ from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, l
 from dm.web.helpers import run_in_background
 from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes
 from dm.web.network import ping as ping_server, HTTPBearerAuth, post, patch
+from dm.web.threading import FlaskThread
+
+if t.TYPE_CHECKING:
+    from dm.use_cases.deployment import ICommand
 
 
 @api_bp.route('/')
@@ -80,8 +86,9 @@ def software_send():
 
     if transfer_id:
         file = os.path.join(ssa.path, software.filename)
-        run_in_background(send_software(dest_server=dest_server, transfer_id=transfer_id, file=file, chunks=chunks,
-                                        chunk_size=chunk_size, max_senders=max_senders, auth=auth))
+        run_in_background(func=send_software,
+                          kwargs=dict(dest_server=dest_server, transfer_id=transfer_id, file=file, chunks=chunks,
+                                      chunk_size=chunk_size, max_senders=max_senders, auth=auth))
 
         return {'transfer_id': transfer_id}, 202
     return {'error': f'unable to create transfer on {dest_server}', 'response': resp, 'code': code}, 400
@@ -232,7 +239,8 @@ def routes():
 
             for s in Server.get_neighbours():
                 if s != likely_proxy_server:
-                    th = threading.Thread(target=func_patch, args=(current_app._get_current_object(), s, 'api_1_0.routes'),
+                    th = threading.Thread(target=func_patch,
+                                          args=(current_app._get_current_object(), s, 'api_1_0.routes'),
                                           kwargs={'json': msg,
                                                   'headers': dict(Authorization=request.headers['Authorization'])})
                     th.daemon = True
@@ -241,21 +249,41 @@ def routes():
     return {}, 204
 
 
-@api_bp.route('/launch/<string:orchestration_id>', methods=['POST'])
+def run_command_and_callback(command: 'ICommand', source: Server, execution):
+    command.invoke()
+    resp, code = post(server=source, view_or_url=url_for('api_1_0.events'), view_data={'event_id': str(execution.id)},
+                      json=command.execution)
+    if code != 202:
+        current_app.logger.error(f"Error while sending event on command {command.id}: {code}, {resp}")
+
+
+@api_bp.route('/launch/command', methods=['POST'])
 @forward_or_dispatch
 @jwt_required
 @securizer
-def launch_orchestration(orchestration_id):
-    # Input Validation
-    try:
-        orchestration_id = uuid.UUID(orchestration_id)
-    except ValueError:
-        return {'error': f'Invalid uuid: {orchestration_id}'}, 400
-    o = Orchestration.query.get(orchestration_id)
-    if not o:
-        return {'error': f"Orchestration not found {orchestration_id}"}, 404
+def launch_operation():
+    data = request.get_json()
+    command: 'ICommand' = pickle.loads(base64.b64decode(data['command'].encode('ascii')))
+    e = Execution(status=ExecutionStatus.PENDING, execution_server=g.server, step_id=command.id,
+                  source_server_id=g.source)
+    db.session.add(e)
+    db.session.flush()
+    th = FlaskThread(target=run_command_and_callback,
+                     args=(command, g.source, e))
+    th.run()
+    return {'execution_id': str(e.id)}, 202
 
-    # Logic
+
+@api_bp.route('/events/<event_id>', methods=['POST'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+def events(event_id):
+    e = Event(event_id, data=request.get_json())
+    if current_app.events.dispatch(e):
+        return {}, 202
+    else:
+        return {'error': 'event id not found'}, 404
 
 
 @api_bp.route('/join', methods=['POST'])

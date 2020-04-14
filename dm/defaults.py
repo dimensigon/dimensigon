@@ -18,8 +18,8 @@ LOOPBACK_PORT = 20194
 MAX_WAITING_TIME = 300  # time in seconds waiting tasks to finish
 
 TIMEOUT_REQUEST = 60
-TIMEOUT_PREVENTING_LOCK = 600  # max time in seconds locker will be in PREVENTING_LOCK before returning to UNLOCK
+TIMEOUT_PREVENTING_LOCK = 60  # max time in seconds locker will be in PREVENTING_LOCK before returning to UNLOCK
+TIMEOUT_ORCHESTRATION = 600  # max time waiting for an orchestration to finish
 
 CHUNK_SIZE = 20971520  # 20 MB
 MAX_SENDERS = 4
-

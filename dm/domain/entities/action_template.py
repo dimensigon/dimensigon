@@ -2,7 +2,7 @@ import copy
 from enum import Enum, auto
 
 from dm.domain.entities.base import UUIDistributedEntityMixin
-from dm.utils.typos import JSON, Params
+from dm.utils.typos import JSON, Kwargs
 from dm.web import db
 
 
@@ -26,8 +26,8 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
     expected_rc = db.Column(db.Integer)
     system_kwargs = db.Column(JSON)
 
-    def __init__(self, name: str, version: int, action_type: ActionType, code: str, parameters: Params = None,
-                 expected_output: str = None, expected_rc: int = None, system_kwargs: Params = None,
+    def __init__(self, name: str, version: int, action_type: ActionType, code: str, parameters: Kwargs = None,
+                 expected_output: str = None, expected_rc: int = None, system_kwargs: Kwargs = None,
                  **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         self.name = name

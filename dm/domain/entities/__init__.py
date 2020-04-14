@@ -10,7 +10,7 @@ from dm.web import db
 from .action_template import ActionTemplate, ActionType
 from .catalog import Catalog
 from .dimension import Dimension
-from .execution import Execution
+from .execution import Execution, Status as ExecutionStatus
 from .gate import Gate
 from .locker import Locker, State, Scope
 from .log import Log
@@ -28,6 +28,7 @@ __all__ = [
     "Catalog",
     "Dimension",
     "Execution",
+    "ExecutionStatus",
     "Gate",
     "Locker",
     "Log",
