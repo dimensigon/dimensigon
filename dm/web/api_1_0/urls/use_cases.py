@@ -6,20 +6,21 @@ import os
 import pickle
 import threading
 import typing as t
+import uuid
 
-from flask import request, g, current_app, url_for
+from flask import request, g, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
 
 from dm import defaults as d, defaults
-from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Execution, \
-    ExecutionStatus
+from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Execution
 from dm.network.low_level import check_host
-from dm.use_cases.background_tasks import update_table_routing_cost
 from dm.use_cases.event_handler import Event
-from dm.use_cases.interactor import send_software
-from dm.utils.helpers import get_distributed_entities
-from dm.web import db
+from dm.use_cases.interactor import send_software, Orchestration
+from dm.utils.helpers import get_distributed_entities, is_iterable_not_string
+from dm.web import db, executor
 from dm.web.api_1_0 import api_bp
+from dm.web.async_functions import deploy_orchestration
+from dm.web.background_tasks import update_table_routing_cost
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import run_in_background
 from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes
@@ -27,7 +28,7 @@ from dm.web.network import ping as ping_server, HTTPBearerAuth, post, patch
 from dm.web.threading import FlaskThread
 
 if t.TYPE_CHECKING:
-    from dm.use_cases.deployment import ICommand
+    from dm.use_cases.operations import IOperationEncapsulation
 
 
 @api_bp.route('/')
@@ -249,29 +250,90 @@ def routes():
     return {}, 204
 
 
-def run_command_and_callback(command: 'ICommand', source: Server, execution):
-    command.invoke()
-    resp, code = post(server=source, view_or_url=url_for('api_1_0.events'), view_data={'event_id': str(execution.id)},
-                      json=command.execution)
+def run_command_and_callback(operation: 'IOperationEncapsulation', params, source: Server, execution: Execution, auth,
+                             timeout=None):
+    cp = operation.execute(params=params, timeout=timeout)
+    execution = db.session.merge(execution, load=False)
+    source = db.session.merge(source, load=False)
+    execution.load_completed_result(cp)
+    try:
+        db.session.commit()
+    except Exception as e:
+        current_app.logger.exception(f"Error on commit for execution {execution.id}")
+
+    resp, code = post(server=source, view_or_url='api_1_0.events', view_data={'event_id': str(execution.id)},
+                      json=execution.to_json(), auth=auth)
     if code != 202:
-        current_app.logger.error(f"Error while sending event on command {command.id}: {code}, {resp}")
+        current_app.logger.error(f"Error while sending result for execution {execution.id}: {code}, {resp}")
 
 
-@api_bp.route('/launch/command', methods=['POST'])
+@api_bp.route('/launch/operation', methods=['POST'])
 @forward_or_dispatch
 @jwt_required
 @securizer
 def launch_operation():
     data = request.get_json()
-    command: 'ICommand' = pickle.loads(base64.b64decode(data['command'].encode('ascii')))
-    e = Execution(status=ExecutionStatus.PENDING, execution_server=g.server, step_id=command.id,
-                  source_server_id=g.source)
+    operation, params = pickle.loads(base64.b64decode(data['operation'].encode('ascii')))
+    e = Execution(execution_server=g.server, step_id=data.get('step_id'),
+                  source_server=g.source)
     db.session.add(e)
-    db.session.flush()
-    th = FlaskThread(target=run_command_and_callback,
-                     args=(command, g.source, e))
-    th.run()
+    db.session.commit()
+    future = executor.submit(run_command_and_callback, operation, params, g.source, e,
+                             HTTPBearerAuth(create_access_token(get_jwt_identity())),
+                             timeout=data.get('timeout'))
     return {'execution_id': str(e.id)}, 202
+
+
+def search(server_or_granule, servers):
+    try:
+        uid = uuid.UUID(server_or_granule)
+    except ValueError:
+        server_list = [server for server in servers if server_or_granule in server.granules]
+    else:
+        server_list = [server for server in servers if server.id == uid]
+    return server_list
+
+
+@api_bp.route('/launch/orchestration/<orchestration_id>', methods=['POST'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+def launch_orchestration(orchestration_id):
+    orchestration = Orchestration.query.get_or_404(orchestration_id)
+    params = request.get_json().get('params')
+    hosts = request.get_json().get('hosts')
+
+    a = set(orchestration.target)
+    b = set(hosts.keys())
+    c = a - b
+    if len(c) > 0:
+        return {'error': f"The following targets must be specified in order to execute: '{', '.join(c)}'"}, 404
+
+    servers = Server.query.all()
+    # convert hosts into servers
+    not_found = []
+    for target, v in hosts.items():
+        server_list = []
+        if is_iterable_not_string(v):
+            for vv in v:
+                sl = search(vv, servers)
+                if len(sl) == 0:
+                    not_found.append(vv)
+                else:
+                    server_list.extend(sl)
+        else:
+            sl = search(v, servers)
+            if len(sl) == 0:
+                not_found.append(v)
+            else:
+                server_list.extend(sl)
+        hosts[target] = server_list
+    if not_found:
+        return {'error': "Following granules or ids did not match to any server: " + ', '.join(not_found)}, 404
+
+    th = FlaskThread(target=deploy_orchestration, args=(orchestration, params, hosts))
+    th.run()
+    return {}, 202
 
 
 @api_bp.route('/events/<event_id>', methods=['POST'])
@@ -280,10 +342,8 @@ def launch_operation():
 @securizer
 def events(event_id):
     e = Event(event_id, data=request.get_json())
-    if current_app.events.dispatch(e):
-        return {}, 202
-    else:
-        return {'error': 'event id not found'}, 404
+    current_app.events.dispatch(e)
+    return {}, 202
 
 
 @api_bp.route('/join', methods=['POST'])

@@ -1,4 +1,3 @@
-import functools
 import sys
 import time
 import typing as t
@@ -6,6 +5,7 @@ from contextlib import contextmanager
 from http.server import HTTPServer
 from io import StringIO
 from threading import Thread
+from unittest import TestCase, mock
 from unittest.mock import Mock
 
 import requests
@@ -119,9 +119,10 @@ def authorization_header(identity='test'):
     access_token = create_access_token(identity=identity)
     return {"Authorization": f"Bearer {access_token}"}
 
-def patch_decorator(f):
-    @functools.wraps(f)
-    def wrapper(*args, **kw):
-        return f(*args, **kw)
 
-    return wrapper
+class TestCaseLockBypass(TestCase):
+
+    def run(self, result=None):
+        with mock.patch('dm.web.decorators.lock'):
+            with mock.patch('dm.web.decorators.unlock'):
+                super().run(result)

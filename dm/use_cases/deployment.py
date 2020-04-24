@@ -1,28 +1,28 @@
 import base64
 import concurrent
-import inspect
 import logging
 import pickle
-import sys
 import threading
 import time
 import typing as t
 from abc import ABC, abstractmethod
 from collections import ChainMap
 from concurrent.futures.process import ProcessPoolExecutor
+from datetime import datetime
+from functools import partial
 
 from flask import current_app
 
-from dm.domain.entities import ActionType
-from dm.domain.entities.orchestration import Step, Orchestration
+from dm import defaults
+from dm.domain.entities import Server, Orchestration, Step
 from dm.use_cases.event_handler import Event
-from dm.use_cases.operations import CompletedProcess, IOperationEncapsulation
+from dm.use_cases.operations import CompletedProcess, IOperationEncapsulation, create_operation
 from dm.utils.dag import DAG
 from dm.utils.typos import Kwargs, Id
 from dm.web.network import post
 
-if t.TYPE_CHECKING:
-    from dm.domain.entities import Server
+# if t.TYPE_CHECKING:
+
 
 logger = logging.getLogger('dm.deployment')
 
@@ -54,13 +54,13 @@ class ICommand(ABC):
 
     @property
     @abstractmethod
-    def execution(self) -> t.List[CompletedProcess]:
+    def result(self) -> t.Dict[Id, CompletedProcess]:
         """
-        Property to get all the executions
+        Property to get all the results
 
         Returns
         -------
-        dict with all the executions
+        dict with all the results
         """
 
     @abstractmethod
@@ -86,14 +86,16 @@ class ICommand(ABC):
         """
 
     def __repr__(self):
-        return f"{self.__class__.__name__}{self.id}"
+        return f"{self.__class__.__name__} {self.id}"
 
 
 class UndoCommand(ICommand):
-    def __init__(self, implementation: IOperationEncapsulation, params: Kwargs = None, id_=None):
+    def __init__(self, implementation: IOperationEncapsulation, params: Kwargs = None, id_=None,
+                 stop_on_error: bool = None):
         super().__init__(id_)
-        self.params = params or {}
         self.implementation = implementation
+        self.params = params or {}
+        self.stop_on_error = stop_on_error
         self._cp: CompletedProcess = None
 
     def invoke(self, timeout=None) -> bool:
@@ -109,7 +111,7 @@ class UndoCommand(ICommand):
         return self.success
 
     @property
-    def execution(self) -> t.Dict[Id, CompletedProcess]:
+    def result(self) -> t.Dict[Id, CompletedProcess]:
         return {self.id: self._cp}
 
     @property
@@ -127,7 +129,8 @@ class Command(ICommand):
 
     def __init__(self, implementation: IOperationEncapsulation,
                  undo_command: t.Union['CompositeCommand', UndoCommand],
-                 params: Kwargs = None, undo_on_error: bool = False, id_=None):
+                 stop_on_error: bool = None, stop_undo_on_error: bool = None, undo_on_error: bool = True,
+                 params: Kwargs = None, id_=None):
         """
         
         Parameters
@@ -145,6 +148,8 @@ class Command(ICommand):
         self.implementation = implementation
         self.params = params or {}
         self.undo_command = undo_command
+        self.stop_on_error = stop_on_error
+        self.stop_undo_on_error = stop_undo_on_error
         self.undo_on_error = undo_on_error
         self._cp: t.Optional[CompletedProcess] = None
 
@@ -153,11 +158,11 @@ class Command(ICommand):
         return getattr(self._cp, 'success', None)
 
     @property
-    def execution(self) -> t.Dict[Id, CompletedProcess]:
+    def result(self) -> t.Dict[Id, CompletedProcess]:
         e = {}
         e.update({self.id: self._cp})
         if self.undo_command.success is not None:
-            e.update(self.undo_command.execution)
+            e.update(self.undo_command.result)
         return e
 
     def invoke(self, timeout=None) -> t.Optional[bool]:
@@ -188,7 +193,8 @@ class Command(ICommand):
 
 class CompositeCommand(ICommand):
 
-    def __init__(self, dict_tree: t.Dict[ICommand, t.List[ICommand]], undo_on_error: bool = False, force_all=False,
+    def __init__(self, dict_tree: t.Dict[ICommand, t.List[ICommand]],
+                 stop_on_error: bool, stop_undo_on_error: bool = None,
                  id_=None, executor: concurrent.futures.Executor = None, timeout: t.Union[int, float] = None):
         """
 
@@ -198,9 +204,11 @@ class CompositeCommand(ICommand):
             dict tree containing command nodes as keys and it's neighbours as a list of commands. See examples for more
             information
         undo_on_error:
-            executes the undo process if the command ended up with error
-        force_all:
-            executes all the commands regardless if a command success or fails
+            executes the undo process even if the command ended up with error
+        stop_on_error:
+            executes all the commands regardless if a command succeed or fail
+        stop_undo_on_error:
+            executes all the undo commands regardless if an undo command succeed or fail
         id_:
             command identifier
         executor:
@@ -208,8 +216,8 @@ class CompositeCommand(ICommand):
         """
         super().__init__(id_)
         self._dag = DAG().from_dict_of_lists(dict_tree)
-        self.undo_on_error = undo_on_error
-        self.force_all = force_all
+        self.stop_on_error = stop_on_error
+        self.stop_undo_on_error = stop_undo_on_error
         self.executor = executor or ProcessPoolExecutor(max_workers=4)
         self.timeout = timeout
 
@@ -225,16 +233,20 @@ class CompositeCommand(ICommand):
 
     def invoke(self, timeout=None) -> bool:
         res = []
+        stop = False
         level = 1
         timeout = timeout or self.timeout
         start = time.time()
-        while level <= self._dag.depth and (all(res) is True or self.force_all is True):
+        while level <= self._dag.depth:
             commands = self._dag.get_nodes_at_level(level)
             duration = time.time() - start
             left = max(timeout - duration, 0) if timeout else None
             if len(commands) == 1:
-                res.append(commands[0].invoke(timeout=left))
-                if res[-1] is False and self.force_all is False:
+                r = commands[0].invoke(timeout=left)
+                res.append(r)
+                stop_on_error = commands[0].stop_on_error if commands[0].stop_on_error is not None \
+                    else self.stop_on_error
+                if r is False and stop_on_error is True:
                     break
             else:
                 futures = {}
@@ -243,8 +255,10 @@ class CompositeCommand(ICommand):
                     futures.update(
                         {command.id: self.executor.submit(command.invoke, timeout=left)})
 
-                while len(futures) > 0 and (left is None or (time.time() - start) < left):
+                stop = None
+                while len(futures) > 0 and (left is None or (time.time() - start) < left) and stop is not True:
                     for cmd_id, future in dict(futures).items():
+                        r = None
                         try:
                             r = future.result(timeout=0.5)
                         except concurrent.futures.TimeoutError:
@@ -252,17 +266,23 @@ class CompositeCommand(ICommand):
                         except Exception as e:
                             logger.exception(f"Error while executing step {cmd_id}")
                             del futures[cmd_id]
-                            res.append(False)
+                            r = False
                         else:
                             del futures[cmd_id]
+                        if r is not None:
                             res.append(r)
+                            cmd = list(filter(lambda c: c.id == cmd_id, commands))[0]
+                            stop_on_error = cmd.stop_on_error if cmd.stop_on_error is not None else self.stop_on_error
+                            if r is False and stop_on_error is True:
+                                stop = True
+
                     duration = time.time() - start
                     left = max(timeout - duration, 0) if timeout else None
 
-                if all(res) is not True and self.force_all is False or (time.time() - start) > self.timeout:
+                if stop is True or (timeout is not None and (time.time() - start) > timeout):
                     break
             level += 1
-        return all(res)
+        return all(res) if len(res) > 0 else None
 
     def undo(self, timeout=None) -> t.Optional[bool]:
         """
@@ -275,21 +295,24 @@ class CompositeCommand(ICommand):
             False if any undo command ended up badly
             None if undo operation not executed
         """
+        if self.stop_undo_on_error is None:
+            raise RuntimeError(f'stop_undo_on_error not set for command {self.id}')
         res = []
         level = self._dag.depth
         start = time.time()
         duration = time.time() - start
         left = max(timeout - duration, 0) if timeout else None
-        while level > 0 and res is not False and (left is None or (time.time() - start) < left):
+        while level > 0 and (left is None or (time.time() - start) < left):
             commands = self._dag.get_nodes_at_level(level)
             duration = time.time() - start
             left = max(timeout - duration, 0) if timeout else None
             if len(commands) == 1:
-                res.append(commands[0].undo(timeout=left))
-                # if undo not executed set as True to continue with the rest
-                if res[-1] is None:
-                    res[-1] = True
-                if res[-1] is False and self.force_all is False:
+                r = commands[0].undo(timeout=left)
+                if r is not None:
+                    res.append(r)
+                stop_undo_on_error = commands[0].stop_undo_on_error if commands[0].stop_undo_on_error is not None \
+                    else self.stop_undo_on_error
+                if r is False and stop_undo_on_error is True:
                     break
             else:
                 futures = {}
@@ -298,8 +321,10 @@ class CompositeCommand(ICommand):
                     futures.update(
                         {command.id: self.executor.submit(command.undo, timeout=left)})
 
+                stop = None
                 while len(futures) > 0 and (left is None or (time.time() - start) < left):
                     for cmd_id, future in dict(futures).items():
+                        r = None
                         try:
                             r = future.result(timeout=0.5)
                         except concurrent.futures.TimeoutError:
@@ -307,24 +332,30 @@ class CompositeCommand(ICommand):
                         except Exception as e:
                             logger.exception(f"Error while executing step {cmd_id}")
                             del futures[cmd_id]
-                            res.append(False)
+                            r = False
                         else:
                             del futures[cmd_id]
+                        if r is not None:
                             res.append(r)
+                            cmd = list(filter(lambda c: c.id == cmd_id, commands))[0]
+                            stop_undo_on_error = cmd.stop_undo_on_error if cmd.stop_undo_on_error is not None \
+                                else self.stop_undo_on_error
+                            if r is False and cmd.stop_undo_on_error is True:
+                                stop = True
                     duration = time.time() - start
                     left = max(timeout - duration, 0) if timeout else None
 
-                if all(res) is not True and self.force_all is False or (time.time() - start) > self.timeout:
+                if stop is True or (timeout is not None and (time.time() - start) > timeout):
                     break
             level -= 1
-        return all(res)
+        return all(res) if len(res) > 0 else None
 
     @property
-    def execution(self) -> t.Dict[Id, CompletedProcess]:
+    def result(self) -> t.Dict[Id, CompletedProcess]:
         e = {}
         for n in self._dag.nodes:
             if n.success is not None:
-                e.update(n.execution)
+                e.update(n.result)
         return e
 
     def __len__(self):
@@ -336,7 +367,7 @@ class CompositeCommand(ICommand):
 
 class ProxyMixin(object):
 
-    def __init__(self, server: 'Server', timeout: t.Union[int, float] = 300):
+    def __init__(self, server: 'Server', auth, timeout: t.Union[int, float] = 300):
         """
         Parameters
         ----------
@@ -355,17 +386,22 @@ class ProxyMixin(object):
         timeout:
             timeout when waiting response from remote server when invoke and undo executed
         """
-        self._server = server
-        self._completion_event = threading.Event()
-        self.timeout = timeout
-        self._command = None
+        self.__dict__['_server'] = server
+        self.__dict__['_auth'] = auth
+        self.__dict__['_completion_event'] = threading.Event()
+        self.__dict__['timeout'] = timeout
+        self.__dict__['_command'] = None
 
     @property
     def server(self) -> 'Server':
         return self._server
 
+    @property
+    def auth(self):
+        return self._auth
+
     def __getattr__(self, item):
-        return self._command.__dict__.get(item)
+        return getattr(self._command, item)
 
     def __setattr__(self, key, value):
         if key in self.__dict__:
@@ -373,10 +409,22 @@ class ProxyMixin(object):
         else:
             self._command.__setattr__(key, value)
 
-    def _completion_event(self, event: Event):
+    def callback_completion_event(self, event: Event):
         """callback executed on response to the invoke command on remote server
         """
-        self._command._execution = event.data
+        if 'success' in event.data:
+            self._command._cp = CompletedProcess(success=event.data.get('success'),
+                                                 stdout=event.data.get('stdout'),
+                                                 stderr=event.data.get('stderr'),
+                                                 rc=event.data.get('rc'),
+                                                 start_time=datetime.strptime(event.data.get('start_time'),
+                                                                              defaults.DATETIME_FORMAT),
+                                                 end_time=datetime.strptime(event.data.get('end_time'),
+                                                                            defaults.DATETIME_FORMAT))
+        else:
+            self._command._cp = CompletedProcess(success=False, stdout=str(event.data),
+                                                 stderr=f'Unknown message got from server {self.server} on completion '
+                                                        f'event.')
         self._completion_event.set()
 
     def invoke(self, timeout=None) -> bool:
@@ -393,57 +441,40 @@ class ProxyMixin(object):
         TimeoutError:
             raised when timeout reached while waiting the response back from the remote server
         """
+        timeout = timeout or self.timeout
         if self._command.success is None:
-            data = dict(command=base64.b64encode(pickle.dumps(self._command)).decode('ascii'))
-            resp, code = post(server=self.server, view_or_url='api_1_0.launch_command', json=data)
+            data = dict(operation=base64.b64encode(
+                pickle.dumps((self._command.implementation, self._command.params))).decode('ascii'),
+                        timeout=timeout,
+                        step_id=str(self.id[1]))
+            resp, code = post(server=self.server, view_or_url='api_1_0.launch_operation', json=data, auth=self.auth)
             if code == 202:
-                current_app.events.register(resp.get('execution_id'), self._completion_invoke)
-                event = self._completion_invoke_event.wait(timeout=self.timeout)
+                current_app.events.register(resp.get('execution_id'), self.callback_completion_event)
+                event = self._completion_event.wait(timeout=timeout)
                 if event is not True:
                     raise TimeoutError(f'Timeout reached while waiting invoke response of command {self.command}')
             else:
                 current_app.logger.error(
-                    f"Error while trying to run command {self.id} on {self.server}: {code}, {resp}")
+                    f"Error while trying to run command {self.id} on server {self.server}: {code}, {resp}")
 
         return self.success
 
 
 class ProxyCommand(ProxyMixin, Command):
 
-    def __init__(self, server: 'Server', *args, timeout: t.Union[int, float] = 300, **kwargs):
-        super().__init__(server, timeout=timeout)
+    def __init__(self, server: Server, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
+        ProxyMixin.__init__(self, server, auth, timeout=timeout)
         self._command = Command(*args, **kwargs)
 
 
 class ProxyUndoCommand(ProxyMixin, UndoCommand):
 
-    def __init__(self, server: 'Server', *args, timeout: t.Union[int, float] = 300, **kwargs):
-        super().__init__(server, timeout=timeout)
+    def __init__(self, server: Server, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
+        super().__init__(server, auth, timeout=timeout)
         self._command = UndoCommand(*args, **kwargs)
 
 
-_operation_classes = {}
-for name, cls in inspect.getmembers(sys.modules['dm.use_cases.operations'],
-                                    lambda x: (inspect.isclass(x) and issubclass(x, IOperationEncapsulation))):
-    _operation_classes.update({name: cls})
-
-_factories: t.Dict[ActionType, t.Type[IOperationEncapsulation]] = {}
-
-for at in ActionType:
-    try:
-        _factories.update({at: _operation_classes[at.name.capitalize() + 'Operation']})
-    except KeyError:
-        NotImplementedError(f"{at.name.capitalize() + 'Operation'} not implemented")
-
-
-def create_operation(step: Step) -> IOperationEncapsulation:
-    cls = _factories[step.type]
-
-    return cls(code=step.code, expected_output=step.expected_output, expected_rc=step.expected_rc,
-               system_kwargs=step.system_kwargs)
-
-
-def create_cmd_from_orchestration(orchestration: Orchestration, params: Kwargs) -> CompositeCommand:
+def _create_cmd_from_orchestration(orchestration: Orchestration, params: Kwargs) -> CompositeCommand:
     def convert2cmd(d, mapping):
         nd = {}
         for k, v in d.items():
@@ -463,7 +494,7 @@ def create_cmd_from_orchestration(orchestration: Orchestration, params: Kwargs) 
         cc_tree = convert2cmd(orchestration.subtree([s for s in orchestration.children[s] if s.undo]),
                               undo_step_cmd_map)
 
-        c = Command(create_operation(s), undo_implementation=CompositeCommand(cc_tree),
+        c = Command(create_operation(s), undo_command=CompositeCommand(cc_tree),
                     params=ChainMap(params, s.parameters), id_=s.id)
 
         step_cmd_map.update({s: c})
@@ -471,28 +502,120 @@ def create_cmd_from_orchestration(orchestration: Orchestration, params: Kwargs) 
     return CompositeCommand(convert2cmd(tree_step, step_cmd_map))
 
 
-def deploy_orchestration(orchestration: Orchestration, params: Kwargs) -> \
-        t.Tuple[bool, bool, t.Dict[Id, CompletedProcess]]:
-    """
-    Parameters
-    ----------
-    orchestration
-        orchestration to deploy
-    params
-        parameters to pass to the steps
+# def _create_do_cc_from_step_server(orchestration, executor, params, hosts, s: Step, current_server):
+#     d = {}
+#     c = None
+#     for t in s.target:
+#         for server in hosts[t]:
+#             if server == current_server:
+#                 c = UndoCommand(create_operation(s), params=params, id_=s.id)
+#                 d[c] = []
+#             else:
+#                 c = ProxyUndoCommand(server=server, implementation=create_operation(s), params=params,
+#                                      id_=s.id)
+#                 d[c] = []
+#     if len(d) <= 1:
+#         return c
+#     else:
+#         return CompositeCommand(dict_tree=d, executor=executor,
+#                                 undo_on_error=orchestration.undo_on_error if s.undo_on_error is None else s.undo_on_error,
+#                                 stop_on_error=orchestration.stop_on_error if s.stop_on_error is None else s.stop_on_error,
+#                                 id_=s)
 
-    Returns
-    -------
-    t.Tuple[bool, bool, t.Dict[int, dpl.CompletedProcess]]:
-        tuple with 3 values. (boolean indicating if invoke process ended up successfully,
-        boolean indicating if undo process ended up successfully,
-        dict with all the executions). If undo process not executed, boolean set to None
-    """
-    cc = create_cmd_from_orchestration(orchestration, params)
 
-    res_do, res_undo = None, None
-    res_do = cc.invoke()
-    if not res_do:
-        res_undo = cc.undo()
+def _create_server_undo_command(orchestration, executor, params, current_server, server: Server, s: Step, d=None,
+                                s2cc=None, auth=None) -> t.Optional[t.Union[UndoCommand, CompositeCommand]]:
+    def iterate_tree(_cls, _step: Step, _d, _s2cc):
+        if _step in _s2cc:
+            _uc = _s2cc[_step]
+        else:
+            stop_on_error = _step.step_stop_on_error if _step.step_stop_on_error is not None else s.stop_undo_on_error
+            _uc = _cls(create_operation(_step), params=params, id_=(server.id, _step.id), stop_on_error=stop_on_error)
+            _s2cc[_step] = _uc
+        if _uc not in _d:
+            _d[_uc] = []
+        for child_step in _step.children_undo_steps:
+            _d[_uc].append(iterate_tree(_cls, child_step, _d, _s2cc))
+        return _uc
 
-    return res_do, res_undo, cc.execution
+    d = d or {}
+    s2cc = s2cc or {}
+    if server == current_server:
+        u_cmd_cls = UndoCommand
+    else:
+        u_cmd_cls = partial(ProxyUndoCommand, server, auth)
+    uc = None
+    for child_undo_step in s.children_undo_steps:
+        uc = iterate_tree(u_cmd_cls, child_undo_step, d, s2cc)
+    if len(d) == 1:
+        return uc
+    elif len(d) > 1:
+        return CompositeCommand(dict_tree=d, stop_on_error=s.stop_undo_on_error,
+                                stop_undo_on_error=None,
+                                id_=('undo', s.id),
+                                executor=executor)
+
+
+def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
+                                   hosts: t.Dict[str, t.List[Server]],
+                                   executor, auth=None) -> CompositeCommand:
+    current_server = Server.get_current()
+
+    def create_do_cmd_from_step(_step: Step, _s2cc):
+        d = {}
+        if _step in _s2cc:
+            cc = _s2cc[_step]
+        else:
+            for target in _step.target:
+                for server in hosts[target]:
+                    if server == current_server:
+                        cls = Command
+                    else:
+                        if auth is None:
+                            RuntimeError('auth must be specified when executing orchestration to a remote server')
+                        cls = partial(ProxyCommand, server, auth)
+
+                    c = cls(create_operation(_step),
+                            undo_command=_create_server_undo_command(orchestration, executor, params, current_server,
+                                                                     server,
+                                                                     _step, auth=auth),
+                            params=params,
+                            stop_on_error=_step.stop_on_error,
+                            stop_undo_on_error=None,
+                            undo_on_error=_step.undo_on_error,
+                            id_=(server.id, _step.id))
+
+                    d[c] = []
+            if len(d) == 1:
+                cc = c
+            elif len(d) > 1:
+                cc = CompositeCommand(dict_tree=d,
+                                      stop_on_error=False,
+                                      stop_undo_on_error=False,
+                                      id_=_step.id, executor=executor)
+            else:
+                cc = None
+        return cc
+
+    def iterate_tree(_step: Step, _d, _s2cc):
+        if _step in s2cc_map:
+            _c = _s2cc[_step]
+        else:
+            _c = create_do_cmd_from_step(_step, _s2cc)
+            _s2cc[_step] = _c
+            if _c not in _d:
+                _d[_c] = []
+            for child_step in _step.children_do_steps:
+                _d[_c].append(iterate_tree(child_step, _d, _s2cc))
+        return _c
+
+    root_steps = orchestration.root
+    tree = {}
+    s2cc_map = {}
+    for step in root_steps:
+        iterate_tree(step, tree, s2cc_map)
+
+    return CompositeCommand(dict_tree=tree,
+                            stop_undo_on_error=orchestration.stop_undo_on_error,
+                            stop_on_error=orchestration.stop_on_error,
+                            id_=orchestration.id, executor=executor)

@@ -1,3 +1,4 @@
+import uuid
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -101,10 +102,14 @@ class TestServer(TestCase):
 
         self.assertListEqual([n3, r1], me.get_not_neighbours())
 
-    def test_from_to_json_with_gate(self):
-        s = Server('server2', gates=[('dns', 6000)])
+    @patch('dm.domain.entities.base.uuid.uuid4')
+    def test_from_to_json_with_gate(self, mock_uuid):
+        mock_uuid.return_value = uuid.UUID('22cd859d-ee91-4079-a112-000000000002')
+        s = Server('server2', gates=[('dns', 6000)], id='22cd859d-ee91-4079-a112-000000000001')
         self.assertDictEqual(
-            {'name': 'server2', 'granules': [], 'gates': [{'ip': None, 'dns': 'dns', 'port': 6000}]}, s.to_json(
+            {'id': '22cd859d-ee91-4079-a112-000000000001', 'name': 'server2', 'granules': [],
+             'gates': [{'id': '22cd859d-ee91-4079-a112-000000000002', 'ip': None, 'dns': 'dns', 'port': 6000}]},
+            s.to_json(
                 add_gates=True))
         db.session.add(s)
         db.session.commit()

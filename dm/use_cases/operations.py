@@ -1,31 +1,40 @@
+import inspect
 import re
 import subprocess
+import sys
+import typing as t
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+import jinja2
 from dataclasses import dataclass
 
-from dm.utils.helpers import convert
 from dm.utils.typos import Kwargs
+
+if t.TYPE_CHECKING:
+    from dm.domain.entities import Step
 
 
 @dataclass
 class CompletedProcess:
     success: bool = None
-    stdout: str = None
-    stderr: str = None
+    stdout: t.Union[str, bytes] = None
+    stderr: t.Union[str, bytes] = None
     rc: int = None
     start_time: datetime = None
     end_time: datetime = None
 
+    def set_start_time(self):
+        self.start_time = datetime.now()
 
-L_DELIMITER_VAR = '{'
-R_DELIMITER_VAR = '}'
+    def set_end_time(self):
+        self.end_time = datetime.now()
 
 
 class IOperationEncapsulation(ABC):
 
-    def __init__(self, code: str, expected_output: str = None, expected_rc: int = None, system_kwargs: Kwargs = None):
+    def __init__(self, code: str, expected_stdout: str = None, expected_stderr: str = None, expected_rc: int = None,
+                 system_kwargs: Kwargs = None):
         """
         Operation Initializer
 
@@ -41,7 +50,8 @@ class IOperationEncapsulation(ABC):
             system arguments to be passed to the commend execution, not the variables inside the code
         """
         self.code = code
-        self.expected_output = expected_output
+        self.expected_stdout = expected_stdout
+        self.expected_stderr = expected_stderr
         self.expected_rc = expected_rc
         self.system_kwargs = system_kwargs or {}
 
@@ -60,50 +70,47 @@ class IOperationEncapsulation(ABC):
             dataclass containing all the information from the result execution
         """
 
+    def rpl_params(self, params):
+        template = jinja2.Template(self.code)
+        return template.render(params)
+
+    def evaluate_result(self, cp: CompletedProcess):
+        if cp.success is None:
+            res = []
+            if self.expected_stdout is not None:
+                res.append(True) if re.search(self.expected_stdout, cp.stdout) else res.append(False)
+            if self.expected_stderr is not None:
+                res.append(True) if re.search(self.expected_stderr, cp.stderr) else res.append(False)
+            if self.expected_rc is not None:
+                res.append(True) if self.expected_rc == cp.rc else res.append(False)
+            cp.success = all(res)
+        return cp
 
 class AnsibleOperation(IOperationEncapsulation):
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
-        _params = convert(params)
-        tokens = self.code.split()
-        cp = CompletedProcess()
+        template = self.rpl_params(params)
 
-        for i in range(len(tokens)):
-            if tokens[i][0:len(L_DELIMITER_VAR)] == L_DELIMITER_VAR and tokens[i][
-                                                                        -len(R_DELIMITER_VAR):] == R_DELIMITER_VAR:
-                try:
-                    tokens[i] = eval('_params.' + str(tokens[i][len(L_DELIMITER_VAR):-len(R_DELIMITER_VAR)]))
-                except KeyError:
-                    raise LookupError(
-                        f"Unable to find variable '{str(tokens[i][len(L_DELIMITER_VAR):-len(R_DELIMITER_VAR)])}'")
-
-        cp.start_time = datetime.now()
         system_kwargs = self.system_kwargs.copy()
 
-        tokens = ('ansible-playbook', '-i', '"localhost,"', '-c', 'local') + tuple(tokens)
+        tokens = ('ansible-playbook', '-i', '"localhost,"', '-c', 'local') + tuple(template)
+
+        cp = CompletedProcess()
+        cp.set_start_time()
         try:
-            cp.rc, cp.stdout, cp.stderr = subprocess.run(tokens, shell=True, capture_output=True,
-                                                         **system_kwargs, timeout=timeout)
+            r = subprocess.run(tokens, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               **system_kwargs, timeout=timeout)
+            cp.stdout = r.stdout
+            cp.stderr = r.stderr
+            cp.rc = r.returncode
         except (subprocess.TimeoutExpired, ValueError) as e:
             cp.stderr = f"{e.__class__.__name__}{e.args}"
             cp.success = False
         finally:
-            cp.end_time = datetime.now()
+            cp.set_end_time()
 
-        if cp.success is None:
-            if self.expected_output is not None and self.expected_rc is not None:
-                if re.search(self.expected_output, cp.stdout) \
-                        and cp.rc == self.expected_rc:
-                    cp.success = True
-            elif self.expected_output is not None:
-                if re.search(self.expected_output, cp.stdout):
-                    cp.success = True
-            elif self.expected_rc is not None:
-                if cp.rc == self.expected_rc:
-                    cp.success = True
-            else:
-                cp.success = True
+        return self.evaluate_result(cp)
 
-        return cp
+
 
 
 class PythonOperation(IOperationEncapsulation):
@@ -114,51 +121,56 @@ class PythonOperation(IOperationEncapsulation):
 class NativeOperation(IOperationEncapsulation):
 
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
-        _params = convert(params)
-        tokens = self.code.split()
-        cp = CompletedProcess()
+        tokens = self.rpl_params(params)
 
-        for i in range(len(tokens)):
-            if tokens[i][0:len(L_DELIMITER_VAR)] == L_DELIMITER_VAR and tokens[i][
-                                                                        -len(R_DELIMITER_VAR):] == R_DELIMITER_VAR:
-                try:
-                    tokens[i] = eval('_params.' + str(tokens[i][len(L_DELIMITER_VAR):-len(R_DELIMITER_VAR)]))
-                except KeyError:
-                    raise LookupError(
-                        f"Unable to find variable '{str(tokens[i][len(L_DELIMITER_VAR):-len(R_DELIMITER_VAR)])}'")
-
-        cp.start_time = datetime.now()
         system_kwargs = self.system_kwargs.copy()
 
         timeout = system_kwargs.pop('timeout', 300)
 
+        cp = CompletedProcess()
+        cp.set_start_time()
         try:
-            cp.rc, cp.stdout, cp.stderr = subprocess.run(tokens, shell=True, capture_output=True,
-                                                         **system_kwargs, timeout=timeout)
+            r = subprocess.run(tokens, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               **system_kwargs, timeout=timeout)
+            cp.stdout = r.stdout.decode() if isinstance(r.stdout, bytes) else r.stdout
+            cp.stderr = r.stderr.decode() if isinstance(r.stderr, bytes) else r.stderr
+            cp.rc = r.returncode
         except (subprocess.TimeoutExpired, ValueError) as e:
             cp.stderr = f"{e.__class__.__name__}{e.args}"
             cp.success = False
         finally:
-            cp.end_time = datetime.now()
+            cp.set_end_time()
 
-        if cp.success is None:
-            if self.expected_output is not None and self.expected_rc is not None:
-                if re.search(self.expected_output, cp.stdout) \
-                        and cp.rc == self.expected_rc:
-                    cp.success = True
-            elif self.expected_output is not None:
-                if re.search(self.expected_output, cp.stdout):
-                    cp.success = True
-            elif self.expected_rc is not None:
-                if cp.rc == self.expected_rc:
-                    cp.success = True
-            else:
-                cp.success = True
+        return self.evaluate_result(cp)
 
-        return cp
+
 
 
 class OrchestrationOperation(IOperationEncapsulation):
 
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
         pass
+
+
+from dm.domain.entities import ActionType
+
+_operation_classes = {}
+for name, cls in inspect.getmembers(sys.modules['dm.use_cases.operations'],
+                                    lambda x: (inspect.isclass(x) and issubclass(x, IOperationEncapsulation))):
+    _operation_classes.update({name: cls})
+
+_factories: t.Dict['ActionType', t.Type[IOperationEncapsulation]] = {}
+
+for at in ActionType:
+    try:
+        _factories.update({at: _operation_classes[at.name.capitalize() + 'Operation']})
+    except KeyError:
+        NotImplementedError(f"{at.name.capitalize() + 'Operation'} not implemented")
+
+
+def create_operation(step: 'Step') -> IOperationEncapsulation:
+    cls = _factories[step.type]
+
+    return cls(code=step.code, expected_stdout=step.expected_stdout, expected_stderr=step.expected_stderr,
+               expected_rc=step.expected_rc,
+               system_kwargs=step.system_kwargs)

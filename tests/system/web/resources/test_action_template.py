@@ -1,5 +1,4 @@
 from unittest import TestCase
-from unittest.mock import patch
 
 from flask import url_for
 from flask_jwt_extended import create_access_token
@@ -64,7 +63,8 @@ class TestApi(TestCase):
              "action_type": "NATIVE",
              "code": "mkdir {dir}",
              "last_modified_at": "20190101.000530.100000",
-             "expected_output": None,
+             "expected_stdout": None,
+             "expected_stderr": None,
              "expected_rc": None,
              "name": "mkdir",
              "parameters": {},
@@ -75,7 +75,8 @@ class TestApi(TestCase):
              "action_type": "NATIVE",
              "code": "rmdir {dir}",
              "last_modified_at": "20190101.000530.100000",
-             "expected_output": None,
+             "expected_stdout": None,
+             "expected_stderr": None,
              "expected_rc": None,
              "name": "rmdir",
              "parameters": {},
@@ -94,7 +95,8 @@ class TestApi(TestCase):
              "action_type": "NATIVE",
              "code": "mkdir {dir}",
              "last_modified_at": "20190101.000530.100000",
-             "expected_output": None,
+             "expected_stdout": None,
+             "expected_stderr": None,
              "expected_rc": None,
              "name": "mkdir",
              "parameters": {},

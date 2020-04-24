@@ -24,3 +24,12 @@ api.add_resource(LogResource, '/log/<log_id>')
 
 api.add_resource(UserResourceList, '/user')
 api.add_resource(UserResource, '/user/<user_id>')
+
+api.add_resource(OrchestrationResourceList, '/orchestration')
+api.add_resource(OrchestrationResource, '/orchestration/<orchestration_id>')
+
+api.add_resource(StepResourceList, '/step')
+api.add_resource(StepResource, '/step/<step_id>')
+
+api.add_resource(StepRelationshipParentsResource, '/step/<step_id>/relationship/parents')
+api.add_resource(StepRelationshipChildrenResource, '/step/<step_id>/relationship/children')

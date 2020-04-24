@@ -34,7 +34,7 @@ class Execution(db.Model, EntityReprMixin):
     stderr = db.Column(db.Text)
     success = db.Column(db.Boolean)
     executor_id = db.Column(UUID, db.ForeignKey('D_user.id'))
-    step_id = db.Column(db.Integer(), db.ForeignKey('D_step.id'), nullable=True)
+    step_id = db.Column(UUID, db.ForeignKey('D_step.id'), nullable=True)
     execution_server_id = db.Column(UUID, db.ForeignKey('D_server.id'))
     source_server_id = db.Column(UUID, db.ForeignKey('D_server.id'))
     service_id = db.Column(UUID, db.ForeignKey('D_service.id'))
@@ -46,7 +46,12 @@ class Execution(db.Model, EntityReprMixin):
     source_server = db.relationship("Server", foreign_keys=[source_server_id])
 
     def load_completed_result(self, cp: 'CompletedProcess'):
-        self.__dict__.update(cp.__dict__)
+        self.success = cp.success
+        self.stdout = cp.stdout
+        self.stderr = cp.stderr
+        self.rc = cp.rc
+        self.start_time = cp.start_time
+        self.end_time = cp.end_time
 
     def to_json(self):
         data = {}

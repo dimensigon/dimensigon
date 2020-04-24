@@ -65,17 +65,17 @@ class TestCommand(TestCase):
             self.mock_undo_command.invoke.assert_not_called()
             self.assertIsNone(r)
 
-    def test_execution(self):
+    def test_result(self):
         type(self.mock_undo_command).success = mock.PropertyMock(return_value=True)
         self.mock_undo_command.invoke.return_value = True
         self.mock_undo_command._id.return_value = 2
-        type(self.mock_undo_command).execution = mock.PropertyMock(return_value={2: {'a': 2}})
+        type(self.mock_undo_command).result = mock.PropertyMock(return_value={2: {'a': 2}})
 
         c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,
                     params={'param': 'a'},
                     undo_on_error=False, id_=1)
         c._cp = {'success': True}
-        self.assertDictEqual({1: {'success': True}, 2: {'a': 2}}, c.execution)
+        self.assertDictEqual({1: {'success': True}, 2: {'a': 2}}, c.result)
 
 
 class TestUndoCommand(TestCase):
@@ -103,4 +103,4 @@ class TestUndoCommand(TestCase):
     def test_execution(self):
         uc = UndoCommand(implementation=self.mock_implementation, params={'param': 'a'}, id_=1)
         uc._cp = {'success': True}
-        self.assertDictEqual({1: {'success': True}}, uc.execution)
+        self.assertDictEqual({1: {'success': True}}, uc.result)

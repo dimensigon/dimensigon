@@ -150,7 +150,7 @@ class HTTPBearerAuth(AuthBase):
         return 'Bearer ' + self.token
 
 
-def _prepare_url(server: Server, view_or_url: str, **view_data):
+def _prepare_url(server: Server, view_or_url: str, view_data=None):
     if view_or_url.startswith('\\'):
         url = server.url() + 'view_or_url'
     else:
@@ -175,7 +175,7 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     if not session:
         session = requests.session()
 
-    url = _prepare_url(server, view_or_url, **view_data or {})
+    url = _prepare_url(server, view_or_url, view_data)
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
 
@@ -219,7 +219,7 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
         logger.error(f'Exception raised while trying to request to {url}: {exception}')
 
     if not (status is None or 199 < status < 300):
-        logger.debug(f'Error while on request {method} to {url}: {status}, {content}')
+        logger.debug(f'Error on request to {url}: {status}, {content}')
     return content, status
 
 
@@ -278,7 +278,7 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     else:
         _session = session
 
-    url = _prepare_url(server, view_or_url, **view_data or {})
+    url = _prepare_url(server, view_or_url, view_data or {})
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
     if 'auth' in kwargs:

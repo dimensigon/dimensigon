@@ -1,4 +1,7 @@
+import threading
+import time
 import typing as t
+from collections import namedtuple
 
 from dm.utils.typos import Id
 
@@ -13,22 +16,44 @@ class Event(object):
     def id(self):
         return self._id
 
+_RegistryContainer = namedtuple('_RegistryContainer', ['func', 'args', 'kwargs', 'birth'])
 
 class EventHandler(object):
 
-    def __init__(self):
-        self._registry: t.Dict[Id, t.Tuple[t.Callable, t.Tuple, t.Dict[str, t.Any]]] = {}
+    def __init__(self, discard_after=3600):
+        self.discard_after = discard_after
+        self._registry: t.Dict[Id, _RegistryContainer] = {}
+        self._pending_events: t.Dict[Id, t.Tuple[Event, float]] = {}
+        self._lock = threading.Lock()
+
+    def discard(self):
+        now = time.time()
+        for k, c in self._registry.items():
+            if now - c.birth > self.discard_after:
+                self._registry.pop(k)
+        for k, v in self._pending_events.items():
+            if now - v[1] > self.discard_after:
+                self._pending_events.pop(k)
 
     def register(self, key, func: t.Callable[..., None], args=None, kwargs=None):
-        if key not in self._registry:
-            self._registry[key] = (func, args or (), kwargs or {})
-        else:
-            raise ValueError('event ID duplicated')
+        event = None
+        with self._lock:
+            if key not in self._registry and key not in self._pending_events:
+                self._registry[key] = _RegistryContainer(func, args or (), kwargs or {}, time.time())
+            elif key in self._pending_events:
+                event = self._pending_events.pop(key)
+            else:
+                raise ValueError('event ID duplicated')
+            self.discard()
+        if event:
+            func(event, *(args or ()), **(kwargs or {}))
 
     def dispatch(self, event: Event):
-        try:
-            func, args, kwargs = self._registry.pop(event.id)
-        except KeyError:
-            return False
-        func(event, *args, **kwargs)
-        return True
+        func = None
+        with self._lock:
+            try:
+                func, args, kwargs, birth = self._registry.pop(event.id)
+            except KeyError:
+                self._pending_events[event.id] = event
+        if func:
+            func(event, *args, **kwargs)

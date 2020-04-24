@@ -127,23 +127,6 @@ def validate_schema(schema_name=None, **methods):
     return decorator
 
 
-def validate_schema(schema_name=None, **methods):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args, **kw):
-            schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
-            if schema:
-                try:
-                    validate(request.json, schema)
-                except ValidationError as e:
-                    return {"error": str(e)}, 400
-            return f(*args, **kw)
-
-        return wrapper
-
-    return decorator
-
-
 def lock_catalog(f):
     @functools.wraps(f)
     def wrapper(*args, **kw):

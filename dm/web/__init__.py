@@ -14,6 +14,7 @@ from sqlalchemy import MetaData
 from werkzeug.exceptions import HTTPException
 
 from config import config_by_name
+from .extensions.flask_executor.executor import Executor
 from .helpers import BaseQueryJSON, run_in_background
 from ..use_cases.event_handler import EventHandler
 
@@ -33,23 +34,25 @@ meta = MetaData(naming_convention={
     "pk": "pk_%(table_name)s"
 })
 
+
 db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta, session_options=dict(scopefunc=scopefunc))
 # db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
+executor = Executor()
 
 
-class FlaskApp(Flask):
+class DimensigonApp(Flask):
 
     def start_background_tasks(self):
         from ..use_cases.log_sender import LogSender
-        from ..use_cases.background_tasks import process_catalog_route_table
+        from dm.web.background_tasks import process_catalog_route_table
         if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
             if self.extensions.get('scheduler') is None:
                 bs = BackgroundScheduler()
                 self.extensions['scheduler'] = bs
                 ls = LogSender()
                 self.extensions['log_sender'] = ls
-                from ..use_cases.background_tasks import process_check_new_versions
+                from dm.web.background_tasks import process_check_new_versions
                 bs.start()
 
                 if self.config.get('AUTOUPGRADE'):
@@ -65,11 +68,11 @@ class FlaskApp(Flask):
 
     def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
         self.start_background_tasks()
-        super(FlaskApp, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
+        super(DimensigonApp, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
 
 
 def create_app(config_name):
-    app = FlaskApp('dm')
+    app = DimensigonApp('dm')
     if isinstance(config_name, t.Mapping):
         app.config.from_mapping(config_name)
     elif config_name in config_by_name:
@@ -83,6 +86,7 @@ def create_app(config_name):
     # EXTENSIONS
     db.init_app(app)
     jwt.init_app(app)
+    executor.init_app(app)
     app.events = EventHandler()
 
     app.before_first_request_funcs = [app.start_background_tasks, set_initial_status]

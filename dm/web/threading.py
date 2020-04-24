@@ -1,9 +1,32 @@
+import collections
 from threading import *
 from typing import Optional, Callable, Any, Iterable, Mapping
 
 from flask import current_app
 
 from dm.web import db
+
+
+def merge_iter(arg, c=None):
+    c = c or {}
+    if id(arg) in c:
+        return c[id(arg)]
+    elif isinstance(arg, db.Model):
+        c.update({id(arg): db.session.merge(arg, load=False)})
+        return c[id(arg)]
+    elif isinstance(arg, tuple):
+        t = tuple(merge_iter(item, c) for item in arg)
+    elif isinstance(arg, list):
+        for i in range(len(arg)):
+            arg[i] = merge_iter(arg[i], c)
+        return arg
+    elif isinstance(arg, collections.MutableMapping):
+        new_map = arg.__class__()
+        for k, v in arg:
+            new_map[merge_iter(k, c)] = merge_iter(v, c)
+        return new_map
+    else:
+        return arg
 
 
 class FlaskThread(Thread):
@@ -19,17 +42,6 @@ class FlaskThread(Thread):
     def run(self) -> None:
         with self.app.app_context():
             if self.reattach:
-                args = []
-                for arg in self._args:
-                    if isinstance(arg, db.Model):
-                        db.session.expunge(arg)
-                        new = db.session.merge(arg, load=False)
-                        args.append(new)
-                    else:
-                        args.append(arg)
-                for k, v in self._kwargs:
-                    if isinstance(v, db.Model):
-                        db.session.expunge(v)
-                        new = db.session.merge(v, load=False)
-                        self._kwargs.update({k: new})
+                self._args = merge_iter(self._args)
+                self._kwargs = merge_iter(self._kwargs)
             super().run()

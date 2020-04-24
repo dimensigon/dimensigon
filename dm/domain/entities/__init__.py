@@ -19,6 +19,7 @@ from .route import Route
 from .server import Server
 from .service import Service
 from .software import Software, SoftwareServerAssociation
+from .step import Step
 from .transfer import Transfer, Status as TransferStatus
 from .user import User
 
@@ -38,6 +39,7 @@ __all__ = [
     "Server",
     "Software",
     "SoftwareServerAssociation",
+    "Step",
     "Transfer",
     "TransferStatus",
     "User",

@@ -1,19 +1,13 @@
-import json
-import re
 import uuid
 from unittest import TestCase
-from unittest.mock import patch
 
-import responses
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Server, Gate
 from dm.domain.entities.route import Route
-from dm.use_cases.background_tasks import TempRoute
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
-from dm.web.api_1_0.urls.use_cases import patch as n_patch
 
 
 class TestRoutes(TestCase):
@@ -708,3 +702,5 @@ class TestRoutes(TestCase):
     #                                                     'cost': 1}
     #                                                ]},
     #                                       'headers': self.headers}), kwargs)
+
+

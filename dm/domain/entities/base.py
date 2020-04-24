@@ -48,6 +48,8 @@ class UUIDEntityMixin:
     def __init__(self, **kwargs):
         if 'id' in kwargs:
             self.id = uuid.UUID(kwargs['id']) if isinstance(kwargs['id'], six.string_types) else kwargs['id']
+        else:
+            self.id = uuid.uuid4()
 
 
 class UUIDistributedEntityMixin(UUIDEntityMixin, DistributedEntityMixin):
@@ -79,6 +81,7 @@ class UUIDistributedEntityMixin(UUIDEntityMixin, DistributedEntityMixin):
             return o
         else:
             return cls(**kwargs)
+
 
 
 class EntityReprMixin:

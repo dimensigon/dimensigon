@@ -29,14 +29,13 @@ if os.environ.get('FLASK_COVERAGE'):
 
 from dm.domain.entities import *
 from dm.domain.entities import Dimension
-from dm.domain.entities.orchestration import Step
+from dm.domain.entities.step import Step
 from dm.web.network import pack_msg2, unpack_msg2
 from dm.web import create_app, db
 
 from dm.domain.entities.bootstrap import set_initial
 from dm.domain.entities.locker import Locker
 from dm.use_cases.interactor import upgrade_catalog
-from dm.use_cases.background_tasks import update_table_routing_cost
 from dm.utils.helpers import generate_symmetric_key, generate_dimension
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')

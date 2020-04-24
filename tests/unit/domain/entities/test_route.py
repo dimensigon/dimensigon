@@ -1,5 +1,4 @@
 from unittest import TestCase
-from unittest.mock import patch
 
 from dm.domain.entities import Server, Route
 from dm.web import create_app, db
@@ -89,8 +88,6 @@ class TestServer(TestCase):
         dest = Server('dest', port=8000)
         proxy = Server('proxy', port=8000)
         r = Route(destination=dest, proxy_server=proxy, cost=1)
-        with self.assertRaises(RuntimeError):
-            r.to_json()
 
         db.session.add_all([dest, proxy])
         db.session.commit()
