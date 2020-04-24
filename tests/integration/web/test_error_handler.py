@@ -27,7 +27,7 @@ class TestApi(TestCase):
         self.app_context.pop()
 
     def test_json_validation_error(self):
-        resp = self.client.post(url_for('api_1_0.locker'), json={}, headers=self.headers)
+        resp = self.client.post(url_for('api_1_0.locker_prevent'), json={}, headers=self.headers)
 
         self.assertIn('error', resp.json)
         self.assertTrue(resp.json['error'].startswith("'scope' is a required property"))
