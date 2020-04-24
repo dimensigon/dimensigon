@@ -1,5 +1,7 @@
+import typing as t
 from datetime import datetime
 
+from dm import defaults
 from dm.web import db
 
 
@@ -15,5 +17,7 @@ class Catalog(db.Model):
     def __repr__(self):
         return f'<{self.__class__.__name__}({self.entity}, {self.last_modified_at})>'
 
-
-
+    @staticmethod
+    def max_catalog(out=None) -> t.Union[datetime, str]:
+        catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
+        return catalog_ver.strftime(defaults.DATEMARK_FORMAT) if out is str else catalog_ver

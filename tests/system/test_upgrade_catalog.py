@@ -11,7 +11,6 @@ import dm.use_cases.exceptions as ue
 from dm.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate, Route
 from dm.domain.entities.bootstrap import set_initial
 from dm.use_cases.interactor import upgrade_catalog_from_server
-from dm.utils.typos import Params
 from dm.web import create_app, db
 
 
@@ -49,8 +48,8 @@ class TestUpgradeCatalog(TestCase):
 
         at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='mkdir', version=1,
                              action_type=ActionType.NATIVE,
-                             code='mkdir {dir}', parameters=Params({}), expected_output=None, expected_rc=None,
-                             system_kwargs=Params({}))
+                             code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+                             system_kwargs={})
         db.session.add(at1)
         db.session.commit()
 
@@ -63,8 +62,8 @@ class TestUpgradeCatalog(TestCase):
 
         at2 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'), name='rmdir', version=1,
                              action_type=ActionType.NATIVE,
-                             code='rmdir {dir}', parameters=Params({}), expected_output=None, expected_rc=None,
-                             system_kwargs=Params({}), last_modified_at=datetime.datetime(2019, 4, 1, 1))
+                             code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+                             system_kwargs={}, last_modified_at=datetime.datetime(2019, 4, 1, 1))
         at2_json = at2.to_json()
         del at2
 
@@ -121,13 +120,13 @@ class TestUpgradeCatalog(TestCase):
 
         at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='mkdir', version=1,
                              action_type=ActionType.NATIVE,
-                             code='mkdir {dir}', parameters=Params({}), expected_output=None, expected_rc=None,
-                             system_kwargs=Params({}), last_modified_at=datetime.datetime(2019, 4, 1, 0))
+                             code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+                             system_kwargs={}, last_modified_at=datetime.datetime(2019, 4, 1, 0))
 
         at2 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'), name='rmdir', version=1,
                              action_type=ActionType.NATIVE,
-                             code='rmdir {dir}', parameters=Params({}), expected_output=None, expected_rc=None,
-                             system_kwargs=Params({}), last_modified_at=datetime.datetime(2019, 4, 1, 1))
+                             code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+                             system_kwargs={}, last_modified_at=datetime.datetime(2019, 4, 1, 1))
 
         responses.add(method='GET',
                       url=re.compile('^' + s.url('api_1_0.catalog', data_mark='12345').replace('12345', '')),

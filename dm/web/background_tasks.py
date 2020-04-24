@@ -24,7 +24,7 @@ from dm.use_cases.lock import lock_scope
 from dm.utils import asyncio
 from dm.utils.helpers import get_filename_from_cd, md5, convert
 from dm.web import db
-from dm.web.network import async_get, HTTPBearerAuth, post, patch, ping, get
+from dm.web.network import async_get, HTTPBearerAuth, post, ping, get
 
 logger = logging.getLogger('dm.background')
 routing_logger = logging.getLogger('dm.background.routing')

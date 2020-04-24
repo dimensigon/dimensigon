@@ -87,6 +87,6 @@ class DataMarkError(CatalogError):
 
 class NoDataMarkSet(CatalogError):
     """
-    Error raised when catalog bypassed but no datamark passed into entity
+    Error raised when catalog bypassed but no datemark passed into entity
     """
     _id = 122

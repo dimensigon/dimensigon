@@ -4,6 +4,7 @@ from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
 
+from dm import defaults
 from dm.domain.entities import ActionTemplate, ActionType
 from dm.web import create_app, db
 
@@ -27,13 +28,22 @@ class TestApi(TestCase):
         self.app_context.pop()
 
     def test_to_from_json(self):
-        at = ActionTemplate(id=uuid.uuid4(), name='ActionTest2', version=1, action_type=ActionType.ORCHESTRATION,
+        now = datetime.datetime(2019, 4, 16, 12, 00, 00)
+        at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='ActionTest2', version=1,
+                            action_type=ActionType.ORCHESTRATION,
                             code='test code',
-                            last_modified_at=datetime.datetime.now())
+                            parameters={'dir': '/home'},
+                            last_modified_at=now)
 
         db.session.add(at)
 
         at_json = at.to_json()
+
+        self.assertDictEqual(dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='ActionTest2', version=1,
+                                  action_type='ORCHESTRATION', code='test code', parameters={'dir': '/home'},
+                                  expected_stdout=None, expected_stderr=None, expected_rc=None,
+                                  system_kwargs={},
+                                  last_modified_at=now.strftime(defaults.DATEMARK_FORMAT)), at_json)
 
         at_json['name'] = "ChangedAction"
 
@@ -59,15 +69,3 @@ class TestApi(TestCase):
 
         at = ActionTemplate.query.get(at_json['id'])
         self.assertEqual("ChangedAction", at.name)
-
-
-    def test_to_from_json_no_id(self):
-        at = ActionTemplate(name='ActionTest2', version=1, action_type=ActionType.ORCHESTRATION,
-                            code='test code',
-                            last_modified_at=datetime.datetime.now())
-
-        smashed = ActionTemplate.from_json(at.to_json())
-
-        self.assertEqual(at.id, smashed.id)
-
-        self.app_context.push()

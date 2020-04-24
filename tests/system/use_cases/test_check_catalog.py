@@ -12,14 +12,14 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, Locker
 from dm.domain.entities import Server, Dimension, Catalog
-from dm.use_cases.background_tasks import check_catalog
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
+from dm.web.background_tasks import check_catalog
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 
-@patch('dm.use_cases.background_tasks.dm_version', '1')
+@patch('dm.web.background_tasks.dm_version', '1')
 @patch('dm.web.routes.dm.__version__', '1')
 class TestLockScopeFullChain(TestCase):
 

@@ -9,9 +9,8 @@ from sqlalchemy import types
 from sqlalchemy.dialects.postgresql import UUID as pUUID
 from sqlalchemy.ext.mutable import MutableDict
 
-Kwargs = t.Union[t.Dict['str', t.Any]]
-Params = t.NewType('Params', t.Union[t.Dict['str', t.Any]])
-Id = t.TypeVar('Id', int, str, uuid.UUID)
+Kwargs = t.Union[t.Mapping['str', t.Any]]
+Id = t.TypeVar('Id', int, str, uuid.UUID, tuple)
 Ids = t.Sequence[Id]
 Id_or_Ids = t.Union[Id, Ids]
 

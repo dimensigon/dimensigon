@@ -1,95 +1,106 @@
-import datetime
 from unittest import TestCase, mock
 
-from dm.use_cases.deployment import UndoCommand, Execution, NativeOperation, Command
+from dm.use_cases.deployment import UndoCommand, Command
 
 
-class TestCommands(TestCase):
+class TestCommand(TestCase):
 
-    def test_undo_command(self):
-        with mock.patch.object(NativeOperation, 'execute') as mocked_imp:
-            mocked_imp.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                        start_time=datetime.datetime.now(),
-                                                        end_time=datetime.datetime.now() + datetime.timedelta(
-                                                            5 / (24 * 60 * 60)))
-            uc = UndoCommand(implementation=mocked_imp)
-            uc.invoke()
-            uc.invoke()
-            self.assertTrue(uc.success)
-            mocked_imp.execute.assert_called_once_with({})
+    def setUp(self) -> None:
+        self.mock_implementation = mock.Mock()
+        self.mock_undo_command = mock.Mock()
 
-            uc = UndoCommand(implementation=mocked_imp, params={})
+    def test_invoke(self):
+        with mock.patch('dm.use_cases.deployment.Command.success', new_callable=mock.PropertyMock) as mock_success:
+            mock_success.return_value = True
 
-            mocked_imp.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr',
-                                                        rc=0,
-                                                        start_time=datetime.datetime.now(),
-                                                        end_time=datetime.datetime.now() + datetime.timedelta(
-                                                            5 / (24 * 60 * 60)))
-            self.assertFalse(uc.invoke())
-            self.assertTrue(uc.undo())
+            c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,
+                        params={'param': 'a'},
+                        undo_on_error=False, id_=1)
+            r = c.invoke()
+            # call a second time to see if only one time is called
+            r = c.invoke()
+            self.mock_implementation.execute.assert_called_once_with({'param': 'a'}, timeout=None)
+            self.assertTrue(r)
 
-    def test_do_command_success(self):
-        mocked_undo_imp = mock.Mock()
-        mocked_imp = mock.Mock()
-        command = Command(implementation=mocked_imp, params={'timeout': 60}, undo_implementation=mocked_undo_imp)
+    def test_undo_command_succeed(self):
+        with mock.patch('dm.use_cases.deployment.Command.success', new_callable=mock.PropertyMock) as mock_success:
+            mock_success.return_value = True
+            type(self.mock_undo_command).success = mock.PropertyMock(return_value=None)
+            self.mock_undo_command.invoke.return_value = True
 
-        mocked_imp.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                    start_time=datetime.datetime.now(),
-                                                    end_time=datetime.datetime.now() + datetime.timedelta(
-                                                        5 / (24 * 60 * 60)))
+            c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,
+                        params={'param': 'a'},
+                        undo_on_error=False, id_=1)
+            r = c.undo()
+            self.mock_undo_command.invoke.assert_called_once()
+            self.assertTrue(r)
 
-        self.assertIsNone(command.success)
-        m = command.invoke()
-        self.assertIs(m, True)
-        mocked_imp.execute.assert_called_once_with({'timeout': 60})
+    def test_undo_command_not_succeed(self):
+        with mock.patch('dm.use_cases.deployment.Command.success', new_callable=mock.PropertyMock) as mock_success:
+            mock_success.return_value = False
+            type(self.mock_undo_command).success = mock.PropertyMock(return_value=None)
+            self.mock_undo_command.invoke.return_value = True
 
-        p = mock.PropertyMock(side_effect=[None, True])
-        type(mocked_undo_imp).success = p
-        mocked_undo_imp.invoke.return_value = True
+            c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,
+                        params={'param': 'a'},
+                        undo_on_error=False, id_=1)
+            r = c.undo()
+            self.mock_undo_command.invoke.assert_not_called()
+            self.assertIsNone(r)
+            c.undo_on_error = True
+            r = c.undo()
+            self.mock_undo_command.invoke.assert_called_once()
+            self.assertTrue(r)
 
-        m = command.undo()
-        self.assertIs(True, m)
+    def test_undo_command_invoke_not_executed(self):
+        with mock.patch('dm.use_cases.deployment.Command.success', new_callable=mock.PropertyMock) as mock_success:
+            mock_success.return_value = None
+            type(self.mock_undo_command).success = mock.PropertyMock(return_value=None)
+            self.mock_undo_command.invoke.return_value = True
 
-    def test_do_command_no_success(self):
-        mocked_undo_imp = mock.Mock()
-        mocked_imp = mock.Mock()
-        command = Command(implementation=mocked_imp, undo_implementation=mocked_undo_imp)
+            c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,
+                        params={'param': 'a'},
+                        undo_on_error=False, id_=1)
+            r = c.undo()
+            self.mock_undo_command.invoke.assert_not_called()
+            self.assertIsNone(r)
 
-        mocked_imp.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                    start_time=datetime.datetime.now(),
-                                                    end_time=datetime.datetime.now() + datetime.timedelta(
-                                                        5 / (24 * 60 * 60)))
+    def test_result(self):
+        type(self.mock_undo_command).success = mock.PropertyMock(return_value=True)
+        self.mock_undo_command.invoke.return_value = True
+        self.mock_undo_command._id.return_value = 2
+        type(self.mock_undo_command).result = mock.PropertyMock(return_value={2: {'a': 2}})
 
-        self.assertIsNone(command.success)
-        m = command.invoke()
-        self.assertIs(m, False)
-        mocked_imp.execute.assert_called_once_with({})
+        c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,
+                    params={'param': 'a'},
+                    undo_on_error=False, id_=1)
+        c._cp = {'success': True}
+        self.assertDictEqual({1: {'success': True}, 2: {'a': 2}}, c.result)
 
-        p = mock.PropertyMock(return_value=None)
-        type(mocked_undo_imp).success = p
 
-        m = command.undo()
-        mocked_undo_imp.invoke.assert_not_called()
-        self.assertIsNone(m)
+class TestUndoCommand(TestCase):
 
-    def test_do_command_success_with_error_undo(self):
-        mocked_undo_imp = mock.Mock()
-        mocked_imp = mock.Mock()
-        command = Command(implementation=mocked_imp, params={'timeout': 60}, undo_implementation=mocked_undo_imp)
+    def setUp(self) -> None:
+        self.mock_implementation = mock.Mock()
 
-        mocked_imp.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                    start_time=datetime.datetime.now(),
-                                                    end_time=datetime.datetime.now() + datetime.timedelta(
-                                                        5 / (24 * 60 * 60)))
+    def test_invoke(self):
+        completed_process = mock.Mock()
+        type(completed_process).success = mock.PropertyMock(return_value=True)
+        self.mock_implementation.execute.return_value = completed_process
+        uc = UndoCommand(implementation=self.mock_implementation, params={'param': 'a'}, id_=1)
 
-        self.assertIsNone(command.success)
-        m = command.invoke()
-        self.assertIs(m, True)
-        mocked_imp.execute.assert_called_once_with({'timeout': 60})
+        uc.invoke(timeout=10)
+        r = uc.invoke()
+        self.mock_implementation.execute.assert_called_once_with({'param': 'a'}, timeout=10)
+        self.assertTrue(r)
 
-        p = mock.PropertyMock(side_effect=[None, False])
-        type(mocked_undo_imp).success = p
-        mocked_undo_imp.invoke.return_value = False
+    def test_undo(self):
+        uc = UndoCommand(implementation=self.mock_implementation, params={'param': 'a'}, id_=1)
 
-        m = command.undo()
-        self.assertIs(False, m)
+        r = uc.undo()
+        self.assertTrue(r)
+
+    def test_execution(self):
+        uc = UndoCommand(implementation=self.mock_implementation, params={'param': 'a'}, id_=1)
+        uc._cp = {'success': True}
+        self.assertDictEqual({1: {'success': True}}, uc.result)

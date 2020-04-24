@@ -1,5 +1,6 @@
 import uuid
 from unittest import TestCase
+
 from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Log, Server
@@ -27,10 +28,7 @@ class TestServer(TestCase):
 
     def test_json(self):
         l = Log(source_server=self.src, target='/home/dimensigon/dimensigon/dm.log', destination_server=self.dst,
-                dest_folder='/home/dimensigon/dimensigon-node3')
-
-        with self.assertRaises(RuntimeError):
-            l_json = l.to_json()
+                dest_folder='/home/dimensigon/dimensigon-node3', id=uuid.UUID('11111111-2222-3333-4444-111111110001'))
 
         self.src.id = uuid.UUID('11111111-2222-3333-4444-555555550001')
         self.dst.id = uuid.UUID('11111111-2222-3333-4444-555555550002')
@@ -39,7 +37,8 @@ class TestServer(TestCase):
 
         l_json = l.to_json()
         self.assertDictEqual(
-            dict(src_server_id='11111111-2222-3333-4444-555555550001', target='/home/dimensigon/dimensigon/dm.log',
+            dict(id='11111111-2222-3333-4444-111111110001',
+                 src_server_id='11111111-2222-3333-4444-555555550001', target='/home/dimensigon/dimensigon/dm.log',
                  include=None,
                  exclude=None, dst_server_id='11111111-2222-3333-4444-555555550002',
                  dest_folder='/home/dimensigon/dimensigon-node3',

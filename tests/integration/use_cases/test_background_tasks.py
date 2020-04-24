@@ -11,15 +11,14 @@ import requests
 import responses
 from aioresponses import aioresponses
 from flask import url_for
-from sqlalchemy.util import namedtuple
 
 import dm
 from dm.domain.entities import Server, Software, SoftwareServerAssociation, Transfer, Route, Gate
 from dm.domain.entities.bootstrap import set_initial
-from dm.use_cases.background_tasks import process_check_new_versions, check_catalog, TempRoute, \
-    update_table_routing_cost
 from dm.use_cases.interactor import Dimension, TransferStatus
 from dm.web import create_app, db
+from dm.web.background_tasks import process_check_new_versions, check_catalog, TempRoute, \
+    update_table_routing_cost
 from dm.web.network import pack_msg
 
 gogs_content = """
@@ -95,15 +94,15 @@ class TestCheckNewVersions(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.use_cases.background_tasks.lock_scope')
-    @patch('dm.use_cases.background_tasks.subprocess.Popen')
-    @patch('dm.use_cases.interactor.os.path.exists')
-    @patch('dm.use_cases.background_tasks.md5')
+    @patch('dm.web.background_tasks.lock_scope')
+    @patch('dm.web.background_tasks.subprocess.Popen')
+    @patch('dm.web.background_tasks.os.path.exists')
+    @patch('dm.web.background_tasks.md5')
     @patch('dm.use_cases.interactor.open')
     @responses.activate
     def test_internet_upgrade(self, mock_open, mock_md5, mock_exists, mock_popen, mock_lock):
         import dm.use_cases.interactor
-        dm.use_cases.background_tasks.dm_version = '0.0.1'
+        dm.web.background_tasks.dm_version = '0.0.1'
         mock_lock.__enter__.return_value = None
 
         responses.add(method='GET',
@@ -127,15 +126,15 @@ class TestCheckNewVersions(TestCase):
               os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon-v0.1.a1.tar.gz'), '0.1a1'],),
             mock_popen.call_args[0])
 
-    @patch('dm.use_cases.background_tasks.lock_scope')
-    @patch('dm.use_cases.background_tasks.subprocess.Popen')
-    @patch('dm.use_cases.background_tasks.os.path.exists')
-    @patch('dm.use_cases.background_tasks.md5')
-    @patch('dm.use_cases.background_tasks.open')
+    @patch('dm.web.background_tasks.lock_scope')
+    @patch('dm.web.background_tasks.subprocess.Popen')
+    @patch('dm.web.background_tasks.os.path.exists')
+    @patch('dm.web.background_tasks.md5')
+    @patch('dm.web.background_tasks.open')
     @responses.activate
     def test_internet_not_upgrade(self, mock_open, mock_md5, mock_exists, mock_popen, mock_lock):
         import dm.use_cases.interactor
-        dm.use_cases.background_tasks.dm_version = '0.1'
+        dm.web.background_tasks.dm_version = '0.1'
         mock_lock.__enter__.return_value = None
 
         responses.add(method='GET',
@@ -156,14 +155,14 @@ class TestCheckNewVersions(TestCase):
 
         self.assertFalse(mock_popen.called)
 
-    @patch('dm.use_cases.background_tasks.lock_scope')
-    @patch('dm.use_cases.background_tasks.subprocess.Popen')
-    @patch('dm.use_cases.background_tasks.os.path.exists')
-    @patch('dm.use_cases.background_tasks.open')
+    @patch('dm.web.background_tasks.lock_scope')
+    @patch('dm.web.background_tasks.subprocess.Popen')
+    @patch('dm.web.background_tasks.os.path.exists')
+    @patch('dm.web.background_tasks.open')
     @responses.activate
     def test_no_internet_upgrade(self, mock_open, mock_exists, mock_popen, mock_lock):
         import dm.use_cases.interactor
-        dm.use_cases.background_tasks.dm_version = '0.1'
+        dm.web.background_tasks.dm_version = '0.1'
         mock_lock.__enter__.return_value = None
 
         responses.add(method='GET',
@@ -187,15 +186,15 @@ class TestCheckNewVersions(TestCase):
                            '0.2'],),
                          mock_popen.call_args[0])
 
-    @patch('dm.use_cases.background_tasks.lock_scope')
-    @patch('dm.use_cases.background_tasks.subprocess.Popen')
-    @patch('dm.use_cases.background_tasks.os.path.exists')
-    @patch('dm.use_cases.background_tasks.md5')
-    @patch('dm.use_cases.background_tasks.open')
+    @patch('dm.web.background_tasks.lock_scope')
+    @patch('dm.web.background_tasks.subprocess.Popen')
+    @patch('dm.web.background_tasks.os.path.exists')
+    @patch('dm.web.background_tasks.md5')
+    @patch('dm.web.background_tasks.open')
     @responses.activate
     def test_no_internet_no_upgrade(self, mock_open, mock_md5, mock_exists, mock_popen, mock_lock):
         import dm.use_cases.interactor
-        dm.use_cases.background_tasks.dm_version = '0.1'
+        dm.web.background_tasks.dm_version = '0.1'
         mock_lock.__enter__.return_value = None
 
         responses.add(method='GET',
@@ -208,14 +207,14 @@ class TestCheckNewVersions(TestCase):
 
         self.assertFalse(mock_popen.called)
 
-    @patch('dm.use_cases.background_tasks.lock_scope')
-    @patch('dm.use_cases.background_tasks.subprocess.Popen')
-    @patch('dm.use_cases.background_tasks.os.path.exists')
-    @patch('dm.use_cases.background_tasks.open')
+    @patch('dm.web.background_tasks.lock_scope')
+    @patch('dm.web.background_tasks.subprocess.Popen')
+    @patch('dm.web.background_tasks.os.path.exists')
+    @patch('dm.web.background_tasks.open')
     @responses.activate
     def test_no_internet_upgrade_remote_server(self, mock_open, mock_exists, mock_popen, mock_lock):
         import dm.use_cases.interactor
-        dm.use_cases.background_tasks.dm_version = '0.1'
+        dm.web.background_tasks.dm_version = '0.1'
         mock_lock.__enter__.return_value = None
 
         responses.add(method='GET',
@@ -270,7 +269,7 @@ class TestCheckCatalog(TestCase):
 
     @patch('dm.use_cases.interactor.lock_scope')
     @patch('dm.domain.entities.get_now')
-    @patch('dm.use_cases.background_tasks.upgrade_catalog_from_server')
+    @patch('dm.web.background_tasks.upgrade_catalog_from_server')
     @aioresponses()
     def test_check_catalog(self, mock_upgrade, mock_now, mock_lock, m):
         mock_lock.__enter__.return_value = None
@@ -293,7 +292,7 @@ class TestCheckCatalog(TestCase):
 
     @patch('dm.use_cases.interactor.lock_scope')
     @patch('dm.domain.entities.get_now')
-    @patch('dm.use_cases.background_tasks.upgrade_catalog_from_server')
+    @patch('dm.web.background_tasks.upgrade_catalog_from_server')
     @aioresponses()
     def test_check_catalog_no_upgrade(self, mock_upgrade, mock_now, mock_lock, m):
         mock_lock.__enter__.return_value = None
@@ -338,8 +337,8 @@ class TestUpdateTableRoutingCost(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.use_cases.interactor.check_host', autospec=True)
-    @patch('dm.use_cases.interactor.ping', autospec=True)
+    @patch('dm.web.background_tasks.check_host', autospec=True)
+    @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario1(self, mocked_ping, mocked_check_host):
         s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1')
@@ -411,8 +410,8 @@ class TestUpdateTableRoutingCost(TestCase):
         self.assertIsNone(s3.route)
         self.assertDictEqual({s2: (None, g2, 0)}, changed_routes)
 
-    @patch('dm.use_cases.interactor.check_host', autospec=True)
-    @patch('dm.use_cases.interactor.ping', autospec=True)
+    @patch('dm.web.background_tasks.check_host', autospec=True)
+    @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario2(self, mocked_ping, mocked_check_host):
         s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
@@ -479,8 +478,8 @@ class TestUpdateTableRoutingCost(TestCase):
 
         self.assertDictEqual({s3: (s2, None, 1)}, changed_routes)
 
-    @patch('dm.use_cases.interactor.check_host', autospec=True)
-    @patch('dm.use_cases.interactor.ping', autospec=True)
+    @patch('dm.web.background_tasks.check_host', autospec=True)
+    @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario3(self, mocked_ping, mocked_check_host):
         # Node 1 loses connection to gate's Node 2 and sets the second gate as default gate
@@ -543,8 +542,8 @@ class TestUpdateTableRoutingCost(TestCase):
         self.assertDictEqual({s2: TempRoute(
             None, g22, 0)}, changed_routes)
 
-    @patch('dm.use_cases.interactor.check_host', autospec=True)
-    @patch('dm.use_cases.interactor.ping', autospec=True)
+    @patch('dm.web.background_tasks.check_host', autospec=True)
+    @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario4(self, mocked_ping, mocked_check_host):
         s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
@@ -612,8 +611,8 @@ class TestUpdateTableRoutingCost(TestCase):
         self.assertDictEqual({s3: TempRoute(
             None, None, None)}, changed_routes)
 
-    @patch('dm.use_cases.interactor.check_host', autospec=True)
-    @patch('dm.use_cases.interactor.ping', autospec=True)
+    @patch('dm.web.background_tasks.check_host', autospec=True)
+    @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario5(self, mocked_ping, mocked_check_host):
         s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
@@ -663,8 +662,8 @@ class TestUpdateTableRoutingCost(TestCase):
 
         self.assertDictEqual({}, changed_routes)
 
-    @patch('dm.use_cases.interactor.check_host', autospec=True)
-    @patch('dm.use_cases.interactor.ping', autospec=True)
+    @patch('dm.web.background_tasks.check_host', autospec=True)
+    @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario6(self, mocked_ping, mocked_check_host):
         # Nodes have localhost and node2 is not a neighbour anymore
@@ -733,8 +732,8 @@ class TestUpdateTableRoutingCost(TestCase):
         self.assertDictEqual({s2: TempRoute(
             None, None, None)}, changed_routes)
 
-    @patch('dm.use_cases.interactor.check_host', autospec=True)
-    @patch('dm.use_cases.interactor.ping', autospec=True)
+    @patch('dm.web.background_tasks.check_host', autospec=True)
+    @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario6(self, mocked_ping, mocked_check_host):
         # Node have localhost and node2 appears as a new neighbour

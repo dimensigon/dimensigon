@@ -7,8 +7,8 @@ from jsonschema import validate, ValidationError
 
 from dm.domain.entities import Server, Scope
 from dm.network.exceptions import NotValidMessage
-from dm.use_cases.lock import lock_scope, lock, unlock
 from dm.use_cases import exceptions as ue
+from dm.use_cases.lock import lock, unlock
 from dm.web import db
 from dm.web.errors import UnknownServer
 from dm.web.network import unpack_msg, pack_msg, unpack_msg2, pack_msg2
@@ -108,23 +108,6 @@ def securizer(func):
         return rv
 
     return wrapper_decorator
-
-
-def validate_schema(schema_name=None, **methods):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args, **kw):
-            schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
-            if schema:
-                try:
-                    validate(request.json, schema)
-                except ValidationError as e:
-                    return {"error": str(e)}, 400
-            return f(*args, **kw)
-
-        return wrapper
-
-    return decorator
 
 
 def validate_schema(schema_name=None, **methods):
