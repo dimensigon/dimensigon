@@ -47,15 +47,15 @@ catalog = threading.local()
 
 @contextmanager
 def bypass_datamark_update():
-    update_datamark(False)
+    update_datemark(False)
     try:
         yield None
     finally:
-        update_datamark(True)
+        update_datemark(True)
 
 
-def update_datamark(set):
-    catalog.datamark = set
+def update_datemark(set):
+    catalog.datemark = set
 
 
 def set_events():
@@ -63,7 +63,7 @@ def set_events():
         def receive_before_insert(mapper, connection, target):
             if not hasattr(catalog, 'data'):
                 catalog.data = {}
-            if getattr(catalog, 'datamark', True):
+            if getattr(catalog, 'datemark', True):
                 target.last_modified_at = get_now()
             if not target.__class__ in catalog.data:
                 catalog.data.update({target.__class__: target.last_modified_at})
@@ -76,7 +76,7 @@ def set_events():
             if object_session(target).is_modified(target, include_collections=False):
                 if not hasattr(catalog, 'data'):
                     catalog.data = {}
-                if getattr(catalog, 'datamark', True):
+                if getattr(catalog, 'datemark', True):
                     target.last_modified_at = get_now()
                 if not target.__class__ in catalog.data:
                     catalog.data.update({target.__class__: target.last_modified_at})

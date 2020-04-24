@@ -11,17 +11,29 @@ schema_healthcheck = {
     "required": ["action"]
 }
 
-schema_lock = {
+locker_prevent_post = {
     "type": "object",
     "properties": {
         "scope": {"type": "string",
                   "pattern": f"^({'|'.join([s.name for s in Scope])})$"},
         "applicant": {"type": ["object", "array", "string"]},
-        "action": {"type": "string",
-                   "pattern": f"^(PREVENT|LOCK|UNLOCK)$"}
+        "datemark": {"type": "string"},
     },
-    "required": ["scope", "applicant", "action"]
+    "required": ["scope", "applicant", "datemark"],
+    "additionalProperties": False
 }
+
+locker_unlock_lock_post = {
+    "type": "object",
+    "properties": {
+        "scope": {"type": "string",
+                  "pattern": f"^({'|'.join([s.name for s in Scope])})$"},
+        "applicant": {"type": ["object", "array", "string"]},
+    },
+    "required": ["scope", "applicant"],
+    "additionalProperties": False
+}
+
 
 schema_software_send = {
     "type": "object",
