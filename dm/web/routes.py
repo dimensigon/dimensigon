@@ -7,10 +7,8 @@ from flask_jwt_extended import create_access_token, create_refresh_token, jwt_re
 
 import dm
 from dm import defaults
-from dm.domain import entities
-from dm.domain.entities import Server
+from dm.domain.entities import Server, Catalog
 from dm.domain.entities.user import User
-from dm.web import db
 from dm.web.decorators import forward_or_dispatch, validate_schema
 from dm.web.json_schemas import schema_healthcheck
 from elevator import __version__ as elevator_ver
@@ -43,13 +41,13 @@ def healthcheck():
         # catalog_ver = current_app.catalog_manager.max_data_mark
         # if catalog_ver:
         #     catalog_ver = current_app.catalog_manager.max_data_mark.strftime(current_app.catalog_manager.format)
-        catalog_ver = db.session.query(db.func.max(entities.Catalog.last_modified_at)).scalar()
+        catalog_ver = Catalog.max_catalog()
         return {"version": dm.__version__,
                 "elevator_version": elevator_ver,
                 "catalog_version": catalog_ver.strftime(defaults.DATEMARK_FORMAT) if catalog_ver else None,
-                "scheduler": "running" if getattr(getattr(current_app, 'scheduler', None), 'running',
+                "scheduler": "running" if getattr(current_app.extensions.get('scheduler'), 'running',
                                                   None) else "stopped",
-                "neighbours": [str(server.id) for server in Server.get_neighbours()],
+                "neighbours": [str(server) for server in Server.get_neighbours()],
                 "services": []
                 }
     elif request.method == 'POST':

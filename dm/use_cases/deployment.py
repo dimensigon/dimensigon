@@ -1,180 +1,30 @@
-import re
-import subprocess
+import base64
+import concurrent
+import logging
+import pickle
 import threading
+import time
 import typing as t
 from abc import ABC, abstractmethod
+from collections import ChainMap
+from concurrent.futures.process import ProcessPoolExecutor
 from datetime import datetime
+from functools import partial
 
-from dataclasses import dataclass
+from flask import current_app
 
+from dm import defaults
+from dm.domain.entities import Server, Orchestration, Step
+from dm.use_cases.event_handler import Event
+from dm.use_cases.operations import CompletedProcess, IOperationEncapsulation, create_operation
 from dm.utils.dag import DAG
-from dm.utils.helpers import convert
-from dm.utils.typos import Params
+from dm.utils.typos import Kwargs, Id
+from dm.web.network import post
+
+# if t.TYPE_CHECKING:
 
 
-@dataclass
-class Execution:
-    success: bool = None
-    stdout: str = None
-    stderr: str = None
-    rc: int = None
-    start_time: datetime = None
-    end_time: datetime = None
-
-
-L_DELIMITER_VAR = '{'
-R_DELIMITER_VAR = '}'
-
-
-class IOperationEncapsulation(ABC):
-
-    def __init__(self, code: str, expected_output: str = None, expected_rc: int = None, system_kwargs: Params = None):
-        """
-        Operation Initializer
-
-        Parameters
-        ----------
-        code:
-            Code to be executed
-        expected_output:
-            Expected output to compare from execution output. If None it won't be compared
-        expected_rc:
-            Expected return code to be compared with the execution return code. If None it won't be compared
-        system_kwargs:
-            system arguments to be passed to the commend execution, not the variables inside the code
-        """
-        self.code = code
-        self.expected_output = expected_output
-        self.expected_rc = expected_rc
-        self.system_kwargs = system_kwargs or {}
-
-    @abstractmethod
-    def execute(self, params: Params) -> Execution:
-        """
-        Execution process
-        Parameters
-        ----------
-        params:
-            params to be passed through the execution
-
-        Returns
-        -------
-        Execution:
-            dataclass containing all the information from the result execution
-        """
-
-
-class TestOperation(IOperationEncapsulation):
-    def execute(self, params: Params) -> Execution:
-        return Execution(params.get('success', True), stdout=params.get('stdout', 'stdout'),
-                         stderr=params.get('stderr', 'stderr'), rc=params.get('rc', 0),
-                         start_time=params.get('start_time', datetime.now()),
-                         end_time=params.get('end_time', datetime.now()))
-
-
-class AnsibleOperation(IOperationEncapsulation):
-    def execute(self, params: Params) -> Execution:
-        _params = convert(params)
-        tokens = self.code.split()
-        result = Execution()
-
-        for i in range(len(tokens)):
-            if tokens[i][0:len(L_DELIMITER_VAR)] == L_DELIMITER_VAR and tokens[i][
-                                                                        -len(R_DELIMITER_VAR):] == R_DELIMITER_VAR:
-                try:
-                    tokens[i] = eval('_params.' + str(tokens[i][len(L_DELIMITER_VAR):-len(R_DELIMITER_VAR)]))
-                except KeyError:
-                    raise LookupError(
-                        f"Unable to find variable '{str(tokens[i][len(L_DELIMITER_VAR):-len(R_DELIMITER_VAR)])}'")
-
-        result.start_time = datetime.now()
-        system_kwargs = self.system_kwargs.copy()
-
-        timeout = system_kwargs.pop('timeout', 600)
-
-        tokens = ('ansible-playbook', '-i', '"localhost,"', '-c', 'local') + tuple(tokens)
-        try:
-            result.rc, result.stdout, result.stderr = subprocess.run(tokens, shell=True, capture_output=True,
-                                                                     **system_kwargs, timeout=timeout)
-        except (subprocess.TimeoutExpired, ValueError) as e:
-            result.stderr = f"{e.__class__.__name__}{e.args}"
-            result.success = False
-        finally:
-            result.end_time = datetime.now()
-
-        if result.success is None:
-            if self.expected_output is not None and self.expected_rc is not None:
-                if re.search(self.expected_output, result.stdout) \
-                        and result.rc == self.expected_rc:
-                    result.success = True
-            elif self.expected_output is not None:
-                if re.search(self.expected_output, result.stdout):
-                    result.success = True
-            elif self.expected_rc is not None:
-                if result.rc == self.expected_rc:
-                    result.success = True
-            else:
-                result.success = True
-
-        return result
-
-
-class PythonOperation(IOperationEncapsulation):
-    def execute(self, params: Params) -> Execution:
-        pass
-
-
-class NativeOperation(IOperationEncapsulation):
-
-    def execute(self, params: Params) -> Execution:
-        _params = convert(params)
-        tokens = self.code.split()
-        result = Execution()
-
-        for i in range(len(tokens)):
-            if tokens[i][0:len(L_DELIMITER_VAR)] == L_DELIMITER_VAR and tokens[i][
-                                                                        -len(R_DELIMITER_VAR):] == R_DELIMITER_VAR:
-                try:
-                    tokens[i] = eval('_params.' + str(tokens[i][len(L_DELIMITER_VAR):-len(R_DELIMITER_VAR)]))
-                except KeyError:
-                    raise LookupError(
-                        f"Unable to find variable '{str(tokens[i][len(L_DELIMITER_VAR):-len(R_DELIMITER_VAR)])}'")
-
-        result.start_time = datetime.now()
-        system_kwargs = self.system_kwargs.copy()
-
-        timeout = system_kwargs.pop('timeout', 300)
-
-        try:
-            result.rc, result.stdout, result.stderr = subprocess.run(tokens, shell=True, capture_output=True,
-                                                                     **system_kwargs, timeout=timeout)
-        except (subprocess.TimeoutExpired, ValueError) as e:
-            result.stderr = f"{e.__class__.__name__}{e.args}"
-            result.success = False
-        finally:
-            result.end_time = datetime.now()
-
-        if result.success is None:
-            if self.expected_output is not None and self.expected_rc is not None:
-                if re.search(self.expected_output, result.stdout) \
-                        and result.rc == self.expected_rc:
-                    result.success = True
-            elif self.expected_output is not None:
-                if re.search(self.expected_output, result.stdout):
-                    result.success = True
-            elif self.expected_rc is not None:
-                if result.rc == self.expected_rc:
-                    result.success = True
-            else:
-                result.success = True
-
-        return result
-
-
-class OrchestrationOperation(IOperationEncapsulation):
-
-    def execute(self, params: Params) -> Execution:
-        pass
+logger = logging.getLogger('dm.deployment')
 
 
 class ICommand(ABC):
@@ -193,7 +43,7 @@ class ICommand(ABC):
         """
 
     @property
-    def id(self) -> int:
+    def id(self) -> Id:
         """
         Property that returns the ID of the command
         Returns
@@ -204,17 +54,17 @@ class ICommand(ABC):
 
     @property
     @abstractmethod
-    def execution(self) -> t.Dict[int, Execution]:
+    def result(self) -> t.Dict[Id, CompletedProcess]:
         """
-        Property to get all the executions
+        Property to get all the results
 
         Returns
         -------
-        dict with all the executions
+        dict with all the results
         """
 
     @abstractmethod
-    def invoke(self) -> bool:
+    def invoke(self, timeout=None) -> bool:
         """
         Implement the do process. If the process ends as expected it must set _success to true.
 
@@ -225,7 +75,7 @@ class ICommand(ABC):
         """
 
     @abstractmethod
-    def undo(self) -> t.Optional[bool]:
+    def undo(self, timeout=None) -> t.Optional[bool]:
         """
         Method to implement the undo process. Executed only if success is true
 
@@ -236,17 +86,19 @@ class ICommand(ABC):
         """
 
     def __repr__(self):
-        return f"{self.__class__.__name__}{self.id}"
+        return f"{self.__class__.__name__} {self.id}"
 
 
 class UndoCommand(ICommand):
-    def __init__(self, implementation: IOperationEncapsulation, params: Params = None, id_=None):
+    def __init__(self, implementation: IOperationEncapsulation, params: Kwargs = None, id_=None,
+                 stop_on_error: bool = None):
         super().__init__(id_)
-        self.params = params or {}
         self.implementation = implementation
-        self._execution: Execution = None
+        self.params = params or {}
+        self.stop_on_error = stop_on_error
+        self._cp: CompletedProcess = None
 
-    def invoke(self) -> bool:
+    def invoke(self, timeout=None) -> bool:
         """
         Executes the code once
 
@@ -254,169 +106,71 @@ class UndoCommand(ICommand):
         -------
         None
         """
-        if not self._execution:
-            self._execution = self.implementation.execute(self.params)
+        if not self._cp:
+            self._cp = self.implementation.execute(self.params, timeout=timeout)
         return self.success
 
     @property
-    def execution(self) -> t.Dict[int, Execution]:
-        return {self.id: self._execution}
+    def result(self) -> t.Dict[Id, CompletedProcess]:
+        return {self.id: self._cp}
 
     @property
     def success(self) -> t.Optional[bool]:
-        return getattr(self._execution, 'success', None)
+        return getattr(self._cp, 'success', None)
 
-    def undo(self) -> t.Optional[bool]:
+    def undo(self, timeout=None) -> t.Optional[bool]:
         return True
 
     def __iter__(self):
         return [self]
 
 
-class CompositeCommand(ICommand):
-
-    def __init__(self, dict_tree: t.Dict[ICommand, t.List[ICommand]], undo_on_error: bool = False, force_all=False,
-                 id_=None, async_operator=None):
-        """
-
-        Parameters
-        ----------
-        dict_tree:
-            dict tree containing command nodes as keys and it's neighbours as a list of commands. See examples for more
-            information
-        undo_on_error:
-            executes the undo process if the command ended up with error
-        force_all:
-            executes all the commands regardless if a command success or fails
-        id_:
-            command identifier
-        async_operator: dm.utils.async_operator.AsyncOperator
-            async operator that will execute the invokes in parallel
-        """
-        super().__init__(id_)
-        self._dag = DAG().from_dict_of_lists(dict_tree)
-        self.undo_on_error = undo_on_error
-        self.force_all = force_all
-        self.ao = async_operator
-
-    @property
-    def success(self) -> t.Optional[bool]:
-        success_list = [n.success for n in self._dag]
-        if success_list == [None] * len(success_list):
-            return None
-        elif success_list == [True] * len(success_list):
-            return True
-        else:
-            return False
-
-    def invoke(self) -> bool:
-        res = []
-        level = 1
-        while level <= self._dag.depth and (all(res) is True or self.force_all is True):
-            commands = self._dag.get_nodes_at_level(level)
-            if len(commands) == 1:
-                res.append(commands[0].invoke())
-                if res[-1] is not True and self.force_all is False:
-                    break
-            else:
-                task_ids = []
-                for command in commands:
-                    if self.ao:
-                        t_id = self.ao.register(async_proc=command.invoke,
-                                                callback=lambda data: res.append(data.returndata))
-                        task_ids.append(t_id)
-                    else:
-                        res.append(command.invoke())
-                        if res[-1] is not True and self.force_all is False:
-                            break
-                if self.ao and len(commands) > 1:
-                    # TODO MEDIUM how to pass timeout and check for running processes health (in case communication with a remote server dies)
-                    ended = self.ao.wait_tasks(task_ids)
-                    if not ended:
-                        # timeout reached
-                        raise TimeoutError('Timeout reached while command execution')
-                    if all(res) is not True and self.force_all is False:
-                        break
-            level += 1
-        return all(res)
-
-    def undo(self) -> t.Optional[bool]:
-        """
-        Executes undo operation
-
-        Returns
-        -------
-        bool:
-            True if all undo commands that run ended up succesfully
-            False if any undo command ended up badly
-            None if undo operation not executed
-        """
-        res = None
-        level = self._dag.depth
-        while level > 0 and res is not False:
-            for command in self._dag.get_nodes_at_level(level):
-                res = command.undo()
-                if res is False and self.force_all is False:
-                    break
-            level -= 1
-        return res
-
-    @property
-    def execution(self) -> t.Dict[int, Execution]:
-        e = {}
-        for n in self._dag.nodes:
-            if n.success is not None:
-                e.update(n.execution)
-        return e
-
-    def __len__(self):
-        return len(self._dag)
-
-    def __iter__(self):
-        return self._dag
-
-
 class Command(ICommand):
 
     def __init__(self, implementation: IOperationEncapsulation,
-                 undo_implementation: t.Union[CompositeCommand, UndoCommand],
-                 params: Params = None, undo_on_error: bool = False, id_=None):
+                 undo_command: t.Union['CompositeCommand', UndoCommand],
+                 stop_on_error: bool = None, stop_undo_on_error: bool = None, undo_on_error: bool = True,
+                 params: Kwargs = None, id_=None):
         """
         
         Parameters
         ----------
         implementation:
             operation to perform.
-        undo_implementation:
-            undo operation to perform
-        params
-        undo_on_error
+        undo_command:
+            undo command
+        params:
+            params used to execute the implementation
+        undo_on_error:
+            sets whether to execute "undo" function when "invoke" terminated incorrectly
         """
         super().__init__(id_)
         self.implementation = implementation
         self.params = params or {}
-        self.undo_implementation = undo_implementation
+        self.undo_command = undo_command
+        self.stop_on_error = stop_on_error
+        self.stop_undo_on_error = stop_undo_on_error
         self.undo_on_error = undo_on_error
-        self._execution: t.Optional[Execution] = None
+        self._cp: t.Optional[CompletedProcess] = None
 
     @property
     def success(self) -> t.Optional[bool]:
-        return getattr(self._execution, 'success', None)
+        return getattr(self._cp, 'success', None)
 
     @property
-    def execution(self) -> t.Dict[int, Execution]:
+    def result(self) -> t.Dict[Id, CompletedProcess]:
         e = {}
-        e.update({self.id: self._execution})
-        if self.undo_implementation.success is not None:
-            e.update(self.undo_implementation.execution)
+        e.update({self.id: self._cp})
+        if self.undo_command.success is not None:
+            e.update(self.undo_command.result)
         return e
 
-    def invoke(self) -> t.Optional[bool]:
-        if not self._execution:
-            self._execution = self.implementation.execute(self.params)
+    def invoke(self, timeout=None) -> t.Optional[bool]:
+        if not self._cp:
+            self._cp = self.implementation.execute(self.params, timeout=timeout)
         return self.success
 
-    def undo(self) -> t.Optional[bool]:
+    def undo(self, timeout=None) -> t.Optional[bool]:
         """
         Executes undo operation
 
@@ -428,83 +182,252 @@ class Command(ICommand):
             None if undo operation not executed
         """
         if (self.success is True or (
-                self.success is False and self.undo_on_error)) and self.undo_implementation.success is None:
-            return self.undo_implementation.invoke()
+                self.success is False and self.undo_on_error)) and self.undo_command.success is None:
+            return self.undo_command.invoke(timeout=timeout)
         else:
-            return self.undo_implementation.success
+            return self.undo_command.success
 
     def __iter__(self):
         return [self]
 
 
-class ProxyCommand(ICommand):
+class CompositeCommand(ICommand):
 
-    def __init__(self, mediator, server, implementation, undo_implementation, params=None, undo_on_error=False,
-                 id_=None, timeout=300):
+    def __init__(self, dict_tree: t.Dict[ICommand, t.List[ICommand]],
+                 stop_on_error: bool, stop_undo_on_error: bool = None,
+                 id_=None, executor: concurrent.futures.Executor = None, timeout: t.Union[int, float] = None):
         """
+
         Parameters
         ----------
-        mediator: dm.use_cases.mediator.Mediator
-            mediator to send commands
-        server: Server
-            server to execute the command
-        implementation: IOperationEncapsulation
-            operation to perform.
-        undo_implementation: t.Union[CompositeCommand, UndoCommand]
-            undo operation to perform
-        params: Params
-            params to pass to the execution
-        undo_on_error: bool
-            if the invoke ended up with an error, the undo process will be executed if undo_on_error is True
-        id_: int
+        dict_tree:
+            dict tree containing command nodes as keys and it's neighbours as a list of commands. See examples for more
+            information
+        undo_on_error:
+            executes the undo process even if the command ended up with error
+        stop_on_error:
+            executes all the commands regardless if a command succeed or fail
+        stop_undo_on_error:
+            executes all the undo commands regardless if an undo command succeed or fail
+        id_:
             command identifier
-        timeout: int
-            timeout when waiting response from remote server when invoke and undo executed
+        executor:
+            async call executor. defaults to concurrent.futures.process.ProcessPoolExecutor
         """
-        self._command = Command(implementation=implementation, undo_implementation=undo_implementation,
-                                params=params, undo_on_error=undo_on_error, id_=id_)
-        self._mediator = mediator
-        self._server = server
-        self._execution = {}
-        self._completion_invoke_event = threading.Event()
-        self._completion_undo_event = threading.Event()
-        self._block = True
+        super().__init__(id_)
+        self._dag = DAG().from_dict_of_lists(dict_tree)
+        self.stop_on_error = stop_on_error
+        self.stop_undo_on_error = stop_undo_on_error
+        self.executor = executor or ProcessPoolExecutor(max_workers=4)
         self.timeout = timeout
 
     @property
     def success(self) -> t.Optional[bool]:
-        return getattr(self._execution, 'success', None)
+        success_list = [n.success for n in self._dag]
+        if success_list == [None] * len(success_list):
+            return None
+        elif success_list == [True] * len(success_list):
+            return True
+        else:
+            return False
+
+    def invoke(self, timeout=None) -> bool:
+        res = []
+        stop = False
+        level = 1
+        timeout = timeout or self.timeout
+        start = time.time()
+        while level <= self._dag.depth:
+            commands = self._dag.get_nodes_at_level(level)
+            duration = time.time() - start
+            left = max(timeout - duration, 0) if timeout else None
+            if len(commands) == 1:
+                r = commands[0].invoke(timeout=left)
+                res.append(r)
+                stop_on_error = commands[0].stop_on_error if commands[0].stop_on_error is not None \
+                    else self.stop_on_error
+                if r is False and stop_on_error is True:
+                    break
+            else:
+                futures = {}
+
+                for command in commands:
+                    futures.update(
+                        {command.id: self.executor.submit(command.invoke, timeout=left)})
+
+                stop = None
+                while len(futures) > 0 and (left is None or (time.time() - start) < left) and stop is not True:
+                    for cmd_id, future in dict(futures).items():
+                        r = None
+                        try:
+                            r = future.result(timeout=0.5)
+                        except concurrent.futures.TimeoutError:
+                            pass
+                        except Exception as e:
+                            logger.exception(f"Error while executing step {cmd_id}")
+                            del futures[cmd_id]
+                            r = False
+                        else:
+                            del futures[cmd_id]
+                        if r is not None:
+                            res.append(r)
+                            cmd = list(filter(lambda c: c.id == cmd_id, commands))[0]
+                            stop_on_error = cmd.stop_on_error if cmd.stop_on_error is not None else self.stop_on_error
+                            if r is False and stop_on_error is True:
+                                stop = True
+
+                    duration = time.time() - start
+                    left = max(timeout - duration, 0) if timeout else None
+
+                if stop is True or (timeout is not None and (time.time() - start) > timeout):
+                    break
+            level += 1
+        return all(res) if len(res) > 0 else None
+
+    def undo(self, timeout=None) -> t.Optional[bool]:
+        """
+        Executes undo operation
+
+        Returns
+        -------
+        bool:
+            True if all undo commands that run ended up succesfully
+            False if any undo command ended up badly
+            None if undo operation not executed
+        """
+        if self.stop_undo_on_error is None:
+            raise RuntimeError(f'stop_undo_on_error not set for command {self.id}')
+        res = []
+        level = self._dag.depth
+        start = time.time()
+        duration = time.time() - start
+        left = max(timeout - duration, 0) if timeout else None
+        while level > 0 and (left is None or (time.time() - start) < left):
+            commands = self._dag.get_nodes_at_level(level)
+            duration = time.time() - start
+            left = max(timeout - duration, 0) if timeout else None
+            if len(commands) == 1:
+                r = commands[0].undo(timeout=left)
+                if r is not None:
+                    res.append(r)
+                stop_undo_on_error = commands[0].stop_undo_on_error if commands[0].stop_undo_on_error is not None \
+                    else self.stop_undo_on_error
+                if r is False and stop_undo_on_error is True:
+                    break
+            else:
+                futures = {}
+
+                for command in commands:
+                    futures.update(
+                        {command.id: self.executor.submit(command.undo, timeout=left)})
+
+                stop = None
+                while len(futures) > 0 and (left is None or (time.time() - start) < left):
+                    for cmd_id, future in dict(futures).items():
+                        r = None
+                        try:
+                            r = future.result(timeout=0.5)
+                        except concurrent.futures.TimeoutError:
+                            pass
+                        except Exception as e:
+                            logger.exception(f"Error while executing step {cmd_id}")
+                            del futures[cmd_id]
+                            r = False
+                        else:
+                            del futures[cmd_id]
+                        if r is not None:
+                            res.append(r)
+                            cmd = list(filter(lambda c: c.id == cmd_id, commands))[0]
+                            stop_undo_on_error = cmd.stop_undo_on_error if cmd.stop_undo_on_error is not None \
+                                else self.stop_undo_on_error
+                            if r is False and cmd.stop_undo_on_error is True:
+                                stop = True
+                    duration = time.time() - start
+                    left = max(timeout - duration, 0) if timeout else None
+
+                if stop is True or (timeout is not None and (time.time() - start) > timeout):
+                    break
+            level -= 1
+        return all(res) if len(res) > 0 else None
 
     @property
-    def execution(self) -> t.Dict[int, Execution]:
-        return self._execution
+    def result(self) -> t.Dict[Id, CompletedProcess]:
+        e = {}
+        for n in self._dag.nodes:
+            if n.success is not None:
+                e.update(n.result)
+        return e
+
+    def __len__(self):
+        return len(self._dag)
+
+    def __iter__(self):
+        return self._dag
+
+
+class ProxyMixin(object):
+
+    def __init__(self, server: 'Server', auth, timeout: t.Union[int, float] = 300):
+        """
+        Parameters
+        ----------
+        server:
+            server to execute the command
+        implementation:
+            operation to perform.
+        undo_implementation:
+            undo operation to perform
+        params:
+            params to pass to the execution
+        undo_on_error:
+            if the invoke ended up with an error, the undo process will be executed if undo_on_error is True
+        id_:
+            command identifier
+        timeout:
+            timeout when waiting response from remote server when invoke and undo executed
+        """
+        self.__dict__['_server'] = server
+        self.__dict__['_auth'] = auth
+        self.__dict__['_completion_event'] = threading.Event()
+        self.__dict__['timeout'] = timeout
+        self.__dict__['_command'] = None
+
+    @property
+    def server(self) -> 'Server':
+        return self._server
+
+    @property
+    def auth(self):
+        return self._auth
 
     def __getattr__(self, item):
-        value = self.__dict__.get(item, None)
-        if value is None:
-            value = self._command.__dict__.get(item, None)
-        return value
+        return getattr(self._command, item)
 
     def __setattr__(self, key, value):
         if key in self.__dict__:
             self.__dict__[key] = value
         else:
-            self._command.__dict__[key] = value
+            self._command.__setattr__(key, value)
 
-    def _completion_invoke(self, data):
+    def callback_completion_event(self, event: Event):
         """callback executed on response to the invoke command on remote server
         """
-        self._command._execution = data['execution'][self._command.id]
-        self._completion_invoke_event.set()
+        if 'success' in event.data:
+            self._command._cp = CompletedProcess(success=event.data.get('success'),
+                                                 stdout=event.data.get('stdout'),
+                                                 stderr=event.data.get('stderr'),
+                                                 rc=event.data.get('rc'),
+                                                 start_time=datetime.strptime(event.data.get('start_time'),
+                                                                              defaults.DATETIME_FORMAT),
+                                                 end_time=datetime.strptime(event.data.get('end_time'),
+                                                                            defaults.DATETIME_FORMAT))
+        else:
+            self._command._cp = CompletedProcess(success=False, stdout=str(event.data),
+                                                 stderr=f'Unknown message got from server {self.server} on completion '
+                                                        f'event.')
+        self._completion_event.set()
 
-    def _completion_undo(self, data):
-        """callback executed on response to the undo command on remote server
-        """
-        for uc in self._command.undo_implementation:
-            uc._execution = data['execution'].get(uc.id)
-        self._completion_undo_event.set()
-
-    def invoke(self) -> bool:
+    def invoke(self, timeout=None) -> bool:
         """
         invokes the command on the remote server
 
@@ -518,40 +441,181 @@ class ProxyCommand(ICommand):
         TimeoutError:
             raised when timeout reached while waiting the response back from the remote server
         """
+        timeout = timeout or self.timeout
         if self._command.success is None:
-            callback = (self._completion_invoke, (), {})
-            self._mediator.invoke_remote_cmd(command=self._command, destination=self._server, callback=callback)
-            event = self._completion_invoke_event.wait(timeout=self.timeout)
-            if event is not True:
-                raise TimeoutError(f'Timeout reached while waiting invoke response of command {self.command}')
+            data = dict(operation=base64.b64encode(
+                pickle.dumps((self._command.implementation, self._command.params))).decode('ascii'),
+                        timeout=timeout,
+                        step_id=str(self.id[1]))
+            resp, code = post(server=self.server, view_or_url='api_1_0.launch_operation', json=data, auth=self.auth)
+            if code == 202:
+                current_app.events.register(resp.get('execution_id'), self.callback_completion_event)
+                event = self._completion_event.wait(timeout=timeout)
+                if event is not True:
+                    raise TimeoutError(f'Timeout reached while waiting invoke response of command {self.command}')
+            else:
+                current_app.logger.error(
+                    f"Error while trying to run command {self.id} on server {self.server}: {code}, {resp}")
 
         return self.success
 
-    def undo(self) -> bool:
-        """
-        Executes undo operation
 
-        Returns
-        -------
-        bool:
-            True if all undo commands that run ended up succesfully
-            False if any undo command ended up badly
-            None if undo operation not executed
+class ProxyCommand(ProxyMixin, Command):
 
-        Raises
-        ------
-        TimeoutError:
-            raised when timeout reached while waiting the response back from the remote server
-        """
-        if self._command.success is True or (
-                self._command.success is False and self._command.undo_on_error):
-            callback = (self._completion_undo, (), {})
-            self._mediator.undo_remote_command(command=self._command, callback=callback)
+    def __init__(self, server: Server, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
+        ProxyMixin.__init__(self, server, auth, timeout=timeout)
+        self._command = Command(*args, **kwargs)
 
-            event = self._completion_undo_event.wait(timeout=self.timeout)
-            if event is not True:
-                raise TimeoutError(f'Timeout reached while waiting invoke response of command {self.command}')
-        return self._command.undo_implementation.success
 
-    def __iter__(self):
-        return [self]
+class ProxyUndoCommand(ProxyMixin, UndoCommand):
+
+    def __init__(self, server: Server, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
+        super().__init__(server, auth, timeout=timeout)
+        self._command = UndoCommand(*args, **kwargs)
+
+
+def _create_cmd_from_orchestration(orchestration: Orchestration, params: Kwargs) -> CompositeCommand:
+    def convert2cmd(d, mapping):
+        nd = {}
+        for k, v in d.items():
+            nd.update({mapping[k]: [mapping[s] for s in v]})
+        return nd
+
+    undo_step_cmd_map = {s: UndoCommand(implementation=create_operation(s), params=ChainMap(params, s.parameters),
+                                        id_=s.id)
+                         for s in orchestration.steps if s.undo}
+    step_cmd_map = {}
+    tree_step = {}
+
+    for s in (s for s in orchestration.steps if not s.undo):
+        tree_step.update({s: [s for s in orchestration.children[s] if not s.undo]})
+
+        # create Undo CompositeCommand for every command
+        cc_tree = convert2cmd(orchestration.subtree([s for s in orchestration.children[s] if s.undo]),
+                              undo_step_cmd_map)
+
+        c = Command(create_operation(s), undo_command=CompositeCommand(cc_tree),
+                    params=ChainMap(params, s.parameters), id_=s.id)
+
+        step_cmd_map.update({s: c})
+
+    return CompositeCommand(convert2cmd(tree_step, step_cmd_map))
+
+
+# def _create_do_cc_from_step_server(orchestration, executor, params, hosts, s: Step, current_server):
+#     d = {}
+#     c = None
+#     for t in s.target:
+#         for server in hosts[t]:
+#             if server == current_server:
+#                 c = UndoCommand(create_operation(s), params=params, id_=s.id)
+#                 d[c] = []
+#             else:
+#                 c = ProxyUndoCommand(server=server, implementation=create_operation(s), params=params,
+#                                      id_=s.id)
+#                 d[c] = []
+#     if len(d) <= 1:
+#         return c
+#     else:
+#         return CompositeCommand(dict_tree=d, executor=executor,
+#                                 undo_on_error=orchestration.undo_on_error if s.undo_on_error is None else s.undo_on_error,
+#                                 stop_on_error=orchestration.stop_on_error if s.stop_on_error is None else s.stop_on_error,
+#                                 id_=s)
+
+
+def _create_server_undo_command(orchestration, executor, params, current_server, server: Server, s: Step, d=None,
+                                s2cc=None, auth=None) -> t.Optional[t.Union[UndoCommand, CompositeCommand]]:
+    def iterate_tree(_cls, _step: Step, _d, _s2cc):
+        if _step in _s2cc:
+            _uc = _s2cc[_step]
+        else:
+            stop_on_error = _step.step_stop_on_error if _step.step_stop_on_error is not None else s.stop_undo_on_error
+            _uc = _cls(create_operation(_step), params=params, id_=(server.id, _step.id), stop_on_error=stop_on_error)
+            _s2cc[_step] = _uc
+        if _uc not in _d:
+            _d[_uc] = []
+        for child_step in _step.children_undo_steps:
+            _d[_uc].append(iterate_tree(_cls, child_step, _d, _s2cc))
+        return _uc
+
+    d = d or {}
+    s2cc = s2cc or {}
+    if server == current_server:
+        u_cmd_cls = UndoCommand
+    else:
+        u_cmd_cls = partial(ProxyUndoCommand, server, auth)
+    uc = None
+    for child_undo_step in s.children_undo_steps:
+        uc = iterate_tree(u_cmd_cls, child_undo_step, d, s2cc)
+    if len(d) == 1:
+        return uc
+    elif len(d) > 1:
+        return CompositeCommand(dict_tree=d, stop_on_error=s.stop_undo_on_error,
+                                stop_undo_on_error=None,
+                                id_=('undo', s.id),
+                                executor=executor)
+
+
+def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
+                                   hosts: t.Dict[str, t.List[Server]],
+                                   executor, auth=None) -> CompositeCommand:
+    current_server = Server.get_current()
+
+    def create_do_cmd_from_step(_step: Step, _s2cc):
+        d = {}
+        if _step in _s2cc:
+            cc = _s2cc[_step]
+        else:
+            for target in _step.target:
+                for server in hosts[target]:
+                    if server == current_server:
+                        cls = Command
+                    else:
+                        if auth is None:
+                            RuntimeError('auth must be specified when executing orchestration to a remote server')
+                        cls = partial(ProxyCommand, server, auth)
+
+                    c = cls(create_operation(_step),
+                            undo_command=_create_server_undo_command(orchestration, executor, params, current_server,
+                                                                     server,
+                                                                     _step, auth=auth),
+                            params=params,
+                            stop_on_error=_step.stop_on_error,
+                            stop_undo_on_error=None,
+                            undo_on_error=_step.undo_on_error,
+                            id_=(server.id, _step.id))
+
+                    d[c] = []
+            if len(d) == 1:
+                cc = c
+            elif len(d) > 1:
+                cc = CompositeCommand(dict_tree=d,
+                                      stop_on_error=False,
+                                      stop_undo_on_error=False,
+                                      id_=_step.id, executor=executor)
+            else:
+                cc = None
+        return cc
+
+    def iterate_tree(_step: Step, _d, _s2cc):
+        if _step in s2cc_map:
+            _c = _s2cc[_step]
+        else:
+            _c = create_do_cmd_from_step(_step, _s2cc)
+            _s2cc[_step] = _c
+            if _c not in _d:
+                _d[_c] = []
+            for child_step in _step.children_do_steps:
+                _d[_c].append(iterate_tree(child_step, _d, _s2cc))
+        return _c
+
+    root_steps = orchestration.root
+    tree = {}
+    s2cc_map = {}
+    for step in root_steps:
+        iterate_tree(step, tree, s2cc_map)
+
+    return CompositeCommand(dict_tree=tree,
+                            stop_undo_on_error=orchestration.stop_undo_on_error,
+                            stop_on_error=orchestration.stop_on_error,
+                            id_=orchestration.id, executor=executor)

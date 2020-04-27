@@ -12,14 +12,14 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, Locker
 from dm.domain.entities import Server, Dimension, Catalog
-from dm.use_cases.background_tasks import check_catalog
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
+from dm.web.background_tasks import check_catalog
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 
-@patch('dm.use_cases.background_tasks.dm_version', '1')
+@patch('dm.web.background_tasks.dm_version', '1')
 @patch('dm.web.routes.dm.__version__', '1')
 class TestLockScopeFullChain(TestCase):
 
@@ -51,7 +51,7 @@ class TestLockScopeFullChain(TestCase):
         mocked_now.return_value = datetime(2019, 4, 1)
         with self.app1.app_context():
             db.create_all()
-            Locker.fill_data()
+            Locker.set_initial()
             s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000, me=True)
             s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000)
             Route(s2, cost=0)
@@ -66,7 +66,7 @@ class TestLockScopeFullChain(TestCase):
 
         with self.app2.app_context():
             db.create_all()
-            Locker.fill_data()
+            Locker.set_initial()
             s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000)
             Route(s1, cost=0)
             s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000, me=True)

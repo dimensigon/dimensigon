@@ -8,20 +8,33 @@ schema_healthcheck = {
         "action": {"type": "string",
                    "pattern": "^(reboot|stop)"},
     },
-    "required": ["action"]
+    "required": ["action"],
+    "additionalProperties": False
 }
 
-schema_lock = {
+locker_prevent_post = {
     "type": "object",
     "properties": {
         "scope": {"type": "string",
                   "pattern": f"^({'|'.join([s.name for s in Scope])})$"},
         "applicant": {"type": ["object", "array", "string"]},
-        "action": {"type": "string",
-                   "pattern": f"^(PREVENT|LOCK|UNLOCK)$"}
+        "datemark": {"type": "string"},
     },
-    "required": ["scope", "applicant", "action"]
+    "required": ["scope", "applicant", "datemark"],
+    "additionalProperties": False
 }
+
+locker_unlock_lock_post = {
+    "type": "object",
+    "properties": {
+        "scope": {"type": "string",
+                  "pattern": f"^({'|'.join([s.name for s in Scope])})$"},
+        "applicant": {"type": ["object", "array", "string"]},
+    },
+    "required": ["scope", "applicant"],
+    "additionalProperties": False
+}
+
 
 schema_software_send = {
     "type": "object",
@@ -39,7 +52,8 @@ schema_software_send = {
         "max_senders": {"type": "integer",
                         "minimum": 0}
     },
-    "required": ["software_id", "dest_server_id", "dest_path"]
+    "required": ["software_id", "dest_server_id", "dest_path"],
+    "additionalProperties": False
 }
 
 post_software_schema = {
@@ -56,7 +70,8 @@ post_software_schema = {
     "dependencies": {
         "server_id": ["file"],
         "file": ["server_id"],
-    }
+    },
+    "additionalProperties": False
 }
 
 patch_software_schema = {
@@ -66,7 +81,8 @@ patch_software_schema = {
                       "pattern": UUID_pattern},
         "path": {"type": "string"},
     },
-    "required": ["server_id", "path"]
+    "required": ["server_id", "path"],
+    "additionalProperties": False
 }
 
 put_software_servers_schema = {
@@ -79,7 +95,8 @@ put_software_servers_schema = {
             "file": {"type": "string"}
         },
         "required": ["server_id", "path"]
-    }
+    },
+    "additionalProperties": False
 }
 
 post_action_template_schema = {
@@ -96,10 +113,130 @@ post_action_template_schema = {
         "expected_rc": {"type": "string"},
         "system_kwargs": {"type": "object"},
     },
-    "required": ["name", "version", "action_type", "code"]
+    "required": ["name", "version", "action_type", "code"],
+    "additionalProperties": False
 }
 
-schema_routes = {
+_step_post = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "orchestration_id": {"type": "string",
+                             "pattern": UUID_pattern},
+        "undo": {"type": "boolean"},
+        "action_template_id": {"type": "string",
+                               "pattern": UUID_pattern},
+        "stop_on_error": {"type": "boolean"},
+        "stop_undo_on_error": {"type": "boolean"},
+        "undo_on_error": {"type": "boolean"},
+        "expected_stdout": {"type": "string"},
+        "expected_stderr": {"type": "string"},
+        "expected_rc": {"type": "integer"},
+        "parameters": {"type": "object"},
+        "system_kwargs": {"type": "object"},
+        "parent_step_ids": {"type": "array",
+                            "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                                                {"type": "integer", "minimum": 1}]
+                                      }
+                            },
+        "child_step_ids": {"type": "array",
+                           "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                                               {"type": "integer", "minimum": 1}]
+                                     }
+                           },
+        "target": {"anyOf": [{"type": "string"},
+                             {"type": "array", "items": {"type": "string"}}]}
+    },
+    "required": ["orchestration_id", "undo", "action_template_id"],
+    "additionalProperties": False
+}
+
+step_post = {
+    "anyOf": [
+        {"type": "array",
+         "items": _step_post},
+        _step_post
+    ]
+}
+
+step_put = {
+    "type": "object",
+    "properties": {
+        "undo": {"type": "boolean"},
+        "stop_on_error": {"type": "boolean"},
+        "stop_undo_on_error": {"type": "boolean"},
+        "undo_on_error": {"type": "boolean"},
+        "action_template_id": {"type": "string",
+                               "pattern": UUID_pattern},
+        "expected_stdout": {"type": "string"},
+        "expected_stderr": {"type": "string"},
+        "expected_rc": {"type": "integer"},
+        "parameters": {"type": "object"},
+        "system_kwargs": {"type": "object"},
+        "parent_step_ids": {"type": "array",
+                            "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                                                {"type": "integer", "minimum": 1}]
+                                      }
+                            },
+        "child_step_ids": {"type": "array",
+                           "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                                               {"type": "integer", "minimum": 1}]
+                                     }
+                           },
+        "target": {"anyOf": [{"type": "string"},
+                             {"type": "array", "items": {"type": "string"}}]}
+    },
+    "required": ["undo", "action_template_id"],
+    "additionalProperties": False
+}
+
+step_patch = {
+    "type": "object",
+    "properties": {
+        "undo": {"type": "boolean"},
+        "action_template_id": {"type": "string",
+                               "pattern": UUID_pattern},
+        "stop_on_error": {"type": "boolean"},
+        "stop_undo_on_error": {"type": "boolean"},
+        "undo_on_error": {"type": "boolean"},
+        "expected_stdout": {"type": "string"},
+        "expected_stderr": {"type": "string"},
+        "expected_rc": {"type": "integer"},
+        "parameters": {"type": "object"},
+        "system_kwargs": {"type": "object"},
+        "parent_step_ids": {"type": "array",
+                            "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                                                {"type": "integer", "minimum": 1}]
+                                      }
+                            },
+        "child_step_ids": {"type": "array",
+                           "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                                               {"type": "integer", "minimum": 1}]
+                                     }
+                           },
+        "target": {"anyOf": [{"type": "string"},
+                             {"type": "array", "items": {"type": "string"}}]}
+    },
+    "additionalProperties": False
+}
+
+step_parents = {
+    "type": "object",
+    "properties": {
+        "parent_step_ids": {"type": "array", "items": {"type": "string", "pattern": UUID_pattern}},
+        "additionalProperties": False
+    }
+}
+
+step_children = {
+    "type": "object",
+    "properties": {
+        "children_step_ids": {"type": "array", "items": {"type": "string", "pattern": UUID_pattern}},
+        "additionalProperties": False
+    }
+}
+
+patch_schema_routes = {
     "type": "object",
     "properties": {
         "discover_new_neighbours": {"type": "boolean"},
@@ -125,7 +262,44 @@ schema_routes = {
                             "required": ["id", "gateway", "cost"]
                         }
                         }
-    }
+    },
+    "additionalProperties": False
+}
+
+orchestration_post = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "integer", "minimum": 1},
+        "description": {"type": "string"},
+        "stop_on_error": {"type": "boolean"},
+        "stop_undo_on_error": {"type": "boolean"},
+        "undo_on_error": {"type": "boolean"}
+    },
+    "required": ["name", "version"],
+    "additionalProperties": False
+}
+
+orchestration_patch = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "integer", "minimum": 1},
+        "description": {"type": "string"},
+        "stop_on_error": {"type": "boolean"},
+        "stop_undo_on_error": {"type": "boolean"},
+        "undo_on_error": {"type": "boolean"}
+    },
+    "additionalProperties": False
+}
+
+post_schema_routes = {
+    "type": "object",
+    "properties": {
+        "discover_new_neighbours": {"type": "boolean"},
+        "check_current_neighbours": {"type": "boolean"}
+    },
+    "additionalProperties": False
 }
 
 schema_transfers = {
@@ -151,7 +325,8 @@ schema_transfer = {
                   "minimum": 0},
         "content": {"type": "bytes"},
     },
-    "required": ["transfer_id", "chunk", "content"]
+    "required": ["transfer_id", "chunk", "content"],
+    "additionalProperties": False
 }
 
 schema_post_log = {
@@ -160,7 +335,8 @@ schema_post_log = {
         "file": {"type": "string"},
         "data": {"type": "string"},
     },
-    "required": ["data"]
+    "required": ["data"],
+    "additionalProperties": False
 }
 
 schema_create_log = {

@@ -25,8 +25,8 @@ class Server(db.Model, UUIDistributedEntityMixin):
     _me = db.Column("me", db.Boolean, default=False)
 
     route = db.relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
-                            back_populates="destination")
-    gates = db.relationship("Gate", back_populates="server")
+                            back_populates="destination", cascade="all, delete-orphan")
+    gates = db.relationship("Gate", back_populates="server", cascade="all, delete-orphan")
 
     # software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
 
@@ -49,6 +49,9 @@ class Server(db.Model, UUIDistributedEntityMixin):
 
         self.granules = granules or []
         self._me = me
+        # create an empty route
+        if not me:
+            Route(self)
 
     @property
     def external_gates(self):
@@ -130,11 +133,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
         elif self.route is not None and self.route.cost == 0:
             gate = self.route.gate
         else:
-            if self.route is None:
-                if len(self.gates) == 0:
-                    raise RuntimeError(f"No gate set for server '{self}'")
-                gate = self.gates[0]
-            else:
+            if self.route.proxy_server:
                 gate = self.route.proxy_server.route.gate
 
         if not gate:
@@ -154,8 +153,8 @@ class Server(db.Model, UUIDistributedEntityMixin):
 
     @classmethod
     def get_not_neighbours(cls) -> t.List['Server']:
-        return db.session.query(cls).outerjoin(cls.route).filter(or_(Route.cost > 0, cls.route == None)).filter(
-            Server._me == False).all()
+        return db.session.query(cls).outerjoin(cls.route).filter(
+            or_(or_(Route.cost > 0, Route.cost == None), cls.route == None)).filter(Server._me == False).all()
 
     def to_json(self, add_gates=False):
         data = super().to_json()

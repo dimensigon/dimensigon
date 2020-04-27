@@ -24,17 +24,7 @@ class Route(db.Model):
         self.destination = destination
         if proxy_server:
             if proxy_server == destination:
-                if cost is not None and cost > 0:
-                    raise ValueError("Cost must be set to 0 when defining route for a neighbour")
-                if len(destination.external_gates) == 1:
-                    self.gate = destination.external_gates[0]
-                    self.cost = 0
-                else:
-                    for gate in destination.external_gates:
-                        if check_host(gate.dns or gate.ip, gate.port, timeout=1, retry=3, delay=0.5):
-                            self.gate = gate
-                            self.cost = 0
-                            break
+                raise ValueError('You must specify a gate when proxy_server equals destination')
             else:
                 if cost is None or cost == 0:
                     raise ValueError("Cost must be specified and greater than 0 when proxy_server")
@@ -53,28 +43,29 @@ class Route(db.Model):
                 else:
                     self.gate = gate
                     self.cost = cost
-        elif not (gate or cost) or cost == 0:
+        elif cost == 0:
             # find a gateway and set that gateway as default
             if len(destination.external_gates) == 1:
                 self.gate = destination.external_gates[0]
                 self.cost = 0
             else:
                 for gate in destination.external_gates:
-                    if check_host(gate.dns or gate.ip, gate.port, timeout=1, retry=3, delay=0.5):
+                    if check_host(gate.dns or str(gate.ip), gate.port, timeout=1, retry=3, delay=0.5):
                         self.gate = gate
                         self.cost = 0
                         break
-        if not (self.gate or self.proxy_server):
-            raise ValueError('Not a valid route')
+        # if not (self.gate or self.proxy_server):
+        #     raise ValueError('Not a valid route')
 
     def __str__(self):
-        return f"Route(destination={getattr(self.destination, 'id', None)}, " \
+        gate = f"{self.gate.server}://{self.gate}" if self.gate else "None"
+        return f"{self.destination} -> " \
                f"proxy_server={self.proxy_server}, " \
-               f"gate={self.gate}, " \
-               f"cost={self.cost})"
+               f"gate={gate}, " \
+               f"cost={self.cost}"
 
     def __repr__(self):
-        return str(self)
+        return f"Route({self.to_json()})"
 
     def to_json(self):
         if not self.destination.id or (self.proxy_server and not self.proxy_server.id) or (

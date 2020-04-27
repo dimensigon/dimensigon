@@ -4,9 +4,9 @@ import inspect
 import json
 import os
 import typing as t
-from dataclasses import dataclass
 from random import random
 
+from dataclasses import dataclass
 from flask import g
 
 import dm.domain.exceptions as de

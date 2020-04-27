@@ -53,10 +53,11 @@ EXCLUDE_PATTERN = r"(\.pyc|\.ini)$"  # files to be excluded from backup
 HEALTHCHECK_URI = '/healthcheck'  # health check URI
 SOFTWARE_URI = '/software'
 FAILED_VERSIONS = '.failed_versions'
-MAX_TIME_WAITING = 5
+MAX_TIME_WAITING = 30
 SSL_VERIFY = False
 PACKAGE_NAME = 'dimensigon'
-global schema, host
+schema, host = None, None
+
 
 # max time elevator will wait for the process to start and ask for the health check response
 
@@ -115,7 +116,8 @@ def find_process_by_name(process_name):
 
 
 def get_hc(token=None, tries=1, delay=3, backoff=1):
-    global schema, host
+    global schema
+    global host
     mtries, mdelay = tries, delay
     hc = {}
     while mtries > 0:
@@ -189,9 +191,9 @@ def start_and_check(cwd=None, tries=MAX_TIME_WAITING // 5):
     # start new version & check health
     start_daemon(cwd, logger.level != logging.DEBUG)
     # wait to be able to create pid file
-    time.sleep(0.2)
+    time.sleep(1)
     if daemon_running():
-        hc = get_hc(tries=tries, delay=5)
+        hc = get_hc(tries=tries or 1, delay=5)
         logger.debug(f"Healthcheck from {host}: {json.dumps(hc, indent=4)}")
 
         if 'version' in hc:
@@ -474,6 +476,5 @@ def stop():
 
 
 if __name__ == '__main__':
-    global host
     host = get_host()
     cli()

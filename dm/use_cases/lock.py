@@ -7,7 +7,7 @@ from flask import current_app
 from flask_jwt_extended import create_access_token, get_jwt_identity
 
 import dm.use_cases.exceptions as ue
-from dm.domain.entities import Server
+from dm.domain.entities import Server, Catalog
 from dm.domain.entities.locker import Scope
 from dm.use_cases.helpers import get_servers_from_scope
 from dm.utils.asyncio import run
@@ -15,18 +15,22 @@ from dm.utils.helpers import is_iterable_not_string
 from dm.web.network import async_post, HTTPBearerAuth
 
 
-async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope, applicant, auth=None) -> \
+async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope, applicant, auth=None,
+                         datemark=None) -> \
         t.Dict[UUID, t.Tuple[t.Any, t.Optional[int]]]:
     server_responses = {}
     if is_iterable_not_string(servers):
         it = servers
     else:
         it = [servers]
-    payload = dict(scope=scope.name, action=action, applicant=applicant)
+    payload = dict(scope=scope.name, applicant=applicant)
+    if datemark:
+        payload.update(datemark=datemark)
     async with aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(ssl=current_app.config['SSL_VERIFY'])) as session:
         for server in it:
-            server_responses[server.id] = await async_post(server, 'api_1_0.locker', session=session, json=payload,
+            server_responses[server.id] = await async_post(server, 'api_1_0.locker_' + action, session=session,
+                                                           json=payload,
                                                            auth=auth)
     return server_responses
 
@@ -61,19 +65,20 @@ def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=No
     auth = HTTPBearerAuth(token)
     if action == 'U':
         pool_responses = run(
-            request_locker(servers=servers, scope=scope, action='UNLOCK', applicant=applicant, auth=auth))
+            request_locker(servers=servers, scope=scope, action='unlock', applicant=applicant, auth=auth))
 
         if len(servers) == len(list(filter(lambda r: r[1][1] == 200, [(k, v) for k, v in pool_responses.items()]))):
             return
     else:
         action = 'P'
+        catalog_ver = Catalog.max_catalog(str)
         pool_responses = run(
-            request_locker(servers=servers, scope=scope, action='PREVENT', applicant=applicant, auth=auth))
+            request_locker(servers=servers, scope=scope, action='prevent', applicant=applicant, datemark=catalog_ver, auth=auth))
 
         if len(servers) == len(list(filter(lambda r: r[1][1] == 200, [(k, v) for k, v in pool_responses.items()]))):
             action = 'L'
             pool_responses = run(
-                request_locker(servers=servers, scope=scope, action='LOCK', applicant=applicant, auth=auth))
+                request_locker(servers=servers, scope=scope, action='lock', applicant=applicant, auth=auth))
             if len(servers) == len(
                     list(filter(lambda r: r[1][1] == 200, [(k, v) for k, v in pool_responses.items()]))):
                 return
@@ -124,7 +129,7 @@ def lock(scope: Scope, servers: t.List[Server] = None) -> UUID:
     return applicant
 
 
-def unlock(scope: Scope, servers, applicant):
+def unlock(scope: Scope, applicant, servers=None):
     """
     unlocks the Locker if allowed
     Parameters

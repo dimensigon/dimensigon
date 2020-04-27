@@ -28,6 +28,7 @@ class PygtailTest(unittest.TestCase):
         self.logfile = tempfile.NamedTemporaryFile(delete=False)
         self.logfile.write(self.test_str.encode('utf-8'))
         self.logfile.close()
+        self.addCleanup(self.tearDown)
 
     def append(self, str):
         # append the give string to the temp logfile

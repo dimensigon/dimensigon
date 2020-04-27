@@ -33,7 +33,7 @@ class TestGate(TestCase):
         self.assertEqual(g.dns, g_json['dns'])
         self.assertEqual(g.ip, g_json['ip'])
         self.assertEqual(g.port, g_json['port'])
-        self.assertIsNone(g_json['server_id'])
+        self.assertIsNotNone(g_json['server_id'])
 
         # set id to resolve server_id from gate object
         s = Server('test', id='aaaaaaaa-1234-5678-1234-56781234aaa1')

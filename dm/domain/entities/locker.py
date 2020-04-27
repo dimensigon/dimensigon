@@ -27,13 +27,16 @@ class Locker(db.Model):
     priority = db.Column(db.Integer, nullable=False)
     applicant = db.Column(Pickle)
 
-    @staticmethod
-    def fill_data():
+    @classmethod
+    def set_initial(cls):
         for scope in Scope:
-            l = Locker.query.get(scope)
+            l = cls.query.get(scope)
             if not l:
-                l = Locker(scope=scope, state=State.UNLOCKED, priority=scope.value)
+                l = cls(scope=scope, state=State.UNLOCKED, priority=scope.value)
                 db.session.add(l)
+            else:
+                if l.state != State.UNLOCKED:
+                    l.state = State.UNLOCKED
 
     def __repr__(self):
         return f"Locker({self.scope.name}, {self.state.name})"

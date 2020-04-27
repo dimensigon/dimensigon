@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from http.server import HTTPServer
 from io import StringIO
 from threading import Thread
+from unittest import TestCase, mock
 from unittest.mock import Mock
 
 import requests
@@ -117,3 +118,11 @@ def captured_output() -> t.Tuple[StringIO, StringIO]:
 def authorization_header(identity='test'):
     access_token = create_access_token(identity=identity)
     return {"Authorization": f"Bearer {access_token}"}
+
+
+class TestCaseLockBypass(TestCase):
+
+    def run(self, result=None):
+        with mock.patch('dm.web.decorators.lock'):
+            with mock.patch('dm.web.decorators.unlock'):
+                super().run(result)

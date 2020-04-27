@@ -1,3 +1,4 @@
+import uuid
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -61,10 +62,7 @@ class TestServer(TestCase):
         self.assertEqual(f'https://192.168.1.2:2/', me.url('api'))
 
         s = Server('test', port=8000)
-        self.assertEqual('https://test:8000', s.url())
-
-        s.gates.pop()
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(ConnectionError):
             s.url()
 
     def test_get_neighbours(self):
@@ -72,7 +70,7 @@ class TestServer(TestCase):
         n2 = Server('n2', port=8000)
         n3 = Server('n3', port=8000)
         r1 = Server('r1', port=8000)
-        Route(destination=n1)
+        Route(destination=n1, cost=0)
         Route(destination=n2, gate=n2.gates[0])
         Route(destination=r1, proxy_server=n1, cost=1)
 
@@ -90,11 +88,12 @@ class TestServer(TestCase):
         self.assertListEqual([], me.get_neighbours())
 
     def test_get_not_neighbours(self):
-        n1 = Server('n1', port=8000)
-        n2 = Server('n2', port=8000)
-        n3 = Server('n3', port=8000)
-        r1 = Server('r1', port=8000)
-        Route(destination=n1)
+        n1 = Server('n1', port=8000, id='22cd859d-ee91-4079-a112-000000000001')
+        n2 = Server('n2', port=8000, id='22cd859d-ee91-4079-a112-000000000002')
+        n3 = Server('n3', port=8000, id='22cd859d-ee91-4079-a112-000000000003')
+        n3.route = None
+        r1 = Server('r1', port=8000, id='22cd859d-ee91-4079-a112-000000000011')
+        Route(destination=n1, cost=0)
         Route(destination=n2, gate=n2.gates[0])
         Route(destination=r1, proxy_server=n1, cost=1)
 
@@ -103,10 +102,14 @@ class TestServer(TestCase):
 
         self.assertListEqual([n3, r1], me.get_not_neighbours())
 
-    def test_from_to_json_with_gate(self):
-        s = Server('server2', gates=[('dns', 6000)])
+    @patch('dm.domain.entities.base.uuid.uuid4')
+    def test_from_to_json_with_gate(self, mock_uuid):
+        mock_uuid.return_value = uuid.UUID('22cd859d-ee91-4079-a112-000000000002')
+        s = Server('server2', gates=[('dns', 6000)], id='22cd859d-ee91-4079-a112-000000000001')
         self.assertDictEqual(
-            {'name': 'server2', 'granules': [], 'gates': [{'ip': None, 'dns': 'dns', 'port': 6000}]}, s.to_json(
+            {'id': '22cd859d-ee91-4079-a112-000000000001', 'name': 'server2', 'granules': [],
+             'gates': [{'id': '22cd859d-ee91-4079-a112-000000000002', 'ip': None, 'dns': 'dns', 'port': 6000}]},
+            s.to_json(
                 add_gates=True))
         db.session.add(s)
         db.session.commit()

@@ -1,0 +1,151 @@
+from flask import url_for
+from flask_jwt_extended import create_access_token
+
+from dm.domain.entities import Orchestration, Step, ActionTemplate, ActionType
+from dm.domain.entities.bootstrap import set_initial
+from dm.web import create_app, db
+from dm.web.network import HTTPBearerAuth
+from tests.helpers import TestCaseLockBypass
+
+
+class Test(TestCaseLockBypass):
+    def setUp(self):
+        """Create and configure a new app instance for each test."""
+        # create the app with common test config
+        self.app = create_app('test')
+        self.app_context = self.app.app_context()
+        self.app_context.push()
+        self.client = self.app.test_client()
+        self.auth = HTTPBearerAuth(create_access_token('test'))
+        self.o = Orchestration(name='name', version=1, description='desc')
+        self.at = ActionTemplate(name='action_name', version=1, action_type=ActionType.NATIVE, code='')
+
+        db.session.add_all([self.o, self.at])
+        set_initial()
+
+    def tearDown(self) -> None:
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
+
+    def test_step_resource_list(self):
+        resp = self.client.get(url_for('api_1_0.stepresourcelist'), headers=self.auth.header)
+
+        self.assertEqual([], resp.get_json())
+
+        s = self.o.add_step(undo=True, action_template=self.at)
+
+        resp = self.client.get(url_for('api_1_0.stepresourcelist'), headers=self.auth.header)
+
+        self.assertEqual([s.to_json()], resp.get_json())
+
+    def test_step_resources(self):
+        resp = self.client.post(url_for('api_1_0.stepresourcelist'),
+                                json=dict(orchestration_id=str(self.o.id),
+                                          undo=False,
+                                          action_template_id=str(self.at.id)),
+                                headers=self.auth.header)
+
+        self.assertIn('step_id', resp.get_json())
+
+        s_id = resp.get_json()['step_id']
+
+        s = Step.query.get(s_id)
+
+        resp = self.client.get(url_for('api_1_0.stepresource', step_id=s_id),
+                               headers=self.auth.header)
+
+        self.assertDictEqual(s.to_json(), resp.get_json())
+
+        self.assertTrue(s.stop_on_error)
+        self.assertTrue(s.stop_undo_on_error)
+        resp = self.client.patch(url_for('api_1_0.stepresource', step_id=s_id),
+                                 json={"stop_on_error": False},
+                                 headers=self.auth.header)
+        self.assertEqual(204, resp.status_code)
+        self.assertFalse(s.stop_on_error)
+        self.assertTrue(s.stop_undo_on_error)
+
+        s2 = self.o.add_step(undo=True, action_template=self.at)
+        s3 = self.o.add_step(undo=True, action_template=self.at)
+
+        resp = self.client.patch(url_for('api_1_0.stepresource', step_id=s_id),
+                                 json={"child_step_ids": [str(s2.id)]},
+                                 headers=self.auth.header)
+
+        self.assertEqual(204, resp.status_code)
+
+        resp = self.client.patch(url_for('api_1_0.stepresource', step_id=str(s3.id)),
+                                 json={"parent_step_ids": [str(s.id)]},
+                                 headers=self.auth.header)
+
+        self.assertEqual(204, resp.status_code)
+
+        self.assertEqual(2, len(s.children))
+        self.assertIn(s2, s.children)
+        self.assertIn(s3, s.children)
+
+        resp = self.client.post(url_for('api_1_0.stepresourcelist'),
+                                json=dict(orchestration_id=str(self.o.id),
+                                          undo=False,
+                                          action_template_id=str(self.at.id),
+                                          parent_step_ids=[s_id],
+                                          child_step_ids=[str(s2.id)]),
+                                headers=self.auth.header)
+
+        s4: Step = Step.query.get(resp.get_json()['step_id'])
+
+        self.assertEqual(201, resp.status_code)
+        self.assertListEqual([s2], s4.children)
+        self.assertListEqual([s], s4.parents)
+
+        resp = self.client.put(url_for('api_1_0.stepresource', step_id=str(s4.id)),
+                               json=dict(undo=True,
+                                         action_template_id=str(self.at.id),
+                                         parent_step_ids=[str(s2.id)],
+                                         child_step_ids=[str(s3.id)]),
+                               headers=self.auth.header)
+
+        self.assertEqual(204, resp.status_code)
+        self.assertListEqual([s2], s4.parents)
+        self.assertListEqual([s3], s4.children)
+
+        resp = self.client.delete(url_for('api_1_0.stepresource', step_id=s_id),
+                               headers=self.auth.header)
+
+        self.assertEqual(204, resp.status_code)
+        self.assertIsNone(Step.query.get(s_id))
+
+    def test_step_resource_multiple_steps(self):
+        resp = self.client.post(url_for('api_1_0.stepresourcelist'),
+                                json=[dict(id=1, orchestration_id=str(self.o.id),
+                                           undo=False,
+                                           action_template_id=str(self.at.id)),
+                                      dict(id=2, orchestration_id=str(self.o.id),
+                                           undo=False,
+                                           action_template_id=str(self.at.id),
+                                           parent_step_ids=[1]),
+                                      dict(id=3, orchestration_id=str(self.o.id),
+                                           undo=False,
+                                           action_template_id=str(self.at.id),
+                                           parent_step_ids=[2]),
+                                      dict(id=4, orchestration_id=str(self.o.id),
+                                           undo=False,
+                                           action_template_id=str(self.at.id),
+                                           parent_step_ids=[1],
+                                           child_step_ids=[3])
+                                      ],
+                                headers=self.auth.header)
+
+        self.assertEqual(201, resp.status_code)
+        s1, = self.o.root
+        self.assertEqual(0, len(s1.parents))
+        self.assertEqual(2, len(s1.children))
+
+        s2, s4 = s1.children
+
+        self.assertEqual(1, len(s2.parents))
+        self.assertEqual(1, len(s2.children))
+
+        self.assertEqual(1, len(s4.parents))
+        self.assertEqual(1, len(s4.children))
