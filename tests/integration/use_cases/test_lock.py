@@ -6,7 +6,7 @@ from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
 
 import dm.use_cases.exceptions as ue
-from dm.domain.entities import Server, Scope, Locker, State, Route
+from dm.domain.entities import Server, Scope, Locker, State, Route, Catalog
 from dm.domain.entities.bootstrap import set_initial
 from dm.use_cases.lock import lock_unlock, lock
 from dm.web import create_app, db
@@ -31,6 +31,7 @@ class TestLockUnlock(TestCase):
         Route(self.n2, cost=0)
         db.session.add_all([self.n1, self.n2])
         db.session.commit()
+        self.datamark = Catalog.max_catalog(str)
 
     def tearDown(self) -> None:
         db.session.remove()
@@ -41,7 +42,8 @@ class TestLockUnlock(TestCase):
     def test_lock_unlock_lock(self, m):
         def callback_prevent(url, **kwargs):
             self.assertDictEqual(kwargs['json'],
-                                 {'scope': 'ORCHESTRATION', 'applicant': [str(self.n1.id), str(self.n2.id)]})
+                                 {'scope': 'ORCHESTRATION', 'datemark': self.datamark,
+                                  'applicant': [str(self.n1.id), str(self.n2.id)]})
             return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)
 
         def callback_lock(url, **kwargs):
@@ -72,15 +74,6 @@ class TestLockUnlock(TestCase):
 
     @aioresponses()
     def test_lock_unlock_lock_with_server_error_on_preventing(self, m):
-        def callback_prevent(url, **kwargs):
-            self.assertDictEqual(kwargs['json'],
-                                 {'scope': 'ORCHESTRATION', 'applicant': [str(self.n1.id), str(self.n2.id)]})
-            return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)
-
-        # def callback_lock(url, **kwargs):
-        #     self.assertDictEqual(kwargs['json'], {'scope': 'ORCHESTRATION', 'action': 'LOCK',
-        #                                           'applicant': [str(self.n1.id), str(self.n2.id)]})
-        #     return CallbackResult("{'message': 'Locked'}", status=200)
 
         m.post(self.n1.url('api_1_0.locker_prevent'), status=200, payload={'message': 'Preventing lock acquired'})
         m.post(self.n2.url('api_1_0.locker_prevent'), status=500, body="Error message")
@@ -94,15 +87,6 @@ class TestLockUnlock(TestCase):
 
     @aioresponses()
     def test_lock_unlock_lock_with_connection_error(self, m):
-        def callback_prevent(url, **kwargs):
-            self.assertDictEqual(kwargs['json'],
-                                 {'scope': 'ORCHESTRATION', 'applicant': [str(self.n1.id), str(self.n2.id)]})
-            return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)
-
-        # def callback_lock(url, **kwargs):
-        #     self.assertDictEqual(kwargs['json'], {'scope': 'ORCHESTRATION', 'action': 'LOCK',
-        #                                           'applicant': [str(self.n1.id), str(self.n2.id)]})
-        #     return CallbackResult("{'message': 'Locked'}", status=200)
 
         m.post(self.n1.url('api_1_0.locker_prevent'), status=200, payload={'message': 'Preventing lock acquired'})
         m.post(self.n2.url('api_1_0.locker_lock'), exception=aiohttp.ClientConnectionError('test'))
@@ -116,15 +100,6 @@ class TestLockUnlock(TestCase):
 
     @aioresponses()
     def test_lock_unlock_lock_error_on_lock(self, m):
-        def callback_prevent(url, **kwargs):
-            self.assertDictEqual(kwargs['json'],
-                                 {'scope': 'ORCHESTRATION', 'applicant': [str(self.n1.id), str(self.n2.id)]})
-            return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)
-
-        def callback_lock(url, **kwargs):
-            self.assertDictEqual(kwargs['json'],
-                                 {'scope': 'ORCHESTRATION', 'applicant': [str(self.n1.id), str(self.n2.id)]})
-            return CallbackResult("{'message': 'Locked'}", status=200)
 
         m.post(self.n1.url('api_1_0.locker_prevent'), status=200, payload={'message': 'Preventing lock acquired'})
         m.post(self.n2.url('api_1_0.locker_prevent'), status=200, payload={'message': 'Preventing lock acquired'})
@@ -184,6 +159,7 @@ class TestLock(TestCase):
         Route(self.n2, cost=0)
         db.session.add_all([self.n1, self.n2])
         db.session.commit()
+        self.datemark = Catalog.max_catalog(str)
 
     def tearDown(self) -> None:
         db.session.remove()
@@ -198,8 +174,9 @@ class TestLock(TestCase):
     def test_lock_catalog(self, m):
         def callback_prevent(url, **kwargs):
             self.assertDictEqual(kwargs['json'],
-                                 {'scope': 'CATALOG', 'applicant': [str(Server.get_current().id), str(self.n1.id),
-                                                                    str(self.n2.id)]})
+                                 {'scope': 'CATALOG', 'datemark': self.datemark,
+                                  'applicant': [str(Server.get_current().id), str(self.n1.id),
+                                                str(self.n2.id)]})
             return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)
 
         def callback_lock(url, **kwargs):

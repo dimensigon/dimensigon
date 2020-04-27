@@ -86,7 +86,7 @@ class TestApi(TestCase):
             return CallbackResult(r.data, status=r.status_code)
 
         with self.app.app_context():
-            m.post(Server.get_current().url('api_1_0.locker'), callback=callback_client, repeat=True)
+            m.post(re.compile(Server.get_current().url()+'.*'), callback=callback_client, repeat=True)
 
         with responses.RequestsMock() as rsps:
             rsps.add_callback(responses.POST,
