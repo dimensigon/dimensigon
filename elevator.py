@@ -338,12 +338,13 @@ def _upgrade(config):
     content_folder = os.path.basename(config['deployable']).rstrip('.gz').rstrip('.tar').rstrip('.zip')
     # extract new version
     try:
-        shutil.rmtree(os.path.join(TMP, content_folder))
+        shutil.rmtree(os.path.join(TMP, 'dimensigon'))
     except FileNotFoundError:
         pass
     shutil.unpack_archive(config['deployable'], TMP)
-    shutil.copytree(os.path.join(TMP, content_folder), new_home)
-    shutil.rmtree(os.path.join(TMP, content_folder))
+    shutil.copytree(os.path.join(TMP, 'dimensigon'), new_home)
+    shutil.rmtree(os.path.join(TMP, 'dimensigon'))
+
 
     # copy config files and DB from old version to new version
     logger.info("Importing configuration and database from current_version")
@@ -360,6 +361,7 @@ def _upgrade(config):
 
     # change working dir to new home
     os.chdir(new_home)
+    sys.path.insert(0, new_home)
     logger.debug(f"changed working directory to {os.getcwd()}")
 
     from dimensigon import app
@@ -381,6 +383,7 @@ def _upgrade(config):
         stop_daemon()
 
         os.chdir(HOME)
+        sys.path.pop(0)
         logger.debug(f"changed working directory to {os.getcwd()}")
 
         # save failed version

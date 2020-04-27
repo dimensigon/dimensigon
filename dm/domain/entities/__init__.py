@@ -21,7 +21,7 @@ from .service import Service
 from .software import Software, SoftwareServerAssociation
 from .step import Step
 from .transfer import Transfer, Status as TransferStatus
-from .user import User
+from .user import User, Group
 
 __all__ = [
     "ActionTemplate",
@@ -31,6 +31,7 @@ __all__ = [
     "Execution",
     "ExecutionStatus",
     "Gate",
+    "Group",
     "Locker",
     "Log",
     "Orchestration",

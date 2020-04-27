@@ -28,8 +28,6 @@ if os.environ.get('FLASK_COVERAGE'):
     COV.start()
 
 from dm.domain.entities import *
-from dm.domain.entities import Dimension
-from dm.domain.entities.step import Step
 from dm.web.network import pack_msg2, unpack_msg2
 from dm.web import create_app, db
 
@@ -52,7 +50,7 @@ with app.app_context():
 def make_shell_context():
     return dict(db=db, app=app, ActionTemplate=ActionTemplate, Step=Step, Orchestration=Orchestration, Catalog=Catalog,
                 Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service,
-                Software=Software, SoftwareServerAssociation=SoftwareServerAssociation,
+                Software=Software, SoftwareServerAssociation=SoftwareServerAssociation, User=User, Group=Group,
                 Transfer=Transfer, Locker=Locker, Gate=Gate, create_access_token=create_access_token)
 
 
@@ -175,8 +173,10 @@ def new(name):
     private_key = serialization.load_pem_private_key(dim.private.save_pkcs1(), password=None, backend=default_backend())
     dim.current = count == 0
     db.session.add(dim)
+    User.set_initial()
 
     now = datetime.datetime.utcnow()
+
 
     cert = x509.CertificateBuilder().subject_name(x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, name),
