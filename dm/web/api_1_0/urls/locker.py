@@ -35,7 +35,8 @@ def locker_prevent():
     # check status from current scope
     if l.state == State.UNLOCKED:
         # check priority
-        prioritary_lockers = Locker.query.filter(Locker.priority < l.priority)
+        prioritary_lockers = Locker.query.filter_by(Locker.scope != l.scope).all()
+        prioritary_lockers = [pl for pl in prioritary_lockers if pl.scope < l.scope]
         cond = any([pl.state in (State.PREVENTING, State.LOCKED) for pl in prioritary_lockers])
         if not cond:
             # catalog serialization

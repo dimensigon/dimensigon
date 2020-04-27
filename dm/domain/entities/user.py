@@ -4,23 +4,8 @@ from passlib.hash import sha256_crypt
 
 from dm import defaults
 from dm.domain.entities.base import UUIDistributedEntityMixin
+from dm.utils.typos import ScalarListType
 from dm.web import db
-
-
-class Group(db.Model, UUIDistributedEntityMixin):
-    __tablename__ = 'D_group'
-
-    group = db.Column(db.String, nullable=False)
-
-    users = db.relationship("User", back_populates="groups")
-
-    @classmethod
-    def set_initial(cls):
-        a = cls(group='administrator', last_modified_at=defaults.INITIAL_DATEMARK)
-        o = cls(group='operator', last_modified_at=defaults.INITIAL_DATEMARK)
-        d = cls(group='deployer', last_modified_at=defaults.INITIAL_DATEMARK)
-        r = cls(group='readonly', last_modified_at=defaults.INITIAL_DATEMARK)
-        db.session.add_all([a, o, d, r])
 
 
 class User(db.Model, UUIDistributedEntityMixin):
@@ -31,33 +16,17 @@ class User(db.Model, UUIDistributedEntityMixin):
     email = db.Column(db.Text)
     created_at = db.Column(db.Date, default=datetime.now())
     active = db.Column('is_active', db.Boolean(), nullable=False, default=True)
-
-    groups = db.relationship("Group", back_populates="users")
+    groups = db.Column(ScalarListType(str), default=[])
 
     __table_args__ = (db.UniqueConstraint('user', name='D_user_uq01'),)
-
-    def __init__(self, user, email=None, active=True, groups=None,  create_new_groups=False, **kwargs):
-        super().__init__(**kwargs)
-        self.user = user
-        self.email = email
-        self.groups = groups
-        self.active = active
-        self.groups = []
-        for group in groups:
-            if isinstance(group, Group):
-                self.groups.append(group)
-            else:
-                g = Group.query.get(group)
-                if g is None:
-                    if create_new_groups:
-                        g = Group(group=group)
-                    else:
-                        raise ValueError(f"Group '{group}' not found")
-                self.groups.append(g)
 
     @classmethod
     def get_by_user(cls, user):
         return db.session.query(cls).filter_by(user=user).one_or_none()
+
+    @classmethod
+    def get_by_group(cls, group):
+        return [g for g in db.session.query(cls).all() if group in g.groups]
 
     def hash_password(self, password):
         if not self._password:
@@ -82,14 +51,14 @@ class User(db.Model, UUIDistributedEntityMixin):
     def set_initial(cls):
         root = cls.get_by_user('root')
         if not root:
-            root = User(user='root', groups=['administrator'], create_new_groups=True)
+            root = User(user='root', groups=['administrator'])
             root.hash_password('12345678')
             db.session.add(root)
         ops = cls.get_by_user('ops')
         if not ops:
-            ops = User(user='ops', groups=['operator', 'deployer'], create_new_groups=True)
+            ops = User(user='ops', groups=['operator', 'deployer'])
             db.session.add(ops)
         reporter = cls.get_by_user('reporter')
         if not reporter:
-            reporter = User(user='reporter', groups=['readonly'], create_new_groups=True)
+            reporter = User(user='reporter', groups=['readonly'])
             db.session.add(reporter)
