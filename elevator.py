@@ -11,7 +11,6 @@ import platform
 import re
 import shutil
 import signal
-import subprocess
 import sys
 import tempfile
 import time
@@ -19,11 +18,17 @@ import typing as t
 from datetime import datetime
 from enum import Enum
 
+if sys.version_info >= (3, 7):
+    from subprocess import run as _run
+    run = functools.partial(_run, capture_output=True, encoding='utf-8')
+else:
+    from subprocess import run as _run, PIPE
+    run = functools.partial(_run, stdout=PIPE, stderr=PIPE, encoding='utf-8')
+
 import click
 import netifaces
 import psutil
 import requests
-from flask_migrate import init, migrate, upgrade as fm_upgrade
 from pkg_resources import parse_version
 
 import gunicorn_conf as conf
@@ -192,7 +197,7 @@ def start_daemon(cwd=None, silently=True):
            '--daemon',
            'dimensigon:app']
     logger.debug('Running ' + ' '.join(cmd))
-    cp = subprocess.run(
+    cp = run(
         cmd,
         cwd=cwd, timeout=10)
 
@@ -375,34 +380,44 @@ def _upgrade(config):
 
     # change working dir to new home
     os.chdir(new_home)
-    sys.path.insert(0, new_home)
     logger.debug(f"changed working directory to {os.getcwd()}")
 
-    error = False
-    try:
-        from dimensigon import app
-        with app.app_context():
-            try:
-                migrate()
-            except:
-                init()
-                migrate()
-            fm_upgrade()
-    except Exception as e:
-        logger.exception("Error while upgrading database.")
-        error = True
+    migration_error = False
+    if not os.path.exists(os.path.join(new_home, 'migrations')):
+        cp = run([os.path.join(BIN, "flask"), 'db', 'init'])
+        if cp.returncode != 0:
+            migration_error = True
+            logger.error(cp.stdout) if cp.stdout else None
+            logger.error(cp.stderr) if cp.stderr else None
+        else:
+            logger.info(cp.stdout)
+    if migration_error is False:
+        cp = run([os.path.join(BIN, "flask"), 'db', 'migrate'])
+        if cp.returncode == 0:
+            logger.info(cp.stdout)
+            cp = run([os.path.join(BIN, "flask"), 'db', 'upgrade'])
+            if cp.returncode != 0:
+                migration_error = True
+                logger.error(cp.stdout) if cp.stdout else None
+                logger.error(cp.stderr) if cp.stderr else None
+            else:
+                logger.info(cp.stdout)
+        else:
+            migration_error = True
+            logger.error(cp.stdout) if cp.stdout else None
+            logger.error(cp.stderr) if cp.stderr else None
+
 
     #####################
     # start NEW version #
     #####################
-    if error or not start_and_check(cwd=new_home):
+    if migration_error or not start_and_check(cwd=new_home):
         logger.info(f"New version not running. Reverting changes to version '{old_version}'")
 
         # kill daemon if running
         stop_daemon()
 
         os.chdir(HOME)
-        sys.path.pop(0)
         logger.debug(f"changed working directory to {os.getcwd()}")
 
         # save failed version
