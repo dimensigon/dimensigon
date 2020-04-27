@@ -10,7 +10,7 @@ from dm.web import db
 class Group(db.Model, UUIDistributedEntityMixin):
     __tablename__ = 'D_group'
 
-    group = db.Column(db.String, nullable=False, primary_key=True)
+    group = db.Column(db.String, nullable=False)
 
     users = db.relationship("User", back_populates="groups")
 
