@@ -303,7 +303,7 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
         for server in not_neighbours:
             for gate in server.gates:
                 if (gate.ip and not gate.ip.is_loopback) or (gate.dns and gate.dns != 'localhost'):
-                    if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=2, delay=1, timeout=10):
+                    if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=2, delay=1, timeout=2):
                         routing_logger.debug(f'Node {server} is a new neighbour')
                         if server.route:
                             server.route.gate = gate
