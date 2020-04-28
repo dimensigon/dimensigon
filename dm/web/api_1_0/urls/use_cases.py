@@ -20,7 +20,7 @@ from dm.utils.helpers import get_distributed_entities, is_iterable_not_string
 from dm.web import db, executor
 from dm.web.api_1_0 import api_bp
 from dm.web.async_functions import deploy_orchestration
-from dm.web.background_tasks import update_table_routing_cost
+from dm.web.background_tasks import update_table_routing_cost, process_check_new_versions
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import run_in_background
 from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes
@@ -43,6 +43,39 @@ def join_public():
         return g.dimension.public.save_pkcs1(), 200, {'content-type': 'application/octet-stream'}
     else:
         return '', 401
+
+
+@api_bp.route('/join', methods=['POST'])
+@securizer
+@jwt_required
+@lock_catalog
+def join():
+    if get_jwt_identity() == 'join':
+        js = request.get_json()
+        current_app.logger.debug(f"New server wanting to join: {js}")
+        s = Server.from_json(js)
+        Route(destination=s, cost=0)
+        db.session.add(s)
+        db.session.commit()
+        dim = g.dimension.to_json()
+        catalog = fetch_catalog(datetime.datetime(datetime.MINYEAR, 1, 1))
+        catalog.update(Dimension=dim)
+        catalog.update(me=str(Server.get_current().id))
+        return catalog, 200
+    else:
+        return '', 401
+
+
+@api_bp.route('/manual', methods=['POST'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+def manual():
+    json_data = request.get_json()
+    action = json_data.get('action')
+    if action == 'software upgrade':
+        executor.submit(process_check_new_versions)
+        return {}, 202
 
 
 @api_bp.route('/software/send', methods=['POST'])
@@ -344,24 +377,3 @@ def events(event_id):
     e = Event(event_id, data=request.get_json())
     current_app.events.dispatch(e)
     return {}, 202
-
-
-@api_bp.route('/join', methods=['POST'])
-@securizer
-@jwt_required
-@lock_catalog
-def join():
-    if get_jwt_identity() == 'join':
-        js = request.get_json()
-        current_app.logger.debug(f"New server wanting to join: {js}")
-        s = Server.from_json(js)
-        Route(destination=s, cost=0)
-        db.session.add(s)
-        db.session.commit()
-        dim = g.dimension.to_json()
-        catalog = fetch_catalog(datetime.datetime(datetime.MINYEAR, 1, 1))
-        catalog.update(Dimension=dim)
-        catalog.update(me=str(Server.get_current().id))
-        return catalog, 200
-    else:
-        return '', 401

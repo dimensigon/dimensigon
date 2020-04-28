@@ -20,8 +20,13 @@ class User(db.Model, UUIDistributedEntityMixin):
 
     __table_args__ = (db.UniqueConstraint('user', name='D_user_uq01'),)
 
-    def get_by_user(self, user):
-        return self.query.filter_by(user=user).one_or_none()
+    @classmethod
+    def get_by_user(cls, user):
+        return db.session.query(cls).filter_by(user=user).one_or_none()
+
+    @classmethod
+    def get_by_group(cls, group):
+        return [g for g in db.session.query(cls).all() if group in g.groups]
 
     def hash_password(self, password):
         if not self._password:
@@ -42,16 +47,18 @@ class User(db.Model, UUIDistributedEntityMixin):
             data.update(password=self._password)
         return data
 
-    def set_initial(self):
-        root = self.get_by_user('root')
+    @classmethod
+    def set_initial(cls):
+        root = cls.get_by_user('root')
         if not root:
             root = User(user='root', groups=['administrator'])
+            root.hash_password('12345678')
             db.session.add(root)
-        ops = self.get_by_user('ops')
+        ops = cls.get_by_user('ops')
         if not ops:
             ops = User(user='ops', groups=['operator', 'deployer'])
             db.session.add(ops)
-        reporter = self.get_by_user('reporter')
+        reporter = cls.get_by_user('reporter')
         if not reporter:
             reporter = User(user='reporter', groups=['readonly'])
             db.session.add(reporter)

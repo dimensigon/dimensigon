@@ -5,9 +5,9 @@ from dm.web import db
 
 
 class Scope(Enum):
-    UPGRADE = 10
-    ORCHESTRATION = 30
-    CATALOG = 40
+    ORCHESTRATION = 1  # execute an orchestration
+    CATALOG = 2  # lock catalog for updating information
+    UPGRADE = 3  # upgrading Catalog from another server
 
     def __lt__(self, other):
         return self.value < other.value
@@ -24,19 +24,7 @@ class Locker(db.Model):
 
     scope = db.Column(db.Enum(Scope), primary_key=True)
     state = db.Column(db.Enum(State), nullable=False)
-    priority = db.Column(db.Integer, nullable=False)
     applicant = db.Column(Pickle)
-
-    @classmethod
-    def set_initial(cls):
-        for scope in Scope:
-            l = cls.query.get(scope)
-            if not l:
-                l = cls(scope=scope, state=State.UNLOCKED, priority=scope.value)
-                db.session.add(l)
-            else:
-                if l.state != State.UNLOCKED:
-                    l.state = State.UNLOCKED
 
     def __repr__(self):
         return f"Locker({self.scope.name}, {self.state.name})"
