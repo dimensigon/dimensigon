@@ -85,7 +85,7 @@ def process_check_new_versions(app=None, timeout_wait_transfer=None, refresh_int
             if len(software_list) > 0:
                 max_version = parse_version(software_list[-1].version)
             else:
-                max_version = parse_version('0')
+                max_version = parse_version(dm_version)
             new_versions = [gogs_ver for gogs_ver in gogs_versions if gogs_ver > max_version]
 
             if new_versions:
