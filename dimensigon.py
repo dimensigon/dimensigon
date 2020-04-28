@@ -31,7 +31,6 @@ from dm.domain.entities import *
 from dm.web.network import pack_msg2, unpack_msg2
 from dm.web import create_app, db
 
-from dm.domain.entities.bootstrap import set_initial
 from dm.domain.entities.locker import Locker
 from dm.use_cases.interactor import upgrade_catalog
 from dm.utils.helpers import generate_symmetric_key, generate_dimension
@@ -50,7 +49,7 @@ with app.app_context():
 def make_shell_context():
     return dict(db=db, app=app, ActionTemplate=ActionTemplate, Step=Step, Orchestration=Orchestration, Catalog=Catalog,
                 Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service,
-                Software=Software, SoftwareServerAssociation=SoftwareServerAssociation, User=User, Group=Group,
+                Software=Software, SoftwareServerAssociation=SoftwareServerAssociation, User=User,
                 Transfer=Transfer, Locker=Locker, Gate=Gate, create_access_token=create_access_token)
 
 
@@ -313,21 +312,3 @@ def certs(hostname, ip):
     click.echo("Certificates generated")
     click.echo("cert: " + os.path.join(ssl_dir, 'cert.pem'))
     click.echo("key: " + os.path.join(ssl_dir, 'key.pem'))
-
-
-@dm.command(help='Fill initial server')
-@with_appcontext
-def populate_db():
-    # migrate database to latest revision
-    # alembic_dir = os.path.join(basedir, 'migrations')
-    #
-    # if not os.path.exists(alembic_dir):
-    #     init()
-    #
-    # upgrade()
-
-    # Generate Server
-    # db.create_all()
-    db.create_all()
-    set_initial()
-    db.session.commit()
