@@ -26,6 +26,17 @@ class Locker(db.Model):
     state = db.Column(db.Enum(State), nullable=False)
     applicant = db.Column(Pickle)
 
+    @classmethod
+    def set_initial(cls):
+        for scope in Scope:
+            l = cls.query.get(scope)
+            if not l:
+                l = cls(scope=scope, state=State.UNLOCKED)
+                db.session.add(l)
+            else:
+                if l.state != State.UNLOCKED:
+                    l.state = State.UNLOCKED
+
     def __repr__(self):
         return f"Locker({self.scope.name}, {self.state.name})"
 

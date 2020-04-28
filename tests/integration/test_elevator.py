@@ -2,6 +2,7 @@ import logging
 import os
 import os.path
 import tempfile
+from subprocess import CompletedProcess
 from unittest import TestCase
 from unittest.mock import patch, mock_open
 
@@ -17,8 +18,7 @@ class TestElevator(TestCase):
         self.version = '1.0'
         self.new_home = os.path.join(DM_ROOT, 'dimensigon_' + self.version)
 
-    @patch('elevator.fm_upgrade')
-    @patch('elevator.migrate')
+    @patch('elevator.run')
     @patch('elevator.os.rmdir')
     @patch('elevator.os.chdir')
     @patch('elevator.daemon_running')
@@ -28,7 +28,7 @@ class TestElevator(TestCase):
     @patch('elevator.os.path.exists')
     @patch('elevator.get_hc')
     def test_upgrade(self, mock_get_hc, mock_exists, mock_shutil, mock_stop, mock_start, mock_daemon, mock_chdir,
-                     mock_rmdir, mock_migrate, mock_fm_upgrade):
+                     mock_rmdir, mock_run):
         mock_daemon.return_value = True
         mock_stop.return_value = True
         mock_start.return_value = True
@@ -49,6 +49,8 @@ class TestElevator(TestCase):
                                    ]
 
         mock_exists.return_value = False
+        mock_run.return_value = CompletedProcess((), 0, 'stdout', '')
+
         import elevator
         elevator.host = '127.0.0.1:5000'
         # runner = CliRunner()
@@ -66,8 +68,7 @@ class TestElevator(TestCase):
         self.assertGreaterEqual(mock_shutil.copytree.call_count, 1)
 
         # migration
-        mock_migrate.assert_called_once()
-        mock_fm_upgrade.assert_called_once()
+        mock_run.assert_called_once()
 
         # stop old version
         mock_stop.assert_called_once()
@@ -81,8 +82,7 @@ class TestElevator(TestCase):
         mock_start.assert_called_once_with(self.new_home, elevator.logger.level != logging.DEBUG)
         mock_daemon.assert_called_once()
 
-    @patch('elevator.fm_upgrade')
-    @patch('elevator.migrate')
+    @patch('elevator.run')
     @patch('elevator.os.rmdir')
     @patch('elevator.os.chdir')
     @patch('elevator.daemon_running')
@@ -92,7 +92,7 @@ class TestElevator(TestCase):
     @patch('elevator.os.path.exists')
     @patch('elevator.get_hc')
     def test_upgrade_error_new_version(self, mock_get_hc, mock_exists, mock_shutil, mock_stop, mock_start, mock_daemon,
-                                       mock_chdir, mock_rmdir, mock_migrate, mock_fm_upgrade):
+                                       mock_chdir, mock_rmdir, mock_run):
         mock_daemon.side_effect = [False, True]
         mock_stop.return_value = True
         mock_start.return_value = True
@@ -113,6 +113,7 @@ class TestElevator(TestCase):
                                    ]
 
         mock_exists.return_value = False
+        mock_run.return_value = CompletedProcess((), 0, 'stdout', '')
 
         import elevator
         elevator.host = '127.0.0.1:5000'
@@ -135,8 +136,7 @@ class TestElevator(TestCase):
         self.assertGreaterEqual(mock_shutil.copytree.call_count, 1)
 
         # migration
-        mock_migrate.assert_called_once()
-        mock_fm_upgrade.assert_called_once()
+        mock_run.assert_called_once()
 
         # stop old version
         # mock_stop.assert_called_once()

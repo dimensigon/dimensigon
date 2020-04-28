@@ -71,3 +71,5 @@ class Execution(db.Model, EntityReprMixin):
         data.update(service_id=str(getattr(self.service, 'id', None)) if getattr(self.service, 'id', None) else None)
         data.update(rc=self.rc, stdout=self.stdout, stderr=self.stderr, success=self.success, )
         return data
+
+

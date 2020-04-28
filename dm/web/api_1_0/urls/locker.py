@@ -35,7 +35,7 @@ def locker_prevent():
     # check status from current scope
     if l.state == State.UNLOCKED:
         # check priority
-        prioritary_lockers = Locker.query.filter_by(Locker.scope != l.scope).all()
+        prioritary_lockers = Locker.query.filter(Locker.scope != l.scope).all()
         prioritary_lockers = [pl for pl in prioritary_lockers if pl.scope < l.scope]
         cond = any([pl.state in (State.PREVENTING, State.LOCKED) for pl in prioritary_lockers])
         if not cond:
@@ -52,8 +52,8 @@ def locker_prevent():
             th = threading.Timer(defaults.TIMEOUT_PREVENTING_LOCK, revert_preventing,
                                  (current_app._get_current_object(), l.scope, l.applicant))
             th.daemon = True
-            th.start()
             db.session.commit()
+            th.start()
             return {'message': 'Preventing lock acquired'}, 200
         else:
             return {'error': 'Unable to request for lock'}, 409
