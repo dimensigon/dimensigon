@@ -5,7 +5,7 @@ from datetime import datetime
 
 import netifaces
 
-DATETIME_FORMAT = "%m/%d/%Y, %H:%M:%S"
+DATETIME_FORMAT = "%m/%d/%Y, %H:%M:%S.%f"
 DATEMARK_FORMAT = "%Y%m%d.%H%M%S.%f"
 HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOSTNAME = socket.gethostname()

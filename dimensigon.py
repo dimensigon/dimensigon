@@ -112,6 +112,8 @@ token: Authentication Token used for authentication to the reference server""")
 @click.option('--verify/--no-verify', help="verifies certificate", default=False)
 @with_appcontext
 def join(server, token, ssl, verify):
+    Server.set_initial()
+    db.session.commit()
     protocol = "https" if ssl else "http"
     with requests.Session() as session:
         # TODO: send ca.cert from the dimension
@@ -136,6 +138,8 @@ def join(server, token, ssl, verify):
             dim = Dimension.from_json(resp_data.pop('Dimension'))
             dim.current = True
             db.session.add(dim)
+            click.echo('Joined to the dimension')
+            click.echo('Updating Catalog')
             reference_server_id = resp_data.pop('me')
             # remove catalog
             for c in Catalog.query.all():
@@ -148,7 +152,7 @@ def join(server, token, ssl, verify):
             Route(destination=reference_server, cost=0)
             # update_table_routing_cost(True)
             db.session.commit()
-            click.echo('Joined to the dimension')
+
 
 
 @dm.command(help="""Create a token for joining the dimension.""")
@@ -165,7 +169,7 @@ def new(name):
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.x509.oid import NameOID
     import datetime
-
+    Server.set_initial()
     count = Dimension.query.count()
     dim = generate_dimension(name)
 

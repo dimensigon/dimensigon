@@ -20,7 +20,7 @@ def is_ssl_open(host: str, port: int, timeout: float = 1.0):
             sock.settimeout(timeout)
             with context.wrap_socket(sock, server_hostname=host) as ssock:
                 return True
-    except ConnectionRefusedError:
+    except (ConnectionRefusedError, TimeoutError):
         return False
     except socket.timeout:
         return False
@@ -33,7 +33,7 @@ def is_open2(host: str, port: int, timeout: float = 1.0):
             sock.settimeout(timeout)
             with context.wrap_socket(sock, server_hostname=host) as ssock:
                 return True
-    except ConnectionRefusedError:
+    except (ConnectionRefusedError, TimeoutError):
         return False
     except socket.timeout:
         return True

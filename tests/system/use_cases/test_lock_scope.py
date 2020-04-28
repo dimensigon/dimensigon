@@ -95,18 +95,12 @@ class TestLockScope(TestCase):
         db.session.commit()
 
         def callback_prevent(url, **kwargs):
-            # self.assertDictEqual(kwargs['json'], {'scope': 'CATALOG', 'action': 'PREVENT',
-            #                                       'applicant': [str(Server.get_current().id), str(n1.id), str(n2.id)]})
             return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)
 
         def callback_lock(url, **kwargs):
-            # self.assertDictEqual(kwargs['json'], {'scope': 'CATALOG', 'action': 'LOCK',
-            #                                       'applicant': [str(Server.get_current().id), str(n1.id), str(n2.id)]})
             return CallbackResult("{'message': 'Locked'}", status=200)
 
         def callback_unlock(url, **kwargs):
-            # self.assertDictEqual(kwargs['json'], {'scope': 'CATALOG', 'action': 'UNLOCK',
-            #                                       'applicant': [str(Server.get_current().id), str(n1.id), str(n2.id)]})
             return CallbackResult("{'message': 'UnLocked'}", status=200)
 
         def callback_client(url, **kwargs):

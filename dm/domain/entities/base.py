@@ -65,6 +65,7 @@ class UUIDistributedEntityMixin(UUIDEntityMixin, DistributedEntityMixin):
         return data
 
     @classmethod
+    @abc.abstractmethod
     def from_json(cls, kwargs):
         super().from_json(kwargs)
         if 'id' in kwargs:

@@ -89,7 +89,7 @@ def create_app(config_name):
     executor.init_app(app)
     app.events = EventHandler()
 
-    app.before_first_request_funcs = [app.start_background_tasks, set_initial_status]
+    app.before_first_request_funcs = [app.start_background_tasks]
     app.before_request(load_global_data_into_context)
 
     app.register_error_handler(ValidationError, validation_error)
@@ -102,10 +102,6 @@ def create_app(config_name):
     app.register_blueprint(api_1_0_bp)
 
     return app
-
-def set_initial_status():
-    from ..domain.entities import Locker
-    Locker.set_initial()
 
 
 def validation_error(e: ValidationError):

@@ -20,14 +20,17 @@ from dm.web.network import get, async_post, async_patch
 
 def upgrade_catalog(catalog, check_mismatch=True):
     de = get_distributed_entities()
-    inside = set([name for name, cls in de])
-    current_app.logger.debug(f'Actual entities: {inside}')
 
-    outside = set(catalog.keys())
-    current_app.logger.debug(f'Remote entities: {outside}')
+    if check_mismatch:
+        inside = set([name for name, cls in de])
+        current_app.logger.debug(f'Actual entities: {inside}')
 
-    if check_mismatch and len(inside ^ outside) > 0:
-        raise ue.CatalogMismatch(inside ^ outside)
+        outside = set(catalog.keys())
+        current_app.logger.debug(f'Remote entities: {outside}')
+
+        if len(inside ^ outside) > 0:
+
+            raise ue.CatalogMismatch(inside ^ outside)
 
     with bypass_datamark_update():
         for name, cls in de:

@@ -1,4 +1,14 @@
+__author__ = "Joan Prat "
+__copyright__ = "Copyright 2019, The Dimensigon project"
+__credits__ = ["Joan Prat", "Daniel Moya"]
+__license__ = ""
+__version__ = "0.0-b1"
+__maintainer__ = "Joan Prat"
+__email__ = "joan.prat@dimensigon.com"
+__status__ = "Dev"
+
 # Futures
+
 
 # Generic/Built-in
 import functools
@@ -15,15 +25,9 @@ import sys
 import tempfile
 import time
 import typing as t
+import warnings
 from datetime import datetime
 from enum import Enum
-
-if sys.version_info >= (3, 7):
-    from subprocess import run as _run
-    run = functools.partial(_run, capture_output=True, encoding='utf-8')
-else:
-    from subprocess import run as _run, PIPE
-    run = functools.partial(_run, stdout=PIPE, stderr=PIPE, encoding='utf-8')
 
 import click
 import netifaces
@@ -33,16 +37,173 @@ from pkg_resources import parse_version
 
 import gunicorn_conf as conf
 
-__author__ = "Joan Prat "
-__copyright__ = "Copyright 2019, The Dimensigon project"
-__credits__ = ["Joan Prat", "Daniel Moya"]
-__license__ = ""
-__version__ = "0.0-a3"
-__maintainer__ = "Joan Prat"
-__email__ = "joan.prat@dimensigon.com"
-__status__ = "Dev"
+if sys.version_info >= (3, 7):
+    from subprocess import run as _run
+    run = functools.partial(_run, capture_output=True, encoding='utf-8')
+elif sys.version_info >= (3, 5):
+    from subprocess import run as _run
 
-import warnings
+    run = functools.partial(_run, encoding='utf-8')
+else:
+    from subprocess import Popen, PIPE
+
+    # Exception classes used by this module.
+    class SubprocessError(Exception):
+        pass
+
+    class CalledProcessError(SubprocessError):
+        """Raised when run() is called with check=True and the process
+        returns a non-zero exit status.
+
+        Attributes:
+          cmd, returncode, stdout, stderr, output
+        """
+
+        def __init__(self, returncode, cmd, output=None, stderr=None):
+            self.returncode = returncode
+            self.cmd = cmd
+            self.output = output
+            self.stderr = stderr
+
+        def __str__(self):
+            if self.returncode and self.returncode < 0:
+                try:
+                    return "Command '%s' died with %r." % (
+                        self.cmd, signal.Signals(-self.returncode))
+                except ValueError:
+                    return "Command '%s' died with unknown signal %d." % (
+                        self.cmd, -self.returncode)
+            else:
+                return "Command '%s' returned non-zero exit status %d." % (
+                    self.cmd, self.returncode)
+
+        @property
+        def stdout(self):
+            """Alias for output attribute, to match stderr"""
+            return self.output
+
+        @stdout.setter
+        def stdout(self, value):
+            # There's no obvious reason to set this, but allow it anyway so
+            # .stdout is a transparent alias for .output
+            self.output = value
+
+
+    class TimeoutExpired(SubprocessError):
+        """This exception is raised when the timeout expires while waiting for a
+        child process.
+
+        Attributes:
+            cmd, output, stdout, stderr, timeout
+        """
+
+        def __init__(self, cmd, timeout, output=None, stderr=None):
+            self.cmd = cmd
+            self.timeout = timeout
+            self.output = output
+            self.stderr = stderr
+
+        def __str__(self):
+            return ("Command '%s' timed out after %s seconds" %
+                    (self.cmd, self.timeout))
+
+        @property
+        def stdout(self):
+            return self.output
+
+        @stdout.setter
+        def stdout(self, value):
+            # There's no obvious reason to set this, but allow it anyway so
+            # .stdout is a transparent alias for .output
+            self.output = value
+
+
+    class CompletedProcess(object):
+        """A process that has finished running.
+
+        This is returned by run().
+
+        Attributes:
+          args: The list or str args passed to run().
+          returncode: The exit code of the process, negative for signals.
+          stdout: The standard output (None if not captured).
+          stderr: The standard error (None if not captured).
+        """
+
+        def __init__(self, args, returncode, stdout=None, stderr=None):
+            self.args = args
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+        def __repr__(self):
+            args = ['args={!r}'.format(self.args),
+                    'returncode={!r}'.format(self.returncode)]
+            if self.stdout is not None:
+                args.append('stdout={!r}'.format(self.stdout))
+            if self.stderr is not None:
+                args.append('stderr={!r}'.format(self.stderr))
+            return "{}({})".format(type(self).__name__, ', '.join(args))
+
+        def check_returncode(self):
+            """Raise CalledProcessError if the exit code is non-zero."""
+            if self.returncode:
+                raise CalledProcessError(self.returncode, self.args, self.stdout,
+                                         self.stderr)
+
+
+    def run(*popenargs, input=None, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them.
+
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+
+        There is an optional argument "input", allowing you to
+        pass a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+
+        The other arguments are the same as for the Popen constructor.
+
+        If universal_newlines=True is passed, the "input" argument must be a
+        string and stdout/stderr in the returned object will be strings rather than
+        bytes.
+        """
+        if input is not None:
+            if 'stdin' in kwargs:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
+                raise TimeoutExpired(process.args, timeout, output=stdout,
+                                     stderr=stderr)
+            except:
+                process.kill()
+                process.wait()
+                raise
+            retcode = process.poll()
+            if check and retcode:
+                raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+        return CompletedProcess(process.args, retcode, stdout, stderr)
+
+
+
+
 
 
 
@@ -60,7 +221,7 @@ EXCLUDE_PATTERN = r"(\.pyc|\.ini)$"  # files to be excluded from backup
 HEALTHCHECK_URI = '/healthcheck'  # health check URI
 SOFTWARE_URI = '/software'
 FAILED_VERSIONS = '.failed_versions'
-MAX_TIME_WAITING = 30
+MAX_TIME_WAITING = 15
 SSL_VERIFY = False
 PACKAGE_NAME = 'dimensigon'
 schema, host = None, None
@@ -383,30 +544,14 @@ def _upgrade(config):
     logger.debug(f"changed working directory to {os.getcwd()}")
 
     migration_error = False
-    if not os.path.exists(os.path.join(new_home, 'migrations')):
-        cp = run([os.path.join(BIN, "flask"), 'db', 'init'])
-        if cp.returncode != 0:
-            migration_error = True
-            logger.error(cp.stdout) if cp.stdout else None
-            logger.error(cp.stderr) if cp.stderr else None
-        else:
-            logger.info(cp.stdout)
-    if migration_error is False:
-        cp = run([os.path.join(BIN, "flask"), 'db', 'migrate'])
-        if cp.returncode == 0:
-            logger.info(cp.stdout)
-            cp = run([os.path.join(BIN, "flask"), 'db', 'upgrade'])
-            if cp.returncode != 0:
-                migration_error = True
-                logger.error(cp.stdout) if cp.stdout else None
-                logger.error(cp.stderr) if cp.stderr else None
-            else:
-                logger.info(cp.stdout)
-        else:
-            migration_error = True
-            logger.error(cp.stdout) if cp.stdout else None
-            logger.error(cp.stderr) if cp.stderr else None
 
+    cp = run([os.path.join(BIN, "flask"), 'db', 'upgrade'])
+    if cp.returncode != 0:
+        migration_error = True
+        logger.error(cp.stdout) if cp.stdout else None
+        logger.error(cp.stderr) if cp.stderr else None
+    else:
+        logger.info(cp.stdout)
 
     #####################
     # start NEW version #

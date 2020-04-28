@@ -1,7 +1,7 @@
+import logging
 import threading
 from contextlib import contextmanager
 
-from flask import current_app
 from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker, object_session
 
@@ -22,6 +22,8 @@ from .software import Software, SoftwareServerAssociation
 from .step import Step
 from .transfer import Transfer, Status as TransferStatus
 from .user import User
+
+logger = logging.getLogger('dm.catalog')
 
 __all__ = [
     "ActionTemplate",
@@ -110,7 +112,7 @@ def receive_after_commit(session):
             else:
                 if c.last_modified_at < last_modified_at:
                     c.last_modified_at = last_modified_at
-            current_app.logger.debug(f'changed catalog {c}')
+            logger.debug(f'changed catalog {c}')
             s.add(c)
             s.commit()
         catalog.data = {}
