@@ -16,8 +16,7 @@ def is_open(host: str, port: int, timeout: float = 1.0):
 def is_ssl_open(host: str, port: int, timeout: float = 1.0):
     context = ssl.SSLContext()
     try:
-        with socket.create_connection((host, port)) as sock:
-            sock.settimeout(timeout)
+        with socket.create_connection((host, port), timeout=timeout) as sock:
             with context.wrap_socket(sock, server_hostname=host) as ssock:
                 return True
     except (ConnectionRefusedError, TimeoutError):
@@ -29,8 +28,7 @@ def is_ssl_open(host: str, port: int, timeout: float = 1.0):
 def is_open2(host: str, port: int, timeout: float = 1.0):
     context = ssl.SSLContext()
     try:
-        with socket.create_connection((host, port)) as sock:
-            sock.settimeout(timeout)
+        with socket.create_connection((host, port), timeout=timeout) as sock:
             with context.wrap_socket(sock, server_hostname=host) as ssock:
                 return True
     except (ConnectionRefusedError, TimeoutError):
@@ -42,7 +40,10 @@ def is_open2(host: str, port: int, timeout: float = 1.0):
 def check_host(host: str, port: int, retry=3, delay=2, timeout=1.0):
     ipup = False
     for i in range(retry):
-        if is_open2(host, port, timeout):
+        if is_ssl_open(host, port, timeout):
+            ipup = True
+            break
+        elif is_open(host, port, timeout):
             ipup = True
             break
         time.sleep(delay)
