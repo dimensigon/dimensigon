@@ -218,7 +218,7 @@ def check_catalog():
                         catalog_ver = new_catalog_ver
                     else:
                         catalog_logger.debug(
-                            f"Server {response[1]} has different software version {response[0]['version']}")
+                            f"Server {server} has different software version {response[0]['version']}")
             else:
                 msg = f"Error while trying to get healthcheck from server {server.name}. "
                 if response[1]:

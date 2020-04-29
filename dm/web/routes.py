@@ -11,7 +11,6 @@ from dm.domain.entities import Server, Catalog
 from dm.domain.entities.user import User
 from dm.web.decorators import forward_or_dispatch, validate_schema
 from dm.web.json_schemas import schema_healthcheck
-from elevator import __version__ as elevator_ver
 
 blueprint_name = 'root'
 root_bp = Blueprint(blueprint_name, __name__)
@@ -43,7 +42,6 @@ def healthcheck():
         #     catalog_ver = current_app.catalog_manager.max_data_mark.strftime(current_app.catalog_manager.format)
         catalog_ver = Catalog.max_catalog()
         return {"version": dm.__version__,
-                "elevator_version": elevator_ver,
                 "catalog_version": catalog_ver.strftime(defaults.DATEMARK_FORMAT) if catalog_ver else None,
                 "scheduler": "running" if getattr(current_app.extensions.get('scheduler'), 'running',
                                                   None) else "stopped",
