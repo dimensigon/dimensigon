@@ -1,12 +1,3 @@
-__author__ = "Joan Prat "
-__copyright__ = "Copyright 2019, The Dimensigon project"
-__credits__ = ["Joan Prat", "Daniel Moya"]
-__license__ = ""
-__version__ = "0.0-b1"
-__maintainer__ = "Joan Prat"
-__email__ = "joan.prat@dimensigon.com"
-__status__ = "Dev"
-
 # Futures
 
 
@@ -229,12 +220,8 @@ schema, host = None, None
 
 # max time elevator will wait for the process to start and ask for the health check response
 
-
-exc_dirs = ('__pycache__', '.git', '.idea', 'tests', 'migrations', 'tmp', 'bin')
-
 exc_pattern = re.compile(EXCLUDE_PATTERN)
-config_files = ['.env', 'sqlite.db', 'gunicorn_conf.py', 'ssl', 'migrations']
-pid_file = os.path.join(HOME, conf.pidfile)
+config_files = ['.env', 'sqlite.db', 'gunicorn_conf.py', 'ssl']
 
 
 FORMAT = '%(asctime)-15s %(filename)s %(levelname)-8s %(message)s'
@@ -331,7 +318,11 @@ def get_hc(token=None, tries=1, delay=3, backoff=1):
         return hc
 
 
-def daemon_running():
+def daemon_running(dm_home=HOME):
+    if not os.path.dirname(conf.pidfile):
+        pid_file = os.path.join(dm_home, conf.pidfile)
+    else:
+        pid_file = conf.pidfile
     if os.path.exists(pid_file):
         with open(pid_file) as fd:
             pid = int(fd.read())
@@ -348,8 +339,7 @@ def get_func_find_proc():
     return func
 
 
-def start_daemon(cwd=None, silently=True):
-    cwd = cwd or HOME
+def start_daemon(cwd=HOME, silently=True):
     # cp = subprocess.run(['python', 'dimensigon.py', 'start'], capture_output=True, env=os.environ, timeout=10)
     cmd = [os.path.join(BIN, 'gunicorn'),
            '-c', os.path.join(cwd, 'gunicorn_conf.py'),
@@ -368,12 +358,12 @@ def start_daemon(cwd=None, silently=True):
     return cp.returncode
 
 
-def start_and_check(cwd=None, tries=MAX_TIME_WAITING // 5):
+def start_and_check(cwd=HOME, tries=MAX_TIME_WAITING // 5):
     # start new version & check health
     start_daemon(cwd, logger.level != logging.DEBUG)
     # wait to be able to create pid file
     time.sleep(1)
-    if daemon_running():
+    if daemon_running(cwd):
         hc = get_hc(tries=tries or 1, delay=5)
         logger.debug(f"Healthcheck from {host}: {json.dumps(hc, indent=4)}")
 
