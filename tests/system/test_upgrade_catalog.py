@@ -10,7 +10,7 @@ from flask_jwt_extended import create_access_token
 import dm.use_cases.exceptions as ue
 from dm.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate, Route
 from dm.domain.entities.bootstrap import set_initial
-from dm.use_cases.interactor import upgrade_catalog_from_server
+from dm.use_cases.use_cases import upgrade_catalog_from_server
 from dm.web import create_app, db
 
 
@@ -38,8 +38,8 @@ class TestUpgradeCatalog(TestCase):
         self.app_context.pop()
 
     @patch('dm.domain.entities.get_now')
-    @patch('dm.use_cases.interactor.get_distributed_entities')
-    @patch('dm.use_cases.interactor.lock_scope')
+    @patch('dm.use_cases.use_cases.get_distributed_entities')
+    @patch('dm.use_cases.use_cases.lock_scope')
     @responses.activate
     def test_upgrade_catalog(self, mock_lock, mock_entities, mock_now):
         mock_lock.return_value.__enter__.return_value = 'applicant'
@@ -87,8 +87,8 @@ class TestUpgradeCatalog(TestCase):
         self.assertEqual('mkdir -p {dir}', at1.code)
 
     # no new data
-    @patch('dm.use_cases.interactor.get_distributed_entities')
-    @patch('dm.use_cases.interactor.lock_scope')
+    @patch('dm.use_cases.use_cases.get_distributed_entities')
+    @patch('dm.use_cases.use_cases.lock_scope')
     @responses.activate
     def test_upgrade_catalog_no_data(self, mock_lock, mock_entities):
         mock_lock.return_value.__enter__.return_value = 'applicant'
@@ -108,8 +108,8 @@ class TestUpgradeCatalog(TestCase):
 
         self.assertEqual(0, len(atl))
 
-    @patch('dm.use_cases.interactor.get_distributed_entities')
-    @patch('dm.use_cases.interactor.lock_scope')
+    @patch('dm.use_cases.use_cases.get_distributed_entities')
+    @patch('dm.use_cases.use_cases.lock_scope')
     @responses.activate
     def test_upgrade_catalog_catalog_mismatch(self, mock_lock, mock_entities):
         mock_lock.return_value.__enter__.return_value = 'applicant'

@@ -2,24 +2,19 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime
-from unittest import TestCase
+from unittest import TestCase, mock
 from unittest.mock import patch
 
-import aiohttp
 import requests
 import responses
-from aioresponses import aioresponses
 from flask import url_for
+from pkg_resources import parse_version
 
-import dm
-from dm.domain.entities import Server, Software, SoftwareServerAssociation, Transfer, Route, Gate
-from dm.domain.entities.bootstrap import set_initial
-from dm.use_cases.interactor import Dimension, TransferStatus
+from dm.domain.entities import Server, Route, Gate, \
+    Dimension
 from dm.web import create_app, db
-from dm.web.background_tasks import process_check_new_versions, check_catalog, TempRoute, \
-    update_table_routing_cost
-from dm.web.network import pack_msg
+from dm.web.background_tasks import TempRoute, update_table_routing_cost, process_get_new_version_from_gogs, \
+    upgrader_logger
 
 gogs_content = """
 <div class="ui container">
@@ -94,231 +89,144 @@ class TestCheckNewVersions(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.web.background_tasks.lock_scope')
-    @patch('dm.web.background_tasks.subprocess.Popen')
-    @patch('dm.web.background_tasks.os.path.exists')
-    @patch('dm.web.background_tasks.md5')
-    @patch('dm.use_cases.interactor.open')
-    @responses.activate
-    def test_internet_upgrade(self, mock_open, mock_md5, mock_exists, mock_popen, mock_lock):
-        import dm.use_cases.interactor
-        dm.web.background_tasks.dm_version = '0.0.1'
-        mock_lock.__enter__.return_value = None
-
-        responses.add(method='GET',
-                      url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
-                      body=gogs_content)
-
-        responses.add(method='GET',
-                      url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/archive/v0.1.a1.tar.gz',
-                      body=b"v0.1.a1")
-
-        responses.add(method='GET',
-                      url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/archive/v0.0.1.tar.gz',
-                      body=b"v0.0.1")
-
-        mock_md5.return_value = b"md5"
-        mock_exists.return_value = False
-        process_check_new_versions(self.app)
-
-        self.assertEqual(
-            (['python', 'elevator.py', 'upgrade',
-              os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon-v0.1.a1.tar.gz'), '0.1a1'],),
-            mock_popen.call_args[0])
-
-    @patch('dm.web.background_tasks.lock_scope')
-    @patch('dm.web.background_tasks.subprocess.Popen')
-    @patch('dm.web.background_tasks.os.path.exists')
-    @patch('dm.web.background_tasks.md5')
-    @patch('dm.web.background_tasks.open')
-    @responses.activate
-    def test_internet_not_upgrade(self, mock_open, mock_md5, mock_exists, mock_popen, mock_lock):
-        import dm.use_cases.interactor
-        dm.web.background_tasks.dm_version = '0.1'
-        mock_lock.__enter__.return_value = None
-
-        responses.add(method='GET',
-                      url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
-                      body=gogs_content)
-
-        responses.add(method='GET',
-                      url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/archive/v0.1.a1.tar.gz',
-                      body=b"v0.1.a1")
-
-        responses.add(method='GET',
-                      url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/archive/v0.0.1.tar.gz',
-                      body=b"v0.0.1")
-
-        mock_md5.return_value = b"md5"
-        mock_exists.return_value = False
-        process_check_new_versions()
-
-        self.assertFalse(mock_popen.called)
-
-    @patch('dm.web.background_tasks.lock_scope')
-    @patch('dm.web.background_tasks.subprocess.Popen')
+    @patch('dm.web.background_tasks.run_elevator')
     @patch('dm.web.background_tasks.os.path.exists')
     @patch('dm.web.background_tasks.open')
     @responses.activate
-    def test_no_internet_upgrade(self, mock_open, mock_exists, mock_popen, mock_lock):
-        import dm.use_cases.interactor
-        dm.web.background_tasks.dm_version = '0.1'
-        mock_lock.__enter__.return_value = None
+    def test_internet_upgrade(self, mock_open, mock_exists, mock_run_elevator):
+        with mock.patch('dm.web.background_tasks.dm_version', '0.0.1'):
+            responses.add(method='GET',
+                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
+                              '/dimensigon/dimensigon/releases',
+                          body=gogs_content)
 
-        responses.add(method='GET',
-                      url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
-                      body=requests.exceptions.ConnectionError('No connection'))
+            responses.add(method='GET',
+                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
+                              '/dimensigon/dimensigon/archive/v0.1.a1.tar.gz',
+                          body=b"v0.1.a1")
 
-        mock_exists.return_value = False
+            responses.add(method='GET',
+                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
+                              '/dimensigon/dimensigon/archive/v0.0.1.tar.gz',
+                          body=b"v0.0.1")
 
-        soft = Software(name='dimensigon', version='0.2',
-                        filename='dimensigon-v0.2.tar.gz', size=10, checksum=b'10')
-        ssa = SoftwareServerAssociation(software=soft, server=Server.get_current(),
-                                        path=self.app.config['SOFTWARE_REPO'])
-        db.session.add(soft)
-        db.session.add(ssa)
-        db.session.commit()
+            mock_exists.return_value = False
+            process_get_new_version_from_gogs(self.app)
 
-        process_check_new_versions()
+            self.assertEqual(
+                (os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon', 'dimensigon-v0.1.a1.tar.gz'),
+                 parse_version('v0.1.a1'),
+                 upgrader_logger),
+                mock_run_elevator.call_args[0])
 
-        self.assertEqual((['python', 'elevator.py', 'upgrade',
-                           os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon-v0.2.tar.gz'),
-                           '0.2'],),
-                         mock_popen.call_args[0])
-
-    @patch('dm.web.background_tasks.lock_scope')
-    @patch('dm.web.background_tasks.subprocess.Popen')
-    @patch('dm.web.background_tasks.os.path.exists')
-    @patch('dm.web.background_tasks.md5')
-    @patch('dm.web.background_tasks.open')
-    @responses.activate
-    def test_no_internet_no_upgrade(self, mock_open, mock_md5, mock_exists, mock_popen, mock_lock):
-        import dm.use_cases.interactor
-        dm.web.background_tasks.dm_version = '0.1'
-        mock_lock.__enter__.return_value = None
-
-        responses.add(method='GET',
-                      url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
-                      body=requests.exceptions.ConnectionError('No connection'))
-
-        mock_md5.return_value = b"md5"
-        mock_exists.return_value = False
-        process_check_new_versions()
-
-        self.assertFalse(mock_popen.called)
-
-    @patch('dm.web.background_tasks.lock_scope')
-    @patch('dm.web.background_tasks.subprocess.Popen')
+    @patch('dm.web.background_tasks.run_elevator')
     @patch('dm.web.background_tasks.os.path.exists')
     @patch('dm.web.background_tasks.open')
     @responses.activate
-    def test_no_internet_upgrade_remote_server(self, mock_open, mock_exists, mock_popen, mock_lock):
-        import dm.use_cases.interactor
-        dm.web.background_tasks.dm_version = '0.1'
-        mock_lock.__enter__.return_value = None
+    def test_internet_not_upgrade(self, mock_open, mock_exists, mock_run_elevator):
+        with mock.patch('dm.web.background_tasks.dm_version', '0.1'):
+            responses.add(method='GET',
+                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
+                          body=gogs_content)
 
-        responses.add(method='GET',
-                      url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
-                      body=requests.exceptions.ConnectionError('No connection'))
+            responses.add(method='GET',
+                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/archive/v0.1.a1.tar.gz',
+                          body=b"v0.1.a1")
 
-        mock_exists.return_value = False
-        r_server = Server(name='remoteserver', port=8000)
-        Route(destination=r_server, cost=0)
-        soft = Software(name='dimensigon', version='0.2',
-                        filename='dimensigon-0.2.tar.gz', size=10, checksum=b'10')
-        ssa = SoftwareServerAssociation(software=soft, server=r_server,
-                                        path=self.app.config['SOFTWARE_REPO'])
-        db.session.add(r_server)
-        db.session.add(soft)
-        db.session.add(ssa)
-        db.session.commit()
+            responses.add(method='GET',
+                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/archive/v0.0.1.tar.gz',
+                          body=b"v0.0.1")
 
-        t = Transfer(software=soft, dest_path='', num_chunks=5, status=TransferStatus.COMPLETED)
-        db.session.add(t)
-        db.session.commit()
+            mock_exists.return_value = False
+            process_get_new_version_from_gogs()
 
-        responses.add(method='POST',
-                      # TODO: change static url for url_for
-                      url=f"http://remoteserver:8000/api/v1.0/software/send",
-                      json=pack_msg(data={'transfer_id': str(t.id)})
-                      )
+            self.assertFalse(mock_run_elevator.called)
 
-        process_check_new_versions(timeout_wait_transfer=0.1, refresh_interval=0.05)
+    @patch('dm.web.background_tasks.run_elevator')
+    @patch('dm.web.background_tasks.os.path.exists')
+    @patch('dm.web.background_tasks.open')
+    @responses.activate
+    def test_no_internet_no_upgrade(self, mock_open, mock_exists, mock_run_elevator):
+        with mock.patch('dm.web.background_tasks.dm_version', '0.1'):
+            responses.add(method='GET',
+                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
+                          body=requests.exceptions.ConnectionError('No connection'))
 
-        self.assertEqual((['python', 'elevator.py', 'upgrade',
-                           os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon-0.2.tar.gz'), '0.2'],),
-                         mock_popen.call_args[0])
+            mock_exists.return_value = False
+            process_get_new_version_from_gogs()
+
+            self.assertFalse(mock_run_elevator.called)
 
 
-class TestCheckCatalog(TestCase):
-
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        db.create_all()
-        set_initial()
-        self.client = self.app.test_client()
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
-
-    @patch('dm.use_cases.interactor.lock_scope')
-    @patch('dm.domain.entities.get_now')
-    @patch('dm.web.background_tasks.upgrade_catalog_from_server')
-    @aioresponses()
-    def test_check_catalog(self, mock_upgrade, mock_now, mock_lock, m):
-        mock_lock.__enter__.return_value = None
-        mock_now.return_value = datetime(2019, 4, 1)
-        s1 = Server('node1', port=8000)
-        Route(destination=s1, cost=0)
-        s2 = Server('node2', port=8000)
-        Route(destination=s2, cost=0)
-        db.session.add_all([s1, s2])
-        db.session.commit()
-
-        m.get(url=s1.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
-        m.get(url=s2.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000001'))
-
-        check_catalog()
-
-        mock_upgrade.assert_called_once_with(s2)
-
-    @patch('dm.use_cases.interactor.lock_scope')
-    @patch('dm.domain.entities.get_now')
-    @patch('dm.web.background_tasks.upgrade_catalog_from_server')
-    @aioresponses()
-    def test_check_catalog_no_upgrade(self, mock_upgrade, mock_now, mock_lock, m):
-        mock_lock.__enter__.return_value = None
-        mock_now.return_value = datetime(2019, 4, 1)
-        s1 = Server('node1', port=8000)
-        Route(destination=s1, cost=0)
-        s2 = Server('node2', port=8000)
-        Route(destination=s2, cost=0)
-        db.session.add_all([s1, s2])
-        db.session.commit()
-
-        m.get(url=s1.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
-        m.get(url=s2.url('root.healthcheck'),
-              payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
-
-        check_catalog()
-
-        self.assertEqual(0, mock_upgrade.call_count)
-
-        m.get(url=s1.url('root.healthcheck'), exception=aiohttp.ClientError())
-        m.get(url=s2.url('root.healthcheck'), exception=aiohttp.ClientError())
-
-        check_catalog()
-
-        self.assertEqual(0, mock_upgrade.call_count)
+# class TestCheckCatalog(TestCase):
+#
+#     def setUp(self):
+#         """Create and configure a new app instance for each test."""
+#         # create the app with common test config
+#         self.app = create_app('test')
+#         self.app_context = self.app.app_context()
+#         self.app_context.push()
+#         db.create_all()
+#         set_initial()
+#         self.client = self.app.test_client()
+#
+#     def tearDown(self) -> None:
+#         db.session.remove()
+#         db.drop_all()
+#         self.app_context.pop()
+#
+#     @patch('dm.use_cases.interactor.lock_scope')
+#     @patch('dm.domain.entities.get_now')
+#     @patch('dm.web.background_tasks.upgrade_catalog_from_server')
+#     @aioresponses()
+#     def test_check_catalog(self, mock_upgrade, mock_now, mock_lock, m):
+#         mock_lock.__enter__.return_value = None
+#         mock_now.return_value = datetime(2019, 4, 1)
+#         s1 = Server('node1', port=8000)
+#         Route(destination=s1, cost=0)
+#         s2 = Server('node2', port=8000)
+#         Route(destination=s2, cost=0)
+#         db.session.add_all([s1, s2])
+#         db.session.commit()
+#
+#         m.get(url=s1.url('root.healthcheck'),
+#               payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
+#         m.get(url=s2.url('root.healthcheck'),
+#               payload=dict(version=dm.__version__, catalog_version='20190401.000000.000001'))
+#
+#         upgrade_catalog()
+#
+#         mock_upgrade.assert_called_once_with(s2)
+#
+#     @patch('dm.use_cases.interactor.lock_scope')
+#     @patch('dm.domain.entities.get_now')
+#     @patch('dm.web.background_tasks.upgrade_catalog_from_server')
+#     @aioresponses()
+#     def test_check_catalog_no_upgrade(self, mock_upgrade, mock_now, mock_lock, m):
+#         mock_lock.__enter__.return_value = None
+#         mock_now.return_value = datetime(2019, 4, 1)
+#         s1 = Server('node1', port=8000)
+#         Route(destination=s1, cost=0)
+#         s2 = Server('node2', port=8000)
+#         Route(destination=s2, cost=0)
+#         db.session.add_all([s1, s2])
+#         db.session.commit()
+#
+#         m.get(url=s1.url('root.healthcheck'),
+#               payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
+#         m.get(url=s2.url('root.healthcheck'),
+#               payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
+#
+#         upgrade_catalog()
+#
+#         self.assertEqual(0, mock_upgrade.call_count)
+#
+#         m.get(url=s1.url('root.healthcheck'), exception=aiohttp.ClientError())
+#         m.get(url=s2.url('root.healthcheck'), exception=aiohttp.ClientError())
+#
+#         check_catalog()
+#
+#         self.assertEqual(0, mock_upgrade.call_count)
 
 
 class TestUpdateTableRoutingCost(TestCase):
@@ -761,8 +669,15 @@ class TestUpdateTableRoutingCost(TestCase):
                            dict(destination_id='123e4567-e89b-12d3-a456-426655440002',
                                 gate_id='123e4567-e89b-12d3-a456-426655440022', proxy_server_id=None, cost=0),
                        ]}
+            elif re.search("^https?://(10\.0\.0\.2):5000" + url_for('api_1_0.routes', _external=False),
+                         request.url):
+                msg = {"server_id": '123e4567-e89b-12d3-a456-426655440002',
+                       "route_list": [
+                           dict(destination_id='123e4567-e89b-12d3-a456-426655440001',
+                                gate_id='123e4567-e89b-12d3-a456-426655440012', proxy_server_id=None, cost=0),
+                       ]}
             else:
-                raise
+                raise ConnectionError()
             return 200, {}, json.dumps(msg)
 
         responses.add_callback(responses.GET, re.compile('^https?://.*$'), callback=callback,

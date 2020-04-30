@@ -4,27 +4,28 @@ import json
 import math
 import os
 import pickle
+import re
 import threading
 import typing as t
 import uuid
 
 from flask import request, g, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
+from pkg_resources import parse_version
 
+import dm
 from dm import defaults as d, defaults
 from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Execution
-from dm.network.low_level import check_host
-from dm.use_cases.event_handler import Event
-from dm.use_cases.interactor import send_software, Orchestration
+from dm.utils.asyncio import run
+from dm.utils.event_handler import Event
 from dm.utils.helpers import get_distributed_entities, is_iterable_not_string
 from dm.web import db, executor
 from dm.web.api_1_0 import api_bp
-from dm.web.async_functions import deploy_orchestration
-from dm.web.background_tasks import update_table_routing_cost, process_check_new_versions
+from dm.web.async_functions import deploy_orchestration, async_send_file
+from dm.web.background_tasks import update_table_routing_cost
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dm.web.helpers import run_in_background
 from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes
-from dm.web.network import ping as ping_server, HTTPBearerAuth, post, patch
+from dm.web.network import HTTPBearerAuth, post, patch
 from dm.web.threading import FlaskThread
 
 if t.TYPE_CHECKING:
@@ -64,18 +65,6 @@ def join():
         return catalog, 200
     else:
         return '', 401
-
-
-@api_bp.route('/manual', methods=['POST'])
-@forward_or_dispatch
-@jwt_required
-@securizer
-def manual():
-    json_data = request.get_json()
-    action = json_data.get('action')
-    if action == 'software upgrade':
-        executor.submit(process_check_new_versions)
-        return {}, 202
 
 
 @api_bp.route('/software/send', methods=['POST'])
@@ -120,12 +109,34 @@ def software_send():
 
     if transfer_id:
         file = os.path.join(ssa.path, software.filename)
-        run_in_background(func=send_software,
-                          kwargs=dict(dest_server=dest_server, transfer_id=transfer_id, file=file, chunks=chunks,
-                                      chunk_size=chunk_size, max_senders=max_senders, auth=auth))
+        executor.submit(run, async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file, chunks=chunks,
+                                             chunk_size=chunk_size, max_senders=max_senders, auth=auth))
 
         return {'transfer_id': transfer_id}, 202
     return {'error': f'unable to create transfer on {dest_server}', 'response': resp, 'code': code}, 400
+
+
+@api_bp.route('software/dimensigon', methods=['GET'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+def software_dimensigon():
+    # sends the last software
+    repo = current_app.config['SOFTWARE_REPO']
+    max_version = None
+    max_file = None
+    for file in os.listdir(os.path.join(repo, 'dimensigon')):
+        if 'dimensigon-' in file:
+            m = re.search(r'v?\d+\.\d+[.-][ab]?\d+', file)
+            if m and parse_version(m.group()) >= parse_version(max_version or dm.__version__):
+                max_version = m.group()
+                max_file = file
+    if max_file:
+        with open(os.path.join(repo, 'dimensigon', max_file), 'rb') as fh:
+            return {'filename': max_file, 'version': max_version,
+                    'content': base64.b64encode(fh.read()).decode('ascii')}, 200
+    else:
+        return {}, 204
 
 
 @api_bp.route('/catalog/<string:data_mark>', methods=['GET', 'POST'])
@@ -194,91 +205,91 @@ def routes():
                 th.daemon = True
                 th.start()
 
-    elif request.method == 'PATCH':
-        data = request.get_json()
-        current_app.logger.debug(f"New routes recived: {json.dumps(data, indent=4)}")
-        likely_proxy_server = Server.query.get(data.get('server_id'))
-        new_routes = []
-        if not likely_proxy_server:
-            return {"error": f"Server id '{data.get('server_id')}' not found"}, 404
-        for new_route in data.get('route_list', []):
-            target_server = Server.query.get(new_route.get('destination_id'))
-            if target_server is None:
-                current_app.logger.debug(f"Destination server unknown {new_route.get('destination_id')}")
-                continue
-            if target_server == g.server:
-                # check if server has detected me as a neighbour
-                if new_route.get('cost') == 0:
-                    # server may be created without route (backward compatibility)
-                    if likely_proxy_server.route is None:
-                        likely_proxy_server.route = Route(destination=likely_proxy_server)
-                    # check if I do not have it as a neighbour yet
-                    if likely_proxy_server.route.cost != 0:
-                        for gate in likely_proxy_server.gates:
-                            if check_host(gate.dns or str(gate.ip), gate.port, timeout=1, retry=3, delay=0.5):
-                                likely_proxy_server.route.proxy_server = None
-                                likely_proxy_server.route.gate = gate
-                                likely_proxy_server.route.cost = 0
-                                new_routes.append(likely_proxy_server.route)
-                                break
-            else:
-                # server may be created without route (backward compatibility)
-                if target_server.route is None:
-                    target_server.route = Route(destination=target_server)
-                # process routes whose proxy_server is not me
-                if str(g.server.id) != new_route.get('proxy_server_id'):
-                    if target_server.route.proxy_server == likely_proxy_server and new_route.get('cost') is None:
-                        cost, time = None, None
-                    else:
-                        cost, time = ping_server(target_server, g.server)  # check my route
-                    if cost is not None:
-                        # if new route has less cost than actual route, take it as my new route
-                        if ((new_route.get('cost') or 999999) + 1) < cost:
-                            target_server.route.proxy_server = likely_proxy_server
-                            target_server.route.gate = None
-                            target_server.route.cost = new_route.get('cost') + 1
-                            new_routes.append(target_server.route)
-                    else:
-                        # if new route reaches the destination take it as a new one
-                        if new_route.get('cost') is not None:
-                            target_server.route.proxy_server = likely_proxy_server
-                            target_server.route.gate = None
-                            target_server.route.cost = new_route.get('cost') + 1
-                        else:
-                            # neither my route and the new route has access to the destination
-                            target_server.route.gate, target_server.route.proxy_server, target_server.route.cost = None, None, None
-                        new_routes.append(target_server.route)
-
-        # # Seek my routes whose gateway is the likely_proxy_server
-        # for target_server in Server.query.join(Route.destination).filter(
-        #         Route.proxy_server == likely_proxy_server).all():
-        #     for new_route in data.get('route_list', []):
-        #         if new_route.get('cost'):
-        #             target_server.route.cost = new_route.get('cost') + 1
-        #         else:
-        #             target_server.route.gate, target_server.route.proxy_server, target_server.route.cost = None, None, None
-        #         new_routes.append(target_server.route)
-        db.session.commit()
-
-        # send new information in background
-        if new_routes:
-            def func_patch(app, *args, **kwargs):
-                with app.app_context():
-                    patch(*args, **kwargs)
-
-            msg = {'server_id': str(g.server.id),
-                   'route_list': [
-                       r.to_json()
-                       for r in new_routes]}
-
-            for s in Server.get_neighbours():
-                if s != likely_proxy_server:
-                    th = threading.Thread(target=func_patch,
-                                          args=(current_app._get_current_object(), s, 'api_1_0.routes'),
-                                          kwargs={'json': msg,
-                                                  'headers': dict(Authorization=request.headers['Authorization'])})
-                    th.daemon = True
-                    th.start()
+    # elif request.method == 'PATCH':
+    #     data = request.get_json()
+    #     current_app.logger.debug(f"New routes recived: {json.dumps(data, indent=4)}")
+    #     likely_proxy_server = Server.query.get(data.get('server_id'))
+    #     new_routes = []
+    #     if not likely_proxy_server:
+    #         return {"error": f"Server id '{data.get('server_id')}' not found"}, 404
+    #     for new_route in data.get('route_list', []):
+    #         target_server = Server.query.get(new_route.get('destination_id'))
+    #         if target_server is None:
+    #             current_app.logger.debug(f"Destination server unknown {new_route.get('destination_id')}")
+    #             continue
+    #         if target_server == g.server:
+    #             # check if server has detected me as a neighbour
+    #             if new_route.get('cost') == 0:
+    #                 # server may be created without route (backward compatibility)
+    #                 if likely_proxy_server.route is None:
+    #                     likely_proxy_server.route = Route(destination=likely_proxy_server)
+    #                 # check if I do not have it as a neighbour yet
+    #                 if likely_proxy_server.route.cost != 0:
+    #                     for gate in likely_proxy_server.gates:
+    #                         if check_host(gate.dns or str(gate.ip), gate.port, timeout=1, retry=3, delay=0.5):
+    #                             likely_proxy_server.route.proxy_server = None
+    #                             likely_proxy_server.route.gate = gate
+    #                             likely_proxy_server.route.cost = 0
+    #                             new_routes.append(likely_proxy_server.route)
+    #                             break
+    #         else:
+    #             # server may be created without route (backward compatibility)
+    #             if target_server.route is None:
+    #                 target_server.route = Route(destination=target_server)
+    #             # process routes whose proxy_server is not me
+    #             if str(g.server.id) != new_route.get('proxy_server_id'):
+    #                 if target_server.route.proxy_server == likely_proxy_server and new_route.get('cost') is None:
+    #                     cost, time = None, None
+    #                 else:
+    #                     cost, time = ping_server(target_server, g.server)  # check my route
+    #                 if cost is not None:
+    #                     # if new route has less cost than actual route, take it as my new route
+    #                     if ((new_route.get('cost') or 999999) + 1) < cost:
+    #                         target_server.route.proxy_server = likely_proxy_server
+    #                         target_server.route.gate = None
+    #                         target_server.route.cost = new_route.get('cost') + 1
+    #                         new_routes.append(target_server.route)
+    #                 else:
+    #                     # if new route reaches the destination take it as a new one
+    #                     if new_route.get('cost') is not None:
+    #                         target_server.route.proxy_server = likely_proxy_server
+    #                         target_server.route.gate = None
+    #                         target_server.route.cost = new_route.get('cost') + 1
+    #                     else:
+    #                         # neither my route and the new route has access to the destination
+    #                         target_server.route.gate, target_server.route.proxy_server, target_server.route.cost = None, None, None
+    #                     new_routes.append(target_server.route)
+    #
+    #     # # Seek my routes whose gateway is the likely_proxy_server
+    #     # for target_server in Server.query.join(Route.destination).filter(
+    #     #         Route.proxy_server == likely_proxy_server).all():
+    #     #     for new_route in data.get('route_list', []):
+    #     #         if new_route.get('cost'):
+    #     #             target_server.route.cost = new_route.get('cost') + 1
+    #     #         else:
+    #     #             target_server.route.gate, target_server.route.proxy_server, target_server.route.cost = None, None, None
+    #     #         new_routes.append(target_server.route)
+    #     db.session.commit()
+    #
+    #     # send new information in background
+    #     if new_routes:
+    #         def func_patch(app, *args, **kwargs):
+    #             with app.app_context():
+    #                 patch(*args, **kwargs)
+    #
+    #         msg = {'server_id': str(g.server.id),
+    #                'route_list': [
+    #                    r.to_json()
+    #                    for r in new_routes]}
+    #
+    #         for s in Server.get_neighbours():
+    #             if s != likely_proxy_server:
+    #                 th = threading.Thread(target=func_patch,
+    #                                       args=(current_app._get_current_object(), s, 'api_1_0.routes'),
+    #                                       kwargs={'json': msg,
+    #                                               'headers': dict(Authorization=request.headers['Authorization'])})
+    #                 th.daemon = True
+    #                 th.start()
 
     return {}, 204
 

@@ -8,13 +8,14 @@ from unittest.mock import patch
 
 import responses
 from aioresponses import aioresponses, CallbackResult
+from flask import url_for
 from flask_jwt_extended import create_access_token
 
 from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, Locker
 from dm.domain.entities import Server, Dimension, Catalog
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
-from dm.web.background_tasks import check_catalog
+from dm.web.background_tasks import update_catalog
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -168,9 +169,11 @@ class TestLockScopeFullChain(TestCase):
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('Software').last_modified_at)
             self.assertEqual(datetime(2019, 4, 3), Catalog.query.get('SoftwareServerAssociation').last_modified_at)
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('ActionTemplate').last_modified_at)
+            resp = self.client1.get(url_for('root.healthcheck'))
 
         with self.app2.app_context():
-            check_catalog()
+            s = Server.query.filter_by(_me=False).one()
+            update_catalog({s: (resp.get_json(), resp.status_code)})
 
         with self.app2.app_context():
             soft = Software.query.get('aaaaaaaa-1234-5678-1234-56781234aaa1')
