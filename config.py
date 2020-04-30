@@ -27,6 +27,7 @@ class Config(object):
     @classmethod
     def init_app(cls, app):
         os.makedirs(cls.SOFTWARE_REPO, exist_ok=True)
+        os.makedirs(os.path.join(cls.SOFTWARE_REPO, 'dimensigon'), exist_ok=True)
 
 
 class ProductionConfig(Config):

@@ -1,6 +1,9 @@
 import typing as t
 
-from dm.domain.entities import Scope, Server
+from flask_jwt_extended import create_access_token
+
+from dm.domain.entities import Scope, Server, User
+from dm.web.network import HTTPBearerAuth
 
 
 def get_servers_from_scope(scope: Scope, *args, **kwargs) -> t.List[Server]:
@@ -22,3 +25,7 @@ def get_servers_from_scope(scope: Scope, *args, **kwargs) -> t.List[Server]:
     else:
         servers = []
     return servers
+
+
+def get_auth_root():
+    return HTTPBearerAuth(create_access_token(User.get_by_user('root').id))

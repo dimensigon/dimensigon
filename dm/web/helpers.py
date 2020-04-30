@@ -61,7 +61,6 @@ def filter_query(entity, filters, exclude: t.Container = None):
             query = query.filter(column == v)
     return query
 
-
 def run_in_background(func: t.Callable, app=None, args=None, kwargs=None):
     args = args or ()
     kwargs = kwargs or {}

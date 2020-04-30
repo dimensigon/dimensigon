@@ -26,8 +26,8 @@ def run_elevator(file, new_version, logger):
     stdout.close()
 
 
-def get_software(server: Server) -> t.Tuple[str, str]:
-    resp, code = get(server, 'api_1_0.software_dimensigon')
+def get_software(server: Server, auth) -> t.Tuple[str, str]:
+    resp, code = get(server, 'api_1_0.software_dimensigon', auth=auth)
     if code == 200:
         content = base64.b64decode(resp.get('content').encode('ascii'))
 
@@ -35,6 +35,8 @@ def get_software(server: Server) -> t.Tuple[str, str]:
         with open(file, 'wb') as fh:
             fh.write(content)
         return file, resp.get('version')
+    else:
+        return None, None
 
 
 def upgrade_catalog(catalog, check_mismatch=True):

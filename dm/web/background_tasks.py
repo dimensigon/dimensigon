@@ -10,17 +10,18 @@ import aiohttp
 import requests
 from bs4 import BeautifulSoup
 from flask import current_app
-from flask_jwt_extended import create_access_token
 from pkg_resources import parse_version
 
 from dm import __version__ as dm_version, defaults
 from dm.domain.entities import Server, Catalog, Route
 from dm.network.low_level import check_host
+from dm.use_cases.helpers import get_auth_root
 from dm.use_cases.use_cases import run_elevator, get_software, upgrade_catalog_from_server
 from dm.utils import asyncio
+from dm.utils.asyncio import create_task
 from dm.utils.helpers import get_filename_from_cd, convert
 from dm.web import db
-from dm.web.network import async_get, HTTPBearerAuth, ping, get
+from dm.web.network import async_get, ping, get
 
 logger = logging.getLogger('dm.background')
 routing_logger = logging.getLogger('dm.background.routing')
@@ -100,49 +101,54 @@ def process_get_new_version_from_gogs(app=None):
             ctx.pop()
 
 
-async def _get_neighbour_catalog_data_mark():
-    token = create_access_token('background')
-    headers = {'Authorization': f"Bearer {token}"}
+async def _get_neighbour_catalog_data_mark() -> t.Dict[Server, t.Tuple[t.Any, int]]:
     server_responses = {}
     servers = Server.get_neighbours()
     catalog_logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
-    for server in servers:
-        async with aiohttp.ClientSession(headers=headers,
-                                         connector=aiohttp.TCPConnector(
-                                             ssl=current_app.config['SSL_VERIFY'])) as session:
-            server_responses[server] = await async_get(server, 'root.healthcheck', session=session)
+    auth = get_auth_root()
 
-        try:
-            data = json.dumps(server_responses[server][0], indent=4, sort_keys=True)
-        except json.decoder.JSONDecodeError:
-            data = server_responses[server][0]
-        except:
-            data = f"Exception {server_responses[server][0].__class__.__name__}: {server_responses[server][0]}"
-        code = server_responses[server][1]
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(
+            ssl=current_app.config['SSL_VERIFY'])) as session:
+        for server in servers:
 
-        catalog_logger.debug(
-            f"Response from server {server.name}: {code}, {data}")
+                server_responses[server] = create_task(async_get(server, 'root.healthcheck', session=session,
+                                                           auth=auth))
+
+        for server, future in server_responses.items():
+            server_responses[server] = await future
+
+            try:
+                data = json.dumps(server_responses[server][0], indent=4, sort_keys=True)
+            except json.decoder.JSONDecodeError:
+                data = server_responses[server][0]
+            except:
+                data = f"Exception {server_responses[server][0].__class__.__name__}: {server_responses[server][0]}"
+            code = server_responses[server][1]
+
+            catalog_logger.debug(
+                f"Response from server {server.name}: {code}, {data}")
+
     return server_responses
 
 
-def upgrade_version(data):
+def upgrade_version(data: t.Dict[Server, t.Tuple[t.Any, int]]):
     mayor_version, mayor_server = None, None
     for server, response in data.items():
         if response[1] == 200 and 'version' in response[0]:
             remote_version = parse_version(response[0]['version'])
             if remote_version > parse_version(dm_version):
-                if mayor_version < remote_version or mayor_version is None:
+                if mayor_version is None or mayor_version < remote_version:
                     mayor_version, mayor_server = remote_version, server
     if mayor_version:
         catalog_logger.info(f'Found mayor version on server {mayor_server}. Upgrading version first')
-        file, v = get_software(mayor_server)
-        run_elevator(file, mayor_version, catalog_logger)
-        return True
-    else:
-        return False
+        file, v = get_software(mayor_server, get_auth_root())
+        if file:
+            run_elevator(file, mayor_version, catalog_logger)
+            return True
+    return False
 
 
-def update_catalog(data):
+def update_catalog(data: t.Dict[Server, t.Tuple[t.Any, int]]):
     reference_server = None
     catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
     if catalog_ver:
@@ -254,11 +260,10 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
                         changed_routes[server] = TempRoute(None, server.route.gate, server.route.cost)
                         break
 
-    token = create_access_token(identity='root')
     pool_responses = []
     neighoburs = Server.get_neighbours()
     for server in neighoburs:
-        pool_responses.append(get(server, 'api_1_0.routes', auth=HTTPBearerAuth(token)))
+        pool_responses.append(get(server, 'api_1_0.routes', auth=get_auth_root()))
 
     for resp in pool_responses:
         if resp[1] == 200:
