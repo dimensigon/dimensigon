@@ -6,10 +6,9 @@ schema_healthcheck = {
     "type": "object",
     "properties": {
         "action": {"type": "string",
-                   "pattern": "^(reboot|stop)"},
+                   "pattern": "^(reboot|stop|software)"},
     },
     "required": ["action"],
-    "additionalProperties": False
 }
 
 locker_prevent_post = {
@@ -302,7 +301,7 @@ post_schema_routes = {
     "additionalProperties": False
 }
 
-schema_transfers = {
+transfers_post = {
     "type": "object",
     "properties": {
         "software_id": {"type": "string",
@@ -311,19 +310,21 @@ schema_transfers = {
         "filename": {"type": "string"},
         "num_chunks": {"type": "integer",
                        "minimum": 0},
-        "force": {"type": "boolean"}
+        "force": {"type": "boolean"},
+        "size": {"type": "integer"},
+        "checksum": {"type": "string"},
     },
-    "required": ["software_id"]
+    "additionalProperties": False
 }
 
-schema_transfer = {
+transfer_post = {
     "type": "object",
     "properties": {
         "transfer_id": {"type": "string",
                         "pattern": UUID_pattern},
         "chunk": {"type": "integer",
                   "minimum": 0},
-        "content": {"type": "bytes"},
+        "content": {"type": "string"},
     },
     "required": ["transfer_id", "chunk", "content"],
     "additionalProperties": False

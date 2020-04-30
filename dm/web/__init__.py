@@ -14,9 +14,9 @@ from sqlalchemy import MetaData
 from werkzeug.exceptions import HTTPException
 
 from config import config_by_name
+from dm.utils.event_handler import EventHandler
 from .extensions.flask_executor.executor import Executor
 from .helpers import BaseQueryJSON, run_in_background
-from ..use_cases.event_handler import EventHandler
 
 
 def scopefunc():
@@ -45,19 +45,19 @@ class DimensigonApp(Flask):
 
     def start_background_tasks(self):
         from ..use_cases.log_sender import LogSender
-        from dm.web.background_tasks import process_catalog_route_table
+        from dm.web.background_tasks import process_catalog_route_table, process_get_new_version_from_gogs
         if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
             if self.extensions.get('scheduler') is None:
                 bs = BackgroundScheduler()
                 self.extensions['scheduler'] = bs
                 ls = LogSender()
                 self.extensions['log_sender'] = ls
-                from dm.web.background_tasks import process_check_new_versions
                 bs.start()
 
                 if self.config.get('AUTOUPGRADE'):
-                    bs.add_job(func=process_check_new_versions, args=(self,), trigger="interval", minutes=90)
-                bs.add_job(func=process_catalog_route_table, name="catalog & route upgrade", args=(self,), trigger="interval", minutes=2,
+                    bs.add_job(func=process_get_new_version_from_gogs, args=(self,), trigger="interval", hours=6)
+                bs.add_job(func=process_catalog_route_table, name="catalog & route upgrade", args=(self,),
+                           trigger="interval", minutes=2,
                            next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=5))
                 bs.add_job(func=run_in_background, name="log_sender", args=(ls.send_new_data, self),
                            trigger="interval",
