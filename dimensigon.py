@@ -32,7 +32,7 @@ from dm.web.network import pack_msg2, unpack_msg2
 from dm.web import create_app, db
 
 from dm.domain.entities.locker import Locker
-from dm.use_cases.interactor import upgrade_catalog
+from dm.use_cases.use_cases import upgrade_catalog
 from dm.utils.helpers import generate_symmetric_key, generate_dimension
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')

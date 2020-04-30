@@ -15,9 +15,9 @@ from flask import current_app
 
 from dm import defaults
 from dm.domain.entities import Server, Orchestration, Step
-from dm.use_cases.event_handler import Event
 from dm.use_cases.operations import CompletedProcess, IOperationEncapsulation, create_operation
 from dm.utils.dag import DAG
+from dm.utils.event_handler import Event
 from dm.utils.typos import Kwargs, Id
 from dm.web.network import post
 

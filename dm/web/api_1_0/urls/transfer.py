@@ -8,41 +8,48 @@ from flask_jwt_extended import jwt_required
 from sqlalchemy import and_
 
 import dm.defaults as d
-from dm.domain.entities import Transfer, Software
-from dm.domain.entities.transfer import Status as TransferStatus
+from dm.domain.entities import Transfer, TransferStatus, Software
 from dm.utils.helpers import md5
 from dm.web import db
 from dm.web.api_1_0 import api_bp
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
-from dm.web.json_schemas import schema_transfers
+from dm.web.json_schemas import transfers_post, transfer_post
 
 
 @api_bp.route('/transfers/', methods=['GET', 'POST'])
 @forward_or_dispatch
 @jwt_required
 @securizer
-@validate_schema(POST=schema_transfers)
+@validate_schema(POST=transfers_post)
 def transfers():
     if request.method == 'GET':
         return [t.to_json() for t in Transfer.query.all()]
     elif request.method == 'POST':
         # validation
-        data = request.get_json()
-        soft = Software.query.get(data['software_id'])
-        if not soft:
-            return {"error": f"Software id '{data['software_id']}' not found"}, 404
+        json_data = request.get_json()
+        soft = None
+        if 'software_id' in json_data:
+            soft = Software.query.get_or_404(json_data['software_id'])
+            pending = Transfer.query.filter_by(software=soft).filter(
+                and_(Transfer.status != TransferStatus.WAITING_CHUNKS,
+                     Transfer.status != TransferStatus.IN_PROGRESS)).count()
 
-        pending = Transfer.query.filter_by(software=soft).filter(
-            and_(Transfer.status != TransferStatus.WAITING_CHUNKS,
-                 Transfer.status != TransferStatus.IN_PROGRESS)).count()
+            if pending > 0:
+                return {"error": f"There is already a transfer sending software {soft.id}"}, 400
+        elif 'filename' not in json_data or 'size' not in json_data or 'checksum' not in json_data:
+            return {'error': 'No filename specified for the transfer'}, 404
+        else:
+            pending = Transfer.query.filter_by(filename=json_data['filename']).filter(
+                and_(Transfer.status != TransferStatus.WAITING_CHUNKS,
+                     Transfer.status != TransferStatus.IN_PROGRESS)).count()
 
-        if pending > 0:
-            return {"error": f"There is already a transfer sending software {soft.id}"}, 400
+            if pending > 0:
+                return {"error": f"There is already a transfer sending filename {json_data['filename']}"}, 400
 
-        dest_path = data.get('dest_path', current_app.config['SOFTWARE_REPO'])
-        file = os.path.join(dest_path, soft.filename)
+        dest_path = json_data.get('dest_path', current_app.config['SOFTWARE_REPO'])
+        file = os.path.join(dest_path, soft.filename if soft else json_data['filename'])
 
-        if not data.get('force', False):
+        if not json_data.get('force', False):
             if os.path.exists(file):
                 return {"error": "file already exists"}, 409
 
@@ -56,9 +63,12 @@ def transfers():
                 if re.search(rf"^{f}_chunk\.(\d+)$", f):
                     current_app.logger.debug(f'removing chunk file {os.path.join(dest_path, f)}')
                     os.remove(os.path.join(dest_path, f))
-
-        t = Transfer(software=soft, dest_path=dest_path,
-                     num_chunks=data.get('num_chunks'))
+        if soft:
+            t = Transfer(software=soft, dest_path=dest_path,
+                         num_chunks=json_data.get('num_chunks'))
+        else:
+            t = Transfer(software=json_data['filename'], dest_path=dest_path, num_chunks=json_data['num_chunks'],
+                         size=json_data['size'], checksum=json_data['checksum'])
 
         if not os.path.exists(t.dest_path):
             os.makedirs(t.dest_path)
@@ -75,6 +85,7 @@ CHUNK_READ_BUFFER = d.CHUNK_SIZE
 @forward_or_dispatch
 @jwt_required
 @securizer
+@validate_schema(POST=transfer_post)
 def transfer(transfer_id):
     if request.method == 'GET':
         trans = Transfer.query.get(transfer_id)
@@ -94,7 +105,7 @@ def transfer(transfer_id):
             db.session.commit()
         chunk = data.get('content')
         chunk_id = data.get('chunk')
-        with open(os.path.join(trans.dest_path, f'{trans.software.filename}_chunk.{chunk_id}'), 'wb') as fd:
+        with open(os.path.join(trans.dest_path, f'{trans.filename}_chunk.{chunk_id}'), 'wb') as fd:
             raw = base64.b64decode(chunk.encode('ascii'))
             fd.write(raw)
         msg = f"Chunk {chunk_id} from transfer {transfer_id} generated succesfully"
@@ -106,9 +117,9 @@ def transfer(transfer_id):
         if trans is None:
             return {"error": f"transfer id '{transfer_id}' not found"}, 404
         current_app.logger.debug(
-            f"Generating file {os.path.join(trans.dest_path, trans.software.filename)} from transfer {trans.id}")
-        chunk_pattern = re.compile(rf"^{trans.software.filename}_chunk\.(\d+)$")
-        file = os.path.join(trans.dest_path, trans.software.filename)
+            f"Generating file {os.path.join(trans.dest_path, trans.filename)} from transfer {trans.id}")
+        chunk_pattern = re.compile(rf"^{trans.filename}_chunk\.(\d+)$")
+        file = os.path.join(trans.dest_path, trans.filename)
         files, chunks_ids = zip(*sorted(
             [(f, int(chunk_pattern.match(f).groups()[0])) for f in os.listdir(trans.dest_path) if
              os.path.isfile(os.path.join(trans.dest_path, f)) and chunk_pattern.match(f)],
@@ -132,7 +143,7 @@ def transfer(transfer_id):
                 except Exception as e:
                     current_app.logger.warning(f"Unable to remove chunk file {f}. Exception: {e}")
         # check final file length and checksum
-        if os.path.getsize(file) != trans.software.size:
+        if os.path.getsize(file) != trans.size:
             trans.status = TransferStatus.SIZE_ERROR
             db.session.commit()
             # os.remove(file)
@@ -140,7 +151,7 @@ def transfer(transfer_id):
             current_app.logger.error(msg)
             return {"error": msg}, 404
 
-        if md5(file) != trans.software.checksum:
+        if md5(file) != trans.checksum:
             trans.status = TransferStatus.CHECKSUM_ERROR
             db.session.commit()
             # os.remove(file)
@@ -150,6 +161,6 @@ def transfer(transfer_id):
 
         trans.status = TransferStatus.COMPLETED
         db.session.commit()
-        msg = f"File {os.path.join(trans.dest_path, trans.software.filename)} from transfer {trans.id} recived succesfully"
+        msg = f"File {os.path.join(trans.dest_path, trans.filename)} from transfer {trans.id} recived succesfully"
         current_app.logger.debug(msg)
         return {'message': msg}, 204

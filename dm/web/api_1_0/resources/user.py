@@ -27,7 +27,7 @@ class UserResourceList(Resource):
         data = request.get_json()
         password = data.pop("password")
         u = User(**data)
-        u.hash_password(password)
+        u.set_password(password)
         db.session.add(u)
         db.session.commit()
         return {'user_id': str(u.id)}, 201

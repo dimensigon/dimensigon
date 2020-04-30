@@ -16,6 +16,7 @@ class TestElevator(TestCase):
         self.temp_dir = tempfile.gettempdir()
         self.deployable = 'dimensigon.tar.gz'
         self.version = '1.0'
+        self.old_home = os.path.join(DM_ROOT, 'dimensigon')
         self.new_home = os.path.join(DM_ROOT, 'dimensigon_' + self.version)
 
     @patch('elevator.run')
@@ -162,7 +163,7 @@ class TestElevator(TestCase):
         # start old version
         self.assertListEqual(
             [((self.new_home, elevator.logger.level != logging.DEBUG),),
-             ((None, elevator.logger.level != logging.DEBUG),)],
+             ((self.old_home, elevator.logger.level != logging.DEBUG),)],
             mock_start.call_args_list)
 
         self.assertEqual(2, mock_daemon.call_count)
