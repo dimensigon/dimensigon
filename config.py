@@ -22,11 +22,14 @@ class Config(object):
     AUTOUPGRADE = True
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
+    SECURIZER_PLAIN = True
     SCHEDULER = False
+
 
     @classmethod
     def init_app(cls, app):
         os.makedirs(cls.SOFTWARE_REPO, exist_ok=True)
+        os.makedirs(os.path.join(cls.SOFTWARE_REPO, 'dimensigon'), exist_ok=True)
 
 
 class ProductionConfig(Config):

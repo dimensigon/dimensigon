@@ -9,7 +9,7 @@ from dm.web.helpers import filter_query
 from dm.web.json_schemas import schema_create_user, schema_patch_user
 
 
-class UserResourceList(Resource):
+class UserList(Resource):
 
     @forward_or_dispatch
     @jwt_required

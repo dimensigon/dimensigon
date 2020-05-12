@@ -9,7 +9,7 @@ from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
 
 
-class TestServer(TestCase):
+class TestOrchestration(TestCase):
     def setUp(self):
         """Create and configure a new app instance for each test."""
         # create the app with common test config
@@ -27,6 +27,18 @@ class TestServer(TestCase):
         db.session.remove()
         db.drop_all()
         self.app_context.pop()
+
+    def test_orch_creation(self):
+        o = Orchestration(id=uuid.UUID("aaaaaaaa-1234-5678-1234-56781234aaa1"),
+                          name='Test Orchestration',
+                          version=1,
+                          description='description',
+                          params={'param1': 2})
+
+        db.session.add(o)
+        db.session.commit()
+        del o
+        o = Orchestration.query.get("aaaaaaaa-1234-5678-1234-56781234aaa1")
 
     def test_parameters(self):
         o = Orchestration(id=1,
@@ -188,3 +200,29 @@ class TestServer(TestCase):
         s13.step_parameters['server'] = 'localhost'
         self.assertFalse(s13.eq_imp(s23))
         self.assertFalse(o1.eq_imp(o2))
+
+    def test_init_on_load(self):
+        o = Orchestration(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001',
+                          name='Test Orchestration',
+                          version=1,
+                          description='description')
+
+        s1 = o.add_step(undo=False, action_template=self.at, parents=[], children=[], stop_on_error=False,
+                        id='bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
+
+        db.session.add(o)
+        db.session.commit()
+        del o
+
+        o = Orchestration.query.get('aaaaaaaa-1234-5678-1234-aaaaaaaa0001')
+
+        self.assertEqual({s1: []}, o._graph.succ)
+
+
+        s2 = o.add_step(undo=False, action_template=self.at, parents=[], children=[], stop_on_error=False,
+                        id='bbbbbbbb-1234-5678-1234-bbbbbbbb0002')
+        del o
+
+        o = Orchestration.query.get('aaaaaaaa-1234-5678-1234-aaaaaaaa0001')
+
+        self.assertEqual({s1: [], s2: []}, o._graph.succ)

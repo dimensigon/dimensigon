@@ -1,4 +1,3 @@
-import importlib
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -10,7 +9,8 @@ from dm.domain.entities.bootstrap import set_initial
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
 
-class TestLogResourceList(TestCase):
+
+class Testloglist(TestCase):
 
     def run(self, result=None):
         with patch('dm.web.decorators.lock'):
@@ -41,7 +41,7 @@ class TestLogResourceList(TestCase):
 
 
     def test_get(self):
-        resp = self.client.get(url_for('api_1_0.logresourcelist'), headers=self.auth.header)
+        resp = self.client.get(url_for('api_1_0.loglist'), headers=self.auth.header)
         self.assertListEqual([self.log.to_json()], resp.get_json())
 
         log = Log(source_server=Server.get_current(), target='/access.log', destination_server=self.node2)
@@ -49,12 +49,12 @@ class TestLogResourceList(TestCase):
         db.session.commit()
 
         # test with filter
-        resp = self.client.get(url_for('api_1_0.logresourcelist') + "?filter[target]=/access.log",
+        resp = self.client.get(url_for('api_1_0.loglist') + "?filter[target]=/access.log",
                                headers=self.auth.header)
         self.assertListEqual([log.to_json()], resp.get_json())
 
         # test with filter on a server
-        resp = self.client.get(url_for('api_1_0.logresourcelist') + f"?filter[dst_server_id]={self.node1.id}",
+        resp = self.client.get(url_for('api_1_0.loglist') + f"?filter[dst_server_id]={self.node1.id}",
                                headers=self.auth.header)
         self.assertListEqual([self.log.to_json()], resp.get_json())
 
@@ -63,7 +63,7 @@ class TestLogResourceList(TestCase):
                         "target": '/var/log',
                         "exclude": 'system.log'}
 
-        resp = self.client.post(url_for('api_1_0.logresourcelist'), headers=self.auth.header,
+        resp = self.client.post(url_for('api_1_0.loglist'), headers=self.auth.header,
                                 json=new_log_json)
         self.assertEqual(400, resp.status_code)
 
@@ -72,7 +72,7 @@ class TestLogResourceList(TestCase):
                         "exclude": 'system.log',
                         "dst_server_id": str(self.node1.id)}
 
-        resp = self.client.post(url_for('api_1_0.logresourcelist'), headers=self.auth.header,
+        resp = self.client.post(url_for('api_1_0.loglist'), headers=self.auth.header,
                                 json=new_log_json)
         self.assertEqual(400, resp.status_code)
         self.assertDictEqual({'error': 'source and destination must be different'}, resp.get_json())
@@ -82,7 +82,7 @@ class TestLogResourceList(TestCase):
                         "exclude": 'system.log',
                         "dst_server_id": str(self.node2.id)}
 
-        resp = self.client.post(url_for('api_1_0.logresourcelist'), headers=self.auth.header,
+        resp = self.client.post(url_for('api_1_0.loglist'), headers=self.auth.header,
                                 json=new_log_json)
         self.assertEqual(201, resp.status_code)
         log = Log.query.get(resp.get_json().get('log_id'))

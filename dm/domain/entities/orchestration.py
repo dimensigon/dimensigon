@@ -7,6 +7,7 @@ from dm.domain.exceptions import CycleError
 from dm.utils.dag import DAG
 from dm.web import db
 from .step import Step
+from ...utils.typos import JSON
 
 if t.TYPE_CHECKING:
     from dm.domain.entities import ActionTemplate, ActionType
@@ -24,6 +25,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     stop_on_error = db.Column(db.Boolean)
     stop_undo_on_error = db.Column(db.Boolean)
     undo_on_error = db.Column(db.Boolean)
+    params = db.Column(JSON)
 
     steps = db.relationship("Step", primaryjoin="Step.orchestration_id==Orchestration.id",
                             back_populates="orchestration")
@@ -31,12 +33,14 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     __table_args__ = (db.UniqueConstraint('name', 'version', name='D_orchestration_uq01'),)
 
     def __init__(self, name: str, version: int, description: t.Optional[str] = None, steps: t.List[Step] = None,
-                 stop_on_error: bool = True, stop_undo_on_error: bool = True, undo_on_error: bool = True,
+                 stop_on_error: bool = True, stop_undo_on_error: bool = True, undo_on_error: bool = True, params=None,
                  dependencies: Tdependencies = None, **kwargs):
 
         UUIDistributedEntityMixin.__init__(self, **kwargs)
+
         self.name = name
         self.version = version
+        self.description = description
         self.steps = steps or []
         assert isinstance(stop_on_error, bool)
         self.stop_on_error = stop_on_error
@@ -44,7 +48,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         self.stop_undo_on_error = stop_undo_on_error
         assert isinstance(undo_on_error, bool)
         self.undo_on_error = undo_on_error
-        self.description = description
+        self.params = params or {}
 
         if dependencies:
             self.set_dependencies(dependencies)
@@ -53,11 +57,13 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
 
     @orm.reconstructor
     def init_on_load(self):
-        edges = []
+        self._graph = DAG()
         for step in self.steps:
-            for p in step.parents:
-                edges.append((p, step))
-        self._graph = DAG(edges)
+            if step.parents:
+                for p in step.parents:
+                    self._graph.add_edge(p, step)
+            else:
+                self._graph.add_node(step)
 
     def set_dependencies(self, dependencies: Tdependencies):
         edges = []
@@ -104,6 +110,13 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
             if step.undo is False:
                 target.update(step.target)
         return target
+
+    @property
+    def user_parameters(self) -> t.Set['str']:
+        params = set()
+        for s in self.steps:
+            params = params.union(s.user_parameters)
+        return params - set(self.params.keys())
 
     def _step_exists(self, step: t.Union[t.List[Step], Step]):
         """Checks if all the steps belong to the current orchestration
@@ -374,11 +387,18 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     def subtree(self, steps: t.Union[t.List[Step], t.Iterable[Step]]) -> t.Dict[Step, t.List[Step]]:
         return self._graph.subtree(steps)
 
-    def to_json(self):
+    def to_json(self, add_target=False, add_params=False):
         data = super().to_json()
         data.update(name=self.name, version=self.version)
+        if add_target:
+            data.update(target=list(self.target))
+        if add_params:
+            data.update(params=list(self.user_parameters))
         return data
 
     @classmethod
     def from_json(cls, kwargs):
         return super().from_json(kwargs)
+
+    def __str__(self):
+        return f"{self.name}.{self.version}"

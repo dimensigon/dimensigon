@@ -6,7 +6,7 @@ from dm.domain.entities import ActionTemplate, ActionType
 from dm.web import db
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
-from dm.web.json_schemas import post_action_template_schema
+from dm.web.json_schemas import post_action_template_schema, action_template_patch
 
 
 class ActionTemplateList(Resource):
@@ -38,3 +38,28 @@ class ActionTemplateResource(Resource):
     @securizer
     def get(self, action_template_id):
         return ActionTemplate.query.get_or_404(action_template_id).to_json()
+
+    @securizer
+    @jwt_required
+    @forward_or_dispatch
+    @validate_schema(action_template_patch)
+    @lock_catalog
+    def patch(self, action_template_id):
+        at = ActionTemplate.query.get_or_404(action_template_id)
+        data = request.get_json()
+        if 'action_type' in data and at.action_type != ActionType[data.get('action_type')]:
+            at.action_type = ActionType[data.get('action_type')]
+        if 'code' in data and at.code != (data.get('code')):
+            at.code = data.get('code')
+        if 'parameters' in data and at.parameters != data.get('parameters'):
+            at.parameters = data.get('parameters')
+        if 'expected_stdout' in data and at.expected_stdout != data.get('expected_stdout'):
+            at.expected_stdout = data.get('expected_stdout')
+        if 'expected_stderr' in data and at.expected_stderr != data.get('expected_stderr'):
+            at.expected_stderr = data.get('expected_stderr')
+        if 'expected_rc' in data and at.expected_rc != data.get('expected_rc'):
+            at.expected_rc = data.get('expected_rc')
+        if at in db.session.dirty:
+            db.session.commit()
+            return {}, 204
+        return {}, 202

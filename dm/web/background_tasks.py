@@ -10,17 +10,18 @@ import aiohttp
 import requests
 from bs4 import BeautifulSoup
 from flask import current_app
-from flask_jwt_extended import create_access_token
 from pkg_resources import parse_version
 
 from dm import __version__ as dm_version, defaults
 from dm.domain.entities import Server, Catalog, Route
 from dm.network.low_level import check_host
+from dm.use_cases.helpers import get_auth_root
 from dm.use_cases.use_cases import run_elevator, get_software, upgrade_catalog_from_server
 from dm.utils import asyncio
+from dm.utils.asyncio import create_task
 from dm.utils.helpers import get_filename_from_cd, convert
 from dm.web import db
-from dm.web.network import async_get, HTTPBearerAuth, ping, get
+from dm.web.network import async_get, ping, get
 
 logger = logging.getLogger('dm.background')
 routing_logger = logging.getLogger('dm.background.routing')
@@ -100,49 +101,54 @@ def process_get_new_version_from_gogs(app=None):
             ctx.pop()
 
 
-async def _get_neighbour_catalog_data_mark():
-    token = create_access_token('background')
-    headers = {'Authorization': f"Bearer {token}"}
+async def _get_neighbour_catalog_data_mark() -> t.Dict[Server, t.Tuple[t.Any, int]]:
     server_responses = {}
     servers = Server.get_neighbours()
     catalog_logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
-    for server in servers:
-        async with aiohttp.ClientSession(headers=headers,
-                                         connector=aiohttp.TCPConnector(
-                                             ssl=current_app.config['SSL_VERIFY'])) as session:
-            server_responses[server] = await async_get(server, 'root.healthcheck', session=session)
+    auth = get_auth_root()
 
-        try:
-            data = json.dumps(server_responses[server][0], indent=4, sort_keys=True)
-        except json.decoder.JSONDecodeError:
-            data = server_responses[server][0]
-        except:
-            data = f"Exception {server_responses[server][0].__class__.__name__}: {server_responses[server][0]}"
-        code = server_responses[server][1]
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(
+            ssl=current_app.config['SSL_VERIFY'])) as session:
+        for server in servers:
 
-        catalog_logger.debug(
-            f"Response from server {server.name}: {code}, {data}")
+                server_responses[server] = create_task(async_get(server, 'root.healthcheck', session=session,
+                                                           auth=auth))
+
+        for server, future in server_responses.items():
+            server_responses[server] = await future
+
+            try:
+                data = json.dumps(server_responses[server][0], indent=4, sort_keys=True)
+            except json.decoder.JSONDecodeError:
+                data = server_responses[server][0]
+            except:
+                data = f"Exception {server_responses[server][0].__class__.__name__}: {server_responses[server][0]}"
+            code = server_responses[server][1]
+
+            catalog_logger.debug(
+                f"Response from server {server.name}: {code}, {data}")
+
     return server_responses
 
 
-def upgrade_version(data):
+def upgrade_version(data: t.Dict[Server, t.Tuple[t.Any, int]]):
     mayor_version, mayor_server = None, None
     for server, response in data.items():
         if response[1] == 200 and 'version' in response[0]:
             remote_version = parse_version(response[0]['version'])
             if remote_version > parse_version(dm_version):
-                if mayor_version < remote_version or mayor_version is None:
+                if mayor_version is None or mayor_version < remote_version:
                     mayor_version, mayor_server = remote_version, server
     if mayor_version:
         catalog_logger.info(f'Found mayor version on server {mayor_server}. Upgrading version first')
-        file, v = get_software(mayor_server)
-        run_elevator(file, mayor_version, catalog_logger)
-        return True
-    else:
-        return False
+        file, v = get_software(mayor_server, get_auth_root())
+        if file:
+            run_elevator(file, mayor_version, catalog_logger)
+            return True
+    return False
 
 
-def update_catalog(data):
+def update_catalog(data: t.Dict[Server, t.Tuple[t.Any, int]]):
     reference_server = None
     catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
     if catalog_ver:
@@ -168,13 +174,14 @@ def update_catalog(data):
             catalog_logger.info(f"New catalog found from server {reference_server.name}: {catalog_ver}")
             upgrade_catalog_from_server(reference_server)
         else:
-            catalog_logger.info(f"No server with higher catalog found")
+            catalog_logger.debug(f"No server with higher catalog found")
 
 TempRoute = namedtuple('TempRoute', ['proxy_server', 'gate', 'cost'])
 
 
-def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False) -> t.Dict[
-    Server, TempRoute]:
+def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False, retries=2, timeout=10) -> \
+        t.Dict[
+            Server, TempRoute]:
     """Gets route tables of all neighbours and updates its own table based on jump weights.
     Needs a Flask App Context to run.
 
@@ -184,6 +191,10 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
         tries to discover new neighbours
     check_current_neighbours:
         checks if current neighbours are still neighoburs
+    retries:
+        number of times it will try to reach destination
+    timeout:
+        time in seconds to stop waiting for connection
 
     Returns
     -------
@@ -202,7 +213,7 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
             f"Checking current neighbours: " + ', '.join([str(s) for s in neighbours]))
         for server in neighbours:
             route = server.route
-            cost, time = ping(server, me, retries=2, timeout=10)
+            cost, time = ping(server, me, retries=retries, timeout=timeout)
             if cost is None:
                 default_gate = server.route.gate
                 temp = [None, None, None]
@@ -211,7 +222,8 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
                     # check not to connect with localhost gate from current node and not to check already checked gate
                     if gate != default_gate and ((gate.ip and not gate.ip.is_loopback) or (
                             gate.dns and gate.dns != 'localhost')):
-                        if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=2, delay=1, timeout=10):
+                        if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=retries, delay=0.2,
+                                      timeout=timeout):
                             temp[0] = None
                             temp[1] = gate
                             temp[2] = 0
@@ -232,33 +244,39 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
             #     server.cost = 0
             #     server.gateway = None
     if len(not_neighbours_anymore) > 0:
-        routing_logger.debug(
+        routing_logger.info(
             f"Lost direct connection to the following nodes: " + ', '.join([str(s) for s in not_neighbours_anymore]))
 
+    new_neighbours = []
     if discover_new_neighbours:
         routing_logger.debug(
             f"Checking new neighbours: " + ', '.join([str(s) for s in not_neighbours_anymore]))
         for server in not_neighbours:
             for gate in server.gates:
                 if (gate.ip and not gate.ip.is_loopback) or (gate.dns and gate.dns != 'localhost'):
-                    if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=2, delay=1, timeout=2):
-                        routing_logger.debug(f'Node {server} is a new neighbour')
+                    if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=retries, delay=1,
+                                  timeout=timeout):
+
                         if server.route:
                             server.route.gate = gate
                             server.route.proxy_server = None
                             server.route.cost = 0
-                            db.session.add(server.route)
+                            new_neighbours.append(server)
                         else:
                             r = Route(destination=server, proxy_server=None, gate=gate, cost=0)
                             db.session.add(r)
                         changed_routes[server] = TempRoute(None, server.route.gate, server.route.cost)
                         break
+        if new_neighbours:
+            routing_logger.info(f'New neighbours found: ' + ', '.join([str(s) for s in new_neighbours]))
 
-    token = create_access_token(identity='root')
     pool_responses = []
     neighoburs = Server.get_neighbours()
+    if new_neighbours or not_neighbours_anymore:
+        routing_logger.info(f"New Neighbour list {', '.join([str(s) for s in neighoburs])}")
+
     for server in neighoburs:
-        pool_responses.append(get(server, 'api_1_0.routes', auth=HTTPBearerAuth(token)))
+        pool_responses.append(get(server, 'api_1_0.routes', auth=get_auth_root()))
 
     for resp in pool_responses:
         if resp[1] == 200:

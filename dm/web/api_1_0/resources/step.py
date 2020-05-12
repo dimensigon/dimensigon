@@ -10,7 +10,7 @@ from dm.web.helpers import filter_query
 from dm.web.json_schemas import step_post, step_put, step_patch
 
 
-class StepResourceList(Resource):
+class StepList(Resource):
 
     @forward_or_dispatch
     @jwt_required

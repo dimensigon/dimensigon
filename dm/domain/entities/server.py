@@ -156,15 +156,16 @@ class Server(db.Model, UUIDistributedEntityMixin):
         return db.session.query(cls).outerjoin(cls.route).filter(
             or_(or_(Route.cost > 0, Route.cost == None), cls.route == None)).filter(Server._me == False).all()
 
-    def to_json(self, add_gates=False):
+    def to_json(self, add_gates=False, human=False):
         data = super().to_json()
         data.update(
             {'name': self.name, 'granules': self.granules})
         if add_gates:
             data.update(gates=[])
             for g in self.gates:
-                json_gate = g.to_json()
-                json_gate.pop('server_id')
+                json_gate = g.to_json(human=human)
+                json_gate.pop('server_id', None)
+                json_gate.pop('server', None) # added to remove when human set
                 data['gates'].append(json_gate)
         return data
 

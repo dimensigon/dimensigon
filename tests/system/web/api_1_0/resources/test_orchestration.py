@@ -25,7 +25,7 @@ class Test(TestCaseLockBypass):
         self.app_context.pop()
 
     def test_orchestration_resource_list(self):
-        resp = self.client.get(url_for('api_1_0.orchestrationresourcelist'), headers=self.auth.header)
+        resp = self.client.get(url_for('api_1_0.orchestrationlist'), headers=self.auth.header)
 
         self.assertEqual([], resp.get_json())
 
@@ -34,12 +34,12 @@ class Test(TestCaseLockBypass):
         db.session.add(o)
         db.session.commit()
 
-        resp = self.client.get(url_for('api_1_0.orchestrationresourcelist'), headers=self.auth.header)
+        resp = self.client.get(url_for('api_1_0.orchestrationlist'), headers=self.auth.header)
 
-        self.assertEqual([o.to_json()], resp.get_json())
+        self.assertEqual([o.to_json(add_target=True, add_params=True)], resp.get_json())
 
     def test_orchestration_resource(self):
-        resp = self.client.post(url_for('api_1_0.orchestrationresourcelist'),
+        resp = self.client.post(url_for('api_1_0.orchestrationlist'),
                                 json=dict(name='orchestration_name',
                                           version=1, description='desc'),
                                 headers=self.auth.header)
@@ -53,7 +53,7 @@ class Test(TestCaseLockBypass):
         resp = self.client.get(url_for('api_1_0.orchestrationresource', orchestration_id=o_id),
                                headers=self.auth.header)
 
-        self.assertDictEqual(o.to_json(), resp.get_json())
+        self.assertDictEqual(o.to_json(add_target=True, add_params=True), resp.get_json())
 
         self.assertTrue(o.stop_on_error)
         self.assertTrue(o.stop_undo_on_error)

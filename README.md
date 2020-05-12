@@ -30,3 +30,9 @@ select s.name, g.dns, g.ip, g.port
  inner join d_gate g on s.id = g.server_id 
  order by s.name;
 ```
+
+"dimensigon-node1": "ba81a3a0-3a76-47cc-b1bd-4e62e95f0586"
+"dimensigon-node2": "a47b2dd4-7961-417c-a4e3-293cc97ac056"
+"dimensigon-node3": "d3a98a9f-31d4-43c7-8316-2a8fb2f338e1"
+        
+ 

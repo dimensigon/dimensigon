@@ -1,7 +1,7 @@
 import threading
 from datetime import datetime
 
-from flask import request, current_app, g
+from flask import request, current_app, g, jsonify
 from flask_jwt_extended import jwt_required
 
 from dm import defaults
@@ -11,6 +11,17 @@ from dm.web import db
 from dm.web.api_1_0 import api_bp
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
 from dm.web.json_schemas import locker_prevent_post, locker_unlock_lock_post
+
+
+@api_bp.route('/locker', methods=['GET'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+def locker():
+    data = []
+    for l in Locker.query.all():
+        data.append({l.scope.name: l.state.name})
+    return jsonify(data), 200
 
 
 def revert_preventing(app, scope, applicant):
@@ -56,7 +67,7 @@ def locker_prevent():
             th.start()
             return {'message': 'Preventing lock acquired'}, 200
         else:
-            return {'error': 'Unable to request for lock'}, 409
+            return {'error': 'Priority locker acquired'}, 409
     else:
         return {'error': 'Unable to request for lock.'}, 409
 

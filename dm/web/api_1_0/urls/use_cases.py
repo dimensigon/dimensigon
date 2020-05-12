@@ -1,32 +1,34 @@
 import base64
+import concurrent
 import datetime
 import json
 import math
 import os
 import pickle
 import re
-import threading
 import typing as t
 import uuid
 
-from flask import request, g, current_app
+from flask import request, g, current_app, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
 from pkg_resources import parse_version
 
 import dm
 from dm import defaults as d, defaults
-from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, Execution
+from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
+    Orchestration, OrchExecution
 from dm.utils.asyncio import run
 from dm.utils.event_handler import Event
 from dm.utils.helpers import get_distributed_entities, is_iterable_not_string
+from dm.utils.typos import Id
 from dm.web import db, executor
 from dm.web.api_1_0 import api_bp
 from dm.web.async_functions import deploy_orchestration, async_send_file
 from dm.web.background_tasks import update_table_routing_cost
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes
-from dm.web.network import HTTPBearerAuth, post, patch
-from dm.web.threading import FlaskThread
+from dm.web.helpers import check_param_in_uri
+from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes, launch_orchestration_post
+from dm.web.network import HTTPBearerAuth, post
 
 if t.TYPE_CHECKING:
     from dm.use_cases.operations import IOperationEncapsulation
@@ -116,7 +118,7 @@ def software_send():
     return {'error': f'unable to create transfer on {dest_server}', 'response': resp, 'code': code}, 400
 
 
-@api_bp.route('software/dimensigon', methods=['GET'])
+@api_bp.route('/software/dimensigon', methods=['GET'])
 @forward_or_dispatch
 @jwt_required
 @securizer
@@ -172,38 +174,44 @@ def fetch_catalog(data_mark):
 @validate_schema(POST=post_schema_routes, PATCH=patch_schema_routes)
 def routes():
     if request.method == 'GET':
+
         route_table = []
         for route in Route.query.join(Server.route).order_by(
                 Server.name).all():
-            route_table.append(route.to_json())
-        return {'server_id': str(g.server.id),
-                'route_list': route_table}
+            route_table.append(route.to_json(human=check_param_in_uri('human')))
+        data = {'route_list': route_table}
+        if check_param_in_uri('human'):
+            data.update(server=str(g.server))
+        else:
+            data.update(server_id=str(g.server.id))
+        return data
+
     elif request.method == 'POST':
         data = request.get_json()
         new_routes = update_table_routing_cost(**data)
         db.session.commit()
 
-        if len(new_routes) > 0:
-            def func_patch(app, *args, **kwargs):
-                with app.app_context():
-                    patch(*args, **kwargs)
-
-            msg = {'server_id': str(Server.get_current().id),
-                   'route_list': [
-                       dict(destination_id=str(d.id),
-                            proxy_server_id=str(getattr(r.proxy_server, 'id')) if getattr(r.proxy_server, 'id',
-                                                                                          None) else None,
-                            gate_id=str(getattr(r.gate, 'id')) if getattr(r.gate, 'id', None) else None,
-                            cost=r.cost)
-                       for d, r in new_routes.items()
-                   ]}
-
-            for s in Server.get_neighbours():
-                th = threading.Thread(target=func_patch, args=(current_app._get_current_object(), s, 'api_1_0.routes'),
-                                      kwargs={'json': msg,
-                                              'headers': dict(Authorization=request.headers['Authorization'])})
-                th.daemon = True
-                th.start()
+        # if len(new_routes) > 0:
+        #     def func_patch(app, *args, **kwargs):
+        #         with app.app_context():
+        #             patch(*args, **kwargs)
+        #
+        #     msg = {'server_id': str(Server.get_current().id),
+        #            'route_list': [
+        #                dict(destination_id=str(d.id),
+        #                     proxy_server_id=str(getattr(r.proxy_server, 'id')) if getattr(r.proxy_server, 'id',
+        #                                                                                   None) else None,
+        #                     gate_id=str(getattr(r.gate, 'id')) if getattr(r.gate, 'id', None) else None,
+        #                     cost=r.cost)
+        #                for d, r in new_routes.items()
+        #            ]}
+        #
+        #     for s in Server.get_neighbours():
+        #         th = threading.Thread(target=func_patch, args=(current_app._get_current_object(), s, 'api_1_0.routes'),
+        #                               kwargs={'json': msg,
+        #                                       'headers': dict(Authorization=request.headers['Authorization'])})
+        #         th.daemon = True
+        #         th.start()
 
     # elif request.method == 'PATCH':
     #     data = request.get_json()
@@ -294,11 +302,12 @@ def routes():
     return {}, 204
 
 
-def run_command_and_callback(operation: 'IOperationEncapsulation', params, source: Server, execution: Execution, auth,
+def run_command_and_callback(operation: 'IOperationEncapsulation', params, source: Id, execution: Id, auth,
                              timeout=None):
     cp = operation.execute(params=params, timeout=timeout)
-    execution = db.session.merge(execution, load=False)
-    source = db.session.merge(source, load=False)
+
+    execution = StepExecution.query.get(execution)
+    source = Server.query.get(source)
     execution.load_completed_result(cp)
     try:
         db.session.commit()
@@ -309,6 +318,7 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', params, sourc
                       json=execution.to_json(), auth=auth)
     if code != 202:
         current_app.logger.error(f"Error while sending result for execution {execution.id}: {code}, {resp}")
+    return execution.to_json()
 
 
 @api_bp.route('/launch/operation', methods=['POST'])
@@ -318,14 +328,26 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', params, sourc
 def launch_operation():
     data = request.get_json()
     operation, params = pickle.loads(base64.b64decode(data['operation'].encode('ascii')))
-    e = Execution(execution_server=g.server, step_id=data.get('step_id'),
-                  source_server=g.source)
-    db.session.add(e)
+    orch_exec_json = data['execution']
+    orch_exec = OrchExecution.from_json(orch_exec_json)
+
+    e = StepExecution(execution_server=g.server, step_id=data.get('step_id'),
+                      source_server=g.source, orch_execution=orch_exec)
+    db.session.add_all([orch_exec, e])
     db.session.commit()
-    future = executor.submit(run_command_and_callback, operation, params, g.source, e,
+    future = executor.submit(run_command_and_callback, operation, params, g.source.id, e.id,
                              HTTPBearerAuth(create_access_token(get_jwt_identity())),
                              timeout=data.get('timeout'))
-    return {'execution_id': str(e.id)}, 202
+    try:
+        r = future.result(1)
+    except concurrent.futures.TimeoutError:
+        return {'execution_id': str(e.id)}, 202
+    except Exception as e:
+        current_app.logger.exception(
+            f"Exception got when executing step {data.get('step_id')}. See logs for more information")
+        return {'error': f"Exception got when executing step {data.get('step_id')}. See logs for more information"}, 500
+    else:
+        return r, 200
 
 
 def search(server_or_granule, servers):
@@ -342,16 +364,22 @@ def search(server_or_granule, servers):
 @forward_or_dispatch
 @jwt_required
 @securizer
+@validate_schema(launch_orchestration_post)
 def launch_orchestration(orchestration_id):
     orchestration = Orchestration.query.get_or_404(orchestration_id)
-    params = request.get_json().get('params')
+    params = request.get_json().get('params', {})
     hosts = request.get_json().get('hosts')
 
     a = set(orchestration.target)
+    if not isinstance(hosts, dict):
+        hosts = dict(all=hosts)
     b = set(hosts.keys())
     c = a - b
     if len(c) > 0:
-        return {'error': f"The following targets must be specified in order to execute: '{', '.join(c)}'"}, 404
+        return {'error': f"Target(s) not specified: {', '.join(c)}"}, 404
+    c = b - a
+    if len(c) > 0:
+        return {'error': f"Target(s) not in orchestration: {', '.join(c)}"}, 400
 
     servers = Server.query.all()
     # convert hosts into servers
@@ -375,9 +403,32 @@ def launch_orchestration(orchestration_id):
     if not_found:
         return {'error': "Following granules or ids did not match to any server: " + ', '.join(not_found)}, 404
 
-    th = FlaskThread(target=deploy_orchestration, args=(orchestration, params, hosts))
-    th.run()
-    return {}, 202
+    # check param entries
+    rest = orchestration.user_parameters - set(params.keys())
+    if rest:
+        rest = list(rest)
+        rest.sort()
+        return {'error': f"Parameter(s) not specified: {', '.join(rest)}"}, 404
+
+    if not orchestration.steps:
+        return {'error': 'orchestration does not have steps to execute.'}, 400
+
+    # convert servers to id:
+    execution_id = uuid.uuid4()
+    hosts = {k: [server.id for server in servers] for k, servers in hosts.items()}
+    future = executor.submit(deploy_orchestration, orchestration=orchestration.id, params=params, hosts=hosts,
+                             auth=HTTPBearerAuth(create_access_token(get_jwt_identity())), execution=execution_id)
+    try:
+        r = future.result(1)
+    except concurrent.futures.TimeoutError:
+        return {'execution_id': execution_id}, 202
+    except Exception as e:
+        current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
+        return {'error': 'error while executing orchestration. Check the logs.'}, 500
+    else:
+        if 'error' in r:
+            return jsonify(r), 500
+        return jsonify(r), 200
 
 
 @api_bp.route('/events/<event_id>', methods=['POST'])

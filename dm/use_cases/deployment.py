@@ -2,6 +2,7 @@ import base64
 import concurrent
 import logging
 import pickle
+import re
 import threading
 import time
 import typing as t
@@ -14,11 +15,12 @@ from functools import partial
 from flask import current_app
 
 from dm import defaults
-from dm.domain.entities import Server, Orchestration, Step
+from dm.domain.entities import Server, Orchestration, Step, StepExecution, OrchExecution
 from dm.use_cases.operations import CompletedProcess, IOperationEncapsulation, create_operation
 from dm.utils.dag import DAG
 from dm.utils.event_handler import Event
 from dm.utils.typos import Kwargs, Id
+from dm.web import db
 from dm.web.network import post
 
 # if t.TYPE_CHECKING:
@@ -89,25 +91,32 @@ class ICommand(ABC):
         return f"{self.__class__.__name__} {self.id}"
 
 
-class UndoCommand(ICommand):
-    def __init__(self, implementation: IOperationEncapsulation, params: Kwargs = None, id_=None,
-                 stop_on_error: bool = None):
+class ImplementationCommand(ICommand):
+
+    def __init__(self, implementation: IOperationEncapsulation,
+                 params: Kwargs = None,
+                 id_=None,
+                 register: 'RegisterStepExecution' = None,
+                 regexp_fetch=None,
+                 error_on_fetch=None):
         super().__init__(id_)
         self.implementation = implementation
         self.params = params or {}
-        self.stop_on_error = stop_on_error
+        self.regexp_fetch = regexp_fetch
+        self.register = register
+        self._fetched_data = None
+        self.fetch_result = None
+        self.error_on_fetch: bool = error_on_fetch
         self._cp: CompletedProcess = None
 
-    def invoke(self, timeout=None) -> bool:
-        """
-        Executes the code once
-
-        Returns
-        -------
-        None
-        """
+    def invoke(self, timeout=None) -> t.Optional[bool]:
         if not self._cp:
             self._cp = self.implementation.execute(self.params, timeout=timeout)
+            self.params.update(self.fetched_data)
+            if self.regexp_fetch is not None:
+                self.fetch_result = len(self.fetched_data) == len(self.fetch_parameters)
+            if self.register:
+                self.register.register_step_execution(self)
         return self.success
 
     @property
@@ -116,7 +125,44 @@ class UndoCommand(ICommand):
 
     @property
     def success(self) -> t.Optional[bool]:
-        return getattr(self._cp, 'success', None)
+        r = getattr(self._cp, 'success', None)
+        if r is True and self.error_on_fetch and self.fetch_result is not None:
+            r = self.fetch_result
+        return r
+
+    @property
+    def fetched_data(self):
+        if self._fetched_data is not None:
+            return self._fetched_data
+        else:
+            fetched = {}
+            if self.success is True:
+                if self.regexp_fetch is not None:
+                    match = re.search(self.regexp_fetch, self._cp.stdout)
+                    if not match:
+                        match = re.search(self.regexp_fetch, self._cp.stderr)
+                        if match:
+                            fetched.update(match.groupdict())
+                    else:
+                        fetched.update(match.groupdict())
+                self._fetched_data = fetched
+            return fetched
+
+    @property
+    def fetch_parameters(self):
+        return set(re.findall(r'\(\?P<(\w+)>', self.regexp_fetch, flags=re.MULTILINE))
+
+
+class UndoCommand(ImplementationCommand):
+
+    def __init__(self, implementation: IOperationEncapsulation, params: Kwargs = None, id_=None,
+                 stop_on_error: bool = None,
+                 register: 'RegisterStepExecution' = None,
+                 regexp_fetch: str = None,
+                 error_on_fetch: bool = None
+                 ):
+        super().__init__(implementation, params, id_, register, regexp_fetch, error_on_fetch)
+        self.stop_on_error = stop_on_error
 
     def undo(self, timeout=None) -> t.Optional[bool]:
         return True
@@ -125,12 +171,13 @@ class UndoCommand(ICommand):
         return [self]
 
 
-class Command(ICommand):
+class Command(ImplementationCommand):
 
     def __init__(self, implementation: IOperationEncapsulation,
-                 undo_command: t.Union['CompositeCommand', UndoCommand],
+                 undo_command: t.Union['CompositeCommand', UndoCommand] = None,
                  stop_on_error: bool = None, stop_undo_on_error: bool = None, undo_on_error: bool = True,
-                 params: Kwargs = None, id_=None):
+                 params: Kwargs = None, id_=None, register: 'RegisterStepExecution' = None,
+                 regexp_fetch: str = None, error_on_fetch: bool = None):
         """
         
         Parameters
@@ -144,31 +191,21 @@ class Command(ICommand):
         undo_on_error:
             sets whether to execute "undo" function when "invoke" terminated incorrectly
         """
-        super().__init__(id_)
-        self.implementation = implementation
-        self.params = params or {}
+        super().__init__(implementation, params, id_, register, regexp_fetch, error_on_fetch)
         self.undo_command = undo_command
         self.stop_on_error = stop_on_error
         self.stop_undo_on_error = stop_undo_on_error
         self.undo_on_error = undo_on_error
         self._cp: t.Optional[CompletedProcess] = None
 
-    @property
-    def success(self) -> t.Optional[bool]:
-        return getattr(self._cp, 'success', None)
 
     @property
     def result(self) -> t.Dict[Id, CompletedProcess]:
         e = {}
         e.update({self.id: self._cp})
-        if self.undo_command.success is not None:
+        if self.undo_command and self.undo_command.success is not None:
             e.update(self.undo_command.result)
         return e
-
-    def invoke(self, timeout=None) -> t.Optional[bool]:
-        if not self._cp:
-            self._cp = self.implementation.execute(self.params, timeout=timeout)
-        return self.success
 
     def undo(self, timeout=None) -> t.Optional[bool]:
         """
@@ -181,11 +218,14 @@ class Command(ICommand):
             False if any undo command ended up badly
             None if undo operation not executed
         """
-        if (self.success is True or (
-                self.success is False and self.undo_on_error)) and self.undo_command.success is None:
-            return self.undo_command.invoke(timeout=timeout)
+        if self.undo_command:
+            if (self.success is True or (
+                    self.success is False and self.undo_on_error)) and self.undo_command.success is None:
+                return self.undo_command.invoke(timeout=timeout)
+            else:
+                return self.undo_command.success
         else:
-            return self.undo_command.success
+            return True
 
     def __iter__(self):
         return [self]
@@ -367,12 +407,12 @@ class CompositeCommand(ICommand):
 
 class ProxyMixin(object):
 
-    def __init__(self, server: 'Server', auth, timeout: t.Union[int, float] = 300):
+    def __init__(self, server: Id, auth, timeout: t.Union[int, float] = 300):
         """
         Parameters
         ----------
         server:
-            server to execute the command
+            Server Id to execute the command
         implementation:
             operation to perform.
         undo_implementation:
@@ -392,6 +432,31 @@ class ProxyMixin(object):
         self.__dict__['timeout'] = timeout
         self.__dict__['_command'] = None
 
+    #
+    # proxying (special cases)
+    #
+
+    def __getattr__(self, item):
+        return getattr(object.__getattribute__(self, "_command"), item)
+
+    def __delattr__(self, name):
+        delattr(object.__getattribute__(self, "_command"), name)
+
+    def __setattr__(self, name, value):
+        setattr(object.__getattribute__(self, "_command"), name, value)
+
+    def __nonzero__(self):
+        return bool(object.__getattribute__(self, "_command"))
+
+    def __str__(self):
+        return str(object.__getattribute__(self, "_command"))
+
+    def __repr__(self):
+        return repr(object.__getattribute__(self, "_command"))
+
+    def __hash__(self):
+        return hash(object.__getattribute__(self, "_command"))
+
     @property
     def server(self) -> 'Server':
         return self._server
@@ -400,14 +465,11 @@ class ProxyMixin(object):
     def auth(self):
         return self._auth
 
-    def __getattr__(self, item):
-        return getattr(self._command, item)
-
-    def __setattr__(self, key, value):
-        if key in self.__dict__:
-            self.__dict__[key] = value
-        else:
-            self._command.__setattr__(key, value)
+    # def __setattr__(self, key, value):
+    #     if key in self.__dict__:
+    #         self.__dict__[key] = value
+    #     else:
+    #         self._command.__setattr__(key, value)
 
     def callback_completion_event(self, event: Event):
         """callback executed on response to the invoke command on remote server
@@ -423,8 +485,8 @@ class ProxyMixin(object):
                                                                             defaults.DATETIME_FORMAT))
         else:
             self._command._cp = CompletedProcess(success=False, stdout=str(event.data),
-                                                 stderr=f'Unknown message got from server {self.server} on completion '
-                                                        f'event.')
+                                                 stderr=f'Unknown message got on completion event.')
+
         self._completion_event.set()
 
     def invoke(self, timeout=None) -> bool:
@@ -441,18 +503,25 @@ class ProxyMixin(object):
         TimeoutError:
             raised when timeout reached while waiting the response back from the remote server
         """
+        self.__dict__['_server'] = Server.query.get(self._server)
         timeout = timeout or self.timeout
         if self._command.success is None:
             data = dict(operation=base64.b64encode(
                 pickle.dumps((self._command.implementation, self._command.params))).decode('ascii'),
                         timeout=timeout,
-                        step_id=str(self.id[1]))
+                        step_id=str(self.id[1]),
+                        execution=self._command.register.execution.to_json())
             resp, code = post(server=self.server, view_or_url='api_1_0.launch_operation', json=data, auth=self.auth)
             if code == 202:
                 current_app.events.register(resp.get('execution_id'), self.callback_completion_event)
                 event = self._completion_event.wait(timeout=timeout)
                 if event is not True:
                     raise TimeoutError(f'Timeout reached while waiting invoke response of command {self.command}')
+                if self.register:
+                    self.register.register_step_execution(self)
+                self.params.update(self.fetched_data)
+            elif code == 200:
+                self.callback_completion_event(Event(None, data=resp))
             else:
                 current_app.logger.error(
                     f"Error while trying to run command {self.id} on server {self.server}: {code}, {resp}")
@@ -462,16 +531,16 @@ class ProxyMixin(object):
 
 class ProxyCommand(ProxyMixin, Command):
 
-    def __init__(self, server: Server, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
+    def __init__(self, server: Id, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
         ProxyMixin.__init__(self, server, auth, timeout=timeout)
-        self._command = Command(*args, **kwargs)
+        object.__setattr__(self, "_command", Command(*args, **kwargs))
 
 
 class ProxyUndoCommand(ProxyMixin, UndoCommand):
 
-    def __init__(self, server: Server, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
-        super().__init__(server, auth, timeout=timeout)
-        self._command = UndoCommand(*args, **kwargs)
+    def __init__(self, server: Id, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
+        ProxyMixin.__init__(self, server, auth, timeout=timeout)
+        object.__setattr__(self, "_command", UndoCommand(*args, **kwargs))
 
 
 def _create_cmd_from_orchestration(orchestration: Orchestration, params: Kwargs) -> CompositeCommand:
@@ -523,14 +592,15 @@ def _create_cmd_from_orchestration(orchestration: Orchestration, params: Kwargs)
 #                                 id_=s)
 
 
-def _create_server_undo_command(orchestration, executor, params, current_server, server: Server, s: Step, d=None,
+def _create_server_undo_command(executor, params, current_server, server: Id, s: Step, register, d=None,
                                 s2cc=None, auth=None) -> t.Optional[t.Union[UndoCommand, CompositeCommand]]:
     def iterate_tree(_cls, _step: Step, _d, _s2cc):
         if _step in _s2cc:
             _uc = _s2cc[_step]
         else:
             stop_on_error = _step.step_stop_on_error if _step.step_stop_on_error is not None else s.stop_undo_on_error
-            _uc = _cls(create_operation(_step), params=params, id_=(server.id, _step.id), stop_on_error=stop_on_error)
+            _uc = _cls(create_operation(_step), params=params, id_=(server, _step.id),
+                       stop_on_error=stop_on_error, register=register)
             _s2cc[_step] = _uc
         if _uc not in _d:
             _d[_uc] = []
@@ -540,7 +610,7 @@ def _create_server_undo_command(orchestration, executor, params, current_server,
 
     d = d or {}
     s2cc = s2cc or {}
-    if server == current_server:
+    if server == current_server.id:
         u_cmd_cls = UndoCommand
     else:
         u_cmd_cls = partial(ProxyUndoCommand, server, auth)
@@ -557,8 +627,8 @@ def _create_server_undo_command(orchestration, executor, params, current_server,
 
 
 def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
-                                   hosts: t.Dict[str, t.List[Server]],
-                                   executor, auth=None) -> CompositeCommand:
+                                   hosts: t.Dict[str, t.List[Id]],
+                                   executor, register, auth=None) -> CompositeCommand:
     current_server = Server.get_current()
 
     def create_do_cmd_from_step(_step: Step, _s2cc):
@@ -568,7 +638,7 @@ def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
         else:
             for target in _step.target:
                 for server in hosts[target]:
-                    if server == current_server:
+                    if server == current_server.id:
                         cls = Command
                     else:
                         if auth is None:
@@ -576,14 +646,14 @@ def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
                         cls = partial(ProxyCommand, server, auth)
 
                     c = cls(create_operation(_step),
-                            undo_command=_create_server_undo_command(orchestration, executor, params, current_server,
-                                                                     server,
-                                                                     _step, auth=auth),
+                            undo_command=_create_server_undo_command(executor, params, current_server, server, _step,
+                                                                     register, auth=auth),
                             params=params,
                             stop_on_error=_step.stop_on_error,
                             stop_undo_on_error=None,
                             undo_on_error=_step.undo_on_error,
-                            id_=(server.id, _step.id))
+                            register=register,
+                            id_=(server, _step.id))
 
                     d[c] = []
             if len(d) == 1:
@@ -619,3 +689,17 @@ def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
                             stop_undo_on_error=orchestration.stop_undo_on_error,
                             stop_on_error=orchestration.stop_on_error,
                             id_=orchestration.id, executor=executor)
+
+
+class RegisterStepExecution:
+    def __init__(self, execution: OrchExecution):
+        self.execution = execution
+
+    def register_step_execution(self, command: ImplementationCommand):
+        e = StepExecution(orch_execution_id=self.execution.id)
+        e.load_completed_result(command._cp)
+        e.step_id = command.id[1]
+        e.execution_server_id = command.id[0]
+        e.source_server_id = command.id[0]
+        db.session.add(e)
+        db.session.commit()

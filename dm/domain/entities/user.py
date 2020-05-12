@@ -45,7 +45,7 @@ class User(db.Model, UUIDistributedEntityMixin):
 
     def _hash_password(self, password):
         if not self._password:
-            self._password = sha256_crypt.encrypt(password)
+            self._password = sha256_crypt.hash(password)
 
     def verify_password(self, password) -> bool:
         return sha256_crypt.verify(password, self._password)
@@ -76,7 +76,7 @@ class User(db.Model, UUIDistributedEntityMixin):
         root = cls.get_by_user('root')
         if not root:
             root = User(user='root', groups=['administrator'])
-            root.hash_password('12345678')
+            root.set_password('12345678')
             db.session.add(root)
         ops = cls.get_by_user('ops')
         if not ops:
@@ -86,3 +86,6 @@ class User(db.Model, UUIDistributedEntityMixin):
         if not reporter:
             reporter = User(user='reporter', groups=['readonly'])
             db.session.add(reporter)
+
+    def __str__(self):
+        return self.user

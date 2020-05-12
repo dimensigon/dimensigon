@@ -58,7 +58,7 @@ class IOperationEncapsulation(ABC):
     @abstractmethod
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
         """
-        Execution process
+        StepExecution process
         Parameters
         ----------
         params:
@@ -66,7 +66,7 @@ class IOperationEncapsulation(ABC):
 
         Returns
         -------
-        Execution:
+        StepExecution:
             dataclass containing all the information from the result execution
         """
 

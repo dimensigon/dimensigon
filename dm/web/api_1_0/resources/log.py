@@ -12,7 +12,7 @@ from dm.web.helpers import filter_query
 from dm.web.json_schemas import schema_post_log, schema_create_log, schema_patch_log
 
 
-class LogResourceList(Resource):
+class LogList(Resource):
 
     @securizer
     @jwt_required

@@ -3,14 +3,13 @@ import logging
 import os
 import typing as t
 
-from flask_jwt_extended import create_access_token
-
 from dm.domain.entities import Log, Server
+from dm.use_cases.helpers import get_auth_root
 from dm.utils import asyncio
 from dm.utils.helpers import remove_prefix
 from dm.utils.pygtail import Pygtail
 from dm.utils.typos import Id
-from dm.web.network import async_post, HTTPBearerAuth
+from dm.web.network import async_post
 
 MAX_LINES = 10000
 
@@ -87,12 +86,11 @@ class LogSender:
 
     async def send_new_data(self):
 
-        logger.debug(f"Sending new data to servers")
         self.update_mapper()
 
         tasks = []
 
-        auth = HTTPBearerAuth(create_access_token('root'))
+        auth = get_auth_root()
         for log_id, pb in self._mapper.items():
             log = Log.query.get(log_id)
             for pytail in pb:

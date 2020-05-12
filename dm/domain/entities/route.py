@@ -67,11 +67,17 @@ class Route(db.Model):
     def __repr__(self):
         return f"Route({self.to_json()})"
 
-    def to_json(self):
+    def to_json(self, human=False):
         if not self.destination.id or (self.proxy_server and not self.proxy_server.id) or (
                 self.gate and not self.gate.id):
             raise RuntimeError("commit object before dump to json")
-        return {'destination_id': str(getattr(self.destination, 'id', '')) or None,
+        if human:
+            return {'destination': str(self.destination) if self.destination else None,
+                    'proxy_server': str(self.proxy_server) if self.proxy_server else None,
+                    'gate': str(self.gate) if self.gate else None,
+                    'cost': self.cost}
+        else:
+            return {'destination_id': str(getattr(self.destination, 'id', '')) or None,
                 'proxy_server_id': str(getattr(self.proxy_server, 'id', '')) or None,
                 'gate_id': str(getattr(self.gate, 'id', '')) or None,
                 'cost': self.cost}

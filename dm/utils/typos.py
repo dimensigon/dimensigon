@@ -134,12 +134,19 @@ class UUID(BaseTypeDecorator):
         else:
             return uuid.UUID(value)
 
+class UUIDEncoder(json.JSONEncoder):
+     def default(self, obj):
+         if isinstance(obj, uuid.UUID):
+             return str(obj)
+         # Let the base class default method raise the TypeError
+         return json.JSONEncoder.default(self, obj)
+
 class JSONEncodedDict(BaseTypeDecorator):
     impl = types.JSON
 
     def process_bind_param(self, value, dialect):
         if value is not None:
-            value = json.dumps(value)
+            value = json.dumps(value, cls=UUIDEncoder)
         return value
 
     def process_result_value(self, value, dialect):

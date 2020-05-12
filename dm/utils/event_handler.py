@@ -16,7 +16,9 @@ class Event(object):
     def id(self):
         return self._id
 
+
 _RegistryContainer = namedtuple('_RegistryContainer', ['func', 'args', 'kwargs', 'birth'])
+
 
 class EventHandler(object):
 
@@ -28,11 +30,11 @@ class EventHandler(object):
 
     def discard(self):
         now = time.time()
-        for k, c in self._registry.items():
-            if now - c.birth > self.discard_after:
+        for k, c in dict(self._registry).items():
+            if now - c.birth >= self.discard_after:
                 self._registry.pop(k)
-        for k, v in self._pending_events.items():
-            if now - v[1] > self.discard_after:
+        for k, v in dict(self._pending_events).items():
+            if now - v[1] >= self.discard_after:
                 self._pending_events.pop(k)
 
     def register(self, key, func: t.Callable[..., None], args=None, kwargs=None):
@@ -41,7 +43,7 @@ class EventHandler(object):
             if key not in self._registry and key not in self._pending_events:
                 self._registry[key] = _RegistryContainer(func, args or (), kwargs or {}, time.time())
             elif key in self._pending_events:
-                event = self._pending_events.pop(key)
+                event, t = self._pending_events.pop(key)
             else:
                 raise ValueError('event ID duplicated')
             self.discard()
@@ -54,6 +56,7 @@ class EventHandler(object):
             try:
                 func, args, kwargs, birth = self._registry.pop(event.id)
             except KeyError:
-                self._pending_events[event.id] = event
+                self._pending_events[event.id] = (event, time.time())
+            self.discard()
         if func:
             func(event, *args, **kwargs)

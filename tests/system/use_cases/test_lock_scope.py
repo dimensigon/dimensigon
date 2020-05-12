@@ -138,6 +138,7 @@ class TestLockScope(TestCase):
         self.assertEqual(None, l.applicant)
 
 
+
 class TestLockScopeFullChain(TestCase):
     def setUp(self):
         """Create and configure a new app instance for each test."""
