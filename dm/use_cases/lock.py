@@ -30,10 +30,13 @@ async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope
             connector=aiohttp.TCPConnector(ssl=current_app.config['SSL_VERIFY'])) as session:
         for server in it:
             server_responses[server.id] = create_task(async_post(server, 'api_1_0.locker_' + action, session=session,
-                                                           json=payload,
-                                                           auth=auth))
+                                                                 json=payload,
+                                                                 auth=auth))
         for server in it:
-            server_responses[server.id] = await server_responses[server.id]
+            try:
+                server_responses[server.id] = await server_responses[server.id]
+            except Exception as e:
+                server_responses[server.id] = (e, None)
     return server_responses
 
 

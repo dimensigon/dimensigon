@@ -26,7 +26,6 @@ class Service(db.Model, EntityReprMixin, DistributedEntityMixin):
     last_ping = db.Column(db.DateTime)
     status = db.Column(db.String(40))
 
-    executions = db.relationship("Execution", back_populates="service")
     orchestrations = db.relationship("Orchestration", secondary="D_service_orchestration", order_by="ServiceOrchestration.execution_time")
 
     def __init__(self, name: str, details: Kwargs, status: str, created_on: datetime = datetime.now(),

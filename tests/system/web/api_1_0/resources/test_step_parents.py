@@ -33,20 +33,20 @@ class Test(TestCaseLockBypass):
         self.app_context.pop()
 
     def test_get(self):
-        resp = self.client.get(url_for('api_1_0.steprelationshipparentsresource', step_id=str(self.s1.id)),
+        resp = self.client.get(url_for('api_1_0.steprelationshipparents', step_id=str(self.s1.id)),
                                headers=self.auth.header)
 
         self.assertEqual(200, resp.status_code)
         self.assertDictEqual(dict(parent_step_ids=[]), resp.get_json())
 
-        resp = self.client.get(url_for('api_1_0.steprelationshipparentsresource', step_id=str(self.s2.id)),
+        resp = self.client.get(url_for('api_1_0.steprelationshipparents', step_id=str(self.s2.id)),
                                headers=self.auth.header)
 
         self.assertEqual(200, resp.status_code)
         self.assertDictEqual(dict(parent_step_ids=[str(self.s1.id)]), resp.get_json())
 
     def test_patch(self):
-        resp = self.client.patch(url_for('api_1_0.steprelationshipparentsresource', step_id=str(self.s3.id)),
+        resp = self.client.patch(url_for('api_1_0.steprelationshipparents', step_id=str(self.s3.id)),
                                  json={'parent_step_ids': [str(self.s1.id)]},
                                  headers=self.auth.header)
 
@@ -55,7 +55,7 @@ class Test(TestCaseLockBypass):
         self.assertListEqual([self.s1], self.s3.parents)
 
     def test_post(self):
-        resp = self.client.post(url_for('api_1_0.steprelationshipparentsresource', step_id=str(self.s3.id)),
+        resp = self.client.post(url_for('api_1_0.steprelationshipparents', step_id=str(self.s3.id)),
                                 json={'parent_step_ids': [str(self.s1.id)]},
                                 headers=self.auth.header)
 
@@ -69,7 +69,7 @@ class Test(TestCaseLockBypass):
         self.assertIn(self.s2, self.s3.parents)
 
     def test_delete(self):
-        resp = self.client.delete(url_for('api_1_0.steprelationshipparentsresource', step_id=str(self.s3.id)),
+        resp = self.client.delete(url_for('api_1_0.steprelationshipparents', step_id=str(self.s3.id)),
                                   json={'parent_step_ids': [str(self.s2.id)]},
                                   headers=self.auth.header)
 

@@ -27,13 +27,15 @@ class TestServer(TestCase):
         self.n3 = Server(name='n3', port=8000)
         self.r1 = Server(name='r1', dns_or_ip='3.3.3.3')
         self.r2 = Server(name='r2', dns_or_ip='r2_dns')
+        db.session.add_all([self.n1, self.n2, self.r1, self.r2])
+        db.session.commit()
+
         Route(destination=self.n1, cost=0)
         Route(destination=self.n2, cost=0)
         Route(destination=self.n3, cost=0)
         Route(destination=self.r1, proxy_server=self.n1, cost=1)
         Route(destination=self.r2, proxy_server=self.n2, cost=1)
 
-        db.session.add_all([self.n1, self.n2, self.r1, self.r2])
         db.session.commit()
 
     @patch('dm.domain.entities.route.check_host')

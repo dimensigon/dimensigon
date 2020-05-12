@@ -109,10 +109,26 @@ post_action_template_schema = {
         "code": {"type": "string"},
         "parameters": {"type": "object"},
         "expected_output": {"type": "string"},
-        "expected_rc": {"type": "string"},
+        "expected_err": {"type": "string"},
+        "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
     },
     "required": ["name", "version", "action_type", "code"],
+    "additionalProperties": False
+}
+
+action_template_patch = {
+    "type": "object",
+    "properties": {
+        "action_type": {"type": "string",
+                        "pattern": f"^({'|'.join([at.name for at in ActionType])})$"},
+        "code": {"type": "string"},
+        "parameters": {"type": "object"},
+        "expected_output": {"type": "string"},
+        "expected_err": {"type": "string"},
+        "expected_rc": {"type": "integer"},
+        "system_kwargs": {"type": "object"},
+    },
     "additionalProperties": False
 }
 
@@ -133,6 +149,8 @@ _step_post = {
         "expected_rc": {"type": "integer"},
         "parameters": {"type": "object"},
         "system_kwargs": {"type": "object"},
+        "regexp_fetch": {"type": "string"},
+        "error_on_fetch": {"type": "boolean"},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
                                                 {"type": "integer", "minimum": 1}]
@@ -172,6 +190,8 @@ step_put = {
         "expected_rc": {"type": "integer"},
         "parameters": {"type": "object"},
         "system_kwargs": {"type": "object"},
+        "regexp_fetch": {"type": "string"},
+        "error_on_fetch": {"type": "boolean"},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
                                                 {"type": "integer", "minimum": 1}]
@@ -203,6 +223,8 @@ step_patch = {
         "expected_rc": {"type": "integer"},
         "parameters": {"type": "object"},
         "system_kwargs": {"type": "object"},
+        "regexp_fetch": {"type": "string"},
+        "error_on_fetch": {"type": "boolean"},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
                                                 {"type": "integer", "minimum": 1}]
@@ -292,11 +314,35 @@ orchestration_patch = {
     "additionalProperties": False
 }
 
+launch_orchestration_post = {
+    "type": "object",
+    "properties": {
+        'hosts': {"anyOf": [{"type": "string"},
+                            {"type": "array",
+                             "items": {"type": "string"}},
+                            {"type": "object",
+                             "patternProperties": {
+                                 ".*": {"anyOf": [{"type": "string"},
+                                                  {"type": "array",
+                                                   "items": {"type": "string"}
+                                                   }]
+                                        },
+                             },
+                             }]
+                  },
+        "params": {"type": "object"}
+    },
+    "required": ["hosts"],
+    "additionalProperties": False,
+}
+
 post_schema_routes = {
     "type": "object",
     "properties": {
         "discover_new_neighbours": {"type": "boolean"},
-        "check_current_neighbours": {"type": "boolean"}
+        "check_current_neighbours": {"type": "boolean"},
+        "retries": {"type": "integer", "minimum": 1},
+        "timeout": {"type": "number", "minimum": 0}
     },
     "additionalProperties": False
 }

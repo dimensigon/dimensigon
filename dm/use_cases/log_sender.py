@@ -86,7 +86,6 @@ class LogSender:
 
     async def send_new_data(self):
 
-        logger.debug(f"Sending new data to servers")
         self.update_mapper()
 
         tasks = []

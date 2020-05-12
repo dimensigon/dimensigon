@@ -1,4 +1,5 @@
 import copy
+import re
 from enum import Enum, auto
 
 from dm.domain.entities.base import UUIDistributedEntityMixin
@@ -58,3 +59,8 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
         kwargs = copy.deepcopy(kwargs)
         kwargs['action_type'] = ActionType[kwargs.get('action_type')]
         return super().from_json(kwargs)
+
+    @property
+    def code_parameters(self):
+        return re.findall(r'\{\{\s*([\.\w]+)\s*\}\}', self.code, flags=re.MULTILINE)
+

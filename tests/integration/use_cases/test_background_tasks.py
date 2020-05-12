@@ -11,7 +11,7 @@ from flask import url_for
 from pkg_resources import parse_version
 
 from dm.domain.entities import Server, Route, Gate, \
-    Dimension
+    Dimension, User
 from dm.web import create_app, db
 from dm.web.background_tasks import TempRoute, update_table_routing_cost, process_get_new_version_from_gogs, \
     upgrader_logger
@@ -238,6 +238,7 @@ class TestUpdateTableRoutingCost(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         db.create_all()
+        User.set_initial()
         self.client = self.app.test_client()
 
     def tearDown(self) -> None:

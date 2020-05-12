@@ -8,7 +8,7 @@ from dm.domain.entities import Server
 from dm.domain.entities.locker import Scope
 from dm.network import TypeMsg
 from dm.use_cases.base import Token
-from dm.use_cases.deployment import UndoCommand, TestOperation, Command, Execution
+from dm.use_cases.deployment import UndoCommand, TestOperation, Command, StepExecution
 from dm.use_cases.exceptions import ErrorLock
 from dm.use_cases.mediator import Mediator
 from dm.web import create_app, db
@@ -58,7 +58,7 @@ class TestMediator(TestCase):
                               'token': tkn,
                               'session': 20000000000000000,
                               'content': {'data': CompletedProcess(returndata=True, excep=None, runtime=0),
-                                          'execution': {2: Execution(success=True, stdout='stdout', stderr='stderr',
+                                          'execution': {2: StepExecution(success=True, stdout='stdout', stderr='stderr',
                                                                      rc=0, start_time=date,
                                                                      end_time=date)}}}
                     mocked_gateway.assert_called_once_with(**kwargs)
@@ -70,10 +70,10 @@ class TestMediator(TestCase):
                               'token': tkn,
                               'session': 20000000000000000,
                               'content': {'data': CompletedProcess(returndata=True, excep=None, runtime=0),
-                                          'execution': {2: Execution(success=True, stdout='stdout', stderr='stderr',
+                                          'execution': {2: StepExecution(success=True, stdout='stdout', stderr='stderr',
                                                                      rc=0, start_time=date,
                                                                      end_time=date),
-                                                        1: Execution(success=True, stdout='undo command',
+                                                        1: StepExecution(success=True, stdout='undo command',
                                                                      stderr='stderr',
                                                                      rc=0, start_time=date,
                                                                      end_time=date)

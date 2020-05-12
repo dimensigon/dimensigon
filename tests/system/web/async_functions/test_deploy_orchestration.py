@@ -8,7 +8,8 @@ from unittest import TestCase, mock
 import responses
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, ActionTemplate, ActionType, Orchestration, Execution, Step
+from dm.domain.entities import Server, ActionTemplate, ActionType, Orchestration, StepExecution, Step, User, \
+    OrchExecution
 from dm.domain.entities.route import Route
 from dm.web import create_app, db
 from dm.web.async_functions import deploy_orchestration
@@ -30,7 +31,7 @@ class TestLaunchOrchestration(TestCase):
         for app in [self.app, self.app2]:
             with app.app_context():
                 db.create_all()
-
+                u = User('root', id='eeeeeeee-1234-5678-1234-eeeeeeee0001')
                 at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
                                      action_type=ActionType.NATIVE, code='useradd {{user}}; mkdir {{dir}}',
                                      parameters={}, expected_stdout='',
@@ -59,7 +60,15 @@ class TestLaunchOrchestration(TestCase):
                     r = Route(remote, cost=0)
                 else:
                     r = Route(me, cost=0)
-                db.session.add_all([me, remote, o, r])
+                db.session.add_all([me, remote, o, r, u])
+
+                # Orch diagram
+                # f   f
+                # 1-->3-->u4-->u5-->u6
+                #  \/  \    \_____/
+                #  /\   \
+                # 9-->u2 7-->u8
+                # b
 
                 s1 = o.add_step(id=uuid.UUID('dddddddd-1234-5678-1234-dddddddd0001'), undo=False, action_template=at1,
                                 parents=[], target=['frontend'])
@@ -87,14 +96,18 @@ class TestLaunchOrchestration(TestCase):
                 db.session.remove()
                 db.drop_all()
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration(self, mock_run):
+    def test_deploy_orchestration(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')]
+
+        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -111,44 +124,65 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
             remote = Server.query.get('cccccccc-1234-5678-1234-cccccccc0002')
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
-            deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+
+            deploy_orchestration(o.id, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(5, Execution.query.count())
+            self.assertEqual(1, OrchExecution.query.count())
+            oe = OrchExecution.query.one()
+            orch_execution_id = oe.id
+            self.assertTrue(oe.success)
+            self.assertEqual(o, oe.orchestration)
+            self.assertDictEqual(
+                {'all': [str(me.id), str(remote.id)], 'frontend': [str(me.id)], 'backend': [str(remote.id)]}, oe.target)
+            self.assertDictEqual({'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'}, oe.params)
+            self.assertEqual(User.get_by_user('root'), oe.executor)
+            self.assertIsNone(oe.service)
+            self.assertTrue(oe.success)
+            self.assertIsNone(oe.undo_success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            self.assertEqual(3, StepExecution.query.count())
+
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
 
         with self.app2.app_context():
-            self.assertEqual(2, Execution.query.count())
+            self.assertEqual(1, OrchExecution.query.count())
+            oe = OrchExecution.query.one()
+            self.assertEqual(orch_execution_id, oe.id)
+            self.assertEqual(o.id, oe.orchestration.id)
+            self.assertDictEqual(
+                {'all': [str(me.id), str(remote.id)], 'frontend': [str(me.id)], 'backend': [str(remote.id)]}, oe.target)
+            self.assertDictEqual({'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'}, oe.params)
+            self.assertEqual(User.get_by_user('root'), oe.executor)
+            self.assertIsNone(oe.service)
+            # self.assertTrue(oe.success)
+            # self.assertIsNone(oe.undo_success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            self.assertEqual(2, StepExecution.query.count())
+
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_stop_on_error(self, mock_run):
+    def test_deploy_orchestration_stop_on_error(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
@@ -159,6 +193,8 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')]
 
+        mock_lock_scope.return_value.__enter__.return_value = True
+
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
             try:
@@ -177,52 +213,55 @@ class TestLaunchOrchestration(TestCase):
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
             remote = Server.query.get('cccccccc-1234-5678-1234-cccccccc0002')
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
+            mock_identity.return_value = User.get_by_user('root').id
+
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(8, Execution.query.count())
+            self.assertEqual(1, OrchExecution.query.count())
+            oe = OrchExecution.query.one()
+            self.assertFalse(oe.success)
+            self.assertTrue(oe.undo_success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+
+            self.assertEqual(6, StepExecution.query.count())
+
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertFalse(e.success)
 
-            ue4 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
+            ue4 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
             self.assertTrue(ue4.success)
 
-            ue5 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
+            ue5 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
             self.assertTrue(ue5.success)
             self.assertGreater(ue5.start_time, ue4.start_time)
 
-            ue6 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
+            ue6 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
             self.assertTrue(ue6.success)
             self.assertGreater(ue6.start_time, ue5.start_time)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertTrue(ue.success)
 
         with self.app2.app_context():
-            self.assertEqual(2, Execution.query.count())
+            self.assertEqual(2, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_stop_on_error_false(self, mock_run):
+    def test_deploy_orchestration_stop_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
@@ -238,6 +277,7 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')
                                 ]
 
+        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -254,78 +294,63 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
             remote = Server.query.get('cccccccc-1234-5678-1234-cccccccc0002')
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             o.stop_on_error = False
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(12, Execution.query.count())
+            self.assertEqual(8, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertFalse(e.success)
 
-            ue4 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
+            ue4 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
             self.assertTrue(ue4.success)
 
-            ue5 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
+            ue5 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
             self.assertTrue(ue5.success)
             self.assertGreater(ue5.start_time, ue4.start_time)
 
-            ue6 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
+            ue6 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
             self.assertTrue(ue6.success)
             self.assertGreater(ue6.start_time, ue5.start_time)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertTrue(e.success)
-
-            ue21 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            ue21 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue21.success)
 
-            ue22 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertTrue(ue21.success)
-
-            ue71 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            ue71 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(ue71.success)
 
-            ue72 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertTrue(ue72.success)
-
         with self.app2.app_context():
-            self.assertEqual(4, Execution.query.count())
+            self.assertEqual(4, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
             self.assertTrue(ue.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_step_stop_on_error_false(self, mock_run):
+    def test_deploy_orchestration_step_stop_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -339,6 +364,7 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')
                                 ]
+        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -355,86 +381,71 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             s = Step.query.get('dddddddd-1234-5678-1234-dddddddd0001')
             s.step_stop_on_error = False
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
             remote = Server.query.get('cccccccc-1234-5678-1234-cccccccc0002')
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(12, Execution.query.count())
+            self.assertEqual(8, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertFalse(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertTrue(e.success)
-
-            ue81 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            ue81 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
             self.assertTrue(ue81.success)
 
-            ue82 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertTrue(ue82.success)
-
-            ue4 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
+            ue4 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
             self.assertTrue(ue4.success)
 
-            ue5 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
+            ue5 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
             self.assertTrue(ue5.success)
             self.assertGreater(ue5.start_time, ue4.start_time)
 
-            ue6 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
+            ue6 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
             self.assertTrue(ue6.success)
             self.assertGreater(ue6.start_time, ue5.start_time)
 
-            ue21 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            ue21 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue21.success)
 
-            ue22 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertTrue(ue22.success)
-
-
-
         with self.app2.app_context():
-            self.assertEqual(4, Execution.query.count())
+            self.assertEqual(4, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
             self.assertTrue(ue.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_step_stop_on_error_true(self, mock_run):
+    def test_deploy_orchestration_step_stop_on_error_true(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')
                                 ]
+
+        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -451,6 +462,7 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             s = Step.query.get('dddddddd-1234-5678-1234-dddddddd0001')
             s.step_stop_on_error = True
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
@@ -458,43 +470,38 @@ class TestLaunchOrchestration(TestCase):
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             o.stop_on_error = False
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(4, Execution.query.count())
+            self.assertEqual(2, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertFalse(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
-            self.assertTrue(e.success)
-
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
-
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertTrue(ue.success)
-
 
         with self.app2.app_context():
-            self.assertEqual(2, Execution.query.count())
+            self.assertEqual(2, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_undo_on_error_false(self, mock_run):
+    def test_deploy_orchestration_undo_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr='')]
+
+        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -511,45 +518,40 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
             remote = Server.query.get('cccccccc-1234-5678-1234-cccccccc0002')
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             o.undo_on_error = False
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(5, Execution.query.count())
+            self.assertEqual(3, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertFalse(e.success)
 
         with self.app2.app_context():
-            self.assertEqual(2, Execution.query.count())
+            self.assertEqual(2, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertFalse(e.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_step_undo_on_error_false(self, mock_run):
+    def test_deploy_orchestration_step_undo_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -560,7 +562,9 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
-                                CompletedProcess(args=(), returncode=0, stdout='', stderr=''),]
+                                CompletedProcess(args=(), returncode=0, stdout='', stderr=''), ]
+
+        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -577,77 +581,68 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             s = Step.query.get('dddddddd-1234-5678-1234-dddddddd0007')
             s.step_undo_on_error = False
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
             remote = Server.query.get('cccccccc-1234-5678-1234-cccccccc0002')
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(11, Execution.query.count())
+            self.assertEqual(8, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertFalse(e.success)
-
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
             self.assertTrue(ue.success)
 
-            ue4 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
+            ue4 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
             self.assertTrue(ue4.success)
 
-            ue5 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
+            ue5 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
             self.assertTrue(ue5.success)
             self.assertGreater(ue5.start_time, ue4.start_time)
 
-            ue6 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
+            ue6 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
             self.assertTrue(ue6.success)
             self.assertGreater(ue6.start_time, ue5.start_time)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
-            self.assertTrue(ue.success)
-
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
         with self.app2.app_context():
-            self.assertEqual(3, Execution.query.count())
+            self.assertEqual(3, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertFalse(e.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_stop_undo_on_error_true(self, mock_run):
+    def test_deploy_orchestration_stop_undo_on_error_true(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr='')]
+
+        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -664,45 +659,47 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
             remote = Server.query.get('cccccccc-1234-5678-1234-cccccccc0002')
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             o.stop_undo_on_error = True
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(5, Execution.query.count())
+            self.assertEqual(4, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertFalse(e.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
             self.assertTrue(ue.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
             self.assertFalse(ue.success)
 
         with self.app2.app_context():
-            self.assertEqual(1, Execution.query.count())
+            self.assertEqual(1, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_step_stop_undo_on_error_true(self, mock_run):
+    def test_deploy_orchestration_step_stop_undo_on_error_true(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr='')]
+
+        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -719,41 +716,41 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             s = Step.query.get('dddddddd-1234-5678-1234-dddddddd0003')
             s.step_stop_undo_on_error = True
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
             remote = Server.query.get('cccccccc-1234-5678-1234-cccccccc0002')
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(5, Execution.query.count())
+            self.assertEqual(4, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertFalse(e.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
             self.assertTrue(ue.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
             self.assertFalse(ue.success)
 
         with self.app2.app_context():
-            self.assertEqual(1, Execution.query.count())
+            self.assertEqual(1, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_undo_step_stop_on_error_false(self, mock_run):
+    def test_deploy_orchestration_undo_step_stop_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
@@ -761,6 +758,8 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')]
 
+        mock_lock_scope.return_value.__enter__.return_value = True
+
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
             try:
@@ -776,6 +775,7 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             s = Step.query.get('dddddddd-1234-5678-1234-dddddddd0005')
             s.step_stop_on_error = False
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
@@ -783,41 +783,40 @@ class TestLaunchOrchestration(TestCase):
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             o.stop_undo_on_error = True
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(6, Execution.query.count())
+            self.assertEqual(5, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertFalse(e.success)
 
-            ue4 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
+            ue4 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
             self.assertTrue(ue4.success)
 
-            ue5 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
+            ue5 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
             self.assertFalse(ue5.success)
             self.assertGreater(ue5.start_time, ue4.start_time)
 
-            ue6 = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
+            ue6 = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
             self.assertTrue(ue6.success)
             self.assertGreater(ue6.start_time, ue5.start_time)
 
 
         with self.app2.app_context():
-            self.assertEqual(1, Execution.query.count())
+            self.assertEqual(1, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
+    @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
+    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_stop_undo_on_error_false(self, mock_run):
+    def test_deploy_orchestration_stop_undo_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -832,6 +831,8 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')
                                 ]
 
+        mock_lock_scope.return_value.__enter__.return_value = True
+
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
             try:
@@ -847,69 +848,52 @@ class TestLaunchOrchestration(TestCase):
                                callback=partial(requests_callback_client, self.app2.test_client()))
 
         with self.app.app_context():
+            mock_identity.return_value = User.get_by_user('root').id
             me = Server.query.get('cccccccc-1234-5678-1234-cccccccc0001')
             remote = Server.query.get('cccccccc-1234-5678-1234-cccccccc0002')
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             o.stop_undo_on_error = False
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
-                                 hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
+                                 hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
                                  max_parallel_tasks=4, auth=self.auth)
 
-            self.assertEqual(12, Execution.query.count())
+            self.assertEqual(8, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0001').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0003').one()
-            self.assertTrue(e.success)
-
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertFalse(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
-            self.assertTrue(e.success)
-
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
             self.assertTrue(ue.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
+            self.assertTrue(ue.success)
+
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
             self.assertFalse(ue.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0004').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
             self.assertTrue(ue.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0005').one()
-            self.assertFalse(ue.success)
-
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0006').one()
-            self.assertTrue(ue.success)
-
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0001').one()
-            self.assertTrue(ue.success)
-
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').filter_by(
-                execution_server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
         with self.app2.app_context():
-            self.assertEqual(4, Execution.query.count())
+            self.assertEqual(4, StepExecution.query.count())
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-            e = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
+            e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
             self.assertFalse(ue.success)
 
-            ue = Execution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
+            ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)

@@ -5,7 +5,7 @@ from unittest.mock import patch
 from aioresponses import aioresponses, CallbackResult
 from asynctest.mock import patch as async_patch
 
-from dm.domain.entities import Server, Route, Log
+from dm.domain.entities import Server, Route, Log, User
 from dm.use_cases.log_sender import LogSender
 from dm.use_cases.log_sender import _PygtailBuffer, Pygtail
 from dm.utils.asyncio import run
@@ -21,6 +21,7 @@ class TestServer(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         db.create_all()
+        User.set_initial()
         self.source = Server('source', port=8000, me=True)
         self.dest = Server('dest', port=8000)
         Route(self.dest, cost=0)

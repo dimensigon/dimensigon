@@ -9,14 +9,14 @@ from dm.web.helpers import filter_query
 from dm.web.json_schemas import orchestration_post, orchestration_patch
 
 
-class OrchestrationResourceList(Resource):
+class OrchestrationList(Resource):
 
     @forward_or_dispatch
     @jwt_required
     @securizer
     def get(self):
         query = filter_query(Orchestration, request.args)
-        return [o.to_json() for o in query.all()]
+        return [o.to_json(add_target=True, add_params=True) for o in query.all()]
 
     @forward_or_dispatch
     @jwt_required
@@ -36,7 +36,7 @@ class OrchestrationResource(Resource):
     @jwt_required
     @securizer
     def get(self, orchestration_id):
-        return Orchestration.query.get_or_404(orchestration_id).to_json()
+        return Orchestration.query.get_or_404(orchestration_id).to_json(add_target=True, add_params=True)
 
     @forward_or_dispatch
     @jwt_required

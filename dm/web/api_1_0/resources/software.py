@@ -69,7 +69,7 @@ class SoftwareResource(Resource):
 
 
 # software/<software_id>/servers
-class SoftwareServers(Resource):
+class SoftwareServersResource(Resource):
     @securizer
     @jwt_required
     @forward_or_dispatch

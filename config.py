@@ -22,7 +22,9 @@ class Config(object):
     AUTOUPGRADE = True
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
+    SECURIZER_PLAIN = True
     SCHEDULER = False
+
 
     @classmethod
     def init_app(cls, app):

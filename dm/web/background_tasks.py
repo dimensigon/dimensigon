@@ -174,13 +174,14 @@ def update_catalog(data: t.Dict[Server, t.Tuple[t.Any, int]]):
             catalog_logger.info(f"New catalog found from server {reference_server.name}: {catalog_ver}")
             upgrade_catalog_from_server(reference_server)
         else:
-            catalog_logger.info(f"No server with higher catalog found")
+            catalog_logger.debug(f"No server with higher catalog found")
 
 TempRoute = namedtuple('TempRoute', ['proxy_server', 'gate', 'cost'])
 
 
-def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False) -> t.Dict[
-    Server, TempRoute]:
+def update_table_routing_cost(discover_new_neighbours=False, check_current_neighbours=False, retries=2, timeout=10) -> \
+        t.Dict[
+            Server, TempRoute]:
     """Gets route tables of all neighbours and updates its own table based on jump weights.
     Needs a Flask App Context to run.
 
@@ -190,6 +191,10 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
         tries to discover new neighbours
     check_current_neighbours:
         checks if current neighbours are still neighoburs
+    retries:
+        number of times it will try to reach destination
+    timeout:
+        time in seconds to stop waiting for connection
 
     Returns
     -------
@@ -208,7 +213,7 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
             f"Checking current neighbours: " + ', '.join([str(s) for s in neighbours]))
         for server in neighbours:
             route = server.route
-            cost, time = ping(server, me, retries=2, timeout=10)
+            cost, time = ping(server, me, retries=retries, timeout=timeout)
             if cost is None:
                 default_gate = server.route.gate
                 temp = [None, None, None]
@@ -217,7 +222,8 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
                     # check not to connect with localhost gate from current node and not to check already checked gate
                     if gate != default_gate and ((gate.ip and not gate.ip.is_loopback) or (
                             gate.dns and gate.dns != 'localhost')):
-                        if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=2, delay=1, timeout=10):
+                        if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=retries, delay=0.2,
+                                      timeout=timeout):
                             temp[0] = None
                             temp[1] = gate
                             temp[2] = 0
@@ -238,30 +244,37 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
             #     server.cost = 0
             #     server.gateway = None
     if len(not_neighbours_anymore) > 0:
-        routing_logger.debug(
+        routing_logger.info(
             f"Lost direct connection to the following nodes: " + ', '.join([str(s) for s in not_neighbours_anymore]))
 
+    new_neighbours = []
     if discover_new_neighbours:
         routing_logger.debug(
             f"Checking new neighbours: " + ', '.join([str(s) for s in not_neighbours_anymore]))
         for server in not_neighbours:
             for gate in server.gates:
                 if (gate.ip and not gate.ip.is_loopback) or (gate.dns and gate.dns != 'localhost'):
-                    if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=2, delay=1, timeout=2):
-                        routing_logger.debug(f'Node {server} is a new neighbour')
+                    if check_host(host=gate.dns or str(gate.ip), port=gate.port, retry=retries, delay=1,
+                                  timeout=timeout):
+
                         if server.route:
                             server.route.gate = gate
                             server.route.proxy_server = None
                             server.route.cost = 0
-                            db.session.add(server.route)
+                            new_neighbours.append(server)
                         else:
                             r = Route(destination=server, proxy_server=None, gate=gate, cost=0)
                             db.session.add(r)
                         changed_routes[server] = TempRoute(None, server.route.gate, server.route.cost)
                         break
+        if new_neighbours:
+            routing_logger.info(f'New neighbours found: ' + ', '.join([str(s) for s in new_neighbours]))
 
     pool_responses = []
     neighoburs = Server.get_neighbours()
+    if new_neighbours or not_neighbours_anymore:
+        routing_logger.info(f"New Neighbour list {', '.join([str(s) for s in neighoburs])}")
+
     for server in neighoburs:
         pool_responses.append(get(server, 'api_1_0.routes', auth=get_auth_root()))
 

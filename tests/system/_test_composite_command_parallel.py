@@ -3,7 +3,7 @@ from unittest import TestCase, mock
 
 from dm.utils.async_operator import AsyncOperator
 
-from dm.use_cases.deployment import UndoCommand, Execution, Command, CompositeCommand
+from dm.use_cases.deployment import UndoCommand, StepExecution, Command, CompositeCommand
 
 
 class PickableMock(mock.Mock):
@@ -29,12 +29,12 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        mocked_imp_succ.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=datetime.datetime.now(),
                                                          end_time=datetime.datetime.now() + datetime.timedelta(
                                                              5 / (24 * 60 * 60)))
 
-        mocked_imp_error.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                                           start_time=datetime.datetime.now(),
                                                           end_time=datetime.datetime.now() + datetime.timedelta(
                                                               5 / (24 * 60 * 60)))
@@ -55,12 +55,12 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        mocked_imp_succ.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=datetime.datetime.now(),
                                                          end_time=datetime.datetime.now() + datetime.timedelta(
                                                              5 / (24 * 60 * 60)))
 
-        mocked_imp_error.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                                           start_time=datetime.datetime.now(),
                                                           end_time=datetime.datetime.now() + datetime.timedelta(
                                                               5 / (24 * 60 * 60)))
@@ -89,12 +89,12 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        mocked_imp_succ.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=datetime.datetime.now(),
                                                          end_time=datetime.datetime.now() + datetime.timedelta(
                                                              5 / (24 * 60 * 60)))
 
-        mocked_imp_error.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                                           start_time=datetime.datetime.now(),
                                                           end_time=datetime.datetime.now() + datetime.timedelta(
                                                               5 / (24 * 60 * 60)))
@@ -126,10 +126,10 @@ class TestCompositeCommand(TestCase):
         start_time = datetime.datetime.now()
         end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
 
-        mocked_imp_succ.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,
                                                          end_time=end_time)
-        mocked_imp_error.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                                           start_time=start_time,
                                                           end_time=end_time)
 
@@ -148,10 +148,10 @@ class TestCompositeCommand(TestCase):
 
         res = cc.invoke()
 
-        self.assertDictEqual({5: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        self.assertDictEqual({5: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              6: Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+                              6: StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time)}
                              , cc.execution)
@@ -162,13 +162,13 @@ class TestCompositeCommand(TestCase):
 
         res = cc.undo()
 
-        self.assertDictEqual({5: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        self.assertDictEqual({5: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              6: Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+                              6: StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              1: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              1: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time)}
                              , cc.execution)
@@ -184,10 +184,10 @@ class TestCompositeCommand(TestCase):
         start_time = datetime.datetime.now()
         end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
 
-        mocked_imp_succ.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,
                                                          end_time=end_time)
-        mocked_imp_error.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                                           start_time=start_time,
                                                           end_time=end_time)
 
@@ -225,10 +225,10 @@ class TestCompositeCommand(TestCase):
         start_time = datetime.datetime.now()
         end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
 
-        mocked_imp_succ.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,
                                                          end_time=end_time)
-        mocked_imp_error.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                                           start_time=start_time,
                                                           end_time=end_time)
 
@@ -259,25 +259,25 @@ class TestCompositeCommand(TestCase):
         self.assertEqual(6, mocked_imp_succ.execute.call_count)
         self.assertEqual(1, mocked_imp_error.execute.call_count)
 
-        self.assertDictEqual({2: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        self.assertDictEqual({2: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              3: Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+                              3: StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              4: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              4: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              5: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              5: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              6: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              6: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              7: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              7: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              8: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              8: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time)
                               }
@@ -290,10 +290,10 @@ class TestCompositeCommand(TestCase):
         start_time = datetime.datetime.now()
         end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
 
-        mocked_imp_succ.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,
                                                          end_time=end_time)
-        mocked_imp_error.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                                           start_time=start_time,
                                                           end_time=end_time)
 
@@ -311,16 +311,16 @@ class TestCompositeCommand(TestCase):
 
         res = cc.invoke()
 
-        self.assertDictEqual({5: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        self.assertDictEqual({5: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              6: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              6: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              7: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              7: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              8: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              8: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
                               }
@@ -336,10 +336,10 @@ class TestCompositeCommand(TestCase):
         start_time = datetime.datetime.now()
         end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
 
-        mocked_imp_succ.execute.return_value = Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,
                                                          end_time=end_time)
-        mocked_imp_error.execute.return_value = Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+        mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                                           start_time=start_time,
                                                           end_time=end_time)
 
@@ -357,16 +357,16 @@ class TestCompositeCommand(TestCase):
 
         res = cc.invoke()
 
-        self.assertDictEqual({5: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+        self.assertDictEqual({5: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              6: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              6: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              7: Execution(success=False, stdout='stdout', stderr='stderr', rc=0,
+                              7: StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
-                              8: Execution(success=True, stdout='stdout', stderr='stderr', rc=0,
+                              8: StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                            start_time=start_time,
                                            end_time=end_time),
                               }

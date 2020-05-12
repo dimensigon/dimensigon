@@ -1,4 +1,5 @@
 import datetime
+import re
 import typing as t
 import uuid
 from collections import ChainMap
@@ -33,6 +34,8 @@ class Step(db.Model, UUIDistributedEntityMixin):
     step_expected_stderr = db.Column("expected_stderr", db.Text)
     step_expected_rc = db.Column("expected_rc", db.Integer)
     step_system_kwargs = db.Column("system_kwargs", JSON, default={})
+    regexp_fetch = db.Column(db.Text)
+    error_on_fetch = db.Column(db.Boolean)
     target = db.Column(ScalarListType(str))
     last_modified_at = db.Column(db.DateTime, nullable=False)
     created_on = db.Column(db.DateTime, nullable=False, default=datetime.datetime.now())
@@ -59,20 +62,26 @@ class Step(db.Model, UUIDistributedEntityMixin):
                  expected_rc: t.Optional[int] = None, parameters: t.Dict[str, t.Any] = None,
                  system_kwargs: t.Dict[str, t.Any] = None,
                  parent_steps: t.List['Step'] = None, children_steps: t.List['Step'] = None,
-                 target: t.Union[str, t.Iterable[str]] = None, **kwargs):
+                 target: t.Union[str, t.Iterable[str]] = None, regexp_fetch=None, error_on_fetch=True, **kwargs):
 
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         assert undo in (False, True)
         self.undo = undo
         self.step_stop_on_error = stop_on_error if stop_on_error is not None else kwargs.pop('step_stop_on_error', None)
-        self.step_stop_undo_on_error = stop_undo_on_error if stop_undo_on_error is not None else kwargs.pop('step_stop_undo_on_error', None)
+        self.step_stop_undo_on_error = stop_undo_on_error if stop_undo_on_error is not None else kwargs.pop(
+            'step_stop_undo_on_error', None)
         self.step_undo_on_error = undo_on_error if undo_on_error is not None else kwargs.pop('step_undo_on_error', None)
         self.action_template = action_template
-        self.step_expected_stdout = expected_stdout if expected_stdout is not None else kwargs.pop('step_expected_stdout', None)
-        self.step_expected_stderr = expected_stderr if expected_stderr is not None else kwargs.pop('step_expected_stderr', None)
+        self.step_expected_stdout = expected_stdout if expected_stdout is not None else kwargs.pop(
+            'step_expected_stdout', None)
+        self.step_expected_stderr = expected_stderr if expected_stderr is not None else kwargs.pop(
+            'step_expected_stderr', None)
         self.step_expected_rc = expected_rc if expected_rc is not None else kwargs.pop('step_expected_rc', None)
         self.step_parameters = parameters if parameters is not None else kwargs.pop('step_parameters', None) or {}
-        self.step_system_kwargs = system_kwargs if system_kwargs is not None else kwargs.pop('step_system_kwargs', None) or {}
+        self.step_system_kwargs = system_kwargs if system_kwargs is not None else kwargs.pop('step_system_kwargs',
+                                                                                             None) or {}
+        self.regexp_fetch = regexp_fetch
+        self.error_on_fetch = error_on_fetch
         self.orchestration = orchestration
         self.parent_steps = parent_steps or []
         self.children_steps = children_steps or []
@@ -196,6 +205,21 @@ class Step(db.Model, UUIDistributedEntityMixin):
         else:
             self.step_expected_rc = value
 
+    @property
+    def fetched_parameters(self):
+        return set(re.findall(r'\(\?P<(\w+)>', self.regexp_fetch, flags=re.MULTILINE))
+
+    @property
+    def user_parameters(self) -> t.Set['str']:
+        code_params = set(self.action_template.code_parameters)
+
+        defined_params = set(self.parameters.keys())
+        params_from_param_value = set()
+        for v in self.parameters.values():
+            params_from_param_value.union(re.findall(r'\{\{\s*([\.\w]+)\s*\}\}', v, flags=re.MULTILINE))
+
+        return code_params.union(params_from_param_value).difference(defined_params)
+
     def eq_imp(self, other):
         """
         two steps are equal if they execute the same code with the same parameters even if they are from different
@@ -263,7 +287,9 @@ class Step(db.Model, UUIDistributedEntityMixin):
                     expected_stderr=self.step_expected_stderr,
                     expected_rc=self.step_expected_rc,
                     system_kwargs=self.step_system_kwargs,
-                    parent_step_ids=[str(step.id) for step in self.parents])
+                    parent_step_ids=[str(step.id) for step in self.parents],
+                    regexp_fetch=self.regexp_fetch,
+                    error_on_fetch=self.error_on_fetch)
         if self.created_on is not None:
             data.update(created_on=self.created_on.strftime(defaults.DATETIME_FORMAT))
         return data

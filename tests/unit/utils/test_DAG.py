@@ -8,13 +8,22 @@ class TestDAG(TestCase):
         G = DAG()
         self.assertListEqual(G.nodes, [])
 
+        G.add_node(1)
+        self.assertListEqual(G.nodes, [1])
+
     def test_pred(self):
         G = DAG()
         self.assertDictEqual(G.pred, {})
 
+        G.add_node(1)
+        self.assertDictEqual(G.pred, {1: []})
+
     def test_succ(self):
-        g = DAG()
-        self.assertDictEqual(g.succ, {})
+        G = DAG()
+        self.assertDictEqual(G.succ, {})
+
+        G.add_node(1)
+        self.assertDictEqual(G.succ, {1: []})
 
     def test_add_node(self):
         g = DAG()
@@ -25,6 +34,10 @@ class TestDAG(TestCase):
             pass
 
         bar = Foo()
+        g.add_node(bar)
+
+        self.assertListEqual(g.nodes, [1, bar])
+
         g.add_node(bar)
 
         self.assertListEqual(g.nodes, [1, bar])

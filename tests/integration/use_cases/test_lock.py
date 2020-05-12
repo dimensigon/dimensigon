@@ -222,3 +222,27 @@ class TestLock(TestCase):
 
         c = Locker.query.get(Scope.CATALOG)
         self.assertEqual(State.UNLOCKED, c.state)
+
+    @aioresponses()
+    def test_lock_unreachable_network(self, m):
+        self.n1.route.cost = None
+        self.n1.route.gate = None
+        self.n1.route.proxy_server = None
+
+        def callback_prevent(url, **kwargs):
+            return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)
+
+        def callback_unlock(url, **kwargs):
+            return CallbackResult("{'message': 'UnLocked'}", status=200)
+
+        m.post(Server.get_current().url('api_1_0.locker_prevent'), callback=callback_prevent)
+        m.post(self.n2.url('api_1_0.locker_prevent'), callback=callback_prevent)
+        m.post(Server.get_current().url('api_1_0.locker_unlock'), callback=callback_unlock)
+        m.post(self.n2.url('api_1_0.locker_unlock'), callback=callback_unlock)
+
+        with self.assertRaises(ue.ErrorLock) as e:
+            applicant = lock(Scope.CATALOG)
+
+        self.assertDictEqual({'error': 'ErrorPreventingLock', 'servers': [
+            {'server_id': str(self.n1.id), 'code': None, 'response': "Unreachable destination 'node1'"}]},
+                             e.exception.to_json())
