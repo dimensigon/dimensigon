@@ -1,11 +1,15 @@
 import base64
 import typing as t
+from datetime import datetime
 
 import aiohttp
 from flask import current_app
+from flask_jwt_extended import get_jwt_identity
 
-from dm.domain.entities import Orchestration, Server, Execution
-from dm.use_cases.deployment import create_cmd_from_orchestration2
+from dm.domain.entities import Orchestration, Server, Scope, OrchExecution
+from dm.use_cases.deployment import create_cmd_from_orchestration2, RegisterStepExecution
+from dm.use_cases.exceptions import ErrorLock
+from dm.use_cases.lock import lock, unlock
 from dm.utils import asyncio
 from dm.utils.typos import Kwargs, Id
 from dm.web import db, executor
@@ -13,7 +17,7 @@ from dm.web.network import async_post, async_patch
 
 
 async def async_send_file(dest_server: Server, transfer_id: Id, file, chunks: int, chunk_size: int,
-                        max_senders: int, auth=None):
+                          max_senders: int, auth=None):
     async def send_chunk(server: Server, view: str, chunk):
         json_msg = {}
         json_msg.update(transfer_id=transfer_id)
@@ -78,8 +82,35 @@ async def async_send_file(dest_server: Server, transfer_id: Id, file, chunks: in
                         f"{code}, {data}")
 
 
-def deploy_orchestration(orchestration: Orchestration, params: Kwargs, hosts: t.Dict[str, t.List[Server]],
-                         max_parallel_tasks=None, auth=None):
+def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
+                         hosts: t.Dict[str, t.Union[t.List[Id]]],
+                         params: Kwargs = None,
+                         execution=None,
+                         **kwargs):
+    try:
+        if not isinstance(orchestration, Orchestration):
+            orchestration = Orchestration.query.get(orchestration)
+        if not isinstance(execution, OrchExecution):
+            exe = None
+            if execution is not None:
+                exe = OrchExecution.query.get(execution)
+            if exe is None:
+                exe = OrchExecution(id=execution, orchestration=orchestration, target=hosts, params=params,
+                                    executor_id=get_jwt_identity())
+                db.session.add(exe)
+                db.session.commit()
+        current_app.logger.debug(
+            f"Execution {exe.id}: Launching orchestration {orchestration} on {hosts} with {params}")
+        return _deploy_orchestration(orchestration, params, hosts, exe, **kwargs)
+    except Exception as e:
+        current_app.logger.exception(f"Execution {exe.id}: Error while executing orchestration {orchestration}")
+        raise
+
+
+def _deploy_orchestration(orchestration: Orchestration, params: Kwargs, hosts: t.Dict[str, t.List[Id]],
+                          execution: OrchExecution,
+                          auth=None, max_parallel_tasks=None
+                          ):
     """
     Parameters
     ----------
@@ -95,19 +126,24 @@ def deploy_orchestration(orchestration: Orchestration, params: Kwargs, hosts: t.
         boolean indicating if undo process ended up successfully,
         dict with all the executions). If undo process not executed, boolean set to None
     """
-    cc = create_cmd_from_orchestration2(orchestration, params, hosts=hosts, executor=executor, auth=auth)
-
-    res_do, res_undo = None, None
-    res_do = cc.invoke()
-    if not res_do and orchestration.undo_on_error:
-        res_undo = cc.undo()
-    me = Server.get_current()
-    for k, cp in cc.result.items():
-        e = Execution()
-        e.load_completed_result(cp)
-        e.step_id = k[1]
-        e.execution_server_id = k[0]
-        e.source_server_id = me.id
-        db.session.add(e)
-    db.session.commit()
-
+    rse = RegisterStepExecution(execution)
+    cc = create_cmd_from_orchestration2(orchestration, params, hosts=hosts, executor=executor, auth=auth,
+                                        register=rse)
+    servers = Server.query.filter(Server.id.in_(hosts['all'])).all()
+    try:
+        applicant = lock(Scope.ORCHESTRATION, servers)
+    except ErrorLock as e:
+        execution.end_time = datetime.now()
+        execution.success = False
+        execution.message = str(e)
+        db.session.commit()
+        return {'error': f'{e}'}
+    try:
+        execution.success = cc.invoke()
+        if not execution.success and orchestration.undo_on_error:
+            execution.undo_success = cc.undo()
+        execution.end_time = datetime.now()
+        db.session.commit()
+    finally:
+        unlock(Scope.ORCHESTRATION, applicant=applicant, servers=servers)
+    return cc.result

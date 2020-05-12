@@ -4,7 +4,7 @@ import typing as t
 import aiohttp
 import requests
 from aiohttp import ContentTypeError
-from flask import current_app as __ca, g, current_app, url_for
+from flask import current_app as __ca, current_app, url_for
 from requests.auth import AuthBase
 
 from dm import defaults
@@ -14,6 +14,8 @@ from dm.network.gateway import pack_msg as _pack_msg, unpack_msg as _unpack_msg
 from dm.utils.typos import Kwargs
 
 Response = t.Tuple[t.Union[t.Dict, t.AnyStr, Exception], int]
+
+requests.packages.urllib3.disable_warnings()
 
 logger = logging.getLogger('dm.network')
 
@@ -29,7 +31,7 @@ def pack_msg(data, *args, **kwargs):
         # if generate_key:
         #     kwargs.pop('symmetric_key', None)
         #     kwargs.pop('cipher_key', None)
-        dim = getattr(g, 'dimension', None)
+        dim = None
         if dim is None:
             dim = Dimension.get_current()
             if dim is None:
@@ -63,7 +65,7 @@ def unpack_msg(data, *args, **kwargs):
         # except RuntimeError:
         #     pass
         if not 'error' in data:
-            dim = getattr(g, 'dimension', None)
+            dim = None
             if dim is None:
                 dim = Dimension.get_current()
                 if dim is None:
@@ -178,7 +180,8 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     url = _prepare_url(server, view_or_url, view_data)
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
-
+    if 'auth' in kwargs:
+        kwargs['auth'](kwargs)
 
     if 'json' in kwargs and kwargs['json']:
         kwargs['json'] = pack_msg(kwargs['json'])

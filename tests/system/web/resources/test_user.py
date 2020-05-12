@@ -36,19 +36,19 @@ class TestLogResourceList(TestCase):
         self.app_context.pop()
 
     def test_get(self):
-        resp = self.client.get(url_for('api_1_0.userresourcelist'), headers=self.auth.header)
+        resp = self.client.get(url_for('api_1_0.userlist'), headers=self.auth.header)
         self.assertListEqual([self.user.to_json()], resp.get_json())
 
         root = User(user='root')
         db.session.add(root)
 
         # test with filter
-        resp = self.client.get(url_for('api_1_0.userresourcelist') + "?filter[active]=True",
+        resp = self.client.get(url_for('api_1_0.userlist') + "?filter[active]=True",
                                headers=self.auth.header)
         self.assertListEqual([root.to_json()], resp.get_json())
 
         # test with filter on a server
-        resp = self.client.get(url_for('api_1_0.userresourcelist') + f"?filter[user]=root",
+        resp = self.client.get(url_for('api_1_0.userlist') + f"?filter[user]=root",
                                headers=self.auth.header)
         self.assertListEqual([root.to_json()], resp.get_json())
 
@@ -59,7 +59,7 @@ class TestLogResourceList(TestCase):
                          "name": "Root"
                          }
 
-        resp = self.client.post(url_for('api_1_0.userresourcelist'), headers=self.auth.header,
+        resp = self.client.post(url_for('api_1_0.userlist'), headers=self.auth.header,
                                 json=new_user_json)
         self.assertEqual(400, resp.status_code)
 
@@ -68,7 +68,7 @@ class TestLogResourceList(TestCase):
                          "email": 'root@dimensigon.com',
                          }
 
-        resp = self.client.post(url_for('api_1_0.userresourcelist'), headers=self.auth.header,
+        resp = self.client.post(url_for('api_1_0.userlist'), headers=self.auth.header,
                                 json=new_user_json)
         self.assertEqual(201, resp.status_code)
         user = User.query.get(resp.get_json().get('user_id'))

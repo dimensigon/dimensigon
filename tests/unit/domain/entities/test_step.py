@@ -80,6 +80,17 @@ class TestStep(TestCase):
         s = Step(None, False, None, target=['one', 'two'])
         self.assertEqual(['one', 'two'], s.target)
 
+    def test_user_parameters(self):
+        at = ActionTemplate(id=uuid.UUID('11111111-2222-3333-4444-555555550001'), name='action1', version=1,
+                             action_type=ActionType.NATIVE, code='{{param1}}, {{ param2}}, {{param3}}',
+                             parameters={'param1': 'param 2 is {{param2}}'},
+                             expected_stdout='expected output', expected_stderr='stderr', expected_rc=0,
+                             system_kwargs={})
+
+        s = Step(None, undo=False, action_template=at, parameters={'param3': 'value3'})
+
+        self.assertCountEqual(['param2'], s.user_parameters)
+
     def test_to_from_json(self):
         created = datetime.datetime.now()
         s2 = Step(orchestration=self.o, undo=True,
@@ -111,6 +122,8 @@ class TestStep(TestCase):
                  undo_on_error=None,
                  stop_undo_on_error=None,
                  action_template_id=str(self.at1.id),
+                 error_on_fetch=True,
+                 regexp_fetch=None,
                  expected_stdout='expected',
                  expected_stderr='stderr',
                  parent_step_ids=[],
@@ -125,6 +138,8 @@ class TestStep(TestCase):
                  undo_on_error=None,
                  stop_undo_on_error=None,
                  action_template_id=str(self.at2.id),
+                 error_on_fetch=True,
+                 regexp_fetch=None,
                  expected_stdout='expected',
                  expected_stderr='stderr',
                  parent_step_ids=['11111111-2222-3333-4444-111111110001'],

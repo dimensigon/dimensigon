@@ -8,7 +8,7 @@ from dm.web.decorators import forward_or_dispatch, securizer, validate_schema, l
 from dm.web.json_schemas import step_parents
 
 
-class StepRelationshipParentsResource(Resource):
+class StepRelationshipParents(Resource):
     @forward_or_dispatch
     @jwt_required
     @securizer

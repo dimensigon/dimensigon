@@ -451,8 +451,9 @@ class TestCreateCmdFromOrchestration2(TestCase):
                         children=[s2, s3], target=['backend'])
 
         cc = create_cmd_from_orchestration2(o, {'dir': 'C:\\test_folder'},
-                                            hosts={'all': [me, remote], 'frontend': [me], 'backend': [remote]},
-                                            executor=None)
+                                            hosts={'all': [me.id, remote.id], 'frontend': [me.id],
+                                                   'backend': [remote.id]},
+                                            executor=None, register=mock.Mock())
 
 
         c1, c9 = cc._dag.get_nodes_at_level(1)
@@ -538,3 +539,35 @@ class TestCreateCmdFromOrchestration2(TestCase):
                                uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0008')), c72.undo_command.id)
         self.assertIsInstance(c72.undo_command, ProxyUndoCommand)
         self.assertTrue(c72.undo_command.stop_on_error)
+
+    # @mock.patch('dm.use_cases.deployment.create_operation', autospec=IOperationEncapsulation)
+    def test_create_cmd_from_orchestration_one_step(self):
+        at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
+                            action_type=ActionType.NATIVE, code='mkdir {dir}',
+                            parameters={}, expected_output='',
+                            expected_rc=0, system_kwargs={})
+
+        o = Orchestration('Test Orchestration', 1, 'description',
+                          id=uuid.UUID('bbbbbbbb-1234-5678-1234-bbbbbbbb0001'))
+
+        me = Server('me', port=5000, me=True, id=uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'))
+        remote = Server('remote', port=5000, id=uuid.UUID('cccccccc-1234-5678-1234-cccccccc0002'))
+
+        db.session.add_all([me, remote, o])
+
+        s1 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0001'), undo=False, action_template=at,
+                        parents=[], target=[])
+
+        cc = create_cmd_from_orchestration2(o, {'dir': 'C:\\test_folder'},
+                                            hosts={'all': [me.id]},
+                                            executor=None, register=mock.Mock())
+
+        c1,  = cc._dag.get_nodes_at_level(1)
+        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'),
+                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0001')), c1.id)
+        self.assertIsInstance(c1, Command)
+        self.assertTrue(c1.stop_on_error)
+        self.assertTrue(c1.undo_on_error)
+        self.assertIsNone(c1.stop_undo_on_error)
+
+        cc.invoke()

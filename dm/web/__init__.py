@@ -67,6 +67,9 @@ class DimensigonApp(Flask):
                 atexit.register(lambda: bs.shutdown())
 
     def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
+        from ..domain.entities import Locker
+        Locker.set_initial()
+        db.session.commit()
         self.start_background_tasks()
         super(DimensigonApp, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
 

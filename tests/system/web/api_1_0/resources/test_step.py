@@ -29,18 +29,18 @@ class Test(TestCaseLockBypass):
         self.app_context.pop()
 
     def test_step_resource_list(self):
-        resp = self.client.get(url_for('api_1_0.stepresourcelist'), headers=self.auth.header)
+        resp = self.client.get(url_for('api_1_0.steplist'), headers=self.auth.header)
 
         self.assertEqual([], resp.get_json())
 
         s = self.o.add_step(undo=True, action_template=self.at)
 
-        resp = self.client.get(url_for('api_1_0.stepresourcelist'), headers=self.auth.header)
+        resp = self.client.get(url_for('api_1_0.steplist'), headers=self.auth.header)
 
         self.assertEqual([s.to_json()], resp.get_json())
 
     def test_step_resources(self):
-        resp = self.client.post(url_for('api_1_0.stepresourcelist'),
+        resp = self.client.post(url_for('api_1_0.steplist'),
                                 json=dict(orchestration_id=str(self.o.id),
                                           undo=False,
                                           action_template_id=str(self.at.id)),
@@ -85,7 +85,7 @@ class Test(TestCaseLockBypass):
         self.assertIn(s2, s.children)
         self.assertIn(s3, s.children)
 
-        resp = self.client.post(url_for('api_1_0.stepresourcelist'),
+        resp = self.client.post(url_for('api_1_0.steplist'),
                                 json=dict(orchestration_id=str(self.o.id),
                                           undo=False,
                                           action_template_id=str(self.at.id),
@@ -117,7 +117,7 @@ class Test(TestCaseLockBypass):
         self.assertIsNone(Step.query.get(s_id))
 
     def test_step_resource_multiple_steps(self):
-        resp = self.client.post(url_for('api_1_0.stepresourcelist'),
+        resp = self.client.post(url_for('api_1_0.steplist'),
                                 json=[dict(id=1, orchestration_id=str(self.o.id),
                                            undo=False,
                                            action_template_id=str(self.at.id)),

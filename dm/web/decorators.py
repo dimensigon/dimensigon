@@ -8,6 +8,7 @@ from jsonschema import validate, ValidationError
 from dm.domain.entities import Server, Scope
 from dm.network.exceptions import NotValidMessage
 from dm.use_cases import exceptions as ue
+from dm.use_cases.helpers import get_servers_from_scope
 from dm.use_cases.lock import lock, unlock
 from dm.web import db
 from dm.web.errors import UnknownServer
@@ -33,7 +34,10 @@ def forward_or_dispatch(func):
         if destination_id and destination_id != str(g.server.id):
             destination = Server.query.get(destination_id)
             if destination:
-                resp = proxy_request(request=request, destination=destination)
+                try:
+                    resp = proxy_request(request=request, destination=destination)
+                except ConnectionError as e:
+                    return str(e), 502
                 return resp.content, resp.status_code, dict(resp.headers)
             else:
                 return UnknownServer(destination_id).format()
@@ -51,29 +55,38 @@ def securizer(func):
     def wrapper_decorator(*args, **kwargs):
         # cipher_key = session.get('cipher_key', None)
         cipher_key = None
+        securizer_method = None
+        if 'D-Securizer' in request.headers:
+            securizer_method = request.headers.get('D-Securizer')
+            if securizer_method == 'plain' and not current_app.config.get('SECURIZER_PLAIN', False):
+                    return {'error': 'plain data is not allowed'}, 406
+
         if request.method != 'GET':
             if request.is_json:
-                g.original_json = request.get_json()
-                cipher_key = base64.b64decode(request.json.get('key')) if 'key' in request.json else cipher_key
-                # session['cipher_key'] = cipher_key
-                try:
-                    if request.path == url_for('api_1_0.join'):
-                        temp_pub_key = rsa.PublicKey.load_pkcs1(request.json.pop('my_pub_key').encode('ascii'))
-                        data = unpack_msg2(request.get_json(),
-                                           pub_key=temp_pub_key,
-                                           priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
-                                           cipher_key=cipher_key)
-                    else:
-                        data = unpack_msg(request.get_json())
-                except (rsa.pkcs1.VerificationError, NotValidMessage) as e:
-                    return {'error': str(e),
-                            'message': request.get_json()}, 400
-                if current_app.config['SECURIZER'] and data:
-                    # fill json request with unpacked data
-                    for key in list(request.json.keys()):
-                        request.json.pop(key)
-                    for key, val in data.items():
-                        request.json[key] = val
+                if securizer_method == 'plain':
+                    pass
+                else:
+                    g.original_json = request.get_json()
+                    cipher_key = base64.b64decode(request.json.get('key')) if 'key' in request.json else cipher_key
+                    # session['cipher_key'] = cipher_key
+                    try:
+                        if request.path == url_for('api_1_0.join'):
+                            temp_pub_key = rsa.PublicKey.load_pkcs1(request.json.pop('my_pub_key').encode('ascii'))
+                            data = unpack_msg2(data=request.get_json(),
+                                               pub_key=temp_pub_key,
+                                               priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
+                                               cipher_key=cipher_key)
+                        else:
+                            data = unpack_msg(data=request.get_json())
+                    except (rsa.pkcs1.VerificationError, NotValidMessage) as e:
+                        return {'error': str(e),
+                                'message': request.get_json()}, 400
+                    if current_app.config.get('SECURIZER', None) and data:
+                        # fill json request with unpacked data
+                        for key in list(request.json.keys()):
+                            request.json.pop(key)
+                        for key, val in data.items():
+                            request.json[key] = val
 
             else:
                 if request.data:
@@ -98,10 +111,16 @@ def securizer(func):
                                    priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
                                    cipher_key=cipher_key)
                 else:
-                    rv = pack_msg(data=rv)
+                    if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
+                        pass
+                    else:
+                        rv = pack_msg(data=rv)
 
         if isinstance(rv, list):
-            rv = pack_msg(data=rv)
+            if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
+                pass
+            else:
+                rv = pack_msg(data=rv)
 
         if rest:
             rv = (rv,) + rest
@@ -130,15 +149,16 @@ def validate_schema(schema_name=None, **methods):
 def lock_catalog(f):
     @functools.wraps(f)
     def wrapper(*args, **kw):
+        servers = get_servers_from_scope(Scope.CATALOG)
         try:
-            applicant = lock(Scope.CATALOG)
+            applicant = lock(Scope.CATALOG, servers=servers)
             current_app.logger.debug(f"Lock on CATALOG acquired")
         except ue.ErrorLock as e:
             return e.to_json(), 400
         ret = f(*args, **kw)
 
         try:
-            unlock(Scope.CATALOG, applicant=applicant)
+            unlock(Scope.CATALOG, applicant=applicant, servers=servers)
         except ue.ErrorLock as e:
             current_app.logger.error(f"Error while trying to unlock: {e}")
 

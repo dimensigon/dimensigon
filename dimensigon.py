@@ -12,6 +12,8 @@ from flask.cli import with_appcontext
 from flask_jwt_extended import create_access_token
 from flask_migrate import Migrate
 
+from dm.domain.entities.bootstrap import set_initial
+
 basedir = os.path.dirname(os.path.abspath(__file__))
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 
@@ -31,7 +33,6 @@ from dm.domain.entities import *
 from dm.web.network import pack_msg2, unpack_msg2
 from dm.web import create_app, db
 
-from dm.domain.entities.locker import Locker
 from dm.use_cases.use_cases import upgrade_catalog
 from dm.utils.helpers import generate_symmetric_key, generate_dimension
 
@@ -47,10 +48,13 @@ with app.app_context():
 
 @app.shell_context_processor
 def make_shell_context():
-    return dict(db=db, app=app, ActionTemplate=ActionTemplate, Step=Step, Orchestration=Orchestration, Catalog=Catalog,
-                Dimension=Dimension, Execution=Execution, Log=Log, Route=Route, Server=Server, Service=Service,
+    return dict(db=db, app=app, ActionTemplate=ActionTemplate, ActionType=ActionType, Step=Step,
+                Orchestration=Orchestration, Catalog=Catalog,
+                Dimension=Dimension, StepExecution=StepExecution, Log=Log, Route=Route, Server=Server, Service=Service,
                 Software=Software, SoftwareServerAssociation=SoftwareServerAssociation, User=User,
-                Transfer=Transfer, Locker=Locker, Gate=Gate, create_access_token=create_access_token)
+                Transfer=Transfer, Locker=Locker, Scope=Scope, State=State, Gate=Gate,
+                create_access_token=create_access_token,
+                set_initial=set_initial)
 
 
 @app.cli.command()
@@ -130,10 +134,18 @@ def join(server, token, ssl, verify):
         data = pack_msg2(data=data, pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key, add_key=True)
         data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
         click.echo("Joining to dimension")
-        resp = session.post(f"{protocol}://{server}/api/v1.0/join", json=data,
-                            headers={'Authorization': 'Bearer ' + token}, verify=verify)
-        resp.raise_for_status()
-        resp_data = unpack_msg2(resp.json(), pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key)
+        try:
+            resp = session.post(f"{protocol}://{server}/api/v1.0/join", json=data,
+                                headers={'Authorization': 'Bearer ' + token}, verify=verify)
+        except requests.exceptions.ConnectionError as e:
+            click.echo(f"Error while trying to join the dimension: {e}")
+            resp_data = {}
+        else:
+            if resp.status_code != 200:
+                click.echo(f"Error while trying to join the dimension: {resp.status_code}, {resp.content}")
+                resp_data = {}
+            else:
+                resp_data = unpack_msg2(resp.json(), pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key)
         if 'Dimension' in resp_data:
             dim = Dimension.from_json(resp_data.pop('Dimension'))
             dim.current = True

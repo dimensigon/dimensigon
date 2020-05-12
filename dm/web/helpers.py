@@ -4,7 +4,7 @@ import threading
 import typing as t
 from json import JSONEncoder
 
-from flask import abort, current_app
+from flask import abort, current_app, request
 from flask_sqlalchemy import BaseQuery
 
 from dm import defaults
@@ -60,6 +60,13 @@ def filter_query(entity, filters, exclude: t.Container = None):
                 v = False
             query = query.filter(column == v)
     return query
+
+
+def check_param_in_uri(param):
+    params = request.args.get('params', '')
+    params = params.split(',')
+    return param in params
+
 
 def run_in_background(func: t.Callable, app=None, args=None, kwargs=None):
     args = args or ()

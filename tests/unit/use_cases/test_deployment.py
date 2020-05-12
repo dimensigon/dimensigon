@@ -1,6 +1,8 @@
+from datetime import datetime
 from unittest import TestCase, mock
 
 from dm.use_cases.deployment import UndoCommand, Command
+from dm.use_cases.operations import CompletedProcess
 
 
 class TestCommand(TestCase):
@@ -76,6 +78,38 @@ class TestCommand(TestCase):
                     undo_on_error=False, id_=1)
         c._cp = {'success': True}
         self.assertDictEqual({1: {'success': True}, 2: {'a': 2}}, c.result)
+
+    def test_fetch_result(self):
+        self.mock_implementation.execute.return_value = CompletedProcess(success=True, stdout='output: var',
+                                                                         stderr='',
+                                                                         rc=0, start_time=datetime(2019, 4, 1))
+        c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,
+                    params={'param': 'a'},
+                    undo_on_error=False, regexp_fetch=r'output: (?P<output>\w+)', error_on_fetch=True, id_=1)
+        r = c.invoke()
+        self.assertTrue(r)
+        self.assertDictEqual({'output': 'var'}, c.data_fetched)
+        self.assertDictEqual({'param': 'a', 'output': 'var'}, c.params)
+
+        c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,
+                    params={'param': 'a'},
+                    undo_on_error=False, regexp_fetch=r'output2: (?P<output>\w+)', error_on_fetch=False, id_=1)
+        r = c.invoke()
+        self.assertTrue(r)
+
+    def test_command_no_undo(self):
+        cp = CompletedProcess(success=True, stdout='output: var',
+                              stderr='',
+                              rc=0, start_time=datetime(2019, 4, 1))
+        self.mock_implementation.execute.return_value = cp
+        c = Command(implementation=self.mock_implementation, params={'param': 'a'},
+                    undo_on_error=False, regexp_fetch=r'output: (?P<output>\w+)', error_on_fetch=True, id_=1)
+
+        r = c.invoke()
+        self.assertTrue(r)
+        r = c.undo()
+        self.assertTrue(r)
+        self.assertDictEqual({1: cp}, c.result)
 
 
 class TestUndoCommand(TestCase):
