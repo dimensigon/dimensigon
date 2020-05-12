@@ -1,6 +1,7 @@
+import multiprocessing
+
 bind = ["0.0.0.0:5000"]
-workers = 1  # multiprocessing.cpu_count() * 2 + 1
-threads = 4
+threads = 3*multiprocessing.cpu_count()
 proc_name = "dimensigon"
 # keyfile = 'ssl/cert.pem'
 # certfile = 'ssl/key.pem'
