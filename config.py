@@ -19,6 +19,8 @@ class Config(object):
     GIT_REPO = 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
     SOFTWARE_REPO = os.path.abspath(
         os.environ.get('DM_SOFTWARE_REPO', os.path.join(os.path.expanduser("~"), 'software')))
+    ACTION_TEMPLATE_DIR = os.path.abspath(
+        os.environ.get('DM_ACTION_TEMPLATES', os.path.join(os.path.expanduser("~"), 'action_templates')))
     AUTOUPGRADE = True
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
@@ -30,6 +32,7 @@ class Config(object):
     def init_app(cls, app):
         os.makedirs(cls.SOFTWARE_REPO, exist_ok=True)
         os.makedirs(os.path.join(cls.SOFTWARE_REPO, 'dimensigon'), exist_ok=True)
+        os.makedirs(cls.ACTION_TEMPLATE_DIR, exist_ok=True)
 
 
 class ProductionConfig(Config):

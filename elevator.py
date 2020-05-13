@@ -28,13 +28,10 @@ from pkg_resources import parse_version
 
 import gunicorn_conf as conf
 
-if sys.version_info >= (3, 7):
-    from subprocess import run as _run
-    run = functools.partial(_run, capture_output=True, encoding='utf-8')
-elif sys.version_info >= (3, 5):
+if sys.version_info >= (3, 5):
     from subprocess import run as _run
 
-    run = functools.partial(_run, encoding='utf-8')
+    run = _run
 else:
     from subprocess import Popen, PIPE
 
@@ -338,7 +335,15 @@ def get_func_find_proc():
         func = functools.partial(find_python_file_executed, 'flask.exe')
     return func
 
-
+["/home/dimensigon/venv/bin/gunicorn",
+"-c",
+"/home/dimensigon/dimensigon/gunicorn_conf.py",
+"--keyfile",
+"/home/dimensigon/dimensigon/ssl/key.pem",
+"--certfile",
+"/home/dimensigon/dimensigon/ssl/cert.pem",
+"--daemon",
+"dimensigon:app"]
 def start_daemon(cwd=HOME, silently=True):
     # cp = subprocess.run(['python', 'dimensigon.py', 'start'], capture_output=True, env=os.environ, timeout=10)
     cmd = [os.path.join(BIN, 'gunicorn'),
