@@ -5,8 +5,8 @@ from dm.web import db
 
 
 class Scope(Enum):
-    ORCHESTRATION = 1  # execute an orchestration
-    CATALOG = 2  # lock catalog for updating information
+    CATALOG = 1  # lock catalog for updating information
+    ORCHESTRATION = 2  # execute an orchestration
     UPGRADE = 3  # upgrading Catalog from another server
 
     def __lt__(self, other):

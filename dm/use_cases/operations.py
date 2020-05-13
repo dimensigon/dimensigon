@@ -1,4 +1,5 @@
 import inspect
+import os
 import re
 import subprocess
 import sys
@@ -34,7 +35,7 @@ class CompletedProcess:
 class IOperationEncapsulation(ABC):
 
     def __init__(self, code: str, expected_stdout: str = None, expected_stderr: str = None, expected_rc: int = None,
-                 system_kwargs: Kwargs = None):
+                 system_kwargs: Kwargs = None, path: str = None):
         """
         Operation Initializer
 
@@ -54,6 +55,10 @@ class IOperationEncapsulation(ABC):
         self.expected_stderr = expected_stderr
         self.expected_rc = expected_rc
         self.system_kwargs = system_kwargs or {}
+        self.path = path or '.'
+
+    def load_code(self):
+        return
 
     @abstractmethod
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
@@ -88,6 +93,13 @@ class IOperationEncapsulation(ABC):
 
 class AnsibleOperation(IOperationEncapsulation):
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
+        code = self.code
+        if re.match(r'^[^<>:;,?"*|/\\]+$', self.code):
+            file = os.path.join('', 'ansible', self.code)
+            if os.path.exists(file):
+                with open(file, 'r') as fh:
+                    code = fh.read()
+
         template = self.rpl_params(params)
 
         system_kwargs = self.system_kwargs.copy()
