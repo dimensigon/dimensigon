@@ -52,9 +52,9 @@ class SoftwareList(Resource):
         soft = Software(name=json['name'], version=json['version'], filename=os.path.basename(json['file']),
                         size=os.path.getsize(file), checksum=md5(file),
                         family=json.get('family', None))
-        set_software_server(soft, server, os.path.dirname(json['file']))
+        ssa = set_software_server(soft, server, os.path.dirname(json['file']))
 
-        db.session.add(soft)
+        db.session.add_all([soft, ssa])
         db.session.commit()
         return {'software_id': str(soft.id)}, 201
 

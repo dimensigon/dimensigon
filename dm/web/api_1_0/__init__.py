@@ -18,7 +18,7 @@ api.add_resource(ActionTemplateResource, '/action_templates/<action_template_id>
 
 api.add_resource(SoftwareList, '/software')
 api.add_resource(SoftwareResource, '/software/<software_id>')
-api.add_resource(SoftwareServersResource, '/software/<software_id>/server')
+api.add_resource(SoftwareServersResource, '/software/<software_id>/servers')
 
 api.add_resource(LogList, '/log')
 api.add_resource(LogResource, '/log/<log_id>')
