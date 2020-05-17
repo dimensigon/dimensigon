@@ -8,4 +8,5 @@ from .software import SoftwareList, SoftwareResource, SoftwareServersResource
 from .step import StepList, StepResource
 from .step_children import StepRelationshipChildren
 from .step_parents import StepRelationshipParents
+from .transfer import TransferList, TransferResource
 from .user import UserList, UserResource

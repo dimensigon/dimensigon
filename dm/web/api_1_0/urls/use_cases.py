@@ -27,7 +27,8 @@ from dm.web.async_functions import deploy_orchestration, async_send_file
 from dm.web.background_tasks import update_table_routing_cost
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import check_param_in_uri
-from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes, launch_orchestration_post
+from dm.web.json_schemas import post_schema_routes, patch_schema_routes, \
+    launch_orchestration_post, software_send
 from dm.web.network import HTTPBearerAuth, post
 
 if t.TYPE_CHECKING:
@@ -73,49 +74,49 @@ def join():
 @forward_or_dispatch
 @jwt_required
 @securizer
-@validate_schema(schema_software_send)
+@validate_schema(software_send)
 def software_send():
     # Validate Data
     data = request.get_json()
 
-    software = Software.query.get(data['software_id'])
-    if not software:
-        return {"error": f"Software id '{data['software_id']}' not found"}, 404
+    software = Software.query.get_or_404(data['software_id'])
 
-    dest_server = Server.query.get(data['dest_server_id'])
-    if not dest_server:
-        return {"error": f"Server id '{data['dest_server_id']}' not found"}, 404
+    dest_server = Server.query.get_or_404(data['dest_server_id'])
 
     ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
     if not ssa:
         return {'error': f"no Software Server Association found for software {data['software_id']} and "
                          f"server {data['dest_server_id']}"}, 404
 
-    chunk_size = min(data.get('chunk_size', d.CHUNK_SIZE), d.CHUNK_SIZE)
+    chunk_size = min(data.get('chunk_size', d.CHUNK_SIZE), d.CHUNK_SIZE) * 1024
     max_senders = min(data.get('max_senders', d.MAX_SENDERS), d.MAX_SENDERS)
     chunks = math.ceil(ssa.software.size / chunk_size)
 
-    auth = HTTPBearerAuth(create_access_token(get_jwt_identity(), expires_delta=None))
+    auth = HTTPBearerAuth(create_access_token(get_jwt_identity()))
 
     json_msg = dict(software_id=str(software.id), num_chunks=chunks, dest_path=data.get('dest_path'))
 
-    resp, code = post(dest_server, 'api_1_0.transfers', json=json_msg, auth=auth)
+    resp, code = post(dest_server, 'api_1_0.transferlist', json=json_msg, auth=auth)
 
     if code == 202:
         transfer_id = resp.get('transfer_id')
+        current_app.logger.debug(
+            f"Transfer {transfer_id} created. Sending software {software} to {dest_server}:{data.get('dest_path')}.")
     else:
-        current_app.logger.error(f"Error while creating transfer on {dest_server.url('api_1_0.transfers')}\n"
+        current_app.logger.error(f"Error on creating transfer on {dest_server.url('api_1_0.transferlist')}\n"
                                  f"Data: {json.dumps(json_msg, indent=4)}\n"
                                  f"Error: {resp}")
         transfer_id = None
 
     if transfer_id:
         file = os.path.join(ssa.path, software.filename)
-        executor.submit(run, async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file, chunks=chunks,
+        executor.submit(run, async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
                                              chunk_size=chunk_size, max_senders=max_senders, auth=auth))
 
         return {'transfer_id': transfer_id}, 202
-    return {'error': f'unable to create transfer on {dest_server}', 'response': resp, 'code': code}, 400
+    return {'error': f'unable to create transfer on {dest_server}',
+            'message': str(resp) if isinstance(resp, Exception) else resp,
+            'code': code}, 400
 
 
 @api_bp.route('/software/dimensigon', methods=['GET'])

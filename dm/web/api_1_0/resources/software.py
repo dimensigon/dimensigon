@@ -19,7 +19,7 @@ def set_software_server(soft, server, path, recalculate_data=False):
 
     if soft.size != os.path.getsize(file):
         return {"error": f"file '{file}' is not of size {soft.size}"}, 400
-    if soft.checksum == md5(file):
+    if soft.checksum != md5(file):
         return {"error": f"checksum error on file '{file}'"}, 400
 
     return SoftwareServerAssociation(software=soft, server=server, path=path)
@@ -54,6 +54,8 @@ class SoftwareList(Resource):
                         family=json.get('family', None))
         ssa = set_software_server(soft, server, os.path.dirname(json['file']))
 
+        if not isinstance(ssa, SoftwareServerAssociation):
+            return ssa
         db.session.add_all([soft, ssa])
         db.session.commit()
         return {'software_id': str(soft.id)}, 201

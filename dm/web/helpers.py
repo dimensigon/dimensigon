@@ -23,7 +23,7 @@ class BaseQueryJSON(BaseQuery):
 
         rv = self.get(ident)
         if rv is None:
-            abort(404, dict(error=f"{self.column_descriptions[0]['name']} id '{ident}' not found"))
+            abort(404, {"error": f"{self.column_descriptions[0]['name']} id '{ident}' not found"})
         return rv
 
     def first_or_404(self, description=None):
@@ -31,7 +31,7 @@ class BaseQueryJSON(BaseQuery):
 
         rv = self.first()
         if rv is None:
-            abort(404, dict(error=f"No data in {self.column_descriptions[0]['name']} collection"))
+            abort(404, {"error": f"No data in {self.column_descriptions[0]['name']} collection"})
         return rv
 
 

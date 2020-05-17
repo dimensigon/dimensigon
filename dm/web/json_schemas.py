@@ -35,7 +35,7 @@ locker_unlock_lock_post = {
 }
 
 
-schema_software_send = {
+software_send = {
     "type": "object",
     "properties": {
         "software_id": {"type": "string",
@@ -43,13 +43,13 @@ schema_software_send = {
         "dest_server_id": {"type": "string",
                            "pattern": UUID_pattern},
         "dest_path": {"type": "string"},
-        "chunk_size": {"type": "integer",
-                       # "minimum": 1024 * 1024 * 2,
-                       "maximum": 1024 * 1024 * 500,
+        "chunk_size": {"type": "integer",  # size in MB
+                       "minimum": 1,
+                       "maximum": 2*1024,
                        # "multipleOf": 1024
                        },
         "max_senders": {"type": "integer",
-                        "minimum": 0}
+                        "minimum": 1}
     },
     "required": ["software_id", "dest_server_id", "dest_path"],
     "additionalProperties": False
@@ -352,27 +352,28 @@ transfers_post = {
     "properties": {
         "software_id": {"type": "string",
                         "pattern": UUID_pattern},
-        "dest_path": {"type": "string"},
-        "filename": {"type": "string"},
-        "num_chunks": {"type": "integer",
-                       "minimum": 0},
-        "force": {"type": "boolean"},
+        "filename": {"type": "string"},         # specify filename if you want to send a file instead of a software
         "size": {"type": "integer"},
         "checksum": {"type": "string"},
+        "dest_path": {"type": "string"},        # if not specified DM_SOFTWARE_REPO is used
+        "num_chunks": {"type": "integer",
+                       "minimum": 0},
+        "cancel_pending": {"type": "boolean"},  # cancels pending transfers from the same file in the same folder
+        "force": {"type": "boolean"},           # forces to transfer file even if it exists in the destination
+
     },
+    "required": ['num_chunks'],
     "additionalProperties": False
 }
 
 transfer_post = {
     "type": "object",
     "properties": {
-        "transfer_id": {"type": "string",
-                        "pattern": UUID_pattern},
         "chunk": {"type": "integer",
                   "minimum": 0},
         "content": {"type": "string"},
     },
-    "required": ["transfer_id", "chunk", "content"],
+    "required": ["chunk", "content"],
     "additionalProperties": False
 }
 

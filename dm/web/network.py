@@ -13,7 +13,7 @@ from dm.network.exceptions import NotValidMessage
 from dm.network.gateway import pack_msg as _pack_msg, unpack_msg as _unpack_msg
 from dm.utils.typos import Kwargs
 
-Response = t.Tuple[t.Union[t.Dict, t.AnyStr, Exception], int]
+Response = t.Tuple[t.Union[t.Dict, t.AnyStr, Exception], t.Union[int, None]]
 
 requests.packages.urllib3.disable_warnings()
 
@@ -177,10 +177,14 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     if not session:
         session = requests.session()
 
-    url = _prepare_url(server, view_or_url, view_data)
+    try:
+        url = _prepare_url(server, view_or_url, view_data)
+    except (RuntimeError, ConnectionError) as e:
+        return e, None
+
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
-    if 'auth' in kwargs:
+    if 'auth' in kwargs and kwargs['auth'] is not None:
         kwargs['auth'](kwargs)
 
     if 'json' in kwargs and kwargs['json']:
@@ -281,10 +285,14 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     else:
         _session = session
 
-    url = _prepare_url(server, view_or_url, view_data or {})
+    try:
+        url = _prepare_url(server, view_or_url, view_data)
+    except (RuntimeError, ConnectionError) as e:
+        return e, None
+
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
-    if 'auth' in kwargs:
+    if 'auth' in kwargs and kwargs['auth'] is not None:
         kwargs['auth'](kwargs)
 
     kwargs['json'] = pack_msg(kwargs.get('json') or {})
@@ -322,6 +330,8 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     elif exception:
         content = exception
         logger.error(f'Error while trying to request to {url}: {exception}')
+    else:
+        content = await resp.text()
 
     return content, status
 
