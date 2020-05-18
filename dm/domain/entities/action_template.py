@@ -10,7 +10,7 @@ from dm.web import db
 class ActionType(Enum):
     ANSIBLE = auto()
     PYTHON = auto()
-    NATIVE = auto()
+    SHELL = auto()
     ORCHESTRATION = auto()
 
 

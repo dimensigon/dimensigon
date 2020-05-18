@@ -23,12 +23,12 @@ class TestStep(TestCase):
         db.create_all()
 
         self.at1 = ActionTemplate(id=uuid.UUID('11111111-2222-3333-4444-555555550001'), name='action1', version=1,
-                                  action_type=ActionType.NATIVE, code='code to run', parameters={'param1': 'test'},
+                                  action_type=ActionType.SHELL, code='code to run', parameters={'param1': 'test'},
                                   expected_stdout='expected output', expected_stderr='stderr', expected_rc=0,
                                   system_kwargs={})
 
         self.at2 = ActionTemplate(id=uuid.UUID('11111111-2222-3333-4444-555555550002'), name='action2', version=1,
-                                  action_type=ActionType.NATIVE, code='code to run', parameters={'param1': 'test'},
+                                  action_type=ActionType.SHELL, code='code to run', parameters={'param1': 'test'},
                                   expected_stdout='expected output', expected_stderr='stderr', expected_rc=0,
                                   system_kwargs={})
 
@@ -82,7 +82,7 @@ class TestStep(TestCase):
 
     def test_user_parameters(self):
         at = ActionTemplate(id=uuid.UUID('11111111-2222-3333-4444-555555550001'), name='action1', version=1,
-                             action_type=ActionType.NATIVE, code='{{param1}}, {{ param2}}, {{param3}}',
+                             action_type=ActionType.SHELL, code='{{param1}}, {{ param2}}, {{param3}}',
                              parameters={'param1': 'param 2 is {{param2}}'},
                              expected_stdout='expected output', expected_stderr='stderr', expected_rc=0,
                              system_kwargs={})

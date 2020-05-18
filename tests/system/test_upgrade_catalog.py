@@ -47,7 +47,7 @@ class TestUpgradeCatalog(TestCase):
         mock_now.return_value = datetime.datetime(2019, 4, 1, 0)
 
         at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='mkdir', version=1,
-                             action_type=ActionType.NATIVE,
+                             action_type=ActionType.SHELL,
                              code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
                              system_kwargs={})
         db.session.add(at1)
@@ -61,7 +61,7 @@ class TestUpgradeCatalog(TestCase):
         Route(s, cost=0)
 
         at2 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'), name='rmdir', version=1,
-                             action_type=ActionType.NATIVE,
+                             action_type=ActionType.SHELL,
                              code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
                              system_kwargs={}, last_modified_at=datetime.datetime(2019, 4, 1, 1))
         at2_json = at2.to_json()
@@ -119,12 +119,12 @@ class TestUpgradeCatalog(TestCase):
         Route(s, cost=0)
 
         at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='mkdir', version=1,
-                             action_type=ActionType.NATIVE,
+                             action_type=ActionType.SHELL,
                              code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
                              system_kwargs={}, last_modified_at=datetime.datetime(2019, 4, 1, 0))
 
         at2 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'), name='rmdir', version=1,
-                             action_type=ActionType.NATIVE,
+                             action_type=ActionType.SHELL,
                              code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
                              system_kwargs={}, last_modified_at=datetime.datetime(2019, 4, 1, 1))
 

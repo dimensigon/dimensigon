@@ -19,7 +19,7 @@ class TestOrchestration(TestCase):
         self.client = self.app.test_client()
         self.auth = HTTPBearerAuth(create_access_token('test'))
         db.create_all()
-        self.at = ActionTemplate(name='action', version=1, action_type=ActionType.NATIVE, code='code to run',
+        self.at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
                                  parameters={'param1': 'test'}, expected_stdout='expected output', expected_rc=0,
                                  system_kwargs={})
 
@@ -48,7 +48,7 @@ class TestOrchestration(TestCase):
 
         s1 = o.add_step(undo=False, action_template=self.at, parents=[], children=[], stop_on_error=False, id=1)
 
-        at = ActionTemplate(name='action', version=1, action_type=ActionType.NATIVE, code='code to run',
+        at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
                             parameters={}, expected_stdout='expected output', expected_rc=0,
                             system_kwargs={})
 

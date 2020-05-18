@@ -70,7 +70,7 @@ class TestOrchExecution(TestCase):
         start = datetime(2019, 4, 1)
         end = datetime(2019, 4, 2)
         o = Orchestration('orch', 1, id=uuid.UUID('eeeeeeee-1234-5678-1234-56781234eee1'))
-        s = o.add_step(undo=True, action_template=ActionTemplate('action', 1, ActionType.NATIVE, code=''))
+        s = o.add_step(undo=True, action_template=ActionTemplate('action', 1, ActionType.SHELL, code=''))
         oe = OrchExecution(id=uuid.UUID('bbbbbbbb-1234-5678-1234-56781234bbb1'), start_time=start,
                            target={'all': [self.me.id, self.remote.id], 'backend': [self.remote.id]},
                            params={'params': 'content'},

@@ -18,7 +18,7 @@ class Test(TestCaseLockBypass):
         self.client = self.app.test_client()
         self.auth = HTTPBearerAuth(create_access_token('test'))
         self.o = Orchestration(name='name', version=1, description='desc')
-        self.at = ActionTemplate(name='action_name', version=1, action_type=ActionType.NATIVE, code='')
+        self.at = ActionTemplate(name='action_name', version=1, action_type=ActionType.SHELL, code='')
 
         db.session.add_all([self.o, self.at])
         set_initial()

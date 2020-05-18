@@ -1,4 +1,3 @@
-import importlib
 import json
 import re
 from functools import partial
@@ -42,7 +41,7 @@ class TestNetwork(TestCase):
         dim = generate_dimension('dimension')
         dim.current = True
         at = ActionTemplate(id='12345678-1234-5678-1234-567812345678',
-                            name='rmdir', version=1, action_type=ActionType.NATIVE, code='rmdir {dir}')
+                            name='rmdir', version=1, action_type=ActionType.SHELL, code='rmdir {dir}')
 
         db.session.add_all([dim, at])
         db.session.commit()
@@ -150,7 +149,7 @@ class TestNetwork(TestCase):
         responses.add_callback(responses.GET, re.compile('https?://127\.0\.0\.1:.*'),
                                callback=partial(requests_callback_client, self.client))
 
-        data = dict(name='action', version=1, action_type='NATIVE', code='None')
+        data = dict(name='action', version=1, action_type='SHELL', code='None')
         resp = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=data,
                     auth=self.auth)
 
@@ -214,7 +213,7 @@ class TestNetwork(TestCase):
         responses.add_callback(responses.GET, re.compile('https?://127\.0\.0\.1:.*'),
                                callback=partial(requests_callback_client, self.client))
 
-        data = dict(name='action', version=1, action_type='NATIVE', code='None')
+        data = dict(name='action', version=1, action_type='SHELL', code='None')
         resp = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=data,
                     auth=self.auth)
 
@@ -245,7 +244,7 @@ class TestNetwork(TestCase):
         responses.add_callback(responses.POST, re.compile('https?://127\.0\.0\.1.*'),
                                callback=partial(requests_callback_client, self.client))
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json, auth=self.auth)
 
         self.assertIn('action_template_id', data)
@@ -259,7 +258,7 @@ class TestNetwork(TestCase):
 
         responses.add_callback(responses.POST, re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json, auth=self.auth)
 
         self.assertEqual(200, status)
@@ -283,7 +282,7 @@ class TestNetwork(TestCase):
 
         responses.add(responses.POST, re.compile('https?://127\.0\.0\.1.*'), body=ConnectionError())
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json, auth=self.auth)
 
         self.assertEqual(None, status)
@@ -315,7 +314,7 @@ class TestNetwork(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -331,7 +330,7 @@ class TestNetwork(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -358,7 +357,7 @@ class TestNetwork(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), exception=aiohttp.ClientConnectionError())
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -442,7 +441,7 @@ class TestNetwork(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -516,7 +515,7 @@ class TestNetwork(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -532,7 +531,7 @@ class TestNetwork(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -559,7 +558,7 @@ class TestNetwork(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), exception=aiohttp.ClientConnectionError())
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -591,7 +590,7 @@ class TestNetworkWithSecurizer(TestCase):
         dim = generate_dimension('dimension')
         dim.current = True
         at = ActionTemplate(id='12345678-1234-5678-1234-567812345678',
-                            name='rmdir', version=1, action_type=ActionType.NATIVE, code='rmdir {dir}')
+                            name='rmdir', version=1, action_type=ActionType.SHELL, code='rmdir {dir}')
 
         db.session.add_all([dim, at])
         db.session.commit()
@@ -701,7 +700,7 @@ class TestNetworkWithSecurizer(TestCase):
         responses.add_callback(responses.GET, re.compile('https?://127\.0\.0\.1:.*'),
                                callback=partial(requests_callback_client, self.client))
 
-        data = dict(name='action', version=1, action_type='NATIVE', code='None')
+        data = dict(name='action', version=1, action_type='SHELL', code='None')
         resp = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=data,
                     auth=self.auth)
 
@@ -765,7 +764,7 @@ class TestNetworkWithSecurizer(TestCase):
         responses.add_callback(responses.GET, re.compile('https?://127\.0\.0\.1:.*'),
                                callback=partial(requests_callback_client, self.client))
 
-        data = dict(name='action', version=1, action_type='NATIVE', code='None')
+        data = dict(name='action', version=1, action_type='SHELL', code='None')
         resp = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=data,
                     auth=self.auth)
 
@@ -796,7 +795,7 @@ class TestNetworkWithSecurizer(TestCase):
         responses.add_callback(responses.POST, re.compile('https?://127\.0\.0\.1.*'),
                                callback=partial(requests_callback_client, self.client))
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json, auth=self.auth)
 
         self.assertIn('action_template_id', data)
@@ -810,7 +809,7 @@ class TestNetworkWithSecurizer(TestCase):
 
         responses.add_callback(responses.POST, re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json, auth=self.auth)
 
         self.assertEqual(200, status)
@@ -834,7 +833,7 @@ class TestNetworkWithSecurizer(TestCase):
 
         responses.add(responses.POST, re.compile('https?://127\.0\.0\.1.*'), body=ConnectionError())
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json, auth=self.auth)
 
         self.assertEqual(None, status)
@@ -866,7 +865,7 @@ class TestNetworkWithSecurizer(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -882,7 +881,7 @@ class TestNetworkWithSecurizer(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -909,7 +908,7 @@ class TestNetworkWithSecurizer(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), exception=aiohttp.ClientConnectionError())
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -993,7 +992,7 @@ class TestNetworkWithSecurizer(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -1067,7 +1066,7 @@ class TestNetworkWithSecurizer(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -1083,7 +1082,7 @@ class TestNetworkWithSecurizer(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), callback=callback_post_client, repeat=True)
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
@@ -1110,7 +1109,7 @@ class TestNetworkWithSecurizer(TestCase):
 
         m.post(re.compile('https?://127\.0\.0\.1.*'), exception=aiohttp.ClientConnectionError())
 
-        at_json = dict(name='action', version=1, action_type='NATIVE', code='None')
+        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
         data, status = run(
             async_post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json,
                        auth=self.auth))
