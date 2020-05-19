@@ -18,6 +18,7 @@ class Gate(db.Model, UUIDistributedEntityMixin):
     dns = db.Column(db.String(100))
     ip = db.Column(IPType)
     port = db.Column(db.Integer, nullable=False)
+    hidden = db.Column(db.Boolean, default=False)
 
     __table_args__ = (db.UniqueConstraint('server_id', 'ip', 'dns'),)
 
@@ -32,6 +33,7 @@ class Gate(db.Model, UUIDistributedEntityMixin):
         self.dns = dns
         if not (self.dns or self.ip):
             self.dns = server.name
+        self.hidden = kwargs.get('hidden', False)
 
     def __str__(self):
         return f'{self.dns or self.ip}:{self.port}'
@@ -39,7 +41,7 @@ class Gate(db.Model, UUIDistributedEntityMixin):
     def to_json(self, human=False):
         data = super().to_json()
         data.update(server_id=str(self.server.id) if self.server.id else None, ip=str(self.ip) if self.ip else None,
-                    dns=self.dns, port=self.port)
+                    dns=self.dns, port=self.port, hidden=self.hidden)
         return data
 
     @classmethod

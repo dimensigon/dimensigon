@@ -1,17 +1,18 @@
 import datetime
+import functools
 import re
 from functools import partial
 from unittest import TestCase
 from unittest.mock import patch
 
 import responses
-import rsa
 from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
 
 from dimensigon import join, Gate
 from dm.domain.entities import Server, Dimension, Catalog
 from dm.domain.entities.bootstrap import set_initial
+from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 
 
@@ -33,11 +34,10 @@ class TestApi(TestCase):
             Gate(me, port=8000, dns='new')
             db.session.commit()
             self.server_new = Server.get_current().to_json()
+
         self.app = create_app('test')
         self.app.config['SERVER_NAME'] = 'node1'
         self.app.config['SECURIZER'] = True
-        self.d_public, self.d_private = rsa.newkeys(2048)
-        self.l_public, self.l_private = rsa.newkeys(1024)
         mock_now.return_value = datetime.datetime(2019, 3, 1)
         with self.app.app_context():
             set_initial()
@@ -46,10 +46,11 @@ class TestApi(TestCase):
             [db.session.delete(g) for g in me.gates]
             Gate(me, port=8000, dns='node1')
             db.session.commit()
-            d = Dimension(name='test', current=True, public=self.d_public, private=self.d_private)
-            db.session.add(d)
+            dim = generate_dimension('test')
+            dim.current = True
+            db.session.add(dim)
             db.session.commit()
-            self.dimension = d.to_json()
+            self.dimension = dim.to_json()
             self.server_node1 = Server.get_current().to_json()
 
         self.client = self.app.test_client()
@@ -64,29 +65,30 @@ class TestApi(TestCase):
 
     @patch('dm.domain.entities.route.check_host')
     @patch('dm.domain.entities.get_now')
-    @patch('dimensigon.rsa.newkeys')
+    # @patch('dimensigon.rsa.newkeys')
     @aioresponses()
-    def test_join_command(self, mock_rsa, mock_now, mock_check, m):
+    def test_join_command(self, mock_now, mock_check, m):
         mock_now.return_value = datetime.datetime(2019, 5, 1)
 
-        mock_rsa.return_value = (self.l_public, self.l_private)
         mock_check.return_value = True
+
+        def callback_client(method, client, url, **kwargs):
+            kwargs.pop('allow_redirects')
+
+            func = getattr(client, method.lower())
+            r = func(url.path, headers=kwargs['headers'], json=kwargs['json'])
+
+            return CallbackResult(method.upper(), status=r.status_code, body=r.data, content_type=r.content_type,
+                                  headers=r.headers)
+
+        m.post(re.compile('^https?://node1.*'),
+               callback=functools.partial(callback_client, 'POST', self.client), repeat=True)
 
         def request_callback(request, client):
             method_func = getattr(client, request.method.lower())
             resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
 
             return resp.status_code, resp.headers, resp.data
-
-        def callback_client(url, **kwargs):
-            kwargs.pop('allow_redirects')
-
-            r = self.client.post(url.path, json=kwargs['json'], headers=kwargs['headers'])
-
-            return CallbackResult(r.data, status=r.status_code)
-
-        with self.app.app_context():
-            m.post(re.compile(Server.get_current().url()+'.*'), callback=callback_client, repeat=True)
 
         with responses.RequestsMock() as rsps:
             rsps.add_callback(responses.POST,

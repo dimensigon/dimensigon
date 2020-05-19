@@ -2,6 +2,7 @@ import copy
 import ipaddress
 import socket
 import typing as t
+from datetime import datetime
 
 from flask import current_app, url_for
 from sqlalchemy import or_
@@ -91,7 +92,14 @@ class Server(db.Model, UUIDistributedEntityMixin):
                 l_g.append(g)
         return l_g
 
-    def add_new_gate(self, dns_or_ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int):
+    @property
+    def hidden_gates(self):
+        hg = [g for g in self.gates if g.hidden]
+        hg.sort(key=lambda x: x.last_modified_at or datetime.now())
+        return hg
+
+    def add_new_gate(self, dns_or_ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int,
+                     hidden=False):
         ip = None
         dns = None
         if dns_or_ip:
@@ -99,8 +107,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
                 ip = ipaddress.ip_address(dns_or_ip)
             except ValueError:
                 dns = dns_or_ip
-
-        return Gate(server=self, port=port, dns=dns, ip=ip)
+        return Gate(server=self, port=port, dns=dns, ip=ip, hidden=hidden)
 
     def __str__(self, ):
         return f"{self.name}"
@@ -170,7 +177,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
         return data
 
     @classmethod
-    def from_json(cls, kwargs):
+    def from_json(cls, kwargs) -> 'Server':
         kwargs = copy.deepcopy(kwargs)
         gates = kwargs.pop('gates', [])
         server = super().from_json(kwargs)

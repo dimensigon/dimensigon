@@ -1,5 +1,7 @@
 import base64
 import functools
+import ipaddress
+import socket
 
 import rsa
 from flask import request, url_for, g, current_app
@@ -42,8 +44,35 @@ def forward_or_dispatch(func):
             else:
                 return UnknownServer(destination_id).format()
         else:
-            g.source = db.session.query(Server).get(request.headers.get('D-Source')) or request.headers.get(
-                'D-Source') or request.remote_addr
+            source = db.session.query(Server).get(request.headers.get('D-Source'))
+            # check hidden ip on server
+            if source:
+                ip = ipaddress.ip_address(request.remote_addr)
+                if not ip.is_loopback:
+                    def get_ip(dns: str):
+                        if dns is None:
+                            return
+                        else:
+                            try:
+                                return ipaddress.ip_address(socket.gethostbyname(dns))
+                            except:
+                                return
+
+                    gate = [gate for gate in source.gates if ip in (gate.ip, get_ip(gate.dns))]
+                    if not gate:
+                        hidden_gates = source.hidden_gates
+                        if hidden_gates:
+                            for hg in hidden_gates:
+                                hg.ip = request.remote_addr
+                        else:
+                            for port in set([gate.port for gate in source.gates]):
+                                source.add_new_gate(dns_or_ip=request.remote_addr, port=port, hidden=True)
+                        db.session.commit()
+
+            else:
+                source = request.headers.get('D-Source') or request.remote_addr
+            g.source = source
+
             value = func(*args, **kwargs)
             return value
 
