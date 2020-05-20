@@ -83,7 +83,7 @@ class TestLockScopeFullChain(TestCase):
             soft = Software(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='test', version='1',
                             filename='file')
             at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'),
-                                name='mkdir', version=1, action_type=ActionType.NATIVE, code='mkdir {dir}')
+                                name='mkdir', version=1, action_type=ActionType.SHELL, code='mkdir {dir}')
             db.session.add_all([soft, at])
             db.session.commit()
             mocked_now.return_value = datetime(2019, 4, 3)

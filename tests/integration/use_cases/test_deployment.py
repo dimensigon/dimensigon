@@ -420,7 +420,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
     def test_create_cmd_from_orchestration2(self):
 
         at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
-                            action_type=ActionType.NATIVE, code='mkdir {dir}',
+                            action_type=ActionType.SHELL, code='mkdir {dir}',
                             parameters={}, expected_output='',
                             expected_rc=0, system_kwargs={})
 
@@ -543,7 +543,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
     # @mock.patch('dm.use_cases.deployment.create_operation', autospec=IOperationEncapsulation)
     def test_create_cmd_from_orchestration_one_step(self):
         at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
-                            action_type=ActionType.NATIVE, code='mkdir {dir}',
+                            action_type=ActionType.SHELL, code='mkdir {dir}',
                             parameters={}, expected_output='',
                             expected_rc=0, system_kwargs={})
 

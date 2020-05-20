@@ -71,13 +71,13 @@ def captured_output() -> t.Tuple[StringIO, StringIO]:
 #         a1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'),
 #                             name='mkdir',
 #                             version=1,
-#                             action_type=ActionType.NATIVE,
+#                             action_type=ActionType.SHELL,
 #                             code='mkdir {dir}',
 #                             last_modified_at=datetime.strptime('20190101000530100000', '%Y%m%d%H%M%S%f'))
 #         a2 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'),
 #                             name='rmdir',
 #                             version=1,
-#                             action_type=ActionType.NATIVE,
+#                             action_type=ActionType.SHELL,
 #                             code='rmdir {dir}',
 #                             last_modified_at=datetime.strptime('20190101000530100000', '%Y%m%d%H%M%S%f'))
 #         # s.add([a1, a2])

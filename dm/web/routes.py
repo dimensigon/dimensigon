@@ -62,7 +62,7 @@ def healthcheck():
 @forward_or_dispatch
 def ping():
     resp = request.get_json()
-    return jsonify(resp)
+    return jsonify({'hops': 0})
 
 
 @root_bp.route('/login', methods=['POST'])

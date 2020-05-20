@@ -230,7 +230,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
 
         Examples
         --------
-        >>> at = ActionTemplate(name='action', version=1, action_type=ActionType.NATIVE, code='code to run',
+        >>> at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
                                 parameters={'param1': 'test'}, expected_output='',
                                 expected_rc=0, system_kwargs={})
         >>> o = Orchestration('Test Orchestration', 1, DAG(), 'description')
@@ -267,7 +267,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
 
         Examples
         --------
-        >>> at = ActionTemplate(name='action', version=1, action_type=ActionType.NATIVE, code='code to run',
+        >>> at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
                                 parameters={'param1': 'test'}, expected_output='',
                                 expected_rc=0, system_kwargs={})
         >>> o = Orchestration('Test Orchestration', 1, DAG(), 'description')
@@ -303,7 +303,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
 
         Examples
         --------
-        >>> at = ActionTemplate(name='action', version=1, action_type=ActionType.NATIVE, code='code to run',
+        >>> at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
                                 parameters={'param1': 'test'}, expected_output='',
                                 expected_rc=0, system_kwargs={})
         >>> o = Orchestration('Test Orchestration', 1, DAG(), 'description')

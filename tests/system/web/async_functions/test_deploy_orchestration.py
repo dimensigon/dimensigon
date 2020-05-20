@@ -33,20 +33,20 @@ class TestLaunchOrchestration(TestCase):
                 db.create_all()
                 u = User('root', id='eeeeeeee-1234-5678-1234-eeeeeeee0001')
                 at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
-                                     action_type=ActionType.NATIVE, code='useradd {{user}}; mkdir {{dir}}',
+                                     action_type=ActionType.SHELL, code='useradd {{user}}; mkdir {{dir}}',
                                      parameters={}, expected_stdout='',
                                      expected_rc=0, system_kwargs={})
                 at2 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0002'), name='rm dir', version=1,
-                                     action_type=ActionType.NATIVE, code='rmuser {{user}}',
+                                     action_type=ActionType.SHELL, code='rmuser {{user}}',
                                      parameters={}, expected_stdout='',
                                      expected_rc=0, system_kwargs={})
                 at3 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0003'), name='untar', version=1,
-                                     action_type=ActionType.NATIVE, code='tar -xf {{dir}}',
+                                     action_type=ActionType.SHELL, code='tar -xf {{dir}}',
                                      parameters={}, expected_stdout='',
                                      expected_rc=0, system_kwargs={})
                 at4 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0004'), name='install tibero',
                                      version=1,
-                                     action_type=ActionType.NATIVE, code='{{home}}/install_tibero.sh',
+                                     action_type=ActionType.SHELL, code='{{home}}/install_tibero.sh',
                                      parameters={}, expected_stdout='',
                                      expected_rc=0, system_kwargs={})
 

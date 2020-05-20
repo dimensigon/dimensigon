@@ -24,13 +24,13 @@ class TestLaunchOrchestration(TestCase):
         db.create_all()
         set_initial()
         self.o = Orchestration('create user', version=1)
-        self.at1 = ActionTemplate(action_type=ActionType.NATIVE, name="create folder", version=1,
+        self.at1 = ActionTemplate(action_type=ActionType.SHELL, name="create folder", version=1,
                                   code="sudo mkdir -p {{folder}}")
-        self.at2 = ActionTemplate(action_type=ActionType.NATIVE, name="delete folder", version=1,
+        self.at2 = ActionTemplate(action_type=ActionType.SHELL, name="delete folder", version=1,
                                   code="sudo rm -fr {{folder}}")
-        self.at3 = ActionTemplate(action_type=ActionType.NATIVE, name="create user", version=1,
+        self.at3 = ActionTemplate(action_type=ActionType.SHELL, name="create user", version=1,
                                   code="sudo useradd -d {{home}} {{user}}")
-        self.at4 = ActionTemplate(action_type=ActionType.NATIVE, name="delete user", version=1,
+        self.at4 = ActionTemplate(action_type=ActionType.SHELL, name="delete user", version=1,
                                   code="sudo userdel {{user}}")
 
         self.s1 = self.o.add_step(undo=False, action_template=self.at1)

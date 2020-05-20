@@ -19,7 +19,7 @@ class Test(TestCaseLockBypass):
         self.client = self.app.test_client()
         self.auth = HTTPBearerAuth(create_access_token('test'))
         set_initial()
-        self.at = ActionTemplate(name='action_name', version=1, action_type=ActionType.NATIVE, code='')
+        self.at = ActionTemplate(name='action_name', version=1, action_type=ActionType.SHELL, code='')
         self.o = Orchestration(name='name', version=1)
         self.s1 = self.o.add_step(undo=False, action_template=self.at)
         self.s2 = self.o.add_step(undo=False, action_template=self.at, children=[self.s1])

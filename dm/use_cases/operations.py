@@ -123,8 +123,6 @@ class AnsibleOperation(IOperationEncapsulation):
         return self.evaluate_result(cp)
 
 
-
-
 class PythonOperation(IOperationEncapsulation):
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
         pass

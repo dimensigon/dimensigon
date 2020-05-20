@@ -21,7 +21,7 @@ class TestApi(TestCase):
         self.auth = HTTPBearerAuth(create_access_token('test'))
         set_initial()
         self.at1_json = {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
-                         "action_type": "NATIVE",
+                         "action_type": "SHELL",
                          "code": "mkdir {dir}",
                          "last_modified_at": "20190101.000530.100000",
                          "expected_output": None,
@@ -32,7 +32,7 @@ class TestApi(TestCase):
                          "version": 1
                          }
         self.at2_json = {"id": "aaaaaaaa-1234-5678-1234-56781234aaa2",
-                         "action_type": "NATIVE",
+                         "action_type": "SHELL",
                          "code": "rmdir {dir}",
                          "last_modified_at": "20190101.000530.100000",
                          "expected_output": None,
@@ -60,7 +60,7 @@ class TestApi(TestCase):
 
         self.assertListEqual([
             {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
-             "action_type": "NATIVE",
+             "action_type": "SHELL",
              "code": "mkdir {dir}",
              "last_modified_at": "20190101.000530.100000",
              "expected_stdout": None,
@@ -72,7 +72,7 @@ class TestApi(TestCase):
              "version": 1
              },
             {"id": "aaaaaaaa-1234-5678-1234-56781234aaa2",
-             "action_type": "NATIVE",
+             "action_type": "SHELL",
              "code": "rmdir {dir}",
              "last_modified_at": "20190101.000530.100000",
              "expected_stdout": None,
@@ -92,7 +92,7 @@ class TestApi(TestCase):
 
         self.assertDictEqual(
             {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
-             "action_type": "NATIVE",
+             "action_type": "SHELL",
              "code": "mkdir {dir}",
              "last_modified_at": "20190101.000530.100000",
              "expected_stdout": None,

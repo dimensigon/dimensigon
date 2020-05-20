@@ -2,10 +2,10 @@ from config import Config
 
 data1 = {
     'ActionTemplateRepo': [
-        dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1, action_type='NATIVE',
+        dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1, action_type='SHELL',
              code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
              system_kwargs={}, data_mark='20190101000530100000'),
-        dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', name='rmdir', version=1, action_type='NATIVE',
+        dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', name='rmdir', version=1, action_type='SHELL',
              code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
              system_kwargs={}, data_mark='20190101000530100000')
     ],
@@ -46,16 +46,16 @@ data1 = {
 }
 
 data2 = {'ActionTemplateRepo': [
-    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1, action_type='NATIVE',
+    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1, action_type='SHELL',
          code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000532100000'),
-    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', name='rmdir', version=1, action_type='NATIVE',
+    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', name='rmdir', version=1, action_type='SHELL',
          code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000530100000'),
-    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa3', name='install mysql', version=1, action_type='NATIVE',
+    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa3', name='install mysql', version=1, action_type='SHELL',
          code='yum install mysql', parameters={}, expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000531100000'),
-    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa4', name='start mysql', version=1, action_type='NATIVE',
+    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa4', name='start mysql', version=1, action_type='SHELL',
          code='service start mysql', parameters={}, expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000531100000')
 ],
@@ -110,13 +110,13 @@ data2 = {'ActionTemplateRepo': [
 }
 
 delta = {'ActionTemplateRepo': [
-    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1, action_type='NATIVE',
+    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1, action_type='SHELL',
          code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000532100000'),
-    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa3', name='install mysql', version=1, action_type='NATIVE',
+    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa3', name='install mysql', version=1, action_type='SHELL',
          code='yum install mysql', parameters={}, expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000531100000'),
-    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa4', name='start mysql', version=1, action_type='NATIVE',
+    dict(id='aaaaaaaa-1234-5678-1234-56781234aaa4', name='start mysql', version=1, action_type='SHELL',
          code='service start mysql', parameters={}, expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000531100000')
 ],
