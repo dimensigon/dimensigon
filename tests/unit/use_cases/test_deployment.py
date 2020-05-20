@@ -88,7 +88,7 @@ class TestCommand(TestCase):
                     undo_on_error=False, regexp_fetch=r'output: (?P<output>\w+)', error_on_fetch=True, id_=1)
         r = c.invoke()
         self.assertTrue(r)
-        self.assertDictEqual({'output': 'var'}, c.data_fetched)
+        self.assertDictEqual({'output': 'var'}, c.fetched_data)
         self.assertDictEqual({'param': 'a', 'output': 'var'}, c.params)
 
         c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,

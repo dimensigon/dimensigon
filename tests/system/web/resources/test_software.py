@@ -74,3 +74,7 @@ class TestSoftwareList(TestCase):
         self.assertEqual(size, soft.size)
         self.assertEqual(checksum, soft.checksum)
         self.assertEqual(filename, soft.filename)
+        self.assertEqual(1, len(soft.ssas))
+        ssa = soft.ssas[0]
+
+        self.assertEqual(os.path.dirname(__file__), ssa.path)

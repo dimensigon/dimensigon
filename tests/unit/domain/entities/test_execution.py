@@ -90,7 +90,8 @@ class TestOrchExecution(TestCase):
                                   params={'params': 'content'}, orchestration_id='eeeeeeee-1234-5678-1234-56781234eee1',
                                   service_id=None,
                                   success=None, undo_success=None,
-                                  executor_id='cccccccc-1234-5678-1234-56781234ccc1'),
+                                  executor_id='cccccccc-1234-5678-1234-56781234ccc1',
+                                  message=None),
                              oe.to_json())
 
         self.assertDictEqual(dict(id='bbbbbbbb-1234-5678-1234-56781234bbb1',
@@ -99,7 +100,8 @@ class TestOrchExecution(TestCase):
                                   params={'params': 'content'}, orchestration='orch.1',
                                   service=None,
                                   success=None, undo_success=None,
-                                  executor='user'),
+                                  executor='user',
+                                  message=None),
                              oe.to_json(human=True))
 
         self.assertDictEqual(dict(id='bbbbbbbb-1234-5678-1234-56781234bbb1',
@@ -110,6 +112,7 @@ class TestOrchExecution(TestCase):
                                   service_id=None,
                                   success=None, undo_success=None,
                                   executor_id='cccccccc-1234-5678-1234-56781234ccc1',
+                                  message=None,
                                   steps=[dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1',
                                               start_time=start.strftime(defaults.DATETIME_FORMAT),
                                               params={'param': 'data'},

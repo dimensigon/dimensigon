@@ -24,4 +24,3 @@ python-dotenv
 netifaces
 apscheduler
 passlib
-python-dotenv

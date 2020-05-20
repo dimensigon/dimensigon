@@ -214,7 +214,7 @@ class Command(ImplementationCommand):
         Returns
         -------
         bool:
-            True if all undo commands that run ended up succesfully
+            True if all undo commands that run ended up successfully
             False if any undo command ended up badly
             None if undo operation not executed
         """
@@ -331,7 +331,7 @@ class CompositeCommand(ICommand):
         Returns
         -------
         bool:
-            True if all undo commands that run ended up succesfully
+            True if all undo commands that run ended up successfully
             False if any undo command ended up badly
             None if undo operation not executed
         """

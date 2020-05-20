@@ -97,17 +97,16 @@ class TestLaunchOrchestration(TestCase):
                 db.drop_all()
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')]
-
-        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -179,10 +178,11 @@ class TestLaunchOrchestration(TestCase):
             self.assertTrue(e.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_stop_on_error(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_stop_on_error(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
@@ -193,7 +193,7 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')]
 
-        mock_lock_scope.return_value.__enter__.return_value = True
+        
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -258,10 +258,11 @@ class TestLaunchOrchestration(TestCase):
             self.assertTrue(ue.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_stop_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_stop_on_error_false(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
@@ -277,7 +278,7 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')
                                 ]
 
-        mock_lock_scope.return_value.__enter__.return_value = True
+        
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -347,10 +348,11 @@ class TestLaunchOrchestration(TestCase):
             self.assertTrue(ue.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_step_stop_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_step_stop_on_error_false(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -364,7 +366,7 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')
                                 ]
-        mock_lock_scope.return_value.__enter__.return_value = True
+        
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -435,17 +437,16 @@ class TestLaunchOrchestration(TestCase):
             self.assertTrue(ue.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_step_stop_on_error_true(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_step_stop_on_error_true(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')
                                 ]
-
-        mock_lock_scope.return_value.__enter__.return_value = True
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -491,17 +492,18 @@ class TestLaunchOrchestration(TestCase):
             self.assertTrue(ue.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_undo_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_undo_on_error_false(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr='')]
 
-        mock_lock_scope.return_value.__enter__.return_value = True
+        
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -548,10 +550,11 @@ class TestLaunchOrchestration(TestCase):
             self.assertFalse(e.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_step_undo_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_step_undo_on_error_false(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -564,7 +567,7 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''), ]
 
-        mock_lock_scope.return_value.__enter__.return_value = True
+        
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -632,17 +635,18 @@ class TestLaunchOrchestration(TestCase):
             self.assertTrue(ue.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_stop_undo_on_error_true(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_stop_undo_on_error_true(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr='')]
 
-        mock_lock_scope.return_value.__enter__.return_value = True
+        
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -689,17 +693,18 @@ class TestLaunchOrchestration(TestCase):
             self.assertTrue(e.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_step_stop_undo_on_error_true(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_step_stop_undo_on_error_true(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr='')]
 
-        mock_lock_scope.return_value.__enter__.return_value = True
+        
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -747,10 +752,11 @@ class TestLaunchOrchestration(TestCase):
             self.assertTrue(e.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_undo_step_stop_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_undo_step_stop_on_error_false(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
@@ -758,7 +764,7 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')]
 
-        mock_lock_scope.return_value.__enter__.return_value = True
+        
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
@@ -813,10 +819,11 @@ class TestLaunchOrchestration(TestCase):
             self.assertTrue(e.success)
 
     @mock.patch('dm.web.async_functions.get_jwt_identity', autospec=True)
-    @mock.patch('dm.web.async_functions.lock_scope', autospec=True)
+    @mock.patch('dm.web.async_functions.lock', autospec=True)
+    @mock.patch('dm.web.async_functions.unlock', autospec=True)
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
-    def test_deploy_orchestration_stop_undo_on_error_false(self, mock_run, mock_lock_scope, mock_identity):
+    def test_deploy_orchestration_stop_undo_on_error_false(self, mock_run, mock_lock, mock_unlock, mock_identity):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -831,7 +838,7 @@ class TestLaunchOrchestration(TestCase):
                                 CompletedProcess(args=(), returncode=0, stdout='', stderr='')
                                 ]
 
-        mock_lock_scope.return_value.__enter__.return_value = True
+        
 
         def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
