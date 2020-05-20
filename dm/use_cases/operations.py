@@ -130,7 +130,7 @@ class PythonOperation(IOperationEncapsulation):
         pass
 
 
-class NativeOperation(IOperationEncapsulation):
+class ShellOperation(IOperationEncapsulation):
 
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
         tokens = self.rpl_params(params)

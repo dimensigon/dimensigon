@@ -107,6 +107,12 @@ def create_app(config_name):
     return app
 
 
+@jwt.user_loader_callback_loader
+def user_loader_callback(identity):
+    from ..domain.entities import User
+    return User.query.get(identity)
+
+
 def validation_error(e: ValidationError):
     return {"error": e.message, 'schema': e.schema}, 400
 

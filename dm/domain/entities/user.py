@@ -1,6 +1,7 @@
 import typing as t
 from datetime import datetime
 
+from flask_jwt_extended import get_jwt_identity
 from passlib.hash import sha256_crypt
 
 from dm import defaults
@@ -86,6 +87,11 @@ class User(db.Model, UUIDistributedEntityMixin):
         if not reporter:
             reporter = User(user='reporter', groups=['readonly'])
             db.session.add(reporter)
+
+    @classmethod
+    @staticmethod
+    def get_current():
+        return db.session.query(User).get(get_jwt_identity())
 
     def __str__(self):
         return self.user

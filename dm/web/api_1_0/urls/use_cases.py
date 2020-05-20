@@ -6,18 +6,19 @@ import math
 import os
 import pickle
 import re
+import time
 import typing as t
 import uuid
 
 from flask import request, g, current_app, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
+from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, current_user
 from pkg_resources import parse_version
 
 import dm
 from dm import defaults as d, defaults
 from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
     Orchestration, OrchExecution
-from dm.utils.asyncio import run
+from dm.utils import asyncio, subprocess
 from dm.utils.event_handler import Event
 from dm.utils.helpers import get_distributed_entities, is_iterable_not_string
 from dm.utils.typos import Id
@@ -27,8 +28,9 @@ from dm.web.async_functions import deploy_orchestration, async_send_file
 from dm.web.background_tasks import update_table_routing_cost
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import check_param_in_uri
-from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes, launch_orchestration_post
-from dm.web.network import HTTPBearerAuth, post
+from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes, \
+    launch_orchestration_post, launch_command_post
+from dm.web.network import HTTPBearerAuth, post, async_post
 
 if t.TYPE_CHECKING:
     from dm.use_cases.operations import IOperationEncapsulation
@@ -111,8 +113,9 @@ def software_send():
 
     if transfer_id:
         file = os.path.join(ssa.path, software.filename)
-        executor.submit(run, async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file, chunks=chunks,
-                                             chunk_size=chunk_size, max_senders=max_senders, auth=auth))
+        executor.submit(asyncio.run,
+                        async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file, chunks=chunks,
+                                        chunk_size=chunk_size, max_senders=max_senders, auth=auth))
 
         return {'transfer_id': transfer_id}, 202
     return {'error': f'unable to create transfer on {dest_server}', 'response': resp, 'code': code}, 400
@@ -429,6 +432,100 @@ def launch_orchestration(orchestration_id):
         if 'error' in r:
             return jsonify(r), 500
         return jsonify(r), 200
+
+
+async def parallel_command_run(servers, data, auth):
+    server_responses = {}
+    for server in servers:
+        server_responses[str(server.id)] = asyncio.create_task(
+            async_post(server, 'api_1_0.launch_command', json=data, auth=auth))
+
+    for server in servers:
+        try:
+            server_responses[str(server.id)] = await server_responses[str(server.id)]
+        except Exception as e:
+            server_responses[str(server.id)] = {'error': 'Exception raised: ' + str(e)}
+    return server_responses
+
+
+def wrap_sudo(user, cmd):
+    return f"sudo -u {user} -i {cmd}"
+
+
+@api_bp.route('/launch/command', methods=['POST'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+@validate_schema(launch_command_post)
+def launch_command():
+    data = request.get_json()
+
+    server_list = []
+    if 'hosts' in data:
+        not_found = []
+        servers = Server.query.all()
+        if data['hosts'] == 'all':
+            server_list = servers
+        elif is_iterable_not_string(data['hosts']):
+            for vv in data['hosts']:
+                sl = search(vv, servers)
+                if len(sl) == 0:
+                    not_found.append(vv)
+                else:
+                    server_list.extend(sl)
+        else:
+            sl = search(data['hosts'], servers)
+            if len(sl) == 0:
+                not_found.append(data['hosts'])
+            else:
+                server_list.extend(sl)
+        if not_found:
+            return {'error': "Following granules or ids did not match to any server: " + ', '.join(not_found)}, 404
+    else:
+        server_list.append(g.server)
+
+    if re.search('rm\s+((-\w+|--[-=\w]*)\s+)*(-\w*[rR]\w*|--recursive)', data['command']):
+        return {'error': 'rm with recursion is not allowed'}, 403
+    data.pop('hosts', None)
+    start = None
+    resp = {}
+    if g.server in server_list:
+        start = time.time()
+        server_list.pop(server_list.index(g.server))
+        username = getattr(current_user, 'user', None)
+        if not username:
+            return {"error": f"User {get_jwt_identity()} not found"}, 404
+
+        cmd = wrap_sudo(current_user, data['command'])
+        future = executor.submit(subprocess.run, cmd,
+                                 timeout=data.get('timeout', defaults.TIMEOUT_COMMAND),
+                                 shell=True)
+
+    resp_data = {}
+    if server_list:
+        resp = asyncio.run(
+            parallel_command_run(server_list, data, auth=HTTPBearerAuth(create_access_token(get_jwt_identity()))))
+        for s, r in resp.items():
+            if r[1] == 200:
+                if s in r[0]:
+                    resp_data[s] = r[0][s]
+                else:
+                    resp_data[s] = r[0]
+            else:
+                resp_data[s] = {'error': {'status_code': r[1], 'response': r[0]}}
+
+    if start:
+        try:
+            cp = future.result(data.get('timeout', defaults.TIMEOUT_COMMAND) + 1 - (time.time() - start))
+        except (concurrent.futures.TimeoutError, subprocess.TimeoutExpired):
+            resp_data[str(g.server.id)] = {
+                'error': f"Command '{cmd}' timed out after {data.get('timeout', defaults.TIMEOUT_COMMAND)} seconds"}
+        except Exception as e:
+            current_app.logger.exception("Exception raised while trying to run command")
+            resp_data[str(g.server.id)] = {'error': str(e)}
+        else:
+            resp_data[str(g.server.id)] = {'stdout': cp.stdout, 'stderr': cp.stderr, 'returncode': cp.returncode}
+    return resp_data, 200
 
 
 @api_bp.route('/events/<event_id>', methods=['POST'])

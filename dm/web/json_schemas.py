@@ -437,3 +437,19 @@ schema_patch_user = {
     },
     "additionalProperties": False
 }
+
+launch_command_post = {
+    "type": "object",
+    "properties": {
+        "command": {"type": "string"},
+        "hosts": {"anyOf": [{"type": "string"},
+                            {"type": "array",
+                             "items": {"type": "string"}},
+                            ]
+                  },
+        "timeout": {"type": "integer",
+                    "minimum": 1},
+    },
+    "required": ["command"],
+    "additionalProperties": False,
+}
