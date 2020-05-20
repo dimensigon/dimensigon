@@ -1,6 +1,7 @@
 import base64
 import concurrent
 import datetime
+import ipaddress
 import json
 import math
 import os
@@ -9,7 +10,7 @@ import re
 import typing as t
 import uuid
 
-from flask import request, g, current_app, jsonify
+from flask import request, current_app, jsonify, g
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
 from pkg_resources import parse_version
 
@@ -58,12 +59,16 @@ def join():
         js = request.get_json()
         current_app.logger.debug(f"New server wanting to join: {js}")
         s = Server.from_json(js)
+        external_ip = ipaddress.ip_address(request.remote_addr)
+        if not external_ip.is_loopback and external_ip not in [g.ip for g in s.gates]:
+            for port in set([g.port for g in s.gates]):
+                s.add_new_gate(external_ip, port, hidden=True)
+
         Route(destination=s, cost=0)
         db.session.add(s)
         db.session.commit()
-        dim = g.dimension.to_json()
         catalog = fetch_catalog(datetime.datetime(datetime.MINYEAR, 1, 1))
-        catalog.update(Dimension=dim)
+        catalog.update(Dimension=g.dimension.to_json())
         catalog.update(me=str(Server.get_current().id))
         return catalog, 200
     else:

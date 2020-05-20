@@ -1,5 +1,4 @@
 from unittest import TestCase
-from unittest import TestCase
 from unittest.mock import patch, MagicMock
 
 import responses
@@ -91,3 +90,106 @@ class TestForwardOrDispatch(TestCase):
         self.assertEqual({'msg': 'default response'}, response.json)
 
         self.assertEqual(1, len(responses.calls))
+
+    @patch('dm.web.decorators.g')
+    def test_forward_or_dispatch_hidden_ip(self, mock_g):
+        mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
+
+        response = self.client.post('/', json={'data': None},
+                                    headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
+                                             'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
+                                    environ_base={'REMOTE_ADDR': '10.1.2.3'})
+        self.assertEqual({'msg': 'default response'}, response.json)
+
+        self.assertEqual(1, len(self.srv2.hidden_gates))
+        hg = self.srv2.hidden_gates[0]
+        self.assertEqual('10.1.2.3', str(hg.ip))
+        self.assertEqual(7124, hg.port)
+
+        response = self.client.post('/', json={'data': None},
+                                    headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
+                                             'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
+                                    environ_base={'REMOTE_ADDR': '10.1.2.3'})
+        self.assertEqual({'msg': 'default response'}, response.json)
+
+        self.assertEqual(1, len(self.srv2.hidden_gates))
+        self.assertEqual('10.1.2.3', str(hg.ip))
+        self.assertEqual(7124, hg.port)
+
+
+        response = self.client.post('/', json={'data': None},
+                                    headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
+                                             'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
+                                    environ_base={'REMOTE_ADDR': '10.1.2.4'})
+        self.assertEqual({'msg': 'default response'}, response.json)
+
+        self.assertEqual(1, len(self.srv2.hidden_gates))
+        self.assertEqual('10.1.2.4', str(hg.ip))
+        self.assertEqual(7124, hg.port)
+
+
+    @patch('dm.web.decorators.g')
+    def test_forward_or_dispatch_hidden_ip_multiple_ports(self, mock_g):
+        mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
+
+        self.srv2.add_new_gate('127.0.0.1', 7125)
+
+        response = self.client.post('/', json={'data': None},
+                                    headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
+                                             'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
+                                    environ_base={'REMOTE_ADDR': '10.1.2.3'})
+        self.assertEqual({'msg': 'default response'}, response.json)
+
+        self.assertEqual(2, len(self.srv2.hidden_gates))
+        hg = self.srv2.hidden_gates
+        self.assertEqual('10.1.2.3', str(hg[0].ip))
+        self.assertEqual(7124, hg[0].port)
+        self.assertEqual('10.1.2.3', str(hg[1].ip))
+        self.assertEqual(7125, hg[1].port)
+
+        response = self.client.post('/', json={'data': None},
+                                    headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
+                                             'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
+                                    environ_base={'REMOTE_ADDR': '10.1.2.3'})
+        self.assertEqual({'msg': 'default response'}, response.json)
+
+        self.assertEqual(2, len(self.srv2.hidden_gates))
+        hg = self.srv2.hidden_gates
+        self.assertEqual('10.1.2.3', str(hg[0].ip))
+        self.assertEqual(7124, hg[0].port)
+        self.assertEqual('10.1.2.3', str(hg[1].ip))
+        self.assertEqual(7125, hg[1].port)
+
+        response = self.client.post('/', json={'data': None},
+                                    headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
+                                             'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
+                                    environ_base={'REMOTE_ADDR': '10.1.2.4'})
+        self.assertEqual({'msg': 'default response'}, response.json)
+
+        self.assertEqual(2, len(self.srv2.hidden_gates))
+        hg = self.srv2.hidden_gates
+        self.assertEqual('10.1.2.4', str(hg[0].ip))
+        self.assertEqual(7124, hg[0].port)
+        self.assertEqual('10.1.2.4', str(hg[1].ip))
+        self.assertEqual(7125, hg[1].port)
+
+    @patch('dm.web.decorators.socket.gethostbyname')
+    @patch('dm.web.decorators.g')
+    def test_forward_or_dispatch_dns(self, mock_g, mock_gethostbyname):
+        mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
+
+        def gethostbyname(dns: str):
+            if dns == 'server2':
+                return '10.1.2.3'
+            else:
+                return None
+        mock_gethostbyname.side_effect = gethostbyname
+        self.srv2.add_new_gate('server2', 7124)
+
+        response = self.client.post('/', json={'data': None},
+                                    headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
+                                             'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
+                                    environ_base={'REMOTE_ADDR': '10.1.2.3'})
+        self.assertEqual({'msg': 'default response'}, response.json)
+
+        self.assertEqual(0, len(self.srv2.hidden_gates))
