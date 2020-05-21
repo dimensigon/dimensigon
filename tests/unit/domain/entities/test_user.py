@@ -15,7 +15,7 @@ class Test(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('test'))
+        self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
         db.create_all()
 
     def tearDown(self) -> None:

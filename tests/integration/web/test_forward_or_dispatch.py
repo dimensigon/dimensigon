@@ -169,9 +169,9 @@ class TestForwardOrDispatch(TestCase):
         self.assertEqual(2, len(self.srv2.hidden_gates))
         hg = self.srv2.hidden_gates
         self.assertEqual('10.1.2.4', str(hg[0].ip))
-        self.assertEqual(7124, hg[0].port)
+        self.assertIn(hg[0].port, (7124, 7125))
         self.assertEqual('10.1.2.4', str(hg[1].ip))
-        self.assertEqual(7125, hg[1].port)
+        self.assertIn(hg[1].port, (7124, 7125))
 
     @patch('dm.web.decorators.socket.gethostbyname')
     @patch('dm.web.decorators.g')

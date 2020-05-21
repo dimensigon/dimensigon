@@ -20,7 +20,7 @@ class TestTransferURL(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('test'))
+        self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
 
         db.create_all()
         set_initial()
@@ -52,11 +52,11 @@ class TestTransferURL(TestCase):
                     os.remove(os.path.join(folder, filename))
 
     @patch('flask_jwt_extended.view_decorators.verify_jwt_in_request')
-    @patch('dm.web.api_1_0.urls.transfer.os.path.exists', return_value=False)
-    @patch('dm.web.api_1_0.urls.transfer.os.makedirs', return_value=True)
+    @patch('dm.web.api_1_0.resources.transfer.os.path.exists', return_value=False)
+    @patch('dm.web.api_1_0.resources.transfer.os.makedirs', return_value=True)
     def test_post_create_transfer(self, mock_makedirs, mock_exists, mock_jwt_required):
 
-        resp = self.client.post(url_for('api_1_0.transfers'),
+        resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id), 'dest_path': os.getcwd(),
                                       'num_chunks': 16}, headers=self.auth.header)
         self.assertEqual(202, resp.status_code)
@@ -69,7 +69,7 @@ class TestTransferURL(TestCase):
 
     def test_send_software(self):
 
-        resp = self.client.post(url_for('api_1_0.transfers'),
+        resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id), 'dest_path': os.getcwd(),
                                       'num_chunks': 16}, headers=self.auth.header)
 
@@ -83,24 +83,24 @@ class TestTransferURL(TestCase):
         # Generate put with files
         for chunk_content, chunk_id in zip([self.content[i:i + 4] for i in range(0, len(self.content), 4)],
                                            range(0, 16)):
-            resp = self.client.post(url_for('api_1_0.transfer', transfer_id=str(t.id)),
-                                    json={"transfer_id": str(t.id), 'chunk': chunk_id,
+            resp = self.client.post(url_for('api_1_0.transferresource', transfer_id=str(t.id)),
+                                    json={'chunk': chunk_id,
                                           'content': base64.b64encode(chunk_content).decode('ascii')},
                                     headers=self.auth.header)
             self.assertEqual(resp.status_code, 201)
 
         self.assertEqual(t.status, TransferStatus.IN_PROGRESS)
 
-        resp = self.client.patch(url_for('api_1_0.transfer', transfer_id=str(t.id), _external=False),
+        resp = self.client.patch(url_for('api_1_0.transferresource', transfer_id=str(t.id), _external=False),
                                  json={},
                                  headers=self.auth.header)
 
-        self.assertEqual(204, resp.status_code)
+        self.assertEqual(201, resp.status_code)
         self.assertEqual(t.status, TransferStatus.COMPLETED)
 
     def test_send_file(self):
 
-        resp = self.client.post(url_for('api_1_0.transfers'),
+        resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={'dest_path': os.getcwd(), 'filename': self.filename, 'size': self.size,
                                       'checksum': self.checksum_file,
                                       'num_chunks': 16}, headers=self.auth.header)
@@ -114,23 +114,23 @@ class TestTransferURL(TestCase):
         # Generate put with files
         for chunk_content, chunk_id in zip([self.content[i:i + 4] for i in range(0, len(self.content), 4)],
                                            range(0, 16)):
-            resp = self.client.post(url_for('api_1_0.transfer', transfer_id=str(t.id)),
-                                    json={"transfer_id": str(t.id), 'chunk': chunk_id,
+            resp = self.client.post(url_for('api_1_0.transferresource', transfer_id=str(t.id)),
+                                    json={'chunk': chunk_id,
                                           'content': base64.b64encode(chunk_content).decode('ascii')},
                                     headers=self.auth.header)
             self.assertEqual(resp.status_code, 201)
 
         self.assertEqual(t.status, TransferStatus.IN_PROGRESS)
 
-        resp = self.client.patch(url_for('api_1_0.transfer', transfer_id=str(t.id), _external=False),
+        resp = self.client.patch(url_for('api_1_0.transferresource', transfer_id=str(t.id), _external=False),
                                  json={},
                                  headers=self.auth.header)
 
-        self.assertEqual(204, resp.status_code)
+        self.assertEqual(201, resp.status_code)
         self.assertEqual(t.status, TransferStatus.COMPLETED)
 
     def test_create_file_error_chunks(self):
-        resp = self.client.post(url_for('api_1_0.transfers'),
+        resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id), 'dest_path': os.getcwd(),
                                       'num_chunks': 16}, headers=self.auth.header)
 
@@ -144,26 +144,26 @@ class TestTransferURL(TestCase):
         # Generate put with files
         for chunk_content, chunk_id in zip([self.content[i:i + 4] for i in range(0, len(self.content), 4)],
                                            [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]):
-            resp = self.client.post(url_for('api_1_0.transfer', transfer_id=str(t.id)),
+            resp = self.client.post(url_for('api_1_0.transferresource', transfer_id=str(t.id)),
                                     json=
-                                    {"transfer_id": str(t.id), 'chunk': chunk_id,
+                                    {'chunk': chunk_id,
                                      'content': base64.b64encode(chunk_content).decode('ascii')},
                                     headers=self.auth.header)
             self.assertEqual(resp.status_code, 201)
 
         self.assertEqual(t.status, TransferStatus.IN_PROGRESS)
 
-        resp = self.client.patch(url_for('api_1_0.transfer', transfer_id=str(t.id), _external=False),
+        resp = self.client.patch(url_for('api_1_0.transferresource', transfer_id=str(t.id), _external=False),
                                  json={},
                                  headers=self.auth.header)
 
         self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({"error": f"Not enough chunks to generate file"}, resp.json)
+        self.assertDictEqual({"error": f"Not enough chunks to generate the file"}, resp.json)
         self.assertEqual(t.status, TransferStatus.IN_PROGRESS)
 
     def test_error_checksum(self):
 
-        resp = self.client.post(url_for('api_1_0.transfers'),
+        resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json=({"software_id": str(self.soft.id), 'dest_path': os.getcwd(),
                                        'num_chunks': 16}), headers=self.auth.header)
 
@@ -178,14 +178,14 @@ class TestTransferURL(TestCase):
         self.content = b'abcdefghijklmnopqrstuvwxyzXXXDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
         for chunk_content, chunk_id in zip([self.content[i:i + 4] for i in range(0, len(self.content), 4)],
                                            range(0, 16)):
-            resp = self.client.post(url_for('api_1_0.transfer', transfer_id=str(t.id)),
+            resp = self.client.post(url_for('api_1_0.transferresource', transfer_id=str(t.id)),
                                     json=
-                                    {"transfer_id": str(t.id), 'chunk': chunk_id,
+                                    {'chunk': chunk_id,
                                      'content': base64.b64encode(chunk_content).decode('ascii')},
                                     headers=self.auth.header)
             self.assertEqual(resp.status_code, 201)
 
-        resp = self.client.patch(url_for('api_1_0.transfer', transfer_id=str(t.id), _external=False),
+        resp = self.client.patch(url_for('api_1_0.transferresource', transfer_id=str(t.id), _external=False),
                                  json={},
                                  headers=self.auth.header)
 
@@ -197,7 +197,7 @@ class TestTransferURL(TestCase):
 
     def test_error_size_file(self):
 
-        resp = self.client.post(url_for('api_1_0.transfers'),
+        resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id), 'dest_path': os.getcwd(),
                                       'num_chunks': 16}, headers=self.auth.header)
 
@@ -212,14 +212,14 @@ class TestTransferURL(TestCase):
         self.content = b'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345678'
         for chunk_content, chunk_id in zip([self.content[i:i + 4] for i in range(0, len(self.content), 4)],
                                            range(0, 16)):
-            resp = self.client.post(url_for('api_1_0.transfer', transfer_id=str(t.id)),
+            resp = self.client.post(url_for('api_1_0.transferresource', transfer_id=str(t.id)),
                                     json=
-                                    {"transfer_id": str(t.id), 'chunk': chunk_id,
+                                    {'chunk': chunk_id,
                                      'content': base64.b64encode(chunk_content).decode('ascii')},
                                     headers=self.auth.header)
             self.assertEqual(resp.status_code, 201)
 
-        resp = self.client.patch(url_for('api_1_0.transfer', transfer_id=str(t.id), _external=False),
+        resp = self.client.patch(url_for('api_1_0.transferresource', transfer_id=str(t.id), _external=False),
                                  json={},
                                  headers=self.auth.header)
 
@@ -229,22 +229,22 @@ class TestTransferURL(TestCase):
             resp.get_json())
         self.assertEqual(t.status, TransferStatus.SIZE_ERROR)
 
-    @patch('dm.web.api_1_0.urls.transfer.os.path.exists')
+    @patch('dm.web.api_1_0.resources.transfer.os.path.exists')
     def test_error_file_already_exists(self, mock_exists):
         mock_exists.return_value = True
 
-        resp = self.client.post(url_for('api_1_0.transfers'),
+        resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id), 'dest_path': os.getcwd(),
                                       'num_chunks': 16}, headers=self.auth.header)
 
         self.assertEqual(409, resp.status_code)
 
-    @patch('dm.web.api_1_0.urls.transfer.os.remove')
-    @patch('dm.web.api_1_0.urls.transfer.os.path.exists')
+    @patch('dm.web.api_1_0.resources.transfer.os.remove')
+    @patch('dm.web.api_1_0.resources.transfer.os.path.exists')
     def test_force(self, mock_exists, mock_remove):
         mock_exists.return_value = True
 
-        resp = self.client.post(url_for('api_1_0.transfers'),
+        resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id), 'dest_path': os.getcwd(),
                                       'num_chunks': 16, 'force': True}, headers=self.auth.header)
 

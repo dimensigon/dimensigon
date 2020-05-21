@@ -9,13 +9,16 @@ from unittest.mock import patch
 import responses
 from aioresponses import aioresponses, CallbackResult
 from flask import url_for
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, verify_jwt_in_request
 
-from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, Locker
+from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, User
+from dm import defaults
 from dm.domain.entities import Server, Dimension, Catalog
+from dm.domain.entities.bootstrap import set_initial
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.background_tasks import update_catalog
+from dm.web.network import HTTPBearerAuth
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -52,7 +55,8 @@ class TestLockScopeFullChain(TestCase):
         mocked_now.return_value = datetime(2019, 4, 1)
         with self.app1.app_context():
             db.create_all()
-            Locker.set_initial()
+            set_initial(server=False)
+            self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
             s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000, me=True)
             s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000)
             Route(s2, cost=0)
@@ -63,11 +67,11 @@ class TestLockScopeFullChain(TestCase):
             db.session.commit()
             self.s1_json = Server.get_current().to_json()
             self.dim_json = dim.to_json()
-            self.headers = {"Authorization": f"Bearer {create_access_token('test')}"}
+            self.headers = {"Authorization": f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
 
         with self.app2.app_context():
             db.create_all()
-            Locker.set_initial()
+            set_initial(server=False)
             s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000)
             Route(s1, cost=0)
             s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000, me=True)
@@ -158,22 +162,28 @@ class TestLockScopeFullChain(TestCase):
                                callback=partial(requests_callback_client, self.client2))
 
         with self.app2.app_context():
-            self.assertListEqual([('Gate',), ('Server',)],
+            self.assertListEqual([('Gate',), ('Server',), ('User',)],
                                  db.session.query(Catalog.entity).order_by(Catalog.entity).all())
             self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Server').last_modified_at)
 
         with self.app1.app_context():
-            self.assertEqual(5, Catalog.query.count())
+            self.assertEqual(6, Catalog.query.count())
+            self.assertEqual(defaults.INITIAL_DATEMARK, Catalog.query.get('User').last_modified_at)
             self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Server').last_modified_at)
             self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Gate').last_modified_at)
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('Software').last_modified_at)
             self.assertEqual(datetime(2019, 4, 3), Catalog.query.get('SoftwareServerAssociation').last_modified_at)
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('ActionTemplate').last_modified_at)
+
             resp = self.client1.get(url_for('root.healthcheck'))
 
         with self.app2.app_context():
-            s = Server.query.filter_by(_me=False).one()
-            update_catalog({s: (resp.get_json(), resp.status_code)})
+            with self.app2.test_request_context('https://node1:5000/api/v1.0/catalog', headers=self.auth.header):
+                verify_jwt_in_request()
+
+
+                s = Server.query.filter_by(_me=False).one()
+                update_catalog({s: (resp.get_json(), resp.status_code)})
 
         with self.app2.app_context():
             soft = Software.query.get('aaaaaaaa-1234-5678-1234-56781234aaa1')
@@ -181,9 +191,11 @@ class TestLockScopeFullChain(TestCase):
             soft = ActionTemplate.query.get('aaaaaaaa-1234-5678-1234-56781234aaa2')
             self.assertDictEqual(self.at_json, soft.to_json())
 
-            self.assertEqual(5, Catalog.query.count())
+            self.assertEqual(6, Catalog.query.count())
+            self.assertEqual(defaults.INITIAL_DATEMARK, Catalog.query.get('User').last_modified_at)
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('Software').last_modified_at)
             self.assertEqual(datetime(2019, 4, 3), Catalog.query.get('SoftwareServerAssociation').last_modified_at)
             self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('ActionTemplate').last_modified_at)
             self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Server').last_modified_at)
             self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Gate').last_modified_at)
+

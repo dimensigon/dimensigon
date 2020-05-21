@@ -99,7 +99,7 @@ class TestApi(TestCase):
                               callback=partial(request_callback, client=self.client))
 
             with self.app.app_context():
-                token = create_access_token('join')
+                token = create_access_token('00000000-0000-0000-0000-000000000004')
 
             runner = self.app_join.test_cli_runner()
 
@@ -116,6 +116,6 @@ class TestApi(TestCase):
             self.assertDictEqual(self.dimension, Dimension.get_current().to_json())
             s = Server.query.get(self.server_node1.get('id'))
             self.assertEqual(0, s.route.cost)
-            self.assertListEqual([('Gate',), ('Server',)], db.session.query(Catalog.entity).order_by('entity').all())
+            self.assertListEqual([('Gate',), ('Server',), ('User',)], db.session.query(Catalog.entity).order_by('entity').all())
             self.assertEqual(datetime.datetime(2019, 5, 1),
                              Catalog.query.filter_by(entity='Server').one().last_modified_at)

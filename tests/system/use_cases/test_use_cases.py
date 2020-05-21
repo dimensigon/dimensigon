@@ -4,7 +4,7 @@ from unittest import TestCase
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, Gate
+from dm.domain.entities import Server, Gate, User
 from dm.domain.entities.route import Route
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
@@ -19,9 +19,11 @@ class TestRoutes(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.access_token = create_access_token(identity='test')
-        self.headers = HTTPBearerAuth(self.access_token).header
         db.create_all()
+        User.set_initial()
+        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+
+
 
     def tearDown(self) -> None:
         db.session.remove()
@@ -47,7 +49,7 @@ class TestRoutes(TestCase):
         db.session.add_all([s1, s2, s3, s4])
 
         response = self.client.get(url_for('api_1_0.routes', _external=False),
-                                   headers=self.headers)
+                                   headers=self.auth.header)
         data = response.get_json()
         self.assertDictEqual({'server_id': '123e4567-e89b-12d3-a456-426655440001',
                               'route_list': [

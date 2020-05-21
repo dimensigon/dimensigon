@@ -34,7 +34,7 @@ class TestApi(TestCase):
         self.dim.current = True
         self.json_dim = self.dim.to_json()
         self.client = self.app.test_client()
-        self.headers = {"Authorization": f"Bearer {create_access_token('test')}"}
+        self.headers = {"Authorization": f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
         self.software_content = b"new data"
         self.filename = 'test.tar.gz'
         self.src_path = os.path.join(basedir, 'src')

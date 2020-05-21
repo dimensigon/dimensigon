@@ -6,8 +6,9 @@ from flask import url_for
 from flask_jwt_extended import create_access_token
 
 from dm import defaults
-from dm.domain.entities import Server, ActionTemplate, ActionType
+from dm.domain.entities import Server, ActionTemplate, ActionType, User
 from dm.web import create_app, db
+from dm.web.network import HTTPBearerAuth
 
 
 class TestApi(TestCase):
@@ -18,9 +19,9 @@ class TestApi(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.headers = {"Authorization": f"Bearer {create_access_token('test')}"}
-
         db.create_all()
+        User.set_initial()
+        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
 
     def tearDown(self) -> None:
         db.session.remove()
@@ -42,7 +43,7 @@ class TestApi(TestCase):
 
         resp = self.client.get(
             url_for('api_1_0.catalog', data_mark=datetime.datetime(2019, 4, 1).strftime(defaults.DATEMARK_FORMAT)),
-            headers=self.headers)
+            headers=self.auth.header)
 
         self.assertDictEqual({'ActionTemplate': [at1.to_json()]},
                              resp.json)
@@ -53,7 +54,7 @@ class TestApi(TestCase):
 
         resp = self.client.get(
             url_for('api_1_0.catalog', data_mark=datetime.datetime(2019, 4, 2).strftime(defaults.DATEMARK_FORMAT)),
-            headers=self.headers)
+            headers=self.auth.header)
 
         self.assertDictEqual({'ActionTemplate': [at2.to_json()]},
                              resp.json)

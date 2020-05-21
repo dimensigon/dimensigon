@@ -110,7 +110,8 @@ class TestServer(TestCase):
         s = Server('server2', gates=[('dns', 6000)], id='22cd859d-ee91-4079-a112-000000000001')
         self.assertDictEqual(
             {'id': '22cd859d-ee91-4079-a112-000000000001', 'name': 'server2', 'granules': [],
-             'gates': [{'id': '22cd859d-ee91-4079-a112-000000000002', 'ip': None, 'dns': 'dns', 'port': 6000}]},
+             'gates': [{'id': '22cd859d-ee91-4079-a112-000000000002', 'ip': None, 'dns': 'dns', 'port': 6000,
+                        'hidden': False}]},
             s.to_json(
                 add_gates=True))
         db.session.add(s)

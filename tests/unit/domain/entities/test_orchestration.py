@@ -17,7 +17,7 @@ class TestOrchestration(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('test'))
+        self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
         db.create_all()
         self.at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
                                  parameters={'param1': 'test'}, expected_stdout='expected output', expected_rc=0,

@@ -6,7 +6,7 @@ from unittest.mock import patch
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Orchestration, ActionTemplate, ActionType, Server
+from dm.domain.entities import Orchestration, ActionTemplate, ActionType, Server, User
 from dm.domain.entities.bootstrap import set_initial
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
@@ -20,9 +20,12 @@ class TestLaunchOrchestration(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('test'))
         db.create_all()
         set_initial()
+        u = User('test')
+        db.session.add(u)
+        db.session.commit()
+        self.auth = HTTPBearerAuth(create_access_token(u.id))
         self.o = Orchestration('create user', version=1)
         self.at1 = ActionTemplate(action_type=ActionType.SHELL, name="create folder", version=1,
                                   code="sudo mkdir -p {{folder}}")

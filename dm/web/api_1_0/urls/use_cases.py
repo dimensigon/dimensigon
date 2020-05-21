@@ -18,7 +18,7 @@ from pkg_resources import parse_version
 import dm
 from dm import defaults as d, defaults
 from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
-    Orchestration, OrchExecution
+    Orchestration, OrchExecution, User
 from dm.utils import asyncio, subprocess
 from dm.utils.event_handler import Event
 from dm.utils.helpers import get_distributed_entities, is_iterable_not_string
@@ -29,11 +29,10 @@ from dm.web.async_functions import deploy_orchestration, async_send_file
 from dm.web.background_tasks import update_table_routing_cost
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import check_param_in_uri
-from dm.web.json_schemas import schema_software_send, post_schema_routes, patch_schema_routes, \
-    launch_orchestration_post, launch_command_post, post_schema_routes, patch_schema_routes, \
+from dm.web.json_schemas import launch_command_post, post_schema_routes, patch_schema_routes, \
     launch_orchestration_post, software_send
-from dm.web.network import HTTPBearerAuth, post, async_post
 from dm.web.network import HTTPBearerAuth, post
+from dm.web.network import async_post
 
 if t.TYPE_CHECKING:
     from dm.use_cases.operations import IOperationEncapsulation
@@ -47,10 +46,10 @@ def home():
 @api_bp.route('/join/public', methods=['GET'])
 @jwt_required
 def join_public():
-    if get_jwt_identity() == 'join':
+    if current_user == User.get_by_user('join'):
         return g.dimension.public.save_pkcs1(), 200, {'content-type': 'application/octet-stream'}
     else:
-        return '', 401
+        return {}, 401
 
 
 @api_bp.route('/join', methods=['POST'])
@@ -58,7 +57,7 @@ def join_public():
 @jwt_required
 @lock_catalog
 def join():
-    if get_jwt_identity() == 'join':
+    if current_user == User.get_by_user('join'):
         js = request.get_json()
         current_app.logger.debug(f"New server wanting to join: {js}")
         s = Server.from_json(js)

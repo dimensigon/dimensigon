@@ -15,7 +15,7 @@ class TestGate(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.headers = {"Authorization": f"Bearer {create_access_token('test')}"}
+        self.headers = {"Authorization": f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
 
         db.create_all()
         db.session.commit()
@@ -41,7 +41,7 @@ class TestGate(TestCase):
 
         g_json = g.to_json()
         self.assertDictEqual(
-            {'server_id': 'aaaaaaaa-1234-5678-1234-56781234aaa1', 'dns': 'dns', 'ip': None, 'port': 8,
+            {'server_id': 'aaaaaaaa-1234-5678-1234-56781234aaa1', 'dns': 'dns', 'ip': None, 'port': 8, 'hidden': False,
              'id': 'aaaaaaaa-1234-5678-1234-56781234aaa2'}, g_json)
 
         with self.assertRaises(NoResultFound):
@@ -65,7 +65,7 @@ class TestGate(TestCase):
 
         self.assertEqual(
             {'id': 'aaaaaaaa-1234-5678-1234-56781234aaa2', 'server_id': 'aaaaaaaa-1234-5678-1234-56781234aaa1',
-             'dns': 'dns', 'ip': None, 'port': 8}, g_json)
+             'dns': 'dns', 'ip': None, 'port': 8, 'hidden': False}, g_json)
 
         # check from_json when persisted in database
         smashed = Gate.from_json(g_json)

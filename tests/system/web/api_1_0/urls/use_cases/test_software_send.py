@@ -53,7 +53,7 @@ class TestAsyncSendFile(TestCase):
             self.soft_json = soft.to_json()
             self.ssa_json = ssa.to_json()
             self.dim_json = dim.to_json()
-            self.auth = HTTPBearerAuth(create_access_token('test'))
+            self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
 
         with self.app2.app_context():
             db.create_all()

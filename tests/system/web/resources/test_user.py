@@ -22,13 +22,16 @@ class TestLogResourceList(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('test'))
+
         db.create_all()
         s = Server('server', port=8000, me=True)
         db.session.add(s)
+
         self.user = User(user='user', active=False)
         db.session.add(self.user)
+
         db.session.commit()
+        self.auth = HTTPBearerAuth(create_access_token(self.user.id))
 
     def tearDown(self) -> None:
         db.session.remove()
@@ -92,13 +95,13 @@ class TestUserResource(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('test'))
         db.create_all()
         s = Server('server', port=8000, me=True)
         db.session.add(s)
         self.user = User(user='user', active=False)
         db.session.add(self.user)
         db.session.commit()
+        self.auth = HTTPBearerAuth(create_access_token(self.user.id))
 
     def test_get(self):
         resp = self.client.get(url_for('api_1_0.userresource', user_id=str(self.user.id)), headers=self.auth.header)

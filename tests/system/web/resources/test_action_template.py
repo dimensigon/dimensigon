@@ -18,7 +18,7 @@ class TestApi(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client(use_cookies=True)
-        self.auth = HTTPBearerAuth(create_access_token('test'))
+        self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
         set_initial()
         self.at1_json = {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
                          "action_type": "SHELL",

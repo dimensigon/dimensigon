@@ -24,14 +24,10 @@ class TestLaunchOrchestration(TestCase):
         self.app2 = create_app('test')
 
         self.client = self.app.test_client()
-        with self.app.app_context():
-            self.access_token = create_access_token(identity='test')
-            self.auth = HTTPBearerAuth(self.access_token)
-            self.headers = self.auth.header
         for app in [self.app, self.app2]:
             with app.app_context():
                 db.create_all()
-                u = User('root', id='eeeeeeee-1234-5678-1234-eeeeeeee0001')
+                User.set_initial()
                 at1 = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
                                      action_type=ActionType.SHELL, code='useradd {{user}}; mkdir {{dir}}',
                                      parameters={}, expected_stdout='',
@@ -58,9 +54,10 @@ class TestLaunchOrchestration(TestCase):
                                 id=uuid.UUID('cccccccc-1234-5678-1234-cccccccc0002'))
                 if app == self.app:
                     r = Route(remote, cost=0)
+                    self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
                 else:
                     r = Route(me, cost=0)
-                db.session.add_all([me, remote, o, r, u])
+                db.session.add_all([me, remote, o, r])
 
                 # Orch diagram
                 # f   f

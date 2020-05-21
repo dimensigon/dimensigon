@@ -19,7 +19,7 @@ class TestLockScope(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.headers = {"Authorization": f"Bearer {create_access_token('test')}"}
+        self.headers = {"Authorization": f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
 
         db.create_all()
         set_initial()
@@ -51,7 +51,7 @@ class TestLockScope(TestCase):
         def callback_client(url, **kwargs):
             kwargs.pop('allow_redirects')
             # workarround for https://github.com/pnuckowski/aioresponses/issues/111
-            headers = {'Authorization': f"Bearer {create_access_token('test')}"}
+            headers = {'Authorization': f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
 
             r = self.client.post(url.path, json=kwargs['json'], headers=headers)
 
@@ -106,7 +106,7 @@ class TestLockScope(TestCase):
         def callback_client(url, **kwargs):
             kwargs.pop('allow_redirects')
             # workarround for https://github.com/pnuckowski/aioresponses/issues/111
-            headers = {'Authorization': f"Bearer {create_access_token('test')}"}
+            headers = {'Authorization': f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
 
             r = self.client.post(url.path, json=kwargs['json'], headers=headers)
 
@@ -164,7 +164,7 @@ class TestLockScopeFullChain(TestCase):
             db.session.commit()
             self.s1_json = Server.get_current().to_json()
             self.dim_json = dim.to_json()
-            self.headers = {"Authorization": f"Bearer {create_access_token('test')}"}
+            self.headers = {"Authorization": f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
 
         with self.app2.app_context():
             db.create_all()
