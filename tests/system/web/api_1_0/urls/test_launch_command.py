@@ -1,9 +1,7 @@
 import re
-import time
 import traceback
 from functools import partial
-from unittest import TestCase
-from unittest.mock import patch
+from unittest import TestCase, mock
 
 from aioresponses import aioresponses, CallbackResult
 from flask import url_for
@@ -12,7 +10,6 @@ from flask_jwt_extended import create_access_token
 from dm.domain.entities import Server, Route, Dimension, User
 from dm.domain.entities.bootstrap import set_initial
 from dm.utils.helpers import generate_dimension
-from dm.utils.subprocess import CompletedProcess
 from dm.web import create_app, db
 from dm.web.api_1_0.urls.use_cases import wrap_sudo
 from dm.web.network import HTTPBearerAuth
@@ -97,13 +94,16 @@ class TestLaunchCommand(TestCase):
         m.post(re.compile('https?://node2:.*'),
                callback=partial(callback_client, 'POST', self.app2.test_client()), repeat=True)
 
-    @patch('dm.web.api_1_0.urls.use_cases.subprocess.run')
     @aioresponses()
-    def test_launch_command(self, mock_run, m):
+    @mock.patch('dm.web.api_1_0.urls.use_cases.subprocess.Popen')
+    def test_launch_command(self, m, mock_popen):
         self.maxDiff = None
         self.set_callbacks(m)
 
-        mock_run.return_value = CompletedProcess((), stdout='output', stderr='', returncode=0)
+        popen_mock = mock.MagicMock()
+        mock_popen.return_value = popen_mock
+        popen_mock.communicate.return_value = ('output', '')
+        type(popen_mock).returncode = mock.PropertyMock(return_value=0)
 
         resp = self.client.post(url_for('api_1_0.launch_command'),
                                 json={"command": "ls -l", "hosts": 'all', 'timeout': 1},
@@ -115,8 +115,9 @@ class TestLaunchCommand(TestCase):
                               },
                              resp.get_json())
 
-        self.assertEqual(2, mock_run.call_count)
-        mock_run.assert_called_with(wrap_sudo('root', 'ls -l'), timeout=1, shell=True)
+        self.assertEqual(2, mock_popen.call_count)
+
+        self.assertTupleEqual((wrap_sudo('root', ['ls', '-l']), ), mock_popen.call_args[0])
 
         resp = self.client.post(url_for('api_1_0.launch_command'),
                                 json={"command": "ls -l", "hosts": [self.json_node2['id']], 'timeout': 1},
@@ -134,48 +135,33 @@ class TestLaunchCommand(TestCase):
                               },
                              resp.get_json())
 
-    @patch('dm.web.api_1_0.urls.use_cases.subprocess.run')
     @aioresponses()
-    def test_launch_command_timeout(self, mock_run, m):
+    @mock.patch('dm.web.api_1_0.urls.use_cases.subprocess.Popen')
+    def test_launch_command_timeout(self, m, mock_popen):
         self.maxDiff = None
         self.set_callbacks(m)
 
+        args = wrap_sudo('root', ['sleep', '10'])
         cmd = 'sleep 10'
-
-        def process(*args, **kwargs):
-            time.sleep(5)
-            return CompletedProcess((), stdout='output', stderr='', returncode=0)
-
-        mock_run.side_effect = process
+        popen_mock = mock.MagicMock()
+        mock_popen.return_value = popen_mock
+        popen_mock.communicate.side_effect = [TimeoutError, ('', '')]
+        type(popen_mock).returncode = mock.PropertyMock(return_value=0)
 
         resp = self.client.post(url_for('api_1_0.launch_command'),
-                                json={"command": cmd, "hosts": 'all', 'timeout': 1},
+                                json={"command": cmd, "hosts": 'node1', 'timeout': 1},
                                 headers=self.auth.header)
 
         self.assertEqual(200, resp.status_code)
         self.assertDictEqual(
-            {self.json_node1['id']: {'error': f"Command '{wrap_sudo('root', cmd)}' timed out after 1 seconds"},
-             self.json_node2['id']: {'error': f"Command '{wrap_sudo('root', cmd)}' timed out after 1 seconds"},
+            {self.json_node1['id']: {'error': f"Command '{wrap_sudo('root', cmd)}' timed out after 1 seconds",
+                                     'stdout': '', 'stderr': ''},
              },
             resp.get_json())
 
-    @aioresponses()
-    def test_launch_command_timeout(self, m):
-        self.maxDiff = None
-        self.set_callbacks(m)
-        cmd = 'sleep 10'
-        resp = self.client.post(url_for('api_1_0.launch_command'),
-                                json={"command": cmd, "hosts": 'all', 'timeout': 1},
-                                headers=self.auth.header)
 
-        self.assertEqual(200, resp.status_code)
-        self.assertDictEqual(
-            {self.json_node1['id']: {'error': f"Command '{wrap_sudo('root', cmd)}' timed out after 1 seconds"},
-             self.json_node2['id']: {'error': f"Command '{wrap_sudo('root', cmd)}' timed out after 1 seconds"},
-             },
-            resp.get_json())
 
-    def test_launch_command_rm_recursive(self, ):
+    def test_launch_command_rm_recursive(self):
         resp = self.client.post(url_for('api_1_0.launch_command'),
                                 json={"command": "rm -fr /folder", "hosts": "all", 'timeout': 1},
                                 headers=self.auth.header)

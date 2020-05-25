@@ -7,7 +7,9 @@ import math
 import os
 import pickle
 import re
+import shlex
 import time
+import traceback
 import typing as t
 import uuid
 
@@ -99,7 +101,8 @@ def software_send():
     max_senders = min(data.get('max_senders', d.MAX_SENDERS), d.MAX_SENDERS)
     chunks = math.ceil(ssa.software.size / chunk_size)
 
-    auth = HTTPBearerAuth(create_access_token(get_jwt_identity()))
+    auth = HTTPBearerAuth(create_access_token(get_jwt_identity(), expires_delta=datetime.timedelta(
+        minutes=30)))
 
     json_msg = dict(software_id=str(software.id), num_chunks=chunks, dest_path=data.get('dest_path'))
 
@@ -311,7 +314,7 @@ def routes():
     return {}, 204
 
 
-def run_command_and_callback(operation: 'IOperationEncapsulation', params, source: Id, execution: Id, auth,
+def run_command_and_callback(operation: 'IOperationEncapsulation', params, source: Id, execution: Id, jwt_identity,
                              timeout=None):
     cp = operation.execute(params=params, timeout=timeout)
 
@@ -324,7 +327,9 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', params, sourc
         current_app.logger.exception(f"Error on commit for execution {execution.id}")
 
     resp, code = post(server=source, view_or_url='api_1_0.events', view_data={'event_id': str(execution.id)},
-                      json=execution.to_json(), auth=auth)
+                      json=execution.to_json(),
+                      auth=HTTPBearerAuth(
+                          create_access_token(jwt_identity, expires_delta=datetime.timedelta(seconds=30))))
     if code != 202:
         current_app.logger.error(f"Error while sending result for execution {execution.id}: {code}, {resp}")
     return execution.to_json()
@@ -345,7 +350,7 @@ def launch_operation():
     db.session.add_all([orch_exec, e])
     db.session.commit()
     future = executor.submit(run_command_and_callback, operation, params, g.source.id, e.id,
-                             HTTPBearerAuth(create_access_token(get_jwt_identity())),
+                             get_jwt_identity(),
                              timeout=data.get('timeout'))
     try:
         r = future.result(1)
@@ -360,10 +365,14 @@ def launch_operation():
 
 
 def search(server_or_granule, servers):
+    if server_or_granule == 'all':
+        return servers
     try:
         uid = uuid.UUID(server_or_granule)
     except ValueError:
-        server_list = [server for server in servers if server_or_granule in server.granules]
+        server_list = [server for server in servers if server_or_granule == server.name]
+        if not server_list:
+            server_list = [server for server in servers if server_or_granule in server.granules]
     else:
         server_list = [server for server in servers if server.id == uid]
     return server_list
@@ -426,7 +435,7 @@ def launch_orchestration(orchestration_id):
     execution_id = uuid.uuid4()
     hosts = {k: [server.id for server in servers] for k, servers in hosts.items()}
     future = executor.submit(deploy_orchestration, orchestration=orchestration.id, params=params, hosts=hosts,
-                             auth=HTTPBearerAuth(create_access_token(get_jwt_identity())), execution=execution_id)
+                             jwt_identity=get_jwt_identity(), execution=execution_id)
     try:
         r = future.result(1)
     except concurrent.futures.TimeoutError:
@@ -444,18 +453,24 @@ async def parallel_command_run(servers, data, auth):
     server_responses = {}
     for server in servers:
         server_responses[str(server.id)] = asyncio.create_task(
-            async_post(server, 'api_1_0.launch_command', json=data, auth=auth))
+            async_post(server, 'api_1_0.launch_command', json=data, auth=auth, timeout=data.get('timeout', None) + 1))
 
     for server in servers:
-        try:
-            server_responses[str(server.id)] = await server_responses[str(server.id)]
-        except Exception as e:
-            server_responses[str(server.id)] = {'error': 'Exception raised: ' + str(e)}
+        server_responses[str(server.id)] = await server_responses[str(server.id)]
     return server_responses
 
 
 def wrap_sudo(user, cmd):
-    return f"sudo -u {user} -i {cmd}"
+    if isinstance(user, User):
+        username = user.name
+    else:
+        username = user
+    if isinstance(cmd, str):
+        return f"sudo -u {username} -iS {cmd}"
+    else:
+        args = ["sudo", "-u", username, "-iS"]
+        args.extend(cmd)
+        return args
 
 
 @api_bp.route('/launch/command', methods=['POST'])
@@ -500,12 +515,14 @@ def launch_command():
         server_list.pop(server_list.index(g.server))
         username = getattr(current_user, 'user', None)
         if not username:
-            return {"error": f"User {get_jwt_identity()} not found"}, 404
+            return {"error": f"User '{get_jwt_identity()}' not found"}, 404
 
-        cmd = wrap_sudo(current_user, data['command'])
-        future = executor.submit(subprocess.run, cmd,
-                                 timeout=data.get('timeout', defaults.TIMEOUT_COMMAND),
-                                 shell=True)
+        args = shlex.split(data['command'])
+        cmd = wrap_sudo(username, args)
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if data.get('input', None) else None,
+                                stderr=subprocess.PIPE, stdout=subprocess.PIPE,
+                                encoding='utf-8'
+                                )
 
     resp_data = {}
     if server_list:
@@ -518,19 +535,38 @@ def launch_command():
                 else:
                     resp_data[s] = r[0]
             else:
-                resp_data[s] = {'error': {'status_code': r[1], 'response': r[0]}}
+                if r[1]:
+                    resp_data[s] = {
+                        'error': {'status_code': r[1], 'response': r[0] if isinstance(r[0], str) else str(r[0])}}
+                else:
+                    if current_app.config['DEBUG']:
+                        f_tb = traceback.format_exception(type(r[0]), r[0], r[0].__traceback__)
+                    else:
+                        f_tb = traceback.format_exception_only(type(r[0]), r[0], r[0])
+                    resp_data[s] = {'error': ''.join(f_tb)}
 
     if start:
+        timeout = data.get('timeout', defaults.TIMEOUT_COMMAND)
         try:
-            cp = future.result(data.get('timeout', defaults.TIMEOUT_COMMAND) + 1 - (time.time() - start))
-        except (concurrent.futures.TimeoutError, subprocess.TimeoutExpired):
+            outs, errs = proc.communicate(input=data.get('input', None),
+                                          timeout=timeout - (time.time() - start))
+        except (TimeoutError, subprocess.TimeoutExpired):
+            proc.kill()
+            outs, errs = proc.communicate()
             resp_data[str(g.server.id)] = {
-                'error': f"Command '{cmd}' timed out after {data.get('timeout', defaults.TIMEOUT_COMMAND)} seconds"}
+                'error': f"Command '{' '.join(cmd)}' timed out after {timeout} seconds",
+                'stdout': outs, 'stderr': errs}
         except Exception as e:
             current_app.logger.exception("Exception raised while trying to run command")
-            resp_data[str(g.server.id)] = {'error': str(e)}
+            resp_data[str(g.server.id)] = {
+                'error': traceback.format_exc() if current_app.config['DEBUG'] else traceback.format_exception_only()}
         else:
-            resp_data[str(g.server.id)] = {'stdout': cp.stdout, 'stderr': cp.stderr, 'returncode': cp.returncode}
+            resp_data[str(g.server.id)] = {'stdout': outs, 'stderr': errs, 'returncode': proc.returncode}
+    if check_param_in_uri("human"):
+        convert_human = {}
+        for s_id, r in resp_data.items():
+            convert_human[Server.query.get(s_id).name] = r
+        resp_data = convert_human
     return resp_data, 200
 
 

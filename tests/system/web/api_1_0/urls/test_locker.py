@@ -1,5 +1,6 @@
 import time
 from unittest import TestCase, mock
+from unittest.mock import patch
 
 from flask import url_for
 from flask_jwt_extended import create_access_token
@@ -33,11 +34,9 @@ class TestLocker(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-
+    @patch('dm.web.api_1_0.urls.locker.defaults.TIMEOUT_PREVENTING_LOCK', 0.01)
     def test_lock_prevent_timer(self):
-        import dm.web.api_1_0.urls.locker as locker_mod
 
-        locker_mod.defaults.TIMEOUT_PREVENTING_LOCK = 0.01
 
         resp = self.client.post(url_for('api_1_0.locker_prevent'),
                                 json=dict(scope=Scope.ORCHESTRATION.name, datemark=self.datemark,

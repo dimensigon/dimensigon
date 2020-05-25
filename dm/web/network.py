@@ -1,3 +1,5 @@
+import asyncio
+import concurrent
 import logging
 import typing as t
 
@@ -5,6 +7,7 @@ import aiohttp
 import requests
 from aiohttp import ContentTypeError
 from flask import current_app as __ca, current_app, url_for
+from requests import ConnectTimeout
 from requests.auth import AuthBase
 
 from dm import defaults
@@ -175,7 +178,7 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     json_data = None
 
     if not session:
-        session = requests.session()
+        _session = requests.session()
 
     try:
         url = _prepare_url(server, view_or_url, view_data)
@@ -191,16 +194,29 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
         kwargs['json'] = pack_msg(kwargs['json'])
 
     kwargs['verify'] = current_app.config['SSL_VERIFY']
-    func = getattr(session, method)
+    func = getattr(_session, method)
 
     if 'timeout' not in kwargs:
         kwargs['timeout'] = defaults.TIMEOUT_REQUEST
 
+    raise_on_error = kwargs.pop('raise_on_error', False)
 
     try:
         resp: requests.Response = func(url, **kwargs)
+    except (TimeoutError, ConnectTimeout) as e:
+        timeout = kwargs.get('timeout', None)
+        if isinstance(timeout, tuple):
+            timeout = timeout[0] + timeout[1]
+        exception = ConnectTimeout(f"Socket timeout reached while trying to connect to {url} "
+                  f"for {timeout} seconds",)
     except Exception as e:
         exception = e
+    finally:
+        if not session:
+            _session.close()
+
+    if exception and raise_on_error:
+        raise exception
 
     if exception is None:
         status = resp.status_code
@@ -299,8 +315,13 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
 
     kwargs['ssl'] = current_app.config['SSL_VERIFY']
 
-    if getattr(_session, 'timeout', None) is None:
-        _session.timeout = defaults.TIMEOUT_REQUEST
+    if 'timeout' in kwargs and isinstance(kwargs['timeout'], (int, float)):
+        kwargs['timeout'] = aiohttp.ClientTimeout(total=kwargs['timeout'])
+
+    raise_on_error = kwargs.pop('raise_on_error', False)
+
+    # if getattr(_session, 'timeout', None) is None:
+    #     _session.timeout = defaults.TIMEOUT_REQUEST
     func = getattr(_session, method)
 
     try:
@@ -310,10 +331,18 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
                 json_data = await resp.json()
             except (ContentTypeError, ValueError):
                 content = await resp.text()
+    except (concurrent.futures.TimeoutError, asyncio.TimeoutError) as e:
+        e.args = (f"Socket timeout reached while trying to connect to {url} "
+                  f"for {kwargs.get('timeout').total or _session._timeout.total} seconds", )
+        exception = e
     except Exception as e:
         exception = e
-    if not session:
-        await _session.close()
+    finally:
+        if not session:
+            await _session.close()
+
+    if exception and raise_on_error:
+        raise exception
 
     if json_data:
         try:

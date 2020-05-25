@@ -1,5 +1,6 @@
 # business functions related with business logic
 import base64
+import datetime
 import json
 import os
 import subprocess
@@ -72,7 +73,9 @@ def upgrade_catalog_from_server(server):
         if catalog_ver:
             resp = get(server, 'api_1_0.catalog',
                        view_data=dict(data_mark=catalog_ver.strftime(defaults.DATEMARK_FORMAT)),
-                       headers={'Authorization': 'Bearer ' + create_access_token(get_jwt_identity())})
+                       headers={'Authorization': 'Bearer ' + create_access_token(get_jwt_identity(),
+                                                                                 expires_delta=datetime.timedelta(
+                                                                                     seconds=15))})
 
             if 199 < resp[1] < 300:
                 delta_catalog = resp[0]

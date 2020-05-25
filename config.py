@@ -1,7 +1,11 @@
 import logging
 import os
 
+import dotenv
+
 basedir = os.path.abspath(os.path.dirname(__file__))
+
+dotenv.load_dotenv(dotenv.find_dotenv())
 
 
 class Config(object):
@@ -15,31 +19,26 @@ class Config(object):
     SSL_REDIRECT = False
     SSL_VERIFY = False
 
-
-    GIT_REPO = 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
+    GIT_REPO = os.environ.get('DM_GIT_REPO') or 'https://codebase.knowtrade.ch:3000'
     SOFTWARE_REPO = os.path.abspath(
         os.environ.get('DM_SOFTWARE_REPO', os.path.join(os.path.expanduser("~"), 'software')))
-    ACTION_TEMPLATE_DIR = os.path.abspath(
-        os.environ.get('DM_ACTION_TEMPLATES', os.path.join(os.path.expanduser("~"), 'action_templates')))
     AUTOUPGRADE = True
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
     SECURIZER_PLAIN = True
     SCHEDULER = False
 
-
     @classmethod
     def init_app(cls, app):
         os.makedirs(cls.SOFTWARE_REPO, exist_ok=True)
         os.makedirs(os.path.join(cls.SOFTWARE_REPO, 'dimensigon'), exist_ok=True)
-        os.makedirs(cls.ACTION_TEMPLATE_DIR, exist_ok=True)
 
 
 class ProductionConfig(Config):
     DEBUG = False
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
                               'sqlite:///' + os.path.join(basedir, 'sqlite.db')
-    SCHEDULER = True
+    SCHEDULER = False
 
     @classmethod
     def init_app(cls, app):
@@ -116,6 +115,7 @@ class TestingConfig(Config):
         for logger in loggers:
             logger.handlers = []
         logging.root.handlers = []
+
 
 class DevelopmentConfig(Config):
     DEVELOPMENT = True

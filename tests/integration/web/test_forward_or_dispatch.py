@@ -9,24 +9,23 @@ from dm.web import db
 from dm.web.decorators import forward_or_dispatch
 from dm.web.errors import UnknownServer
 
-app = Flask(__name__)
-
-
-@app.route('/', methods=['GET', 'POST'])
-@forward_or_dispatch
-def hello():
-    return {'msg': 'default response'}
-
 
 class TestForwardOrDispatch(TestCase):
     def setUp(self):
-        """Create and configure a new app instance for each test."""
+        """Create and configure a new self.app instance for each test."""
         # create a temporary file to isolate the database for each test
-        # create the app with common test config
-        self.app_context = app.app_context()
+        # create the self.app with common test config
+        self.app = Flask(__name__)
+
+        @self.app.route('/', methods=['GET', 'POST'])
+        @forward_or_dispatch
+        def hello():
+            return {'msg': 'default response'}
+        
+        self.app_context = self.app.app_context()
         self.app_context.push()
-        self.client = app.test_client()
-        db.init_app(app)
+        self.client = self.app.test_client()
+        db.init_app(self.app)
         db.create_all()
 
         self.srv1 = Server(id='bbbbbbbb-1234-5678-1234-56781234bbb1', name='server1',

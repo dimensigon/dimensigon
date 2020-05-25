@@ -1,3 +1,4 @@
+import concurrent
 import json
 import re
 from functools import partial
@@ -8,6 +9,7 @@ import aiohttp
 import responses
 from aioresponses import CallbackResult, aioresponses
 from flask_jwt_extended import create_access_token
+from requests import ConnectTimeout
 
 from dm.domain.entities import Server, ActionTemplate, ActionType
 from dm.domain.entities.bootstrap import set_initial
@@ -157,7 +159,6 @@ class TestNetwork(TestCase):
 
     @responses.activate
     def test_get_securizer_error(self):
-        self.app.config['SECURIZER'] = True
 
         def requests_callback_client(client, request):
             self.assertIn('d-destination', request.headers)
@@ -179,49 +180,7 @@ class TestNetwork(TestCase):
         self.assertEqual("some error data", resp[0])
 
     @responses.activate
-    def test_get_securizer(self):
-        self.app.config['SECURIZER'] = True
-
-        def requests_callback_client(client, request):
-            method_func = getattr(client, request.method.lower())
-            resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
-
-            return resp.status_code, resp.headers, resp.data
-
-        responses.add_callback(responses.POST, re.compile('https?://127\.0\.0\.1:.*'),
-                               callback=partial(requests_callback_client, self.client))
-        responses.add_callback(responses.GET, re.compile('https?://127\.0\.0\.1:.*'),
-                               callback=partial(requests_callback_client, self.client))
-
-        resp = get(Server.get_current(), 'api_1_0.actiontemplateresource',
-                   view_data=dict(action_template_id=self.at_json['id']), auth=self.auth)
-
-        self.assertIn('version', resp[0])
-
-    @responses.activate
-    def test_post_securizer(self):
-        self.app.config['SECURIZER'] = True
-
-        def requests_callback_client(client, request):
-            method_func = getattr(client, request.method.lower())
-            resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
-
-            return resp.status_code, resp.headers, resp.data
-
-        responses.add_callback(responses.POST, re.compile('https?://127\.0\.0\.1:.*'),
-                               callback=partial(requests_callback_client, self.client))
-        responses.add_callback(responses.GET, re.compile('https?://127\.0\.0\.1:.*'),
-                               callback=partial(requests_callback_client, self.client))
-
-        data = dict(name='action', version=1, action_type='SHELL', code='None')
-        resp = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=data,
-                    auth=self.auth)
-
-        self.assertIn('action_template_id', resp[0])
-
-    @responses.activate
     def test_get_internal_error_server(self):
-        self.app.config['SECURIZER'] = True
 
         responses.add(responses.GET, re.compile('https?://127\.0\.0\.1.*'), status=500,
                       body='<html>Iternal error server</html>')
@@ -232,26 +191,7 @@ class TestNetwork(TestCase):
         self.assertEqual('<html>Iternal error server</html>', data)
 
     @responses.activate
-    def test_post_securizer(self):
-        self.app.config['SECURIZER'] = True
-
-        def requests_callback_client(client, request):
-            method_func = getattr(client, request.method.lower())
-            resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
-
-            return resp.status_code, resp.headers, resp.data
-
-        responses.add_callback(responses.POST, re.compile('https?://127\.0\.0\.1.*'),
-                               callback=partial(requests_callback_client, self.client))
-
-        at_json = dict(name='action', version=1, action_type='SHELL', code='None')
-        data, status = post(Server.get_current(), 'api_1_0.actiontemplatelist', json=at_json, auth=self.auth)
-
-        self.assertIn('action_template_id', data)
-
-    @responses.activate
     def test_post_no_content_in_response(self):
-        self.app.config['SECURIZER'] = True
 
         def callback_post_client(request):
             return 200, dict(content_type='text/html'), ''
@@ -287,6 +227,66 @@ class TestNetwork(TestCase):
 
         self.assertEqual(None, status)
         self.assertIsInstance(data, ConnectionError)
+
+    @responses.activate
+    def test_timeout(self):
+        responses.add(responses.GET, re.compile('https?://127\.0\.0\.1.*'), body=TimeoutError())
+        data, status = get(Server.get_current(), 'root.home', auth=self.auth, timeout=1)
+
+        self.assertEqual(None, status)
+        self.assertIsInstance(data, ConnectTimeout)
+        self.assertEqual(f"Socket timeout reached while trying to connect to {Server.get_current().url('root.home')} "
+                         f"for 1 seconds", str(data))
+
+    @responses.activate
+    def test_raise_on_error(self):
+        responses.add(responses.GET, re.compile('https?://127\.0\.0\.1.*'), body=TimeoutError())
+
+        with self.assertRaises(ConnectTimeout) as e:
+            data, status = get(Server.get_current(), 'root.home', auth=self.auth, timeout=1, raise_on_error=True)
+
+        self.assertEqual(f"Socket timeout reached while trying to connect to {Server.get_current().url('root.home')} "
+                         f"for 1 seconds", str(e.exception))
+
+        with self.assertRaises(ConnectTimeout) as e:
+            data, status = get(Server.get_current(), 'root.home', auth=self.auth, timeout=(1, 2), raise_on_error=True)
+
+        self.assertEqual(f"Socket timeout reached while trying to connect to {Server.get_current().url('root.home')} "
+                         f"for 3 seconds", str(e.exception))
+
+
+class TestAsyncNetwork(TestCase):
+
+    def run(self, result=None):
+        with patch('dm.web.decorators.lock'):
+            with patch('dm.web.decorators.unlock'):
+                super().run(result)
+
+    def setUp(self):
+        """Create and configure a new app instance for each test."""
+        # create the app with common test config
+        self.app = create_app('test')
+        self.app_context = self.app.app_context()
+        self.app_context.push()
+        self.client = self.app.test_client()
+        self.token = create_access_token('00000000-0000-0000-0000-000000000001')
+        self.auth = HTTPBearerAuth(self.token)
+        self.headers = dict(Authorization=f"Bearer {self.token}")
+        db.create_all()
+        set_initial()
+        dim = generate_dimension('dimension')
+        dim.current = True
+        at = ActionTemplate(id='12345678-1234-5678-1234-567812345678',
+                            name='rmdir', version=1, action_type=ActionType.SHELL, code='rmdir {dir}')
+
+        db.session.add_all([dim, at])
+        db.session.commit()
+        self.at_json = at.to_json()
+
+    def tearDown(self) -> None:
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
 
     @aioresponses()
     def test_async_get_internal_error_server(self, m):
@@ -503,7 +503,6 @@ class TestNetwork(TestCase):
 
     @aioresponses()
     def test_async_post_securizer(self, m):
-        self.app.config['SECURIZER'] = True
 
         def callback_post_client(url, **kwargs):
             kwargs.pop('allow_redirects')
@@ -524,7 +523,6 @@ class TestNetwork(TestCase):
 
     @aioresponses()
     def test_async_post_no_content_in_response(self, m):
-        self.app.config['SECURIZER'] = True
 
         def callback_post_client(url, **kwargs):
             return CallbackResult('POST', status=200, body='', content_type='text/html')
@@ -554,8 +552,6 @@ class TestNetwork(TestCase):
 
     @aioresponses()
     def test_async_post_connection_error(self, m):
-        self.app.config['SECURIZER'] = True
-
         m.post(re.compile('https?://127\.0\.0\.1.*'), exception=aiohttp.ClientConnectionError())
 
         at_json = dict(name='action', version=1, action_type='SHELL', code='None')
@@ -566,6 +562,28 @@ class TestNetwork(TestCase):
         self.assertEqual(None, status)
         self.assertIsInstance(data, aiohttp.ClientConnectionError)
 
+    @aioresponses()
+    def test_async_timeout(self, m):
+        m.get(re.compile('https?://127\.0\.0\.1.*'), exception=concurrent.futures.TimeoutError())
+
+        data, status = run(
+            async_get(Server.get_current(), 'root.home', auth=self.auth, timeout=1))
+
+        self.assertEqual(None, status)
+        self.assertIsInstance(data, concurrent.futures.TimeoutError)
+        self.assertEqual(f"Socket timeout reached while trying to connect to {Server.get_current().url('root.home')} "
+                         f"for 1 seconds", str(data))
+
+    @aioresponses()
+    def test_async_raise_on_error(self, m):
+        m.get(re.compile('https?://127\.0\.0\.1.*'), exception=concurrent.futures.TimeoutError())
+
+        with self.assertRaises(concurrent.futures.TimeoutError) as e:
+            data, status = run(
+                async_get(Server.get_current(), 'root.home', auth=self.auth, timeout=1, raise_on_error=True))
+
+        self.assertEqual(f"Socket timeout reached while trying to connect to {Server.get_current().url('root.home')} "
+                         f"for 1 seconds", str(e.exception))
 
 class TestNetworkWithSecurizer(TestCase):
 
@@ -838,6 +856,41 @@ class TestNetworkWithSecurizer(TestCase):
 
         self.assertEqual(None, status)
         self.assertIsInstance(data, ConnectionError)
+
+
+class TestAsyncNetworkWithSecurizer(TestCase):
+
+    def run(self, result=None):
+        with patch('dm.web.decorators.lock'):
+            with patch('dm.web.decorators.unlock'):
+                super().run(result)
+
+    def setUp(self):
+        """Create and configure a new app instance for each test."""
+        # create the app with common test config
+        self.app = create_app('test')
+        self.app.config['SECURIZER'] = True
+        self.app_context = self.app.app_context()
+        self.app_context.push()
+        self.client = self.app.test_client()
+        self.token = create_access_token('00000000-0000-0000-0000-000000000001')
+        self.auth = HTTPBearerAuth(self.token)
+        self.headers = dict(Authorization=f"Bearer {self.token}")
+        db.create_all()
+        set_initial()
+        dim = generate_dimension('dimension')
+        dim.current = True
+        at = ActionTemplate(id='12345678-1234-5678-1234-567812345678',
+                            name='rmdir', version=1, action_type=ActionType.SHELL, code='rmdir {dir}')
+
+        db.session.add_all([dim, at])
+        db.session.commit()
+        self.at_json = at.to_json()
+
+    def tearDown(self) -> None:
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
 
     @aioresponses()
     def test_async_get_internal_error_server(self, m):

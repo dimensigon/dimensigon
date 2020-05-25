@@ -2,6 +2,17 @@ from dm.domain.entities import Scope, ActionType
 
 UUID_pattern = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 
+login_post = {
+    "type": "object",
+    "properties": {
+        "username": {"type": "string"},
+        "password": {"type": "string"}
+
+    },
+    "required": ["username", "password"],
+    "additionalProperties": False
+}
+
 schema_healthcheck = {
     "type": "object",
     "properties": {
@@ -9,6 +20,7 @@ schema_healthcheck = {
                    "pattern": "^(reboot|stop|software)"},
     },
     "required": ["action"],
+    "additionalProperties": False
 }
 
 locker_prevent_post = {
@@ -450,6 +462,7 @@ launch_command_post = {
                   },
         "timeout": {"type": "integer",
                     "minimum": 1},
+        "input": {"type": "string"},
     },
     "required": ["command"],
     "additionalProperties": False,

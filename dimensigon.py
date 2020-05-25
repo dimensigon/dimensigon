@@ -7,7 +7,6 @@ import click
 import dotenv
 import requests
 import rsa
-from dotenv import load_dotenv
 from flask import Flask
 from flask.cli import with_appcontext
 from flask_jwt_extended import create_access_token
@@ -15,11 +14,7 @@ from flask_migrate import Migrate
 
 from dm.domain.entities.bootstrap import set_initial
 
-basedir = os.path.dirname(os.path.abspath(__file__))
-dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path)
+dotenv.load_dotenv(dotenv.find_dotenv())
 
 PLATFORM = platform.system()
 
@@ -124,7 +119,9 @@ def join(server, token, ssl, verify):
         # TODO: send ca.cert from the dimension
         resp = session.get(f"{protocol}://{server}/api/v1.0/join/public", headers={'Authorization': 'Bearer ' + token},
                            verify=verify)
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            click.echo(f"Error trying to get dimensigon public key: {resp.content}")
+            exit(1)
         pub_key = rsa.PublicKey.load_pkcs1(resp.content)
 
         # Generate Public and Private Temporal Keys
@@ -151,6 +148,10 @@ def join(server, token, ssl, verify):
             dim = Dimension.from_json(resp_data.pop('Dimension'))
             dim.current = True
             db.session.add(dim)
+
+            if 'SECRET_KEY' not in dotenv.dotenv_values():
+                dotenv.set_key(dotenv.find_dotenv(), 'SECRET_KEY', str(dim.id))
+
             click.echo('Joined to the dimension')
             click.echo('Updating Catalog')
             reference_server_id = resp_data.pop('me')
@@ -170,7 +171,7 @@ def join(server, token, ssl, verify):
 
 @dm.command(help="""Create a token for joining the dimension.""")
 def token():
-    click.echo(create_access_token('join', expires_delta=datetime.timedelta(minutes=15)))
+    click.echo(create_access_token(User.get_by_user('join').id, expires_delta=datetime.timedelta(minutes=15)))
 
 
 @dm.command(help="""Create a dimension from scratch. Must provide a name for the dimension""")

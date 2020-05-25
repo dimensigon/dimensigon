@@ -1,232 +1,23 @@
 import json
-import os
 import re
+import traceback
 import uuid
-from unittest import TestCase, mock
+from datetime import datetime
+from functools import partial
+from unittest import TestCase
 from unittest.mock import patch
 
-import requests
 import responses
+from aioresponses import aioresponses, CallbackResult
 from flask import url_for
-from pkg_resources import parse_version
+from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, Route, Gate, \
-    Dimension, User
+from dm.domain.entities import Gate, Locker, Catalog
+from dm.domain.entities import Server, Route, Dimension, User
+from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
-from dm.web.background_tasks import TempRoute, update_table_routing_cost, process_get_new_version_from_gogs, \
-    upgrader_logger
-
-gogs_content = """
-<div class="ui container">
-		<h2 class="ui header">
-			Releases
-		</h2>
-		<ul id="release-list">
-				<li class="ui grid">
-					<div class="ui four wide column meta">
-						<span class="commit">
-							<a href="/dimensigon/dimensigon/src/d3aad4973fe692c4fcefede8eb53a1c9e32749b2" rel="nofollow"><i class="code icon"></i> d3aad4973f</a>
-						</span>
-					</div>
-					<div class="ui twelve wide column detail">
-							<h4>
-								<a href="/dimensigon/dimensigon/src/v0.1.a1" rel="nofollow"><i class="tag icon"></i> v0.1.a1</a>
-							</h4>
-							<div class="download">
-								<a href="/dimensigon/dimensigon/archive/v0.1.a1.zip" rel="nofollow"><i class="octicon octicon-file-zip"></i>ZIP</a>
-								<a href="/dimensigon/dimensigon/archive/v0.1.a1.tar.gz"><i class="octicon octicon-file-zip"></i>TAR.GZ</a>
-							</div>
-						<span class="dot">&nbsp;</span>
-					</div>
-				</li>
-				<li class="ui grid">
-					<div class="ui four wide column meta">
-						<span class="commit">
-							<a href="/dimensigon/dimensigon/src/2184389034cec9620c44594ae6c174e676434db5" rel="nofollow"><i class="code icon"></i> 2184389034</a>
-						</span>
-					</div>
-					<div class="ui twelve wide column detail">
-							<h4>
-								<a href="/dimensigon/dimensigon/src/v0.0.1" rel="nofollow"><i class="tag icon"></i> v0.0.1</a>
-							</h4>
-							<div class="download">
-								<a href="/dimensigon/dimensigon/archive/v0.0.1.zip" rel="nofollow"><i class="octicon octicon-file-zip"></i>ZIP</a>
-								<a href="/dimensigon/dimensigon/archive/v0.0.1.tar.gz"><i class="octicon octicon-file-zip"></i>TAR.GZ</a>
-							</div>
-						<span class="dot">&nbsp;</span>
-					</div>
-				</li>
-		</ul>
-		<div class="center">
-			<a class="ui small button disabled">
-				Página Anterior
-			</a>
-			<a class="ui small button disabled">
-				Página Siguiente
-			</a>
-		</div>
-	</div>
-"""
-
-
-class TestCheckNewVersions(TestCase):
-
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        db.create_all()
-        Server.set_initial()
-        d = Dimension(name='test', current=True)
-        db.session.add(d)
-        db.session.commit()
-        self.client = self.app.test_client(use_cookies=True)
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
-
-    @patch('dm.web.background_tasks.run_elevator')
-    @patch('dm.web.background_tasks.os.path.exists')
-    @patch('dm.web.background_tasks.open')
-    @responses.activate
-    def test_internet_upgrade(self, mock_open, mock_exists, mock_run_elevator):
-        with mock.patch('dm.web.background_tasks.dm_version', '0.0.1'):
-            responses.add(method='GET',
-                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
-                              '/dimensigon/dimensigon/releases',
-                          body=gogs_content)
-
-            responses.add(method='GET',
-                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
-                              '/dimensigon/dimensigon/archive/v0.1.a1.tar.gz',
-                          body=b"v0.1.a1")
-
-            responses.add(method='GET',
-                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
-                              '/dimensigon/dimensigon/archive/v0.0.1.tar.gz',
-                          body=b"v0.0.1")
-
-            mock_exists.return_value = False
-            process_get_new_version_from_gogs(self.app)
-
-            self.assertEqual(
-                (os.path.join(self.app.config['SOFTWARE_REPO'], 'dimensigon', 'dimensigon-v0.1.a1.tar.gz'),
-                 parse_version('v0.1.a1'),
-                 upgrader_logger),
-                mock_run_elevator.call_args[0])
-
-    @patch('dm.web.background_tasks.run_elevator')
-    @patch('dm.web.background_tasks.os.path.exists')
-    @patch('dm.web.background_tasks.open')
-    @responses.activate
-    def test_internet_not_upgrade(self, mock_open, mock_exists, mock_run_elevator):
-        with mock.patch('dm.web.background_tasks.dm_version', '0.1'):
-            responses.add(method='GET',
-                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
-                          body=gogs_content)
-
-            responses.add(method='GET',
-                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/archive/v0.1.a1.tar.gz',
-                          body=b"v0.1.a1")
-
-            responses.add(method='GET',
-                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/archive/v0.0.1.tar.gz',
-                          body=b"v0.0.1")
-
-            mock_exists.return_value = False
-            process_get_new_version_from_gogs()
-
-            self.assertFalse(mock_run_elevator.called)
-
-    @patch('dm.web.background_tasks.run_elevator')
-    @patch('dm.web.background_tasks.os.path.exists')
-    @patch('dm.web.background_tasks.open')
-    @responses.activate
-    def test_no_internet_no_upgrade(self, mock_open, mock_exists, mock_run_elevator):
-        with mock.patch('dm.web.background_tasks.dm_version', '0.1'):
-            responses.add(method='GET',
-                          url='https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000/dimensigon/dimensigon/releases',
-                          body=requests.exceptions.ConnectionError('No connection'))
-
-            mock_exists.return_value = False
-            process_get_new_version_from_gogs()
-
-            self.assertFalse(mock_run_elevator.called)
-
-
-# class TestCheckCatalog(TestCase):
-#
-#     def setUp(self):
-#         """Create and configure a new app instance for each test."""
-#         # create the app with common test config
-#         self.app = create_app('test')
-#         self.app_context = self.app.app_context()
-#         self.app_context.push()
-#         db.create_all()
-#         set_initial()
-#         self.client = self.app.test_client()
-#
-#     def tearDown(self) -> None:
-#         db.session.remove()
-#         db.drop_all()
-#         self.app_context.pop()
-#
-#     @patch('dm.use_cases.interactor.lock_scope')
-#     @patch('dm.domain.entities.get_now')
-#     @patch('dm.web.background_tasks.upgrade_catalog_from_server')
-#     @aioresponses()
-#     def test_check_catalog(self, mock_upgrade, mock_now, mock_lock, m):
-#         mock_lock.__enter__.return_value = None
-#         mock_now.return_value = datetime(2019, 4, 1)
-#         s1 = Server('node1', port=8000)
-#         Route(destination=s1, cost=0)
-#         s2 = Server('node2', port=8000)
-#         Route(destination=s2, cost=0)
-#         db.session.add_all([s1, s2])
-#         db.session.commit()
-#
-#         m.get(url=s1.url('root.healthcheck'),
-#               payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
-#         m.get(url=s2.url('root.healthcheck'),
-#               payload=dict(version=dm.__version__, catalog_version='20190401.000000.000001'))
-#
-#         upgrade_catalog()
-#
-#         mock_upgrade.assert_called_once_with(s2)
-#
-#     @patch('dm.use_cases.interactor.lock_scope')
-#     @patch('dm.domain.entities.get_now')
-#     @patch('dm.web.background_tasks.upgrade_catalog_from_server')
-#     @aioresponses()
-#     def test_check_catalog_no_upgrade(self, mock_upgrade, mock_now, mock_lock, m):
-#         mock_lock.__enter__.return_value = None
-#         mock_now.return_value = datetime(2019, 4, 1)
-#         s1 = Server('node1', port=8000)
-#         Route(destination=s1, cost=0)
-#         s2 = Server('node2', port=8000)
-#         Route(destination=s2, cost=0)
-#         db.session.add_all([s1, s2])
-#         db.session.commit()
-#
-#         m.get(url=s1.url('root.healthcheck'),
-#               payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
-#         m.get(url=s2.url('root.healthcheck'),
-#               payload=dict(version=dm.__version__, catalog_version='20190401.000000.000000'))
-#
-#         upgrade_catalog()
-#
-#         self.assertEqual(0, mock_upgrade.call_count)
-#
-#         m.get(url=s1.url('root.healthcheck'), exception=aiohttp.ClientError())
-#         m.get(url=s2.url('root.healthcheck'), exception=aiohttp.ClientError())
-#
-#         check_catalog()
-#
-#         self.assertEqual(0, mock_upgrade.call_count)
+from dm.web.background_tasks import TempRoute, update_table_routing_cost, process_catalog_route_table
+from dm.web.network import HTTPBearerAuth
 
 
 class TestUpdateTableRoutingCost(TestCase):
@@ -671,7 +462,7 @@ class TestUpdateTableRoutingCost(TestCase):
                                 gate_id='123e4567-e89b-12d3-a456-426655440022', proxy_server_id=None, cost=0),
                        ]}
             elif re.search("^https?://(10\.0\.0\.2):5000" + url_for('api_1_0.routes', _external=False),
-                         request.url):
+                           request.url):
                 msg = {"server_id": '123e4567-e89b-12d3-a456-426655440002',
                        "route_list": [
                            dict(destination_id='123e4567-e89b-12d3-a456-426655440001',
@@ -716,3 +507,138 @@ class TestUpdateTableRoutingCost(TestCase):
             None, g22, 0)}, changed_routes)
 
         db.session.commit()
+
+
+class TestProcessCatalogRouteTable(TestCase):
+
+    @patch('dm.domain.entities.get_now')
+    def setUp(self, mock_now):
+        """Create and configure a new app instance for each test."""
+        # create the app with common test config
+        self.app = create_app('test')
+        self.app.config['SECURIZER'] = True
+        mock_now.return_value = datetime(2019, 4, 1)
+        with self.app.app_context():
+            self.dim = generate_dimension('test')
+            self.dim.current = True
+            self.json_dim = self.dim.to_json()
+            self.client = self.app.test_client()
+
+            db.create_all()
+            Locker.set_initial()
+            User.set_initial()
+
+            self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+
+            server = Server('node1', dns_or_ip='127.0.0.1', port=8000, me=True)
+            for g in server.gates:
+                g.last_modified_at = datetime(2019, 4, 1)
+            db.session.add_all([server, self.dim])
+            db.session.commit()
+
+            # dump data
+            self.json_node1 = server.to_json(add_gates=True)
+            self.json_users = [u.to_json() for u in User.query.all()]
+
+        self.app2 = create_app('test')
+        self.app2.config['SECURIZER'] = True
+        self.client2 = self.app2.test_client()
+        mock_now.return_value = datetime(2019, 4, 2)
+        with self.app2.app_context():
+            db.create_all()
+            Locker.set_initial()
+            User.set_initial()
+
+            me = Server('node2', port=8000, me=True, granules='granule', last_modified_at=datetime(2019, 4, 2))
+            for g in me.gates:
+                g.last_modified_at = datetime(2019, 4, 2)
+            db.session.add(me)
+
+            src_server = Server.from_json(self.json_node1)
+            Route(src_server, cost=0)
+            db.session.add(src_server)
+
+            dim = Dimension.from_json(self.json_dim)
+            dim.current = True
+            db.session.add(dim)
+
+            users = [User.from_json(ju) for ju in self.json_users]
+            db.session.add_all(users)
+
+            db.session.commit()
+
+            # dump data
+            self.json_node2 = me.to_json(add_gates=True)
+
+        mock_now.return_value = datetime(2019, 4, 1)
+        with self.app.app_context():
+            node2 = Server.from_json(self.json_node2)
+            node2.last_modified_at = datetime(2019, 4, 1)
+            Route(node2, cost=0)
+            db.session.add(node2)
+            db.session.commit()
+
+    def tearDown(self) -> None:
+        with self.app2.app_context():
+            db.session.remove()
+            db.drop_all()
+
+        with self.app.app_context():
+            db.session.remove()
+            db.drop_all()
+
+    @staticmethod
+    def set_callbacks(target, m: aioresponses = None):
+        import responses
+        method_list = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+
+        def requests_callback_client(client, request):
+            method_func = getattr(client, request.method.lower())
+            try:
+                resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
+            except Exception as e:
+                return 500, {}, traceback.format_exc()
+
+            return resp.status_code, resp.headers, resp.data
+
+        def callback_client(method, client, url, **kwargs):
+            kwargs.pop('allow_redirects')
+            # passing headers as a workarround for https://github.com/pnuckowski/aioresponses/issues/111
+            func = getattr(client, method.lower())
+            try:
+                r = func(url.path, headers=kwargs['headers'], json=kwargs['json'])
+            except Exception as e:
+                return CallbackResult(method.upper(), status=500, body=traceback.format_exc(), headers={})
+
+            return CallbackResult(method.upper(), status=r.status_code, body=r.data, content_type=r.content_type,
+                                  headers=r.headers)
+
+        for dest_regexp, client in target:
+
+            for method in method_list:
+                responses.add_callback(method, re.compile(f'https?://{dest_regexp}.*'),
+                                       callback=partial(requests_callback_client, client))
+            if m:
+                for method in method_list:
+                    func = getattr(m, method.lower())
+                    func(re.compile(f'https?://{dest_regexp}.*'),
+                         callback=partial(callback_client, method, client), repeat=True)
+
+    @responses.activate
+    @aioresponses()
+    @patch('dm.web.background_tasks.update_table_routing_cost', return_value=True)
+    @patch('dm.web.background_tasks.upgrade_version', return_value=False)
+    def test_catalog(self, m, mock_version, mock_routing):
+        # test all system from process_catalog_route_table to lock server and upgrade catalog
+        self.set_callbacks([("(127.0.0.1|node1)", self.app.test_client()),
+                       ("node2", self.app2.test_client())], m=m)
+
+        with self.app.app_context():
+            datemark = Catalog.max_catalog()
+        self.assertEqual(datetime(2019, 4, 1), datemark)
+
+        process_catalog_route_table(self.app)
+
+        with self.app.app_context():
+            datemark = Catalog.max_catalog()
+        self.assertEqual(datetime(2019, 4, 2), datemark)

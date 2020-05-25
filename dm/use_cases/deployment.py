@@ -1,5 +1,6 @@
 import base64
 import concurrent
+import datetime
 import logging
 import pickle
 import re
@@ -9,10 +10,10 @@ import typing as t
 from abc import ABC, abstractmethod
 from collections import ChainMap
 from concurrent.futures.process import ProcessPoolExecutor
-from datetime import datetime
 from functools import partial
 
 from flask import current_app
+from flask_jwt_extended import create_access_token
 
 from dm import defaults
 from dm.domain.entities import Server, Orchestration, Step, StepExecution, OrchExecution
@@ -21,7 +22,7 @@ from dm.utils.dag import DAG
 from dm.utils.event_handler import Event
 from dm.utils.typos import Kwargs, Id
 from dm.web import db
-from dm.web.network import post
+from dm.web.network import post, HTTPBearerAuth
 
 # if t.TYPE_CHECKING:
 
@@ -407,7 +408,7 @@ class CompositeCommand(ICommand):
 
 class ProxyMixin(object):
 
-    def __init__(self, server: Id, auth, timeout: t.Union[int, float] = 300):
+    def __init__(self, server: Id, jwt_identity, timeout: t.Union[int, float] = 300):
         """
         Parameters
         ----------
@@ -427,7 +428,7 @@ class ProxyMixin(object):
             timeout when waiting response from remote server when invoke and undo executed
         """
         self.__dict__['_server'] = server
-        self.__dict__['_auth'] = auth
+        self.__dict__['_jwt_identity'] = jwt_identity
         self.__dict__['_completion_event'] = threading.Event()
         self.__dict__['timeout'] = timeout
         self.__dict__['_command'] = None
@@ -463,7 +464,7 @@ class ProxyMixin(object):
 
     @property
     def auth(self):
-        return self._auth
+        return HTTPBearerAuth(create_access_token(self._jwt_identity, datetime.timedelta(seconds=15)))
 
     # def __setattr__(self, key, value):
     #     if key in self.__dict__:
@@ -479,9 +480,9 @@ class ProxyMixin(object):
                                                  stdout=event.data.get('stdout'),
                                                  stderr=event.data.get('stderr'),
                                                  rc=event.data.get('rc'),
-                                                 start_time=datetime.strptime(event.data.get('start_time'),
+                                                 start_time=datetime.datetime.strptime(event.data.get('start_time'),
                                                                               defaults.DATETIME_FORMAT),
-                                                 end_time=datetime.strptime(event.data.get('end_time'),
+                                                 end_time=datetime.datetime.strptime(event.data.get('end_time'),
                                                                             defaults.DATETIME_FORMAT))
         else:
             self._command._cp = CompletedProcess(success=False, stdout=str(event.data),
@@ -531,15 +532,15 @@ class ProxyMixin(object):
 
 class ProxyCommand(ProxyMixin, Command):
 
-    def __init__(self, server: Id, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
-        ProxyMixin.__init__(self, server, auth, timeout=timeout)
+    def __init__(self, server: Id, jwt_identity, *args, timeout: t.Union[int, float] = 300, **kwargs):
+        ProxyMixin.__init__(self, server, jwt_identity, timeout=timeout)
         object.__setattr__(self, "_command", Command(*args, **kwargs))
 
 
 class ProxyUndoCommand(ProxyMixin, UndoCommand):
 
-    def __init__(self, server: Id, auth, *args, timeout: t.Union[int, float] = 300, **kwargs):
-        ProxyMixin.__init__(self, server, auth, timeout=timeout)
+    def __init__(self, server: Id, jwt_identity, *args, timeout: t.Union[int, float] = 300, **kwargs):
+        ProxyMixin.__init__(self, server, jwt_identity, timeout=timeout)
         object.__setattr__(self, "_command", UndoCommand(*args, **kwargs))
 
 
@@ -593,7 +594,7 @@ def _create_cmd_from_orchestration(orchestration: Orchestration, params: Kwargs)
 
 
 def _create_server_undo_command(executor, params, current_server, server: Id, s: Step, register, d=None,
-                                s2cc=None, auth=None) -> t.Optional[t.Union[UndoCommand, CompositeCommand]]:
+                                s2cc=None, jwt_identity=None) -> t.Optional[t.Union[UndoCommand, CompositeCommand]]:
     def iterate_tree(_cls, _step: Step, _d, _s2cc):
         if _step in _s2cc:
             _uc = _s2cc[_step]
@@ -613,7 +614,7 @@ def _create_server_undo_command(executor, params, current_server, server: Id, s:
     if server == current_server.id:
         u_cmd_cls = UndoCommand
     else:
-        u_cmd_cls = partial(ProxyUndoCommand, server, auth)
+        u_cmd_cls = partial(ProxyUndoCommand, server, jwt_identity)
     uc = None
     for child_undo_step in s.children_undo_steps:
         uc = iterate_tree(u_cmd_cls, child_undo_step, d, s2cc)
@@ -628,7 +629,7 @@ def _create_server_undo_command(executor, params, current_server, server: Id, s:
 
 def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
                                    hosts: t.Dict[str, t.List[Id]],
-                                   executor, register, auth=None) -> CompositeCommand:
+                                   executor, register, jwt_identity=None) -> CompositeCommand:
     current_server = Server.get_current()
 
     def create_do_cmd_from_step(_step: Step, _s2cc):
@@ -641,13 +642,13 @@ def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
                     if server == current_server.id:
                         cls = Command
                     else:
-                        if auth is None:
-                            RuntimeError('auth must be specified when executing orchestration to a remote server')
-                        cls = partial(ProxyCommand, server, auth)
+                        if jwt_identity is None:
+                            RuntimeError('jwt_identity must be specified when executing orchestration to a remote server')
+                        cls = partial(ProxyCommand, server, jwt_identity)
 
                     c = cls(create_operation(_step),
                             undo_command=_create_server_undo_command(executor, params, current_server, server, _step,
-                                                                     register, auth=auth),
+                                                                     register, jwt_identity=jwt_identity),
                             params=params,
                             stop_on_error=_step.stop_on_error,
                             stop_undo_on_error=None,

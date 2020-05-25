@@ -55,6 +55,7 @@ class TestLaunchOrchestration(TestCase):
                 if app == self.app:
                     r = Route(remote, cost=0)
                     self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+                    self.jwt_identity = User.get_by_user('root').id
                 else:
                     r = Route(me, cost=0)
                 db.session.add_all([me, remote, o, r])
@@ -127,7 +128,7 @@ class TestLaunchOrchestration(TestCase):
 
             deploy_orchestration(o.id, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(1, OrchExecution.query.count())
             oe = OrchExecution.query.one()
@@ -214,7 +215,7 @@ class TestLaunchOrchestration(TestCase):
 
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(1, OrchExecution.query.count())
             oe = OrchExecution.query.one()
@@ -299,7 +300,7 @@ class TestLaunchOrchestration(TestCase):
             o.stop_on_error = False
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(8, StepExecution.query.count())
 
@@ -388,7 +389,7 @@ class TestLaunchOrchestration(TestCase):
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(8, StepExecution.query.count())
 
@@ -469,7 +470,7 @@ class TestLaunchOrchestration(TestCase):
             o.stop_on_error = False
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(2, StepExecution.query.count())
 
@@ -524,7 +525,7 @@ class TestLaunchOrchestration(TestCase):
             o.undo_on_error = False
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(3, StepExecution.query.count())
 
@@ -589,7 +590,7 @@ class TestLaunchOrchestration(TestCase):
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(8, StepExecution.query.count())
 
@@ -667,7 +668,7 @@ class TestLaunchOrchestration(TestCase):
             o.stop_undo_on_error = True
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(4, StepExecution.query.count())
 
@@ -726,7 +727,7 @@ class TestLaunchOrchestration(TestCase):
             o = Orchestration.query.get('bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(4, StepExecution.query.count())
 
@@ -787,7 +788,7 @@ class TestLaunchOrchestration(TestCase):
             o.stop_undo_on_error = True
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(5, StepExecution.query.count())
 
@@ -859,7 +860,7 @@ class TestLaunchOrchestration(TestCase):
             o.stop_undo_on_error = False
             deploy_orchestration(o, params={'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
                                  hosts={'all': [me.id, remote.id], 'frontend': [me.id], 'backend': [remote.id]},
-                                 max_parallel_tasks=4, auth=self.auth)
+                                 max_parallel_tasks=4, jwt_identity=self.jwt_identity)
 
             self.assertEqual(8, StepExecution.query.count())
 

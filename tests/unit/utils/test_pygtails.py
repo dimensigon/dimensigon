@@ -1,34 +1,34 @@
 import gc
-import os
-import sys
-from unittest.mock import patch
-
-try:
-    # python 2.6
-    import unittest2 as unittest
-except ImportError:
-    import unittest
-import shutil
-import tempfile
 import gzip
 import io
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from pyfakefs.fake_filesystem_unittest import TestCase
+
 from dm.utils.pygtail import Pygtail
 
 PY2 = sys.version_info[0] == 2
 
 
-class PygtailTest(unittest.TestCase):
+class PygtailTest(TestCase):
     # TODO:
     # - test for non-default offset file
     # - test for savelog and datext rotation schemes
 
     def setUp(self):
+        self.setUpPyfakefs()
         self.test_lines = ["1\n", "2\n", "3\n", "4\n", "5\n"]
         self.test_str = ''.join(self.test_lines)
         self.logfile = tempfile.NamedTemporaryFile(delete=False)
         self.logfile.write(self.test_str.encode('utf-8'))
         self.logfile.close()
         self.addCleanup(self.tearDown)
+
 
     def append(self, str):
         # append the give string to the temp logfile

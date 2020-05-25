@@ -9,25 +9,25 @@ from dm.utils.helpers import generate_dimension
 from dm.web import db
 from dm.web.decorators import securizer
 
-app = Flask(__name__)
-
-
-@app.route('/', methods=['GET', 'POST'])
-@securizer
-def hello():
-    return {'msg': 'default response'}
-
 
 class TestSecurizer(TestCase):
     def setUp(self):
-        """Create and configure a new app instance for each test."""
+        """Create and configure a new self.app instance for each test."""
         # create a temporary file to isolate the database for each test
-        # create the app with common test config
-        app.config['SECURIZER_PLAIN'] = True
-        self.app_context = app.app_context()
+        # create the self.app with common test config
+
+        self.app = Flask(__name__)
+
+        @self.app.route('/', methods=['GET', 'POST'])
+        @securizer
+        def hello():
+            return {'msg': 'default response'}
+
+        self.app.config['SECURIZER_PLAIN'] = True
+        self.app_context = self.app.app_context()
         self.app_context.push()
-        self.client = app.test_client()
-        db.init_app(app)
+        self.client = self.app.test_client()
+        db.init_app(self.app)
         db.create_all()
         self.d = generate_dimension('test')
         self.srv1 = Server(id='bbbbbbbb-1234-5678-1234-56781234bbb1', name='server1',
@@ -67,7 +67,7 @@ class TestSecurizer(TestCase):
         # mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
         mock_pack_msg.return_value = {'data': 'encrypted data'}
         mock_url_for.return_value = '/join'
-        app.config['SECURIZER_PLAIN'] = False
+        self.app.config['SECURIZER_PLAIN'] = False
         resp = self.client.get('/', headers={'D-Securizer': 'plain'})
 
         self.assertEqual(406, resp.status_code)
@@ -103,7 +103,7 @@ class TestSecurizer(TestCase):
         # mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
         mock_pack_msg.return_value = {'data': 'encrypted data'}
         mock_url_for.return_value = '/join'
-        app.config['SECURIZER_PLAIN'] = False
+        self.app.config['SECURIZER_PLAIN'] = False
         resp = self.client.post('/', json={'data': 'post data'}, headers={'D-Securizer': 'plain'})
 
 

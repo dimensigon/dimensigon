@@ -10,7 +10,7 @@ from dm import defaults
 from dm.domain.entities import Server, Catalog
 from dm.domain.entities.user import User
 from dm.web.decorators import forward_or_dispatch, validate_schema
-from dm.web.json_schemas import schema_healthcheck
+from dm.web.json_schemas import schema_healthcheck, login_post
 
 blueprint_name = 'root'
 root_bp = Blueprint(blueprint_name, __name__)
@@ -67,6 +67,7 @@ def ping():
 
 @root_bp.route('/login', methods=['POST'])
 @forward_or_dispatch
+@validate_schema(login_post)
 def login():
     user = User.get_by_user(user=request.json.get('username', None))
     password = request.json.get('password', None)
@@ -76,17 +77,31 @@ def login():
     # Use create_access_token() and create_refresh_token() to create our
     # access and refresh tokens
     ret = {
-        'access_token': create_access_token(identity=str(user.id)),
+        'access_token': create_access_token(identity=str(user.id), fresh=True),
         'refresh_token': create_refresh_token(identity=str(user.id))
     }
     return jsonify(ret), 200
 
 
 @root_bp.route('/refresh', methods=['POST'])
+@forward_or_dispatch
 @jwt_refresh_token_required
 def refresh():
     current_user = get_jwt_identity()
     ret = {
-        'access_token': create_access_token(identity=current_user)
+        'access_token': create_access_token(identity=current_user, fresh=False)
     }
+    return jsonify(ret), 200
+
+@root_bp.route('/fresh-login', methods=['POST'])
+@forward_or_dispatch
+@validate_schema(login_post)
+def fresh_login():
+    username = request.json.get('username', None)
+    password = request.json.get('password', None)
+    if username != 'test' or password != 'test':
+        return jsonify({"msg": "Bad username or password"}), 401
+
+    new_token = create_access_token(identity=username, fresh=True)
+    ret = {'access_token': new_token}
     return jsonify(ret), 200

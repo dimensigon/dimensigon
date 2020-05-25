@@ -21,6 +21,7 @@ from dm.utils import asyncio
 from dm.utils.asyncio import create_task
 from dm.utils.helpers import get_filename_from_cd, convert
 from dm.web import db
+from dm.web.decorators import run_as
 from dm.web.network import async_get, ping, get
 
 logger = logging.getLogger('dm.background')
@@ -29,6 +30,8 @@ catalog_logger = logging.getLogger('dm.background.catalog')
 upgrader_logger = logging.getLogger('dm.background.upgrader')
 
 
+
+@run_as('root')
 def process_get_new_version_from_gogs(app=None):
     """
     checks if new version in repo
@@ -46,135 +49,53 @@ def process_get_new_version_from_gogs(app=None):
     -------
 
     """
-    ctx = None
-    if app:
-        ctx = app.app_context()
-        ctx.push()
+    upgrader_logger.info('Starting Upgrade Process')
+    base_url = os.environ.get('GIT_REPO') \
+               or current_app.config.get('GIT_REPO') \
+               or 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
+    releases_uri = '/dimensigon/dimensigon/releases'
     try:
-        upgrader_logger.info('Starting Upgrade Process')
-        base_url = os.environ.get('GIT_REPO') \
-                   or current_app.config.get('GIT_REPO') \
-                   or 'https://ca355c55-0ab0-4882-93fa-331bcc4d45bd.pub.cloud.scaleway.com:3000'
-        releases_uri = '/dimensigon/dimensigon/releases'
-        try:
-            r = requests.get(base_url + releases_uri, verify=current_app.config['SSL_VERIFY'], timeout=10)
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-            r = None
-            upgrader_logger.info('Unable to contact to main repo')
+        r = requests.get(base_url + releases_uri, verify=current_app.config['SSL_VERIFY'], timeout=10)
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+        r = None
+        upgrader_logger.info('Unable to contact to main repo')
 
-        # get new versions from repo
-        if r and r.status_code == 200:
-            # get current software
-            gogs_versions = {}
+    # get new versions from repo
+    if r and r.status_code == 200:
+        # get current software
+        gogs_versions = {}
 
-            html_content = r.text
-            soup = BeautifulSoup(html_content, 'html.parser')
-            for li in soup.find(id='release-list').find_all('li'):
-                version = li.h4.a.get_text(strip=True)
-                uris = [a.attrs['href'] for a in li.find('div', class_='download').find_all('a') if
-                        a.attrs['href'].endswith('tar.gz')]
-                if len(uris) > 0:
-                    gogs_versions.update({parse_version(version): uris[0]})
-            current_version = parse_version(dm_version)
-            new_versions = [gogs_ver for gogs_ver in gogs_versions if gogs_ver > current_version]
+        html_content = r.text
+        soup = BeautifulSoup(html_content, 'html.parser')
+        for li in soup.find(id='release-list').find_all('li'):
+            version = li.h4.a.get_text(strip=True)
+            uris = [a.attrs['href'] for a in li.find('div', class_='download').find_all('a') if
+                    a.attrs['href'].endswith('tar.gz')]
+            if len(uris) > 0:
+                gogs_versions.update({parse_version(version): uris[0]})
+        current_version = parse_version(dm_version)
+        new_versions = [gogs_ver for gogs_ver in gogs_versions if gogs_ver > current_version]
 
-            if new_versions:
-                new_version = max(new_versions)
-                upgrader_logger.info(f"Downloading version {new_version} from outside world")
+        if new_versions:
+            new_version = max(new_versions)
+            upgrader_logger.info(f"Downloading version {new_version} from outside world")
 
-                r = requests.get(base_url + gogs_versions[new_version],
-                                 verify=current_app.config['SSL_VERIFY'])
-                filename = get_filename_from_cd(
-                    r.headers.get(
-                        'content-disposition')) or f"dimensigon-{gogs_versions[new_version].rsplit('/', 1)[-1]}"
-                file = os.path.join(current_app.config['SOFTWARE_REPO'], 'dimensigon', filename)
-                try:
-                    open(file, 'wb').write(r.content)
-                except Exception as e:
-                    upgrader_logger.exception(f"Unable to save {file}")
-                else:
-                    run_elevator(file, new_version, upgrader_logger)
-        else:
-            upgrader_logger.debug(f"No version to upgrade")
-    finally:
-        if ctx:
-            ctx.pop()
-
-
-async def _get_neighbour_catalog_data_mark() -> t.Dict[Server, t.Tuple[t.Any, int]]:
-    server_responses = {}
-    servers = Server.get_neighbours()
-    catalog_logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
-    auth = get_auth_root()
-
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(
-            ssl=current_app.config['SSL_VERIFY'])) as session:
-        for server in servers:
-
-                server_responses[server] = create_task(async_get(server, 'root.healthcheck', session=session,
-                                                           auth=auth))
-
-        for server, future in server_responses.items():
-            server_responses[server] = await future
-
+            r = requests.get(base_url + gogs_versions[new_version],
+                             verify=current_app.config['SSL_VERIFY'])
+            filename = get_filename_from_cd(
+                r.headers.get(
+                    'content-disposition')) or f"dimensigon-{gogs_versions[new_version].rsplit('/', 1)[-1]}"
+            os.makedirs(os.path.join(current_app.config['SOFTWARE_REPO'], 'dimensigon'), exist_ok=True)
+            file = os.path.join(current_app.config['SOFTWARE_REPO'], 'dimensigon', filename)
             try:
-                data = json.dumps(server_responses[server][0], indent=4, sort_keys=True)
-            except json.decoder.JSONDecodeError:
-                data = server_responses[server][0]
-            except:
-                data = f"Exception {server_responses[server][0].__class__.__name__}: {server_responses[server][0]}"
-            code = server_responses[server][1]
-
-            catalog_logger.debug(
-                f"Response from server {server.name}: {code}, {data}")
-
-    return server_responses
-
-
-def upgrade_version(data: t.Dict[Server, t.Tuple[t.Any, int]]):
-    mayor_version, mayor_server = None, None
-    for server, response in data.items():
-        if response[1] == 200 and 'version' in response[0]:
-            remote_version = parse_version(response[0]['version'])
-            if remote_version > parse_version(dm_version):
-                if mayor_version is None or mayor_version < remote_version:
-                    mayor_version, mayor_server = remote_version, server
-    if mayor_version:
-        catalog_logger.info(f'Found mayor version on server {mayor_server}. Upgrading version first')
-        file, v = get_software(mayor_server, get_auth_root())
-        if file:
-            run_elevator(file, mayor_version, catalog_logger)
-            return True
-    return False
-
-
-def update_catalog(data: t.Dict[Server, t.Tuple[t.Any, int]]):
-    reference_server = None
-    catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
-    if catalog_ver:
-        for server, response in data.items():
-            if response[1] == 200 and 'catalog_version' in response[0]:
-                new_catalog_ver = datetime.datetime.strptime(response[0]['catalog_version'],
-                                                             defaults.DATEMARK_FORMAT)
-                if new_catalog_ver > catalog_ver:
-                    if response[0]['version'] == dm_version:
-                        reference_server = server
-                        catalog_ver = new_catalog_ver
-                    else:
-                        catalog_logger.debug(
-                            f"Server {server} has different software version {response[0]['version']}")
+                open(file, 'wb').write(r.content)
+            except Exception as e:
+                upgrader_logger.exception(f"Unable to save {file}")
             else:
-                msg = f"Error while trying to get healthcheck from server {server.name}. "
-                if response[1]:
-                    msg = msg + f"Response from server (code {response[1]}): {response[0]}"
-                else:
-                    msg = msg + f"Exception: {response[0]}"
-                catalog_logger.warning(msg)
-        if reference_server:
-            catalog_logger.info(f"New catalog found from server {reference_server.name}: {catalog_ver}")
-            upgrade_catalog_from_server(reference_server)
-        else:
-            catalog_logger.debug(f"No server with higher catalog found")
+                run_elevator(file, new_version, upgrader_logger)
+    else:
+        upgrader_logger.debug(f"No version to upgrade")
+
 
 TempRoute = namedtuple('TempRoute', ['proxy_server', 'gate', 'cost'])
 
@@ -345,47 +266,93 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     routing_logger.debug(f'Changed routes from neighbours: {json.dumps(data, indent=4)}')
     return changed_routes
 
-def table_routing_process(discover_new_neighbours=False, check_current_neighbours=False):
-    new_routes = update_table_routing_cost(discover_new_neighbours, check_current_neighbours)
+async def _get_neighbour_catalog_data_mark() -> t.Dict[Server, t.Tuple[t.Any, int]]:
+    server_responses = {}
+    servers = Server.get_neighbours()
+    catalog_logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
+    auth = get_auth_root()
 
-    if len(new_routes) > 0:
-        # msg = {'server_id': str(Server.get_current().id),
-        #        'route_list': [
-        #            dict(destination_id=str(d.id),dm.l
-        #                 proxy_server_id=str(getattr(r.proxy_server, 'id')) if getattr(r.proxy_server, 'id', None) else None,
-        #                 gate_id=str(getattr(r.gate, 'id')) if getattr(r.gate, 'id', None) else None,
-        #                 cost=r.cost)
-        #            for d, r in new_routes.items()
-        #        ]}
-        # for s in Server.get_neighbours():
-        #     try:
-        #         r = patch(s, 'api_1_0.routes', json=msg, auth=HTTPBearerAuth(create_access_token('root')))
-        #         if r[1] != 204:
-        #             logger.error(f"Unable to send new routing information to node {s}. {r[1]}, {r[0]}")
-        #     except Exception as e:
-        #         logger.error(
-        #             f"Exception raised while trying to send new routing information to node {s}. Exception: {e}")
-        return True
-    else:
-        return False
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(
+            ssl=current_app.config['SSL_VERIFY'])) as session:
+        for server in servers:
+
+                server_responses[server] = create_task(async_get(server, 'root.healthcheck', session=session,
+                                                           auth=auth))
+
+        for server, future in server_responses.items():
+            server_responses[server] = await future
+
+            try:
+                data = json.dumps(server_responses[server][0], indent=4, sort_keys=True)
+            except json.decoder.JSONDecodeError:
+                data = server_responses[server][0]
+            except:
+                data = f"Exception {server_responses[server][0].__class__.__name__}: {server_responses[server][0]}"
+            code = server_responses[server][1]
+
+            catalog_logger.debug(
+                f"Response from server {server.name}: {code}, {data}")
+
+    return server_responses
 
 
+def upgrade_version(data: t.Dict[Server, t.Tuple[t.Any, int]]):
+    mayor_version, mayor_server = None, None
+    for server, response in data.items():
+        if response[1] == 200 and 'version' in response[0]:
+            remote_version = parse_version(response[0]['version'])
+            if remote_version > parse_version(dm_version):
+                if mayor_version is None or mayor_version < remote_version:
+                    mayor_version, mayor_server = remote_version, server
+    if mayor_version:
+        catalog_logger.info(f'Found mayor version on server {mayor_server}. Upgrading version first')
+        file, v = get_software(mayor_server, get_auth_root())
+        if file:
+            run_elevator(file, mayor_version, catalog_logger)
+            return True
+    return False
+
+
+def update_catalog(data: t.Dict[Server, t.Tuple[t.Any, int]]):
+    reference_server = None
+    catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
+    if catalog_ver:
+        for server, response in data.items():
+            if response[1] == 200 and 'catalog_version' in response[0]:
+                new_catalog_ver = datetime.datetime.strptime(response[0]['catalog_version'],
+                                                             defaults.DATEMARK_FORMAT)
+                if new_catalog_ver > catalog_ver:
+                    if response[0]['version'] == dm_version:
+                        reference_server = server
+                        catalog_ver = new_catalog_ver
+                    else:
+                        catalog_logger.debug(
+                            f"Server {server} has different software version {response[0]['version']}")
+            else:
+                msg = f"Error while trying to get healthcheck from server {server.name}. "
+                if response[1]:
+                    msg = msg + f"Response from server (code {response[1]}): {response[0]}"
+                else:
+                    msg = msg + f"Exception: {response[0]}"
+                catalog_logger.warning(msg)
+        if reference_server:
+            catalog_logger.info(f"New catalog found from server {reference_server.name}: {catalog_ver}")
+            upgrade_catalog_from_server(reference_server)
+        else:
+            catalog_logger.debug(f"No server with higher catalog found")
+
+
+@run_as('root')
 def process_catalog_route_table(app=None):
-    ctx = None
-    if app:
-        ctx = app.app_context()
-        ctx.push()
-        try:
-            if table_routing_process(discover_new_neighbours=True, check_current_neighbours=True):
-                db.session.commit()
-            catalog_logger.debug("Starting check catalog from neighbours")
-            data = asyncio.run(_get_neighbour_catalog_data_mark())
-            # check version upgrade before catalog upgrade to match database revision
-            if not upgrade_version(data):
-                update_catalog(data)
-            db.session.commit()
-        finally:
-            if ctx:
-                ctx.pop()
+    # app will be used for the run_as decorator
+    if update_table_routing_cost(discover_new_neighbours=True, check_current_neighbours=True):
+        db.session.commit()
+    catalog_logger.debug("Starting check catalog from neighbours")
+    data = asyncio.run(_get_neighbour_catalog_data_mark())
+    # check version upgrade before catalog upgrade to match database revision
+    if not upgrade_version(data):
+        update_catalog(data)
+    db.session.commit()
+
 
 

@@ -28,29 +28,29 @@ logconfig_dict = {
             "qualname": "gunicorn.access"
         },
         "dm": {
-            "level": "INFO",
+            "level": "DEBUG",
             "handlers": ["error_file"],
             "propagate": False,
             "qualname": "dm"
         },
-        "dm.background": {
-            "level": "INFO",
-            "handlers": ["error_file"],
-            "propagate": False,
-            "qualname": "dm.background"
-        },
-        "dm.background.routing": {
-            "level": "INFO",
-            "handlers": ["error_file"],
-            "propagate": False,
-            "qualname": "dm.background"
-        },
-        "dm.background.catalog": {
-            "level": "INFO",
-            "handlers": ["error_file"],
-            "propagate": False,
-            "qualname": "dm.background"
-        },
+        # "dm.background": {
+        #     "level": "INFO",
+        #     "handlers": ["error_file"],
+        #     "propagate": False,
+        #     "qualname": "dm.background"
+        # },
+        # "dm.background.routing": {
+        #     "level": "INFO",
+        #     "handlers": ["error_file"],
+        #     "propagate": False,
+        #     "qualname": "dm.background"
+        # },
+        # "dm.background.catalog": {
+        #     "level": "INFO",
+        #     "handlers": ["error_file"],
+        #     "propagate": False,
+        #     "qualname": "dm.background"
+        # },
         "dm.network": {
             "level": "INFO",
             "handlers": ["error_file"],

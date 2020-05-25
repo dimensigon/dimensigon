@@ -7,9 +7,8 @@ from unittest.mock import patch
 
 import responses
 from aioresponses import aioresponses, CallbackResult
-from flask_jwt_extended import create_access_token
 
-from dimensigon import join, Gate
+from dimensigon import join, Gate, token as generate_token
 from dm.domain.entities import Server, Dimension, Catalog
 from dm.domain.entities.bootstrap import set_initial
 from dm.utils.helpers import generate_dimension
@@ -99,7 +98,9 @@ class TestApi(TestCase):
                               callback=partial(request_callback, client=self.client))
 
             with self.app.app_context():
-                token = create_access_token('00000000-0000-0000-0000-000000000004')
+                runner = self.app.test_cli_runner()
+                result = runner.invoke(generate_token, [], catch_exceptions=False)
+                token = result.stdout.strip()
 
             runner = self.app_join.test_cli_runner()
 

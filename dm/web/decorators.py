@@ -4,10 +4,10 @@ import ipaddress
 import socket
 
 import rsa
-from flask import request, url_for, g, current_app
+from flask import current_app, url_for, g
 from jsonschema import validate, ValidationError
 
-from dm.domain.entities import Server, Scope
+from dm.domain.entities import Server, Scope, User
 from dm.network.exceptions import NotValidMessage
 from dm.use_cases import exceptions as ue
 from dm.use_cases.helpers import get_servers_from_scope
@@ -80,11 +80,14 @@ def forward_or_dispatch(func):
 
 
 def securizer(func):
+    from flask import request
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
+
         # cipher_key = session.get('cipher_key', None)
         cipher_key = None
         securizer_method = None
+
         if 'D-Securizer' in request.headers:
             securizer_method = request.headers.get('D-Securizer')
             if securizer_method == 'plain' and not current_app.config.get('SECURIZER_PLAIN', False):
@@ -159,6 +162,7 @@ def securizer(func):
 
 
 def validate_schema(schema_name=None, **methods):
+    from flask import request
     def decorator(f):
         @functools.wraps(f)
         def wrapper(*args, **kw):
@@ -195,3 +199,36 @@ def lock_catalog(f):
 
     return wrapper
 
+
+def run_as(username: str):
+    from flask import Flask
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            # app resolution
+            app = None
+            if 'app' in kwargs:
+                app = kwargs['app']
+            else:
+                for a in args:
+                    if isinstance(a, Flask):
+                        app = a
+            if app:
+                ctx = app.app_context()
+                ctx.push()
+            try:
+                user = User.get_by_user(username)
+                if user is None:
+                    raise RuntimeError(f'User {username} not found')
+                from flask_jwt_extended.utils import ctx_stack
+                ctx_stack.top.jwt_user = user
+                jwt = {'identity': str(user.id)}
+                ctx_stack.top.jwt = jwt
+                return f(*args, **kwargs)
+            finally:
+                if app:
+                    ctx.pop()
+
+        return wrapper
+
+    return decorator

@@ -101,7 +101,7 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
 
 def _deploy_orchestration(orchestration: Orchestration, params: Kwargs, hosts: t.Dict[str, t.List[Id]],
                           execution: OrchExecution,
-                          auth=None, max_parallel_tasks=None
+                          jwt_identity=None, max_parallel_tasks=None
                           ):
     """
     Parameters
@@ -119,7 +119,8 @@ def _deploy_orchestration(orchestration: Orchestration, params: Kwargs, hosts: t
         dict with all the executions). If undo process not executed, boolean set to None
     """
     rse = RegisterStepExecution(execution)
-    cc = create_cmd_from_orchestration2(orchestration, params, hosts=hosts, executor=executor, auth=auth,
+    cc = create_cmd_from_orchestration2(orchestration, params, hosts=hosts, executor=executor,
+                                        jwt_identity=jwt_identity,
                                         register=rse)
     servers = Server.query.filter(Server.id.in_(hosts['all'])).all()
     try:

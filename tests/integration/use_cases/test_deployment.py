@@ -420,7 +420,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
     def test_create_cmd_from_orchestration2(self):
 
         at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
-                            action_type=ActionType.SHELL, code='mkdir {dir}',
+                            action_type=ActionType.SHELL, code='mkdir {{dir}}',
                             parameters={}, expected_output='',
                             expected_rc=0, system_kwargs={})
 
@@ -540,10 +540,9 @@ class TestCreateCmdFromOrchestration2(TestCase):
         self.assertIsInstance(c72.undo_command, ProxyUndoCommand)
         self.assertTrue(c72.undo_command.stop_on_error)
 
-    # @mock.patch('dm.use_cases.deployment.create_operation', autospec=IOperationEncapsulation)
     def test_create_cmd_from_orchestration_one_step(self):
         at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
-                            action_type=ActionType.SHELL, code='mkdir {dir}',
+                            action_type=ActionType.SHELL, code='mkdir {{dir}}',
                             parameters={}, expected_output='',
                             expected_rc=0, system_kwargs={})
 
@@ -558,7 +557,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
         s1 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0001'), undo=False, action_template=at,
                         parents=[], target=[])
 
-        cc = create_cmd_from_orchestration2(o, {'dir': 'C:\\test_folder'},
+        cc = create_cmd_from_orchestration2(o, {'dir': './test_folder'},
                                             hosts={'all': [me.id]},
                                             executor=None, register=mock.Mock())
 
@@ -569,5 +568,3 @@ class TestCreateCmdFromOrchestration2(TestCase):
         self.assertTrue(c1.stop_on_error)
         self.assertTrue(c1.undo_on_error)
         self.assertIsNone(c1.stop_undo_on_error)
-
-        cc.invoke()

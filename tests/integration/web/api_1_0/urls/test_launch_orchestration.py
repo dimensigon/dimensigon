@@ -130,7 +130,7 @@ class TestLaunchOrchestration(TestCase):
 
         self.assertEqual(200, resp.status_code)
         self.assertDictEqual({'result': 'ok'}, resp.get_json())
-        mock_deploy.assert_called_once_with(auth='token',
+        mock_deploy.assert_called_once_with(jwt_identity=str(User.get_by_user('test').id),
                                                  execution=uuid.UUID('a7083c43-34cc-4b26-91f0-ea0928cf5945'),
                                                  hosts={'all': [Server.get_current().id]},
                                                  orchestration=self.o.id,

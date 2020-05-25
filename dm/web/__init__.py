@@ -47,7 +47,7 @@ class DimensigonApp(Flask):
         from ..use_cases.log_sender import LogSender
         from dm.web.background_tasks import process_catalog_route_table, process_get_new_version_from_gogs
         if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
-            if self.extensions.get('scheduler') is None:
+            if self.extensions.get('scheduler') is None and self.config['SCHEDULER']:
                 bs = BackgroundScheduler()
                 self.extensions['scheduler'] = bs
                 ls = LogSender()
