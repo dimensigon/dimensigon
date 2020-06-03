@@ -11,17 +11,17 @@ from flask_jwt_extended import get_jwt_identity
 from dm import defaults
 from dm.domain.entities import Orchestration, Server, Scope, OrchExecution
 from dm.use_cases.deployment import create_cmd_from_orchestration2, RegisterStepExecution
-from dm.use_cases.exceptions import ErrorLock
 from dm.use_cases.lock import lock, unlock
 from dm.utils import asyncio
 from dm.utils.typos import Kwargs, Id
-from dm.web import db, executor
+from dm.web import db, executor, errors
+from dm.web.exceptions import HTTPError
 from dm.web.network import async_post, async_patch
 
 
 async def async_send_file(dest_server: Server, transfer_id: Id, file,
                           chunk_size: int = None, chunks: int = None, max_senders: int = None,
-                          auth=None, retries: int=1):
+                          auth=None, retries: int = 1, raise_on_error=False):
     async def send_chunk(server: Server, view: str, chunk, sem):
         async with sem:
             json_msg = dict(chunk=chunk)
@@ -54,14 +54,18 @@ async def async_send_file(dest_server: Server, transfer_id: Id, file,
                 if resp[1] != 201:
                     retry_chunks.append(chunk)
                 elif resp[1] == 410:
-                    current_app.logger.error(f"Transfer {transfer_id} is no longer available: {resp[0]}")
+                    msg = f"Transfer {transfer_id} is no longer available: {resp[0]}"
+                    if raise_on_error:
+                        raise HTTPError(msg)
+                    else:
+                        current_app.logger.error(msg)
                     return
 
             if len(retry_chunks) == 0 and chunks != 1:
                 data, code = await async_patch(dest_server, 'api_1_0.transferresource',
                                                view_data={'transfer_id': transfer_id},
                                                session=session,
-                                               auth=auth)
+                                               auth=auth, raise_on_error=raise_on_error)
                 if code != 201:
                     current_app.logger.error(
                         f"Transfer {transfer_id}: Unable to create file at destination {dest_server.name}: "
@@ -69,8 +73,11 @@ async def async_send_file(dest_server: Server, transfer_id: Id, file,
             l_chunks = retry_chunks
             retries -= 1
     if l_chunks:
-        data = {c: responses[c].result() for c in l_chunks}
-        current_app.logger.error(f"Error while trying to send chunks to server: {data}")
+        data = {f'chunk{c}': responses[c].result() for c in l_chunks}
+        if raise_on_error:
+            raise HTTPError('Error while trying to send chunks to server. ' + str(data))
+        else:
+            current_app.logger.error(f"Error while trying to send chunks to server: {data}")
         return data
 
 
@@ -125,12 +132,12 @@ def _deploy_orchestration(orchestration: Orchestration, params: Kwargs, hosts: t
     servers = Server.query.filter(Server.id.in_(hosts['all'])).all()
     try:
         applicant = lock(Scope.ORCHESTRATION, servers)
-    except ErrorLock as e:
+    except errors.LockError as e:
         execution.end_time = datetime.now()
         execution.success = False
         execution.message = str(e)
         db.session.commit()
-        return {'error': f'{e}'}
+        raise
     try:
         execution.success = cc.invoke()
         if not execution.success and orchestration.undo_on_error:

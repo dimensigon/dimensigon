@@ -41,7 +41,7 @@ class TestApi(TestCase):
 
         self.assertDictEqual(dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='ActionTest2', version=1,
                                   action_type='ORCHESTRATION', code='test code', parameters={'dir': '/home'},
-                                  expected_stdout=None, expected_stderr=None, expected_rc=None,
+                                  expected_stdout=None, expected_stderr=None, expected_rc=None, post_process=None,
                                   system_kwargs={},
                                   last_modified_at=now.strftime(defaults.DATEMARK_FORMAT)), at_json)
 

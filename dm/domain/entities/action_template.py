@@ -1,7 +1,9 @@
 import copy
-import re
 from enum import Enum, auto
 
+from jinja2schema import infer
+
+from dm import defaults
 from dm.domain.entities.base import UUIDistributedEntityMixin
 from dm.utils.typos import JSON, Kwargs
 from dm.web import db
@@ -12,6 +14,8 @@ class ActionType(Enum):
     PYTHON = auto()
     SHELL = auto()
     ORCHESTRATION = auto()
+    REQUEST = auto()
+    NATIVE = auto()
 
 
 class ActionTemplate(db.Model, UUIDistributedEntityMixin):
@@ -26,9 +30,11 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
     expected_stderr = db.Column(db.Text)
     expected_rc = db.Column(db.Integer)
     system_kwargs = db.Column(JSON)
+    post_process = db.Column(db.Text)
 
-    def __init__(self, name: str, version: int, action_type: ActionType, code: str, parameters: Kwargs = None,
-                 expected_stdout: str = None, expected_stderr: str = None, expected_rc: int = None, system_kwargs: Kwargs = None,
+    def __init__(self, name: str, version: int, action_type: ActionType, code: str = None, parameters: Kwargs = None,
+                 expected_stdout: str = None, expected_stderr: str = None, expected_rc: int = None,
+                 system_kwargs: Kwargs = None, post_process: str = None,
                  **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         self.name = name
@@ -40,8 +46,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
         self.expected_stderr = expected_stderr
         self.expected_rc = expected_rc
         self.system_kwargs = system_kwargs or {}
-
-    # systems = db.relationship("System", secondary='D_action_system', back_populates="actions")
+        self.post_process = post_process
 
     __table_args__ = (db.UniqueConstraint('name', 'version'),)
 
@@ -51,7 +56,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
                     action_type=self.action_type.name,
                     code=self.code, parameters=self.parameters, expected_stdout=self.expected_stdout,
                     expected_stderr=self.expected_stderr,
-                    expected_rc=self.expected_rc, system_kwargs=self.system_kwargs)
+                    expected_rc=self.expected_rc, system_kwargs=self.system_kwargs, post_process=self.post_process)
         return data
 
     @classmethod
@@ -62,5 +67,28 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
 
     @property
     def code_parameters(self):
-        return re.findall(r'\{\{\s*([\.\w]+)\s*\}\}', self.code, flags=re.MULTILINE)
+        return infer(self.code).keys()
 
+    @classmethod
+    def set_initial(cls):
+        at = cls.query.get('00000000-0000-0000-000a-000000000001')
+        if at is None:
+            at = ActionTemplate('send', version=1, action_type=ActionType.REQUEST,
+                                code='{"method": "post",'
+                                     '"view_or_url":"api_1_0.send",'
+                                     '"json":{"software_id": "{{software_id}}", "dest_server_id": "{{dest_server_id}}"'
+                                     '{% if dest_path is defined %}, "dest_path":"{{dest_path}}"{% endif %}'
+                                     '{% if chunk_size is defined %}, "chunk_size":"{{chunk_size}}"{% endif %}'
+                                     '{% if max_senders is defined %}, "max_senders":"{{max_senders}}"{% endif %}'
+                                     ', "background": false}}',
+                                parameters={}, expected_rc=204, last_modified_at=defaults.INITIAL_DATEMARK,
+                                id='00000000-0000-0000-000a-000000000001')
+
+            db.session.add(at)
+        at = cls.query.get('00000000-0000-0000-000a-000000000002')
+        if at is None:
+            at = ActionTemplate('wait', version=1, action_type=ActionType.NATIVE,
+                                code='{{list_server_names}} {{timeout}}',
+                                parameters={}, last_modified_at=defaults.INITIAL_DATEMARK,
+                                id='00000000-0000-0000-000a-000000000002')
+            db.session.add(at)

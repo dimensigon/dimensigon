@@ -5,15 +5,13 @@ import socket
 
 import rsa
 from flask import current_app, url_for, g
-from jsonschema import validate, ValidationError
+from jsonschema import validate
 
 from dm.domain.entities import Server, Scope, User
 from dm.network.exceptions import NotValidMessage
-from dm.use_cases import exceptions as ue
 from dm.use_cases.helpers import get_servers_from_scope
-from dm.use_cases.lock import lock, unlock
-from dm.web import db
-from dm.web.errors import UnknownServer
+from dm.use_cases.lock import lock_scope
+from dm.web import db, errors
 from dm.web.network import unpack_msg, pack_msg, unpack_msg2, pack_msg2
 
 
@@ -35,15 +33,16 @@ def forward_or_dispatch(func):
 
         if destination_id and destination_id != str(g.server.id):
             destination = Server.query.get(destination_id)
-            if destination:
-                try:
-                    resp = proxy_request(request=request, destination=destination)
-                except ConnectionError as e:
-                    return str(e), 502
-                return resp.content, resp.status_code, dict(resp.headers)
-            else:
-                return UnknownServer(destination_id).format()
+            if destination is None:
+                return errors.format_error_response(errors.EntityNotFound('Server', destination_id))
+            try:
+                resp = proxy_request(request=request, destination=destination)
+            except ConnectionError as e:
+                return str(e), 502
+            return resp.content, resp.status_code, dict(resp.headers)
+
         else:
+            # not call get_or_404 to allow make requests without D-Source header
             source = db.session.query(Server).get(request.headers.get('D-Source'))
             # check hidden ip on server
             if source:
@@ -137,16 +136,16 @@ def securizer(func):
             return rv
 
         if isinstance(rv, dict):
-            if 'error' not in rv:
-                if request.path == url_for('api_1_0.join'):
-                    rv = pack_msg2(data=rv, pub_key=temp_pub_key,
-                                   priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
-                                   cipher_key=cipher_key)
+
+            if request.path == url_for('api_1_0.join'):
+                rv = pack_msg2(data=rv, pub_key=temp_pub_key,
+                               priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
+                               cipher_key=cipher_key)
+            else:
+                if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
+                    pass
                 else:
-                    if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
-                        pass
-                    else:
-                        rv = pack_msg(data=rv)
+                    rv = pack_msg(data=rv)
 
         if isinstance(rv, list):
             if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
@@ -168,10 +167,7 @@ def validate_schema(schema_name=None, **methods):
         def wrapper(*args, **kw):
             schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
             if schema:
-                try:
-                    validate(request.json, schema)
-                except ValidationError as e:
-                    return {"error": str(e)}, 400
+                validate(request.json, schema)
             return f(*args, **kw)
 
         return wrapper
@@ -183,18 +179,8 @@ def lock_catalog(f):
     @functools.wraps(f)
     def wrapper(*args, **kw):
         servers = get_servers_from_scope(Scope.CATALOG)
-        try:
-            applicant = lock(Scope.CATALOG, servers=servers)
-            current_app.logger.debug(f"Lock on CATALOG acquired")
-        except ue.ErrorLock as e:
-            return e.to_json(), 400
-        ret = f(*args, **kw)
-
-        try:
-            unlock(Scope.CATALOG, applicant=applicant, servers=servers)
-        except ue.ErrorLock as e:
-            current_app.logger.error(f"Error while trying to unlock: {e}")
-
+        with lock_scope(Scope.CATALOG, servers):
+            ret = f(*args, **kw)
         return ret
 
     return wrapper
@@ -219,7 +205,7 @@ def run_as(username: str):
             try:
                 user = User.get_by_user(username)
                 if user is None:
-                    raise RuntimeError(f'User {username} not found')
+                    raise errors.EntityNotFound("User", username, ['name'])
                 from flask_jwt_extended.utils import ctx_stack
                 ctx_stack.top.jwt_user = user
                 jwt = {'identity': str(user.id)}

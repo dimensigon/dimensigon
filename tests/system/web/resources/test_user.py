@@ -1,19 +1,13 @@
-from unittest import TestCase
-from unittest.mock import patch
-
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Server, User
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
+from tests.helpers import TestCaseLockBypass
 
 
-class TestLogResourceList(TestCase):
-    def run(self, result=None):
-        with patch('dm.web.decorators.lock'):
-            with patch('dm.web.decorators.unlock'):
-                super().run(result)
+class TestLogResourceList(TestCaseLockBypass):
 
     def setUp(self):
         """Create and configure a new app instance for each test."""
@@ -82,11 +76,7 @@ class TestLogResourceList(TestCase):
         self.assertTrue(user.active)
 
 
-class TestUserResource(TestCase):
-    def run(self, result=None):
-        with patch('dm.web.decorators.lock'):
-            with patch('dm.web.decorators.unlock'):
-                super().run(result)
+class TestUserResource(TestCaseLockBypass):
 
     def setUp(self):
         """Create and configure a new app instance for each test."""

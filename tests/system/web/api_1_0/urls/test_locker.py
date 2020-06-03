@@ -150,4 +150,4 @@ class TestLocker(TestCase):
                                 headers=self.headers)
 
         self.assertEqual(409, resp.status_code)
-        self.assertEqual(f"Old catalog datemark. Upgrade Catalog to {self.datemark} to lock", resp.get_json()['error'])
+

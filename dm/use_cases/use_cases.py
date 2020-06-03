@@ -11,10 +11,9 @@ from flask_jwt_extended import create_access_token, get_jwt_identity
 
 from dm import defaults
 from dm.domain.entities import Server, bypass_datamark_update, Scope, Catalog
-from dm.use_cases import exceptions as ue
 from dm.use_cases.lock import lock_scope
 from dm.utils.helpers import get_distributed_entities
-from dm.web import db
+from dm.web import db, errors
 from dm.web.network import get
 
 
@@ -51,8 +50,7 @@ def upgrade_catalog(catalog, check_mismatch=True):
         current_app.logger.debug(f'Remote entities: {outside}')
 
         if len(inside ^ outside) > 0:
-
-            raise ue.CatalogMismatch(inside ^ outside)
+            raise errors.CatalogMismatch(inside, outside)
 
     with bypass_datamark_update():
         for name, cls in de:
@@ -77,8 +75,8 @@ def upgrade_catalog_from_server(server):
                                                                                  expires_delta=datetime.timedelta(
                                                                                      seconds=15))})
 
-            if 199 < resp[1] < 300:
-                delta_catalog = resp[0]
+            if 199 < resp.code < 300:
+                delta_catalog = resp.msg
                 upgrade_catalog(delta_catalog)
             else:
-                current_app.logger.error(f"Unable to get a valid response from server {server}: {resp[1]}, {resp[0]}")
+                current_app.logger.error(f"Unable to get a valid response from server {server}: {resp}")

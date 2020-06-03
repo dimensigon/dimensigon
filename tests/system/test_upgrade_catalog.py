@@ -5,13 +5,10 @@ from unittest import TestCase
 from unittest.mock import patch
 
 import responses
-from flask_jwt_extended import create_access_token
 
-import dm.use_cases.exceptions as ue
-from dm.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate, Route
-from dm.domain.entities.bootstrap import set_initial
+from dm.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate, Route, Locker
 from dm.use_cases.use_cases import upgrade_catalog_from_server
-from dm.web import create_app, db
+from dm.web import create_app, db, errors
 
 
 class TestUpgradeCatalog(TestCase):
@@ -26,10 +23,10 @@ class TestUpgradeCatalog(TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
-        self.headers = {"Authorization": f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
 
         db.create_all()
-        set_initial()
+        Locker.set_initial()
+        Server.set_initial()
         db.session.commit()
 
     def tearDown(self) -> None:
@@ -132,5 +129,5 @@ class TestUpgradeCatalog(TestCase):
                       url=re.compile('^' + s.url('api_1_0.catalog', data_mark='12345').replace('12345', '')),
                       json={"ActionTemplate": [at1.to_json(), at2.to_json()]})
 
-        with self.assertRaises(ue.CatalogMismatch):
+        with self.assertRaises(errors.CatalogMismatch):
             upgrade_catalog_from_server(s)

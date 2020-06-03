@@ -5,11 +5,11 @@ from aiohttp import ClientConnectionError
 from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
 
-import dm.use_cases.exceptions as ue
 from dm.domain.entities import Server, Scope, Locker, State, Route, Catalog
 from dm.domain.entities.bootstrap import set_initial
 from dm.use_cases.lock import lock_unlock, lock
-from dm.web import create_app, db
+from dm.web import create_app, db, errors
+from dm.web.network import Response
 
 
 class TestLockUnlock(TestCase):
@@ -65,53 +65,60 @@ class TestLockUnlock(TestCase):
         m.post(self.n1.url('api_1_0.locker_prevent'), status=200, payload={'message': 'Preventing lock acquired'})
         m.post(self.n2.url('api_1_0.locker_prevent'), status=409, payload={'error': 'Unable to request for lock'})
 
-        with self.assertRaises(ue.ErrorPreventingLock) as e:
+        with self.assertRaises(errors.LockerError) as e:
             ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2])
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
-        self.assertListEqual([ue.ErrorServerLock(self.n2, {'error': 'Unable to request for lock'}, 409)],
-                             e.exception.errors)
+        self.assertEqual('prevent', e.exception.action)
+        self.assertEqual(1, len(e.exception.responses))
+        self.assertListEqual([Response(msg={'error': 'Unable to request for lock'}, code=409, server=self.n2,
+                                       url=self.n2.url('api_1_0.locker_prevent'))],
+                             e.exception.responses)
 
     @aioresponses()
     def test_lock_unlock_lock_with_server_error_on_preventing(self, m):
-
         m.post(self.n1.url('api_1_0.locker_prevent'), status=200, payload={'message': 'Preventing lock acquired'})
         m.post(self.n2.url('api_1_0.locker_prevent'), status=500, body="Error message")
 
-        with self.assertRaises(ue.ErrorPreventingLock) as e:
+        with self.assertRaises(errors.LockError) as e:
             ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2])
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
-        self.assertListEqual([ue.ErrorServerLock(self.n2, "Error message", 500)],
-                             e.exception.errors)
+        self.assertListEqual(
+            [Response("Error message", code=500, server=self.n2, url=self.n2.url('api_1_0.locker_prevent'))],
+            e.exception.responses)
 
     @aioresponses()
     def test_lock_unlock_lock_with_connection_error(self, m):
-
         m.post(self.n1.url('api_1_0.locker_prevent'), status=200, payload={'message': 'Preventing lock acquired'})
-        m.post(self.n2.url('api_1_0.locker_lock'), exception=aiohttp.ClientConnectionError('test'))
+        m.post(self.n2.url('api_1_0.locker_prevent'), exception=aiohttp.ClientConnectionError('test'))
 
-        with self.assertRaises(ue.ErrorPreventingLock) as e:
+        with self.assertRaises(errors.LockError) as e:
             ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2])
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
-        self.assertIsInstance(e.exception.errors[0].msg, aiohttp.ClientConnectionError)
-        self.assertIsNone(e.exception.errors[0].code)
+        self.assertEqual(1, len(e.exception.responses))
+        response = e.exception.responses[0]
+        self.assertIsNone(response.msg)
+        self.assertIsNone(response.code)
+        self.assertEqual(self.n2, response.server)
+        self.assertIsInstance(response.exception, aiohttp.ClientConnectionError)
+        self.assertTupleEqual(('test',), response.exception.args)
 
     @aioresponses()
     def test_lock_unlock_lock_error_on_lock(self, m):
-
         m.post(self.n1.url('api_1_0.locker_prevent'), status=200, payload={'message': 'Preventing lock acquired'})
         m.post(self.n2.url('api_1_0.locker_prevent'), status=200, payload={'message': 'Preventing lock acquired'})
         m.post(self.n1.url('api_1_0.locker_lock'), status=200, payload={'message': 'Locked'})
         m.post(self.n2.url('api_1_0.locker_lock'), status=409, payload={'error': 'Unable to lock'})
 
-        with self.assertRaises(ue.ErrorLock) as e:
+        with self.assertRaises(errors.LockError) as e:
             ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2])
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
-        self.assertListEqual([ue.ErrorServerLock(self.n2, {'error': 'Unable to lock'}, 409)],
-                             e.exception.errors)
+        self.assertListEqual([Response(msg={'error': 'Unable to lock'}, code=409, server=self.n2,
+                                       url=self.n2.url('api_1_0.locker_lock'))],
+                             e.exception.responses)
 
     @aioresponses()
     def test_lock_unlock_unlock(self, m):
@@ -132,12 +139,13 @@ class TestLockUnlock(TestCase):
         m.post(self.n2.url('api_1_0.locker_unlock'), status=200, payload={'message': 'UnLocked'})
         m.post(self.n1.url('api_1_0.locker_unlock'), status=409, payload={'error': 'Unable to unlock.'})
 
-        with self.assertRaises(ue.ErrorUnLock) as e:
+        with self.assertRaises(errors.LockError) as e:
             ret = lock_unlock('U', Scope.ORCHESTRATION, [self.n1, self.n2], [str(self.n1.id), str(self.n2.id)])
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
-        self.assertListEqual([ue.ErrorServerLock(self.n1, {'error': 'Unable to unlock.'}, 409)],
-                             e.exception.errors)
+        self.assertListEqual([Response(msg={'error': 'Unable to unlock.'}, code=409, server=self.n1,
+                                       url=self.n1.url('api_1_0.locker_unlock'))],
+                             e.exception.responses)
 
 
 class TestLock(TestCase):
@@ -217,7 +225,7 @@ class TestLock(TestCase):
         m.post(Server.get_current().url('api_1_0.locker_unlock'), callback=callback_unlock)
         m.post(self.n2.url('api_1_0.locker_unlock'), callback=callback_unlock)
 
-        with self.assertRaises(ue.ErrorLock):
+        with self.assertRaises(errors.LockError):
             applicant = lock(Scope.CATALOG)
 
         c = Locker.query.get(Scope.CATALOG)
@@ -225,24 +233,25 @@ class TestLock(TestCase):
 
     @aioresponses()
     def test_lock_unreachable_network(self, m):
-        self.n1.route.cost = None
-        self.n1.route.gate = None
-        self.n1.route.proxy_server = None
-
         def callback_prevent(url, **kwargs):
             return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)
 
         def callback_unlock(url, **kwargs):
             return CallbackResult("{'message': 'UnLocked'}", status=200)
 
-        m.post(Server.get_current().url('api_1_0.locker_prevent'), callback=callback_prevent)
+        m.post(self.n1.url('api_1_0.locker_prevent'), callback=callback_prevent)
         m.post(self.n2.url('api_1_0.locker_prevent'), callback=callback_prevent)
-        m.post(Server.get_current().url('api_1_0.locker_unlock'), callback=callback_unlock)
         m.post(self.n2.url('api_1_0.locker_unlock'), callback=callback_unlock)
 
-        with self.assertRaises(ue.ErrorLock) as e:
-            applicant = lock(Scope.CATALOG)
+        self.n1.route.cost = None
+        self.n1.route.gate = None
+        self.n1.route.proxy_server = None
 
-        self.assertDictEqual({'error': 'ErrorPreventingLock', 'servers': [
-            {'server_id': str(self.n1.id), 'code': None, 'response': "Unreachable destination 'node1'"}]},
-                             e.exception.to_json())
+        with self.assertRaises(errors.LockError) as e:
+            applicant = lock(Scope.CATALOG, servers=[self.n1, self.n2])
+
+        self.assertEqual(Scope.CATALOG, e.exception.scope)
+        self.assertEqual(errors.LockError.action_map['P'], e.exception.action)
+        self.assertListEqual([Response(exception=errors.UnreachableDestination(self.n1), server=self.n1)],
+                             e.exception.responses)
+        self.assertEqual(2, len(m.requests))

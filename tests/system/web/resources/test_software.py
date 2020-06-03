@@ -1,6 +1,4 @@
 import os
-from unittest import TestCase
-from unittest.mock import patch
 
 from flask import url_for
 from flask_jwt_extended import create_access_token
@@ -10,14 +8,10 @@ from dm.domain.entities.bootstrap import set_initial
 from dm.utils.helpers import md5
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
+from tests.helpers import TestCaseLockBypass
 
 
-class TestSoftwareList(TestCase):
-
-    def run(self, result=None):
-        with patch('dm.web.decorators.lock'):
-            with patch('dm.web.decorators.unlock'):
-                super().run(result)
+class TestSoftwareList(TestCaseLockBypass):
 
     def setUp(self) -> None:
         self.app = create_app('test')

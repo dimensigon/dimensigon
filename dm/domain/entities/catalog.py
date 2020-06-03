@@ -20,4 +20,6 @@ class Catalog(db.Model):
     @staticmethod
     def max_catalog(out=None) -> t.Union[datetime, str]:
         catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
+        if catalog_ver is None:
+            catalog_ver = defaults.INITIAL_DATEMARK
         return catalog_ver.strftime(defaults.DATEMARK_FORMAT) if out is str else catalog_ver

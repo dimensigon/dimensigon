@@ -26,7 +26,7 @@ class Config(object):
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
     SECURIZER_PLAIN = True
-    SCHEDULER = False
+    SCHEDULER = True
 
     @classmethod
     def init_app(cls, app):
@@ -35,10 +35,9 @@ class Config(object):
 
 
 class ProductionConfig(Config):
-    DEBUG = False
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
                               'sqlite:///' + os.path.join(basedir, 'sqlite.db')
-    SCHEDULER = False
+    PROPAGATE_EXCEPTIONS = False
 
     @classmethod
     def init_app(cls, app):

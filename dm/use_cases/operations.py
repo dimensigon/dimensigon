@@ -1,19 +1,27 @@
+import copy
+import functools
 import inspect
+import json
 import os
 import re
 import subprocess
 import sys
+import time
 import typing as t
 from abc import ABC, abstractmethod
 from datetime import datetime
 
 import jinja2
+import requests
+from RestrictedPython import compile_restricted, safe_builtins
 from dataclasses import dataclass
+from flask_jwt_extended import create_access_token, get_jwt_identity
 
+from dm import defaults
+from dm.domain.entities import Step, Server, Software
 from dm.utils.typos import Kwargs
-
-if t.TYPE_CHECKING:
-    from dm.domain.entities import Step
+from dm.web import db
+from dm.web.network import HTTPBearerAuth, request, Response, get
 
 
 @dataclass
@@ -24,6 +32,7 @@ class CompletedProcess:
     rc: int = None
     start_time: datetime = None
     end_time: datetime = None
+    pre_post_error: Exception = None
 
     def set_start_time(self):
         self.start_time = datetime.now()
@@ -35,7 +44,7 @@ class CompletedProcess:
 class IOperationEncapsulation(ABC):
 
     def __init__(self, code: str, expected_stdout: str = None, expected_stderr: str = None, expected_rc: int = None,
-                 system_kwargs: Kwargs = None, path: str = None):
+                 system_kwargs: Kwargs = None, post_code: str = None):
         """
         Operation Initializer
 
@@ -55,7 +64,7 @@ class IOperationEncapsulation(ABC):
         self.expected_stderr = expected_stderr
         self.expected_rc = expected_rc
         self.system_kwargs = system_kwargs or {}
-        self.path = path or '.'
+        self.post_code = post_code
 
     def load_code(self):
         return
@@ -83,13 +92,16 @@ class IOperationEncapsulation(ABC):
         if cp.success is None:
             res = []
             if self.expected_stdout is not None:
-                res.append(True) if re.search(self.expected_stdout, cp.stdout) else res.append(False)
+                if isinstance(cp.stdout, str):
+                    res.append(True) if re.search(self.expected_stdout, cp.stdout) else res.append(False)
             if self.expected_stderr is not None:
-                res.append(True) if re.search(self.expected_stderr, cp.stderr) else res.append(False)
+                if isinstance(cp.stderr, str):
+                    res.append(True) if re.search(self.expected_stderr, cp.stderr) else res.append(False)
             if self.expected_rc is not None:
                 res.append(True) if self.expected_rc == cp.rc else res.append(False)
             cp.success = all(res)
         return cp
+
 
 class AnsibleOperation(IOperationEncapsulation):
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
@@ -123,6 +135,158 @@ class AnsibleOperation(IOperationEncapsulation):
         return self.evaluate_result(cp)
 
 
+class RequestOperation(IOperationEncapsulation):
+
+    def post_processing(self, response: t.Union[Response, requests.Response], local: dict = None):
+        local = local or dict()
+        local.update(response=response)
+        if self.post_code:
+            byte_code = compile_restricted(self.post_code, '<inline>', 'exec')
+            exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
+
+    def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
+
+        kwargs = json.loads(self.rpl_params(params))
+        kwargs.update(self.system_kwargs)
+        cp = CompletedProcess()
+        cp.set_start_time()
+
+        # common parameters
+        if kwargs.get('timeout') is not None and timeout is not None:
+            kwargs['timeout'] = min(kwargs.get('timeout'), timeout)
+        method = kwargs.pop('method').lower()
+
+        resp, exception = None, None
+
+        if 'software_id' in params:
+            def search_cost(ssa, route_list):
+                cost = [route['cost'] for route in route_list if str(ssa.server.id) == route['destination_id']]
+                if cost:
+                    if cost[0] is None:
+                        cost = 999999
+                    else:
+                        cost = cost[0]
+                else:
+                    cost = 999999
+                return cost
+
+            soft = Software.query.get(params.get('software_id', None))
+            if not soft:
+                cp.stderr = f"software id '{params.get('software_id', None)}' not found"
+                cp.success = False
+                cp.set_end_time()
+                return cp
+            if not soft.ssas:
+                cp.stderr = f"{soft.id} has no server association"
+                cp.success = False
+                cp.set_end_time()
+                return cp
+            dest_server = Server.query.get(params.get('dest_server_id', None))
+            if not dest_server:
+                cp.stderr = f"destination server id '{params.get('dest_server_id', None)}' not found"
+                cp.success = False
+                cp.set_end_time()
+                return cp
+
+            auth = HTTPBearerAuth(create_access_token(get_jwt_identity()))
+            # decide best server source
+            resp = get(dest_server, 'api_1_0.routes', auth=auth, timeout=5)
+            if resp.code == 200:
+                ssas = copy.copy(soft.ssas)
+                ssas.sort(key=functools.partial(search_cost, route_list=resp.msg['route_list']))
+            else:
+                ssas = soft.ssas
+            server = ssas[0].server
+
+            # Process kwargs
+            if 'auth' not in kwargs:
+                kwargs['auth'] = auth
+
+            view_or_url = kwargs.pop('view_or_url', kwargs.pop('view', kwargs.pop('url', None)))
+
+            # run request
+            resp = request(method, server, view_or_url, **kwargs)
+            cp.stdout = resp.msg
+            cp.stderr = resp.exception
+            cp.rc = resp.code
+            if resp.exception is None:
+                self.evaluate_result(cp)
+        else:
+            # process kwargs
+            url = kwargs.pop('view_or_url', kwargs.pop('url', None))
+
+            # Run request
+            try:
+                resp = requests.request(method, url, **kwargs)
+            except Exception as e:
+                exception = e
+            else:
+                cp.rc = resp.status_code
+                try:
+                    cp.stdout = resp.json()
+                except:
+                    cp.stdout = resp.text
+            if exception is None:
+                self.evaluate_result(cp)
+            else:
+                cp.success = False
+                cp.stderr = str(exception) if str(exception) else exception.__class__.__name__
+        cp.set_end_time()
+
+        if resp:
+            try:
+                self.post_processing(response=resp, local=dict(params=params, cp=cp))
+            except Exception as e:
+                cp.pre_post_error = e
+        return cp
+
+
+class NativeOperation(IOperationEncapsulation):
+
+    def execute(self, params: Kwargs, timeout=None):
+        pass
+
+
+class NativeWaitOperation(IOperationEncapsulation):
+
+    def execute(self, params: Kwargs, timeout=None):
+        start = time.time()
+        found = []
+        cp = CompletedProcess()
+        cp.set_start_time()
+        try:
+            min_timeout = min(timeout, params.get('timeout', None))
+        except TypeError:
+            if timeout is not None:
+                min_timeout = timeout
+            elif params.get('timeout', None) is not None:
+                min_timeout = params.get('timeout')
+            else:
+                min_timeout = defaults.MAX_TIME_WAITING_SERVERS
+        for sn in params['list_server_names']:
+            count = db.session.query(Server).filter_by(name=sn).count()
+            if count == 1:
+                found.append(sn)
+                continue
+            while (time.time() - start) < min_timeout:
+                count = db.session.query(Server).filter_by(name=sn).count()
+                if count == 0:
+                    time.sleep(self.system_kwargs.get('sleep_time', 2))
+                else:
+                    found.append(sn)
+                    break
+
+        if params['list_server_names'] == found:
+            cp.success = True
+            cp.stdout = f"Servers {', '.join(params['list_server_names'])} found"
+        else:
+            cp.success = False
+            not_found = set(params['list_server_names']) - set(found)
+            cp.stderr = f"Servers {', '.join(not_found)} not created after {min_timeout} seconds"
+        cp.set_end_time()
+        return cp
+
+
 class PythonOperation(IOperationEncapsulation):
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
         pass
@@ -154,8 +318,6 @@ class ShellOperation(IOperationEncapsulation):
         return self.evaluate_result(cp)
 
 
-
-
 class OrchestrationOperation(IOperationEncapsulation):
 
     def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
@@ -179,8 +341,11 @@ for at in ActionType:
 
 
 def create_operation(step: 'Step') -> IOperationEncapsulation:
-    cls = _factories[step.type]
+    kls = _factories[step.type]
 
-    return cls(code=step.code, expected_stdout=step.expected_stdout, expected_stderr=step.expected_stderr,
+    if kls == NativeOperation:
+        if step.action_template.name == 'wait':
+            kls = NativeWaitOperation
+    return kls(code=step.code, expected_stdout=step.expected_stdout, expected_stderr=step.expected_stderr,
                expected_rc=step.expected_rc,
                system_kwargs=step.system_kwargs)

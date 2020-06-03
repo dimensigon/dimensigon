@@ -23,16 +23,16 @@ from dm.domain.entities import Software, Server, SoftwareServerAssociation, Cata
     Orchestration, OrchExecution, User
 from dm.utils import asyncio, subprocess
 from dm.utils.event_handler import Event
-from dm.utils.helpers import get_distributed_entities, is_iterable_not_string
+from dm.utils.helpers import get_distributed_entities, is_iterable_not_string, md5
 from dm.utils.typos import Id
 from dm.web import db, executor
 from dm.web.api_1_0 import api_bp
 from dm.web.async_functions import deploy_orchestration, async_send_file
 from dm.web.background_tasks import update_table_routing_cost
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dm.web.helpers import check_param_in_uri
-from dm.web.json_schemas import launch_command_post, post_schema_routes, patch_schema_routes, \
-    launch_orchestration_post, software_send
+from dm.web.helpers import check_param_in_uri, format_error, json_format_error
+from dm.web.json_schemas import launch_command_post, routes_post, routes_patch, \
+    launch_orchestration_post, send_post
 from dm.web.network import HTTPBearerAuth, post
 from dm.web.network import async_post
 
@@ -79,39 +79,58 @@ def join():
         return '', 401
 
 
-@api_bp.route('/software/send', methods=['POST'])
+@api_bp.route('/send', methods=['POST'])
 @forward_or_dispatch
 @jwt_required
 @securizer
-@validate_schema(software_send)
-def software_send():
+@validate_schema(send_post)
+def send():
     # Validate Data
     data = request.get_json()
 
-    software = Software.query.get_or_404(data['software_id'])
-
     dest_server = Server.query.get_or_404(data['dest_server_id'])
 
-    ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
-    if not ssa:
-        return {'error': f"no Software Server Association found for software {data['software_id']} and "
-                         f"server {data['dest_server_id']}"}, 404
+    if 'software_id' in data:
+        software = Software.query.get_or_404(data['software_id'])
+
+        ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
+        if not ssa:
+            return {'error': f"no Software Server Association found for software {data['software_id']} and "
+                             f"server {data['dest_server_id']}"}, 404
+        file = os.path.join(ssa.path, software.filename)
+        if not os.path.exists(file):
+            return {'error': f"file '{file}' not found"}, 404
+        size = ssa.software.size
+    else:
+        file = data['file']
+        if os.path.exists(file):
+            try:
+                size = os.path.getsize(file)
+                checksum = md5(data.get('file'))
+            except Exception as e:
+                return {'error': format_error()}, 500
+        else:
+            return {'error': f"file '{file}' not found"}, 404
 
     chunk_size = min(data.get('chunk_size', d.CHUNK_SIZE), d.CHUNK_SIZE) * 1024
     max_senders = min(data.get('max_senders', d.MAX_SENDERS), d.MAX_SENDERS)
-    chunks = math.ceil(ssa.software.size / chunk_size)
+    chunks = math.ceil(size / chunk_size)
+
+    if 'software_id' in data:
+        json_msg = dict(software_id=str(software.id), num_chunks=chunks, dest_path=data.get('dest_path'))
+    else:
+        json_msg = dict(filename=os.path.basename(data.get('file')), size=size, checksum=checksum,
+                        num_chunks=chunks, dest_path=data.get('dest_path'))
 
     auth = HTTPBearerAuth(create_access_token(get_jwt_identity(), expires_delta=datetime.timedelta(
         minutes=30)))
-
-    json_msg = dict(software_id=str(software.id), num_chunks=chunks, dest_path=data.get('dest_path'))
 
     resp, code = post(dest_server, 'api_1_0.transferlist', json=json_msg, auth=auth)
 
     if code == 202:
         transfer_id = resp.get('transfer_id')
         current_app.logger.debug(
-            f"Transfer {transfer_id} created. Sending software {software} to {dest_server}:{data.get('dest_path')}.")
+                f"Transfer {transfer_id} created. Sending {file} to {dest_server}:{data.get('dest_path')}.")
     else:
         current_app.logger.error(f"Error on creating transfer on {dest_server.url('api_1_0.transferlist')}\n"
                                  f"Data: {json.dumps(json_msg, indent=4)}\n"
@@ -119,15 +138,24 @@ def software_send():
         transfer_id = None
 
     if transfer_id:
-        file = os.path.join(ssa.path, software.filename)
-        executor.submit(asyncio.run,
-                        async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
-                                        chunk_size=chunk_size, max_senders=max_senders, auth=auth))
+        if data.get('background', True):
+            executor.submit(asyncio.run,
+                            async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
+                                            chunk_size=chunk_size, max_senders=max_senders, auth=auth))
+        else:
+            try:
+                r = asyncio.run(async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
+                                                chunk_size=chunk_size, max_senders=max_senders, auth=auth,
+                                                raise_on_error=True))
+            except Exception as e:
+                return json_format_error(), 500
+            else:
+                return {}, 204
 
         return {'transfer_id': transfer_id}, 202
     return {'error': f'unable to create transfer on {dest_server}',
             'message': str(resp) if isinstance(resp, Exception) else resp,
-            'code': code}, 400
+            'code': code}, 500
 
 
 @api_bp.route('/software/dimensigon', methods=['GET'])
@@ -183,7 +211,7 @@ def fetch_catalog(data_mark):
 @api_bp.route('/routes', methods=['GET', 'POST', 'PATCH'])
 @jwt_required
 @securizer
-@validate_schema(POST=post_schema_routes, PATCH=patch_schema_routes)
+@validate_schema(POST=routes_post, PATCH=routes_patch)
 def routes():
     if request.method == 'GET':
 
@@ -505,7 +533,7 @@ def launch_command():
     else:
         server_list.append(g.server)
 
-    if re.search('rm\s+((-\w+|--[-=\w]*)\s+)*(-\w*[rR]\w*|--recursive)', data['command']):
+    if re.search(r'rm\s+((-\w+|--[-=\w]*)\s+)*(-\w*[rR]\w*|--recursive)', data['command']):
         return {'error': 'rm with recursion is not allowed'}, 403
     data.pop('hosts', None)
     start = None

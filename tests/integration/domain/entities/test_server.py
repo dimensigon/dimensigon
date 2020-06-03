@@ -3,7 +3,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from dm.domain.entities import Server, Route
-from dm.web import create_app, db
+from dm.web import create_app, db, errors
 
 
 class TestServer(TestCase):
@@ -64,7 +64,7 @@ class TestServer(TestCase):
         self.assertEqual(f'https://192.168.1.2:2/', me.url('api'))
 
         s = Server('test', port=8000)
-        with self.assertRaises(ConnectionError):
+        with self.assertRaises(errors.UnreachableDestination):
             s.url()
 
     def test_get_neighbours(self):

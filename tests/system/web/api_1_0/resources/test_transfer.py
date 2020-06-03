@@ -300,7 +300,6 @@ class TestTransferResource(TestCase):
         resp = self.client.get(url_for('api_1_0.transferresource', transfer_id='aaaaaaaa-1234-5678-1234-56781234aaa1'),
                                headers=self.auth.header)
         self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({'message': {'error': "Transfer id 'aaaaaaaa-1234-5678-1234-56781234aaa1' not found"}}, resp.get_json())
 
     def test_post_transfer(self):
         self.assertIsNone(self.transfer.started_on)

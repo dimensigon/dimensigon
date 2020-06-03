@@ -200,14 +200,13 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
         pool_responses.append(get(server, 'api_1_0.routes', auth=get_auth_root()))
 
     for resp in pool_responses:
-        if resp[1] == 200:
-            msg = resp[0]
+        if resp.code == 200:
 
-            likely_proxy_server_entity = db.session.query(Server).get(msg.get('server_id'))
+            likely_proxy_server_entity = db.session.query(Server).get(resp.msg.get('server_id'))
             routing_logger.debug(
-                f"route list got from server {likely_proxy_server_entity}: {json.dumps(msg['route_list'], indent=4)}")
+                f"route list got from server {likely_proxy_server_entity}: {json.dumps(resp.msg['route_list'], indent=4)}")
 
-            for route_json in msg['route_list']:
+            for route_json in resp.msg['route_list']:
                 route_json = convert(route_json)
                 # noinspection PyTypeChecker
                 route_json.destination_id = uuid.UUID(route_json.destination_id)

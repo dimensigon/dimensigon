@@ -1,14 +1,17 @@
 import datetime
 import re
+import sys
 import threading
+import traceback
 import typing as t
 from json import JSONEncoder
 
-from flask import abort, current_app, request
+from flask import current_app, request
 from flask_sqlalchemy import BaseQuery
 
 from dm import defaults
 from dm.utils.asyncio import run
+from dm.web.errors import EntityNotFound, NoDataFound
 
 
 class BaseQueryJSON(BaseQuery):
@@ -23,7 +26,8 @@ class BaseQueryJSON(BaseQuery):
 
         rv = self.get(ident)
         if rv is None:
-            abort(404, {"error": f"{self.column_descriptions[0]['name']} id '{ident}' not found"})
+            # abort(format_error_response(EntityNotFound(self.column_descriptions[0]['name'], ident)))
+            raise EntityNotFound(self.column_descriptions[0]['name'], ident)
         return rv
 
     def first_or_404(self, description=None):
@@ -31,7 +35,8 @@ class BaseQueryJSON(BaseQuery):
 
         rv = self.first()
         if rv is None:
-            abort(404, {"error": f"No data in {self.column_descriptions[0]['name']} collection"})
+            # abort(format_error_response(NoDataFound(self.column_descriptions[0]['name'])))
+            raise NoDataFound(self.column_descriptions[0]['name'])
         return rv
 
 
@@ -90,3 +95,10 @@ class DatetimeEncoder(JSONEncoder):
         if isinstance(obj, datetime.datetime):
             return obj.strftime(defaults.DATETIME_FORMAT)
         return JSONEncoder.default(self, obj)
+
+def json_format_error():
+    return {'error': format_error()}
+
+def format_error():
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    return traceback.format_exc() if current_app.config['DEBUG'] else str(exc_value)

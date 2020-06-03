@@ -7,7 +7,6 @@ from flask import Flask
 from dm.domain.entities import Server, Route
 from dm.web import db
 from dm.web.decorators import forward_or_dispatch
-from dm.web.errors import UnknownServer
 
 
 class TestForwardOrDispatch(TestCase):
@@ -65,9 +64,11 @@ class TestForwardOrDispatch(TestCase):
     def test_server_not_found(self, mock_g):
         mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
 
-        response = self.client.post('/', json={'destination': 'bbbbbbbb-1234-5678-1234-56781234bbb5', 'data': None})
-        self.assertDictEqual(UnknownServer('bbbbbbbb-1234-5678-1234-56781234bbb5')._format_error_msg(),
-                             response.json)
+        resp = self.client.post('/', json={'destination': 'bbbbbbbb-1234-5678-1234-56781234bbb5', 'data': None})
+
+        self.assertEqual(404, resp.status_code)
+
+
 
     @patch('dm.web.decorators.g')
     @responses.activate

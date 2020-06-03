@@ -6,7 +6,7 @@ from dm.domain.entities import ActionTemplate, ActionType
 from dm.web import db
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
-from dm.web.json_schemas import post_action_template_schema, action_template_patch
+from dm.web.json_schemas import action_template_patch, action_template_post
 
 
 class ActionTemplateList(Resource):
@@ -21,7 +21,7 @@ class ActionTemplateList(Resource):
     @forward_or_dispatch
     @jwt_required
     @securizer
-    @validate_schema(post_action_template_schema)
+    @validate_schema(action_template_post)
     @lock_catalog
     def post(self):
         json_data = request.get_json()

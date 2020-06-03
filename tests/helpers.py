@@ -1,5 +1,8 @@
+import functools
+import re
 import sys
 import time
+import traceback
 import typing as t
 from contextlib import contextmanager
 from http.server import HTTPServer
@@ -9,6 +12,8 @@ from unittest import TestCase, mock
 from unittest.mock import Mock
 
 import requests
+from aioresponses import aioresponses, CallbackResult
+from flask.testing import FlaskClient
 from flask_jwt_extended import create_access_token
 
 
@@ -75,6 +80,43 @@ def authorization_header(identity='test'):
 class TestCaseLockBypass(TestCase):
 
     def run(self, result=None):
-        with mock.patch('dm.web.decorators.lock'):
-            with mock.patch('dm.web.decorators.unlock'):
+        with mock.patch('dm.use_cases.lock.lock'):
+            with mock.patch('dm.use_cases.lock.unlock'):
                 super().run(result)
+
+
+def set_callbacks(target: t.List[t.Tuple[str, FlaskClient]], m: aioresponses = None):
+    import responses
+    method_list = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+
+    def requests_callback_client(client, request):
+        method_func = getattr(client, request.method.lower())
+        try:
+            resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
+        except Exception as e:
+            return 500, {}, traceback.format_exc()
+
+        return resp.status_code, resp.headers, resp.data
+
+    def callback_client(method, client, url, **kwargs):
+        kwargs.pop('allow_redirects')
+        # passing headers as a workarround for https://github.com/pnuckowski/aioresponses/issues/111
+        func = getattr(client, method.lower())
+        try:
+            r = func(url.path, headers=kwargs['headers'], json=kwargs['json'])
+        except Exception as e:
+            return CallbackResult(method.upper(), status=500, body=traceback.format_exc(), headers={})
+
+        return CallbackResult(method.upper(), status=r.status_code, body=r.data, content_type=r.content_type,
+                              headers=r.headers)
+
+    for dest_regexp, client in target:
+
+        for method in method_list:
+            responses.add_callback(method, re.compile(f'https?://{dest_regexp}.*'),
+                                   callback=functools.partial(requests_callback_client, client))
+        if m:
+            for method in method_list:
+                func = getattr(m, method.lower())
+                func(re.compile(f'https?://{dest_regexp}.*'),
+                     callback=functools.partial(callback_client, method, client), repeat=True)

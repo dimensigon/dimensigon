@@ -8,9 +8,8 @@ from unittest.mock import patch
 import responses
 from aioresponses import aioresponses, CallbackResult
 
-from dimensigon import join, Gate, token as generate_token
+from dimensigon import join, Gate, token as generate_token, Locker, User
 from dm.domain.entities import Server, Dimension, Catalog
-from dm.domain.entities.bootstrap import set_initial
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 
@@ -26,7 +25,10 @@ class TestApi(TestCase):
         self.app_join.config['SECURIZER'] = True
         self.app_join.config['SERVER_NAME'] = 'new'
         with self.app_join.app_context():
-            set_initial()
+            db.create_all()
+            Locker.set_initial()
+            User.set_initial()
+            Server.set_initial()
             me = Server.get_current()
             # remove Gates
             [db.session.delete(g) for g in me.gates]
@@ -39,7 +41,10 @@ class TestApi(TestCase):
         self.app.config['SECURIZER'] = True
         mock_now.return_value = datetime.datetime(2019, 3, 1)
         with self.app.app_context():
-            set_initial()
+            db.create_all()
+            Locker.set_initial()
+            User.set_initial()
+            Server.set_initial()
             me = Server.get_current()
             # remove Gates
             [db.session.delete(g) for g in me.gates]

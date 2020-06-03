@@ -1,6 +1,5 @@
 import atexit
 import datetime
-import json
 import os
 import threading
 import typing as t
@@ -9,12 +8,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, g, _app_ctx_stack
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
-from jsonschema import ValidationError
 from sqlalchemy import MetaData
-from werkzeug.exceptions import HTTPException
 
 from config import config_by_name
 from dm.utils.event_handler import EventHandler
+from dm.web import errors
 from .extensions.flask_executor.executor import Executor
 from .helpers import BaseQueryJSON, run_in_background
 
@@ -33,7 +31,6 @@ meta = MetaData(naming_convention={
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s"
 })
-
 
 db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta, session_options=dict(scopefunc=scopefunc))
 # db = SQLAlchemy(query_class=BaseQueryJSON)
@@ -74,6 +71,26 @@ class DimensigonApp(Flask):
         super(DimensigonApp, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
 
 
+def _initialize_blueprint(app):
+    from dm.web.routes import root_bp
+    from dm.web.api_1_0 import api_bp as api_1_0_bp
+
+    app.register_blueprint(root_bp)
+    handle_exception = app.handle_exception
+    handle_user_exception = app.handle_user_exception
+    app.register_blueprint(api_1_0_bp)
+    app.handle_exception = handle_exception
+    app.handle_user_exception = handle_user_exception
+
+
+def _initialize_errorhandlers(application):
+    '''
+    Initialize error handlers
+    '''
+    from dm.web.errors import bp_errors
+    application.register_blueprint(bp_errors)
+
+
 def create_app(config_name):
     app = DimensigonApp('dm')
     if isinstance(config_name, t.Mapping):
@@ -94,15 +111,8 @@ def create_app(config_name):
 
     app.before_first_request_funcs = [app.start_background_tasks]
     app.before_request(load_global_data_into_context)
-
-    app.register_error_handler(ValidationError, validation_error)
-    app.register_error_handler(HTTPException, internal_server_error)
-
-    # API version 0
-    from dm.web.routes import root_bp
-    from dm.web.api_1_0 import api_bp as api_1_0_bp
-    app.register_blueprint(root_bp)
-    app.register_blueprint(api_1_0_bp)
+    _initialize_blueprint(app)
+    _initialize_errorhandlers(app)
 
     return app
 
@@ -111,22 +121,6 @@ def create_app(config_name):
 def user_loader_callback(identity):
     from ..domain.entities import User
     return User.query.get(identity)
-
-
-def validation_error(e: ValidationError):
-    return {"error": e.message, 'schema': e.schema}, 400
-
-
-def internal_server_error(e: HTTPException):
-    response = e.get_response()
-    # replace the body with JSON
-    response.data = json.dumps({
-        "code": e.code,
-        "name": e.name,
-        "error": e.description,
-    })
-    response.content_type = "application/json"
-    return response
 
 
 def load_global_data_into_context():

@@ -9,7 +9,7 @@ from dm.utils.helpers import md5
 from dm.web import db
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
-from dm.web.json_schemas import post_software_schema, put_software_servers_schema, patch_software_schema
+from dm.web.json_schemas import software_post, software_patch
 
 
 def set_software_server(soft, server, path, recalculate_data=False):
@@ -39,7 +39,7 @@ class SoftwareList(Resource):
     @forward_or_dispatch
     @jwt_required
     @securizer
-    @validate_schema(post_software_schema)
+    @validate_schema(software_post)
     @lock_catalog
     def post(self):
         json = request.get_json()
@@ -79,30 +79,31 @@ class SoftwareServersResource(Resource):
         soft = Software.query.get_or_404(software_id)
         return [ssa.server.to_json() for ssa in soft.ssas]
 
+    # @forward_or_dispatch
+    # @jwt_required
+    # @securizer
+    # @validate_schema(software_servers_put)
+    # @lock_catalog
+    # def put(self, software_id):
+    #     json = request.get_json()
+    #
+    #     soft = Software.query.get_or_404(software_id)
+    #
+    #     # delete all associations
+    #     soft.ssas = []
+    #
+    #     for ssa_json in json:
+    #         server = Server.query.get_or_404(ssa_json['server_id'])
+    #         ssa = SoftwareServerAssociation(software=soft, server=server, path=ssa_json['path'])
+    #         db.session.add(ssa)
+    #
+    #     db.session.commit()
+    #     return
+
     @forward_or_dispatch
     @jwt_required
     @securizer
-    @validate_schema(put_software_servers_schema)
-    @lock_catalog
-    def put(self, software_id):
-        json = request.get_json()
-
-        soft = Software.query.get_or_404(software_id)
-
-        # delete all associations
-        soft.ssas = []
-
-        for ssa_json in json:
-            server = Server.query.get_or_404(ssa_json['server_id'])
-            ssa = SoftwareServerAssociation(software=soft, server=server, path=ssa_json['path'])
-            db.session.add(ssa)
-
-        db.session.commit()
-
-    @forward_or_dispatch
-    @jwt_required
-    @securizer
-    @validate_schema(patch_software_schema)
+    @validate_schema(software_patch)
     @lock_catalog
     def patch(self, software_id):
         json = request.get_json()
@@ -113,4 +114,4 @@ class SoftwareServersResource(Resource):
         ssa = set_software_server(soft, server, json['path'], recalculate_data=json.get('recalculate_data', False))
         db.session.add(ssa)
         db.session.commit()
-        return {'software_id': software_id}, 204
+        return {}, 204

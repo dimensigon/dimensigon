@@ -15,6 +15,7 @@ from flask_migrate import Migrate
 from dm.domain.entities.bootstrap import set_initial
 
 dotenv.load_dotenv(dotenv.find_dotenv())
+basedir = os.path.abspath(os.path.dirname(__file__))
 
 PLATFORM = platform.system()
 
@@ -117,8 +118,15 @@ def join(server, token, ssl, verify):
     protocol = "https" if ssl else "http"
     with requests.Session() as session:
         # TODO: send ca.cert from the dimension
-        resp = session.get(f"{protocol}://{server}/api/v1.0/join/public", headers={'Authorization': 'Bearer ' + token},
-                           verify=verify)
+        try:
+            resp = session.get(f"{protocol}://{server}/api/v1.0/join/public", headers={'Authorization': 'Bearer ' + token},
+                           verify=verify, timeout=5)
+        except requests.exceptions.ConnectionError as e:
+            click.echo(f"Unable to contact to {server}")
+            exit(1)
+        except requests.exceptions.Timeout as e:
+            click.echo(f"Timeout of 5s reached while trying to contact to {server}")
+            exit(1)
         if resp.status_code != 200:
             click.echo(f"Error trying to get dimensigon public key: {resp.content}")
             exit(1)
@@ -138,6 +146,9 @@ def join(server, token, ssl, verify):
         except requests.exceptions.ConnectionError as e:
             click.echo(f"Error while trying to join the dimension: {e}")
             resp_data = {}
+        except requests.exceptions.Timeout as e:
+            click.echo(f"Timeout of 5s reached while trying join the dimension")
+            resp_data = {}
         else:
             if resp.status_code != 200:
                 click.echo(f"Error while trying to join the dimension: {resp.status_code}, {resp.content}")
@@ -149,8 +160,7 @@ def join(server, token, ssl, verify):
             dim.current = True
             db.session.add(dim)
 
-            if 'SECRET_KEY' not in dotenv.dotenv_values():
-                dotenv.set_key(dotenv.find_dotenv(), 'SECRET_KEY', str(dim.id))
+            dotenv.set_key(dotenv.find_dotenv(), 'SECRET_KEY', str(dim.id))
 
             click.echo('Joined to the dimension')
             click.echo('Updating Catalog')
@@ -191,7 +201,6 @@ def new(name):
     dim.current = count == 0
     db.session.add(dim)
     User.set_initial()
-    db.session.commit()
 
     now = datetime.datetime.utcnow()
 
@@ -231,10 +240,11 @@ def new(name):
 
     os.chmod(os.path.join(ssl_dir, 'key.pem'), 0o600)
 
-    if 'SECRET_KEY' not in dotenv.dotenv_values():
+    if 'SECRET_KEY' not in dotenv.dotenv_values() or count == 0:
         dotenv.set_key(dotenv.find_dotenv(), 'SECRET_KEY', str(dim.id))
 
     click.echo(f"New dimension created successfully")
+    db.session.commit()
 
 
 @dm.command(help="""Activates the dimension""")
@@ -251,104 +261,3 @@ def activate(dim):
     d.current = True
     db.session.commit()
     click.echo(f"dimension '{dim}' activated")
-
-#
-# @dm.command(help="""Generates a self signed certificate""")
-# @click.option('--hostname')
-# @click.option('--ip', multiple=True)
-# @with_appcontext
-# def certs(hostname, ip):
-#     from cryptography import x509
-#     from cryptography.x509.oid import NameOID
-#     from cryptography.hazmat.primitives import hashes
-#     from cryptography.hazmat.backends import default_backend
-#     from cryptography.hazmat.primitives import serialization
-#     from cryptography.hazmat.primitives.asymmetric import rsa
-#     import ipaddress
-#
-#     d = Dimension.get_current()
-#     s = Server.get_current()
-#     if not d:
-#         click.echo('You must join to a dimension in order to generate a certificate')
-#         sys.exit(1)
-#
-#     ssl_dir = os.path.join(basedir, 'ssl')
-#     # get CA crt and private key
-#     with open(os.path.join(ssl_dir, 'ca.crt'), 'rb') as fd:
-#         ca = x509.load_pem_x509_certificate(fd.read(), default_backend())
-#     ca_priv_key = serialization.load_pem_private_key(data=d.private.save_pkcs1(), password=None,
-#                                                      backend=default_backend())
-#
-#     hostname = hostname or s.name
-#
-#     # Generate our key
-#     key = rsa.generate_private_key(
-#         public_exponent=65537,
-#         key_size=2048,
-#         backend=default_backend(),
-#     )
-#
-#     name = x509.Name([
-#         x509.NameAttribute(NameOID.COMMON_NAME, hostname),
-#         x509.NameAttribute(NameOID.COUNTRY_NAME, u"ES"),
-#         x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"Barcelona"),
-#         x509.NameAttribute(NameOID.LOCALITY_NAME, u"Barcelona"),
-#         x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"KnowTrade S.L."),
-#         x509.NameAttribute(NameOID.COMMON_NAME, u"dimensigon.com"),
-#     ])
-#
-#     # best practice seem to be to include the hostname in the SAN, which *SHOULD* mean COMMON_NAME is ignored.
-#     alt_names = [x509.DNSName(hostname)]
-#
-#     # allow addressing by IP, for when you don't have real DNS (common in most testing scenarios
-#     if ip:
-#         for addr in ip:
-#             # # openssl wants DNSnames for ips...
-#             # alt_names.append(x509.DNSName(addr))
-#             # ... whereas golang's crypto/tls is stricter, and needs IPAddresses
-#             # note: older versions of cryptography do not understand ip_address objects
-#             alt_names.append(x509.IPAddress(ipaddress.ip_address(addr)))
-#     for gate in s.gates:
-#         # openssl wants DNSnames for ips...
-#         if gate.dns:
-#             alt_names.append(x509.DNSName(gate.ip))
-#         # ... whereas golang's crypto/tls is stricter, and needs IPAddresses
-#         # note: older versions of cryptography do not understand ip_address objects
-#         if gate.ip:
-#             alt_names.append(x509.IPAddress(gate.ip))
-#
-#     san = x509.SubjectAlternativeName(alt_names)
-#
-#     now = datetime.datetime.utcnow()
-#     csr = x509.CertificateSigningRequestBuilder() \
-#         .subject_name(name) \
-#         .add_extension(san, critical=False) \
-#         .sign(private_key=key, algorithm=hashes.SHA256(), backend=default_backend())
-#
-#     crt = x509.CertificateBuilder() \
-#         .subject_name(csr.subject) \
-#         .issuer_name(ca.subject) \
-#         .public_key(csr.public_key()) \
-#         .serial_number(x509.random_serial_number()) \
-#         .not_valid_before(now - datetime.timedelta(1, 0, 0)) \
-#         .not_valid_after(now + datetime.timedelta(days=10 * 365)) \
-#         .sign(private_key=ca_priv_key, algorithm=hashes.SHA256(), backend=default_backend())
-#
-#     cert_pem = crt.public_bytes(encoding=serialization.Encoding.PEM)
-#     key_pem = key.private_bytes(
-#         encoding=serialization.Encoding.PEM,
-#         format=serialization.PrivateFormat.TraditionalOpenSSL,
-#         encryption_algorithm=serialization.NoEncryption(),
-#
-#     )
-#
-#     with open(os.path.join(ssl_dir, 'cert.pem'), 'wb') as file:
-#         file.write(cert_pem)
-#
-#     with open(os.path.join(ssl_dir, 'key.pem'), 'wb') as file:
-#         file.write(key_pem)
-#     os.chmod(os.path.join(ssl_dir, 'key.pem'), 0o600)
-#
-#     click.echo("Certificates generated")
-#     click.echo("cert: " + os.path.join(ssl_dir, 'cert.pem'))
-#     click.echo("key: " + os.path.join(ssl_dir, 'key.pem'))

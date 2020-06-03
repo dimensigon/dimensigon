@@ -7,7 +7,7 @@ from flask_jwt_extended import jwt_required
 from dm import defaults
 from dm.domain.entities import Catalog
 from dm.domain.entities.locker import Scope, State, Locker
-from dm.web import db
+from dm.web import db, errors
 from dm.web.api_1_0 import api_bp
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
 from dm.web.json_schemas import locker_prevent_post, locker_unlock_lock_post
@@ -55,9 +55,7 @@ def locker_prevent():
                 datemark = datetime.strptime(json_data['datemark'], defaults.DATEMARK_FORMAT)
                 catalog_ver = Catalog.max_catalog()
                 if datemark < catalog_ver:
-                    return {"error": f"Old catalog datemark. "
-                                     f"Upgrade Catalog to {catalog_ver.strftime(defaults.DATEMARK_FORMAT)} to lock"
-                            }, 409
+                    raise errors.ObsoleteCatalog(catalog_ver, datemark)
             l.state = State.PREVENTING
             l.applicant = json_data.get('applicant')
             th = threading.Timer(defaults.TIMEOUT_PREVENTING_LOCK, revert_preventing,
@@ -67,9 +65,9 @@ def locker_prevent():
             th.start()
             return {'message': 'Preventing lock acquired'}, 200
         else:
-            return {'error': 'Priority locker acquired'}, 409
+            raise errors.PriorityLocker(l.scope)
     else:
-        return {'error': 'Unable to request for lock.'}, 409
+        raise errors.StatusLockerError(l.scope, 'P', l.state)
 
 
 @api_bp.route('/locker/lock', methods=['POST'])
@@ -81,13 +79,16 @@ def locker_lock():
     json_data = request.get_json()
     l: Locker = Locker.query.with_for_update().get(Scope[json_data['scope']])
     current_app.logger.debug(f"Lock requested on {json_data.get('scope')} from {g.source}")
-    if l.state == State.PREVENTING and l.applicant == json_data['applicant']:
-        l.state = State.LOCKED
-        db.session.commit()
-        current_app.logger.debug(f"Lock from {g.source} on {l.scope.name} acquired")
-        return {'message': 'Locked'}, 200
+    if l.state == State.PREVENTING:
+        if l.applicant == json_data['applicant']:
+            l.state = State.LOCKED
+            db.session.commit()
+            current_app.logger.debug(f"Lock from {g.source} on {l.scope.name} acquired")
+            return {'message': 'Locked'}, 200
+        else:
+            raise errors.ApplicantLockerError(l.scope)
     else:
-        return {'error': 'Unable to lock.'}, 409
+        raise errors.StatusLockerError(l.scope, 'L', l.state)
 
 
 @api_bp.route('/locker/unlock', methods=['POST'])
@@ -99,11 +100,14 @@ def locker_unlock():
     json_data = request.get_json()
     l: Locker = Locker.query.with_for_update().get(Scope[json_data['scope']])
     current_app.logger.debug(f"Unlock requested on {json_data.get('scope')} from {g.source}")
-    if (l.state == State.PREVENTING or l.state == State.LOCKED) and l.applicant == json_data['applicant']:
-        l.state = State.UNLOCKED
-        l.applicant = None
-        db.session.commit()
-        current_app.logger.debug(f"Lock on {l.scope.name} released")
-        return {'message': 'UnLocked'}, 200
+    if (l.state == State.PREVENTING or l.state == State.LOCKED):
+        if l.applicant == json_data['applicant']:
+            l.state = State.UNLOCKED
+            l.applicant = None
+            db.session.commit()
+            current_app.logger.debug(f"Lock on {l.scope.name} released")
+            return {'message': 'UnLocked'}, 200
+        else:
+            raise errors.ApplicantLockerError(l.scope)
     else:
-        return {'error': 'Unable to unlock.'}, 409
+        raise errors.StatusLockerError(l.scope, 'U', l.state)

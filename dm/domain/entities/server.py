@@ -8,7 +8,7 @@ from flask import current_app, url_for
 from sqlalchemy import or_
 
 from dm.utils.typos import ScalarListType, Gate as TGate
-from dm.web import db
+from dm.web import db, errors
 from .base import UUIDistributedEntityMixin
 from .gate import Gate
 from .route import Route
@@ -31,14 +31,13 @@ class Server(db.Model, UUIDistributedEntityMixin):
 
     # software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
 
-    def __init__(self, name: str, granules=None, dns_or_ip=None, port=None,
-                 gates: t.List[t.Union[TGate, t.Dict[str, t.Any]]] = None, me=False, **kwargs):
+    def __init__(self, name: str, granules: t.List[str] = None,
+                 dns_or_ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address] = None, port: int = None,
+                 gates: t.List[t.Union[TGate, t.Dict[str, t.Any]]] = None, me: bool = False, **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         self.name = name
         if port or dns_or_ip:
             self.add_new_gate(dns_or_ip or self.name, port or defaults.DEFAULT_PORT)
-        # elif not (port or gates):
-        #     self.add_new_gate(self.name, defaults.DEFAULT_PORT)
 
         if gates:
             for gate in gates:
@@ -48,6 +47,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
                     gate['server'] = self
                     Gate.from_json(gate)
 
+        assert 'all' not in (granules or [])
         self.granules = granules or []
         self._me = me
         # create an empty route
@@ -99,7 +99,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
         return hg
 
     def add_new_gate(self, dns_or_ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int,
-                     hidden=False):
+                     hidden=None):
         ip = None
         dns = None
         if dns_or_ip:
@@ -144,7 +144,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
                 gate = self.route.proxy_server.route.gate
 
         if not gate:
-            raise ConnectionError(f"Unreachable destination '{self}'")
+            raise errors.UnreachableDestination(self)
 
         root_path = f"{scheme}://{gate}"
 

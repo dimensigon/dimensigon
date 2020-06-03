@@ -7,20 +7,61 @@ import aiohttp
 import requests
 from aiohttp import ContentTypeError
 from flask import current_app as __ca, current_app, url_for
-from requests import ConnectTimeout
 from requests.auth import AuthBase
+from requests.exceptions import Timeout
 
 from dm import defaults
 from dm.domain.entities import Server, Dimension, Gate
 from dm.network.exceptions import NotValidMessage
 from dm.network.gateway import pack_msg as _pack_msg, unpack_msg as _unpack_msg
 from dm.utils.typos import Kwargs
-
-Response = t.Tuple[t.Union[t.Dict, t.AnyStr, Exception], t.Union[int, None]]
+from dm.web import errors
 
 requests.packages.urllib3.disable_warnings()
 
 logger = logging.getLogger('dm.network')
+
+
+class Response:
+
+    def __init__(self, msg: t.Union[str, t.Dict[str, t.Any]] = None, code: int = None, exception: Exception = None,
+                 server=None,
+                 url=None):
+        self.code = code
+        self.msg = msg
+        self.exception = exception
+        self.server = server
+        self.url = url
+
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) \
+               and self.code == other.code \
+               and self.msg == other.msg \
+               and self.server == other.server \
+               and self.url == other.url \
+               and ((self.exception.__class__ == other.exception.__class__ and
+                     self.exception.args == other.exception.args) if self.exception else True)
+
+    # backward compatibility <= v0.1-b10
+    def __iter__(self):
+        yield self.exception or self.msg
+        yield self.code
+
+    # backward compatibility <= v0.1-b10
+    def __getitem__(self, item):
+        if item == 0:
+            return self.exception or self.msg
+        elif item == 1:
+            return self.code
+        raise KeyError(item)
+
+    def __repr__(self):
+        return f"Response(server={self.server}, url={self.url}, code={self.code})"
+
+    def __str__(self):
+        if self.exception:
+            return f"{self.exception.__class__.__name__}: {self.exception}"
+        return f"{self.code}, {self.msg}"
 
 def pack_msg(data, *args, **kwargs):
     if not __ca.config['SECURIZER']:
@@ -180,10 +221,14 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     if not session:
         _session = requests.session()
 
+    raise_on_error = kwargs.pop('raise_on_error', False)
+
     try:
         url = _prepare_url(server, view_or_url, view_data)
     except (RuntimeError, ConnectionError) as e:
-        return e, None
+        if raise_on_error:
+            raise
+        return Response(exception=e, server=server)
 
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
@@ -194,29 +239,24 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
         kwargs['json'] = pack_msg(kwargs['json'])
 
     kwargs['verify'] = current_app.config['SSL_VERIFY']
-    func = getattr(_session, method)
+    func = getattr(_session, method.lower())
 
     if 'timeout' not in kwargs:
         kwargs['timeout'] = defaults.TIMEOUT_REQUEST
 
-    raise_on_error = kwargs.pop('raise_on_error', False)
-
     try:
         resp: requests.Response = func(url, **kwargs)
-    except (TimeoutError, ConnectTimeout) as e:
+    except (Timeout, ) as e:
         timeout = kwargs.get('timeout', None)
         if isinstance(timeout, tuple):
             timeout = timeout[0] + timeout[1]
-        exception = ConnectTimeout(f"Socket timeout reached while trying to connect to {url} "
-                  f"for {timeout} seconds",)
+        exception = TimeoutError(f"Socket timeout reached while trying to connect to {url} "
+                                   f"for {timeout} seconds")
     except Exception as e:
         exception = e
     finally:
         if not session:
             _session.close()
-
-    if exception and raise_on_error:
-        raise exception
 
     if exception is None:
         status = resp.status_code
@@ -229,21 +269,12 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
             try:
                 content = unpack_msg(json_data)
             except NotValidMessage:
-                # logger.debug(
-                #     f"Response from request {url} is not encrypted: {status}\n"
-                #     f"Content: {json.dumps(json_data, indent=4)}\n"
-                #     f"Header-Response: {json.dumps(dict(resp.headers), indent=4)}\n"
-                #     f"Headers: {json.dumps(kwargs['headers'], indent=4)}\n"
-                #     f"Authorization: {kwargs.get('auth')}"
-                # )
                 content = json_data
     else:
-        content = exception
-        logger.error(f'Exception raised while trying to request to {url}: {exception}')
+        if raise_on_error:
+            raise exception
 
-    if not (status is None or 199 < status < 300):
-        logger.debug(f'Error on request to {url}: {status}, {content}')
-    return content, status
+    return Response(msg=content, code=status, exception=exception, server=server, url=url)
 
 
 def get(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
@@ -301,10 +332,14 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     else:
         _session = session
 
+    raise_on_error = kwargs.pop('raise_on_error', False)
+
     try:
         url = _prepare_url(server, view_or_url, view_data)
-    except (RuntimeError, ConnectionError) as e:
-        return e, None
+    except (RuntimeError, ConnectionError, errors.UnreachableDestination) as e:
+        if raise_on_error:
+            raise
+        return Response(exception=e, server=server)
 
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
@@ -318,10 +353,6 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     if 'timeout' in kwargs and isinstance(kwargs['timeout'], (int, float)):
         kwargs['timeout'] = aiohttp.ClientTimeout(total=kwargs['timeout'])
 
-    raise_on_error = kwargs.pop('raise_on_error', False)
-
-    # if getattr(_session, 'timeout', None) is None:
-    #     _session.timeout = defaults.TIMEOUT_REQUEST
     func = getattr(_session, method)
 
     try:
@@ -332,37 +363,26 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
             except (ContentTypeError, ValueError):
                 content = await resp.text()
     except (concurrent.futures.TimeoutError, asyncio.TimeoutError) as e:
-        e.args = (f"Socket timeout reached while trying to connect to {url} "
-                  f"for {kwargs.get('timeout').total or _session._timeout.total} seconds", )
-        exception = e
+        exception = TimeoutError(f"Socket timeout reached while trying to connect to {url} "
+                  f"for {kwargs.get('timeout').total or _session._timeout.total} seconds")
     except Exception as e:
         exception = e
     finally:
         if not session:
             await _session.close()
 
-    if exception and raise_on_error:
-        raise exception
-
     if json_data:
         try:
             content = unpack_msg(json_data)
         except NotValidMessage:
-            # logger.debug(
-            #     f"Response from request {url} is not encrypted: {status}\n"
-            #     f"Content: {json.dumps(json_data, indent=4)}\n"
-            #     f"Header-Response: {json.dumps(dict(resp.headers), indent=4)}\n"
-            #     f"Headers: {json.dumps(kwargs['headers'], indent=4)}\n"
-            #     f"Authorization: {kwargs.get('auth')}"
-            # )
             content = json_data
     elif exception:
-        content = exception
-        logger.error(f'Error while trying to request to {url}: {exception}')
+        if raise_on_error:
+            raise exception
     else:
         content = await resp.text()
 
-    return content, status
+    return Response(msg=content, code=status, exception=exception, server=server, url=url)
 
 
 async def async_get(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,

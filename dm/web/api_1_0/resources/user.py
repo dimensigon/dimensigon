@@ -6,7 +6,7 @@ from dm.domain.entities.user import User
 from dm.web import db
 from dm.web.decorators import forward_or_dispatch, securizer, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
-from dm.web.json_schemas import schema_create_user, schema_patch_user
+from dm.web.json_schemas import users_post, user_patch
 
 
 class UserList(Resource):
@@ -21,7 +21,7 @@ class UserList(Resource):
     @forward_or_dispatch
     @jwt_required
     @securizer
-    @validate_schema(schema_create_user)
+    @validate_schema(users_post)
     @lock_catalog
     def post(self):
         data = request.get_json()
@@ -43,7 +43,7 @@ class UserResource(Resource):
     @forward_or_dispatch
     @jwt_required
     @securizer
-    @validate_schema(schema_patch_user)
+    @validate_schema(user_patch)
     @lock_catalog
     def patch(self, user_id):
         user = User.query.get_or_404(user_id)

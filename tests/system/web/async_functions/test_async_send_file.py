@@ -226,5 +226,5 @@ class TestAsyncSendFile(TestCase):
                                    file=os.path.join(self.source_path, self.filename), chunk_size=14,
                                    auth=self.auth, retries=1))
 
-        self.assertIn(1, data)
-        self.assertIn(2, data)
+        self.assertIn('chunk1', data)
+        self.assertIn('chunk2', data)

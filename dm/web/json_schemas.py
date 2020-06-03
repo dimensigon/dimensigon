@@ -47,27 +47,30 @@ locker_unlock_lock_post = {
 }
 
 
-software_send = {
+send_post = {
     "type": "object",
     "properties": {
         "software_id": {"type": "string",
                         "pattern": UUID_pattern},
+        "file": {"type": "string"},
         "dest_server_id": {"type": "string",
                            "pattern": UUID_pattern},
         "dest_path": {"type": "string"},
         "chunk_size": {"type": "integer",  # size in MB
                        "minimum": 1,
-                       "maximum": 2*1024,
+                       "maximum": 2 * 1024,
                        # "multipleOf": 1024
                        },
         "max_senders": {"type": "integer",
-                        "minimum": 1}
+                        "minimum": 1},
+        "background": {"type": "boolean"}
     },
-    "required": ["software_id", "dest_server_id", "dest_path"],
+    "oneOf": [{"required": ["software_id", "dest_server_id"]},
+              {"required": ["file", "dest_server_id"]}],
     "additionalProperties": False
 }
 
-post_software_schema = {
+software_post = {
     "type": "object",
     "properties": {
         "name": {"type": "string"},
@@ -85,7 +88,7 @@ post_software_schema = {
     "additionalProperties": False
 }
 
-patch_software_schema = {
+software_patch = {
     "type": "object",
     "properties": {
         "server_id": {"type": "string",
@@ -96,7 +99,7 @@ patch_software_schema = {
     "additionalProperties": False
 }
 
-put_software_servers_schema = {
+software_servers_put = {
     "type": "array",
     "items": {
         "type": "object",
@@ -110,20 +113,30 @@ put_software_servers_schema = {
     "additionalProperties": False
 }
 
-post_action_template_schema = {
+action_template_post = {
     "type": "object",
     "properties": {
         "name": {"type": "string"},
         "version": {"type": "integer",
                     "minimum": 1},
         "action_type": {"type": "string",
-                        "pattern": f"^({'|'.join([at.name for at in ActionType])})$"},
-        "code": {"type": "string"},
+                        "pattern": f"^({'|'.join([at.name for at in ActionType if at.name != 'NATIVE'])})$"},
         "parameters": {"type": "object"},
         "expected_output": {"type": "string"},
         "expected_err": {"type": "string"},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
+        "post_process": {"type": "string"},
+    },
+    "if": {
+        "properties": {"action_type": {"const": "SEND"}}
+    },
+    "then": {
+        "required": ["name", "version", "action_type"],
+    },
+    "else": {
+        "properties": {"code": {"type": "string"}},
+        "required": ["name", "version", "action_type", "code"],
     },
     "required": ["name", "version", "action_type", "code"],
     "additionalProperties": False
@@ -140,6 +153,7 @@ action_template_patch = {
         "expected_err": {"type": "string"},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
+        "post_process": {"type": "string"},
     },
     "additionalProperties": False
 }
@@ -269,7 +283,7 @@ step_children = {
     }
 }
 
-patch_schema_routes = {
+routes_patch = {
     "type": "object",
     "properties": {
         "discover_new_neighbours": {"type": "boolean"},
@@ -295,6 +309,17 @@ patch_schema_routes = {
                             "required": ["id", "gateway", "cost"]
                         }
                         }
+    },
+    "additionalProperties": False
+}
+
+routes_post = {
+    "type": "object",
+    "properties": {
+        "discover_new_neighbours": {"type": "boolean"},
+        "check_current_neighbours": {"type": "boolean"},
+        "retries": {"type": "integer", "minimum": 1},
+        "timeout": {"type": "number", "minimum": 0}
     },
     "additionalProperties": False
 }
@@ -348,16 +373,7 @@ launch_orchestration_post = {
     "additionalProperties": False,
 }
 
-post_schema_routes = {
-    "type": "object",
-    "properties": {
-        "discover_new_neighbours": {"type": "boolean"},
-        "check_current_neighbours": {"type": "boolean"},
-        "retries": {"type": "integer", "minimum": 1},
-        "timeout": {"type": "number", "minimum": 0}
-    },
-    "additionalProperties": False
-}
+
 
 transfers_post = {
     "type": "object",
@@ -389,17 +405,7 @@ transfer_post = {
     "additionalProperties": False
 }
 
-schema_post_log = {
-    "type": "object",
-    "properties": {
-        "file": {"type": "string"},
-        "data": {"type": "string"},
-    },
-    "required": ["data"],
-    "additionalProperties": False
-}
-
-schema_create_log = {
+logs_post = {
     "type": "object",
     "properties": {
         "src_server_id": {"type": "string",
@@ -416,7 +422,7 @@ schema_create_log = {
     "additionalProperties": False
 }
 
-schema_patch_log = {
+log_patch = {
     "type": "object",
     "properties": {
         "include": {"type": "string",
@@ -429,7 +435,17 @@ schema_patch_log = {
     "additionalProperties": False
 }
 
-schema_create_user = {
+log_post = {
+    "type": "object",
+    "properties": {
+        "file": {"type": "string"},
+        "data": {"type": "string"},
+    },
+    "required": ["data"],
+    "additionalProperties": False
+}
+
+users_post = {
     "type": "object",
     "properties": {
         "user": {"type": "string"},
@@ -441,7 +457,7 @@ schema_create_user = {
     "additionalProperties": False
 }
 
-schema_patch_user = {
+user_patch = {
     "type": "object",
     "properties": {
         "email": {"type": "string",
@@ -465,5 +481,46 @@ launch_command_post = {
         "input": {"type": "string"},
     },
     "required": ["command"],
+    "additionalProperties": False,
+}
+
+server_post = {
+    "type": "object",
+    "properties": {
+        # "gates": {"type": "object",
+        #           "properties": {
+        #               "dns_or_ip": {"type": "string"},
+        #               "port": {"type": "integer",
+        #                        "minimum": 1,
+        #                        "maximum": 65535},
+        #               "hidden": {"type": "boolean"},
+        #               "required": ["dns_or_ip", "port"],
+        #               "additionalProperties": False,
+        #           }},
+        "granules": {"type": "array",
+                     "items": {"type": "string"}}
+    },
+    "additionalProperties": False,
+    "required": ["granules"]
+}
+
+server_patch = {
+    "type": "object",
+    "properties": {
+        "gates": {"type": "array",
+                  "items": {"type": "object",
+                            "properties": {
+                                "dns_or_ip": {"type": "string"},
+                                "port": {"type": "integer",
+                                         "minimum": 1,
+                                         "maximum": 65535},
+                                "hidden": {"type": "boolean"},
+                                "required": ["dns_or_ip", "port"],
+                                "additionalProperties": False,
+                            }}
+                  },
+        "granules": {"type": "array",
+                     "items": {"type": "string"}}
+    },
     "additionalProperties": False,
 }

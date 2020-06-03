@@ -1,24 +1,22 @@
 import os
-import re
 import uuid
 from datetime import datetime
-from functools import partial
 from unittest import TestCase
 from unittest.mock import patch
 
 import responses
-from aioresponses import aioresponses, CallbackResult
+from aioresponses import aioresponses
 from flask import url_for
 from flask_jwt_extended import create_access_token, verify_jwt_in_request
 
-from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, User
+from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, User, Locker
 from dm import defaults
 from dm.domain.entities import Server, Dimension, Catalog
-from dm.domain.entities.bootstrap import set_initial
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.background_tasks import update_catalog
 from dm.web.network import HTTPBearerAuth
+from tests.helpers import set_callbacks
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -55,7 +53,8 @@ class TestLockScopeFullChain(TestCase):
         mocked_now.return_value = datetime(2019, 4, 1)
         with self.app1.app_context():
             db.create_all()
-            set_initial(server=False)
+            Locker.set_initial()
+            User.set_initial()
             self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
             s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000, me=True)
             s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000)
@@ -71,7 +70,8 @@ class TestLockScopeFullChain(TestCase):
 
         with self.app2.app_context():
             db.create_all()
-            set_initial(server=False)
+            Locker.set_initial()
+            User.set_initial()
             s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000)
             Route(s1, cost=0)
             s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000, me=True)
@@ -109,57 +109,8 @@ class TestLockScopeFullChain(TestCase):
     @aioresponses()
     @responses.activate
     def test_check_catalog(self, m):
-        def callback_post_client1(url, **kwargs):
-            kwargs.pop('allow_redirects')
-            # passing headers as a workarround for https://github.com/pnuckowski/aioresponses/issues/111
-            r = self.client1.post(url.path, json=kwargs['json'], headers=kwargs['headers'])
 
-            return CallbackResult('POST', status=r.status_code, body=r.data, content_type=r.content_type,
-                                  headers=r.headers)
-
-        def callback_get_client1(url, **kwargs):
-            kwargs.pop('allow_redirects')
-            # passing headers as a workarround for https://github.com/pnuckowski/aioresponses/issues/111
-            r = self.client1.get(url.path, headers=kwargs['headers'])
-
-            return CallbackResult('GET', status=r.status_code, body=r.data, content_type=r.content_type,
-                                  headers=r.headers)
-
-        def callback_post_client2(url, **kwargs):
-            kwargs.pop('allow_redirects')
-            # passing headers as a workarround for https://github.com/pnuckowski/aioresponses/issues/111
-            r = self.client2.post(url.path, json=kwargs['json'], headers=kwargs['headers'])
-
-            return CallbackResult('POST', status=r.status_code, body=r.data, content_type=r.content_type,
-                                  headers=r.headers)
-
-        def callback_get_client2(url, **kwargs):
-            kwargs.pop('allow_redirects')
-            # passing headers as a workarround for https://github.com/pnuckowski/aioresponses/issues/111
-            r = self.client2.get(url.path, headers=self.headers)
-
-            return CallbackResult('GET', status=r.status_code, body=r.data, content_type=r.content_type,
-                                  headers=r.headers)
-
-        m.post(re.compile('https?://(127\.0\.0\.1|node2).*'), callback=callback_post_client2, repeat=True)
-        m.get(re.compile('https?://(127\.0\.0\.1|node2).*'), callback=callback_get_client2, repeat=True)
-        m.post(re.compile('https?://node1'), callback=callback_post_client1, repeat=True)
-        m.get(re.compile('https?://node1'), callback=callback_get_client1, repeat=True)
-
-        def requests_callback_client(client, request):
-            method_func = getattr(client, request.method.lower())
-            resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
-
-            return resp.status_code, resp.headers, resp.data
-
-        responses.add_callback(responses.POST, re.compile('https?://node1.*'),
-                               callback=partial(requests_callback_client, self.client1))
-        responses.add_callback(responses.GET, re.compile('https?://node1.*'),
-                               callback=partial(requests_callback_client, self.client1))
-        responses.add_callback(responses.POST, re.compile('https?://127\.0\.0\.1.*'),
-                               callback=partial(requests_callback_client, self.client2))
-        responses.add_callback(responses.GET, re.compile('https?://127\.0\.0\.1.*'),
-                               callback=partial(requests_callback_client, self.client2))
+        set_callbacks([("node1", self.client1), (r"(127\.0\.0\.1|node2)", self.client2)], m)
 
         with self.app2.app_context():
             self.assertListEqual([('Gate',), ('Server',), ('User',)],

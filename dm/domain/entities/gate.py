@@ -33,7 +33,7 @@ class Gate(db.Model, UUIDistributedEntityMixin):
         self.dns = dns
         if not (self.dns or self.ip):
             self.dns = server.name
-        self.hidden = kwargs.get('hidden', False)
+        self.hidden = kwargs.get('hidden', False) or False
 
     def __str__(self):
         return f'{self.dns or self.ip}:{self.port}'

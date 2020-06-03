@@ -1,6 +1,3 @@
-from unittest import TestCase
-from unittest.mock import patch
-
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
@@ -8,14 +5,10 @@ from dm.domain.entities import Server, Log
 from dm.domain.entities.bootstrap import set_initial
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
+from tests.helpers import TestCaseLockBypass
 
 
-class Testloglist(TestCase):
-
-    def run(self, result=None):
-        with patch('dm.web.decorators.lock'):
-            with patch('dm.web.decorators.unlock'):
-                super().run(result)
+class Testloglist(TestCaseLockBypass):
 
     def setUp(self):
         """Create and configure a new app instance for each test."""
@@ -37,8 +30,6 @@ class Testloglist(TestCase):
         db.session.remove()
         db.drop_all()
         self.app_context.pop()
-
-
 
     def test_get(self):
         resp = self.client.get(url_for('api_1_0.loglist'), headers=self.auth.header)
@@ -95,11 +86,7 @@ class Testloglist(TestCase):
         self.assertIsNone(log.dest_folder)
 
 
-class TestLogResource(TestCase):
-    def run(self, result=None):
-        with patch('dm.web.decorators.lock'):
-            with patch('dm.web.decorators.unlock'):
-                super().run(result)
+class TestLogResource(TestCaseLockBypass):
 
     def setUp(self):
         """Create and configure a new app instance for each test."""

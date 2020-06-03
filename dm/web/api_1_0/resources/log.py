@@ -9,7 +9,7 @@ from dm.domain.entities import Log, Server
 from dm.web import db
 from dm.web.decorators import forward_or_dispatch, securizer, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
-from dm.web.json_schemas import schema_post_log, schema_create_log, schema_patch_log
+from dm.web.json_schemas import log_post, logs_post, log_patch
 
 
 class LogList(Resource):
@@ -24,7 +24,7 @@ class LogList(Resource):
     @forward_or_dispatch
     @jwt_required
     @securizer
-    @validate_schema(schema_create_log)
+    @validate_schema(logs_post)
     @lock_catalog
     def post(self):
         data = request.get_json()
@@ -49,7 +49,7 @@ class LogResource(Resource):
     @securizer
     @jwt_required
     @forward_or_dispatch
-    @validate_schema(schema_post_log)
+    @validate_schema(log_post)
     def post(self, log_id):
         log = Log.query.get_or_404(log_id)
         data = request.get_json()
@@ -67,7 +67,7 @@ class LogResource(Resource):
     @securizer
     @jwt_required
     @forward_or_dispatch
-    @validate_schema(schema_patch_log)
+    @validate_schema(log_patch)
     @lock_catalog
     def patch(self, log_id):
         log = Log.query.get_or_404(log_id)
