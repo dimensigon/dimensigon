@@ -1,27 +1,30 @@
 import copy
 import functools
 import inspect
-import json
 import os
 import re
-import subprocess
 import sys
 import time
 import typing as t
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 
+import flask
 import jinja2
 import requests
-from RestrictedPython import compile_restricted, safe_builtins
-from dataclasses import dataclass
+from flask import json
 from flask_jwt_extended import create_access_token, get_jwt_identity
 
 from dm import defaults
-from dm.domain.entities import Step, Server, Software
+from dm.domain.entities import Step, Server, Software, OrchExecution
+from dm.utils import subprocess
+from dm.utils.helpers import get_now
 from dm.utils.typos import Kwargs
-from dm.web import db
-from dm.web.network import HTTPBearerAuth, request, Response, get
+from dm.utils.var_context import VarContext
+from dm.web import db, errors
+from dm.web.helpers import normalize_hosts
+from dm.web.network import HTTPBearerAuth, request, get
 
 
 @dataclass
@@ -34,17 +37,22 @@ class CompletedProcess:
     end_time: datetime = None
     pre_post_error: Exception = None
 
-    def set_start_time(self):
-        self.start_time = datetime.now()
+    def set_start_time(self) -> 'CompletedProcess':
+        self.start_time = get_now()
+        return self
 
-    def set_end_time(self):
-        self.end_time = datetime.now()
+    def set_end_time(self) -> 'CompletedProcess':
+        self.end_time = get_now()
+        return self
+
+    def to_json(self):
+        return self.__dict__
 
 
 class IOperationEncapsulation(ABC):
 
     def __init__(self, code: str, expected_stdout: str = None, expected_stderr: str = None, expected_rc: int = None,
-                 system_kwargs: Kwargs = None, post_code: str = None):
+                 system_kwargs: Kwargs = None):
         """
         Operation Initializer
 
@@ -64,19 +72,18 @@ class IOperationEncapsulation(ABC):
         self.expected_stderr = expected_stderr
         self.expected_rc = expected_rc
         self.system_kwargs = system_kwargs or {}
-        self.post_code = post_code
 
     def load_code(self):
         return
 
     @abstractmethod
-    def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
+    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
         """
         StepExecution process
         Parameters
         ----------
-        params:
-            params to be passed through the execution
+        var_context:
+            var_context to be passed through the execution
 
         Returns
         -------
@@ -84,7 +91,7 @@ class IOperationEncapsulation(ABC):
             dataclass containing all the information from the result execution
         """
 
-    def rpl_params(self, params):
+    def rpl_params(self, params: Kwargs):
         template = jinja2.Template(self.code)
         return template.render(params)
 
@@ -104,7 +111,8 @@ class IOperationEncapsulation(ABC):
 
 
 class AnsibleOperation(IOperationEncapsulation):
-    def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
+
+    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
         code = self.code
         if re.match(r'^[^<>:;,?"*|/\\]+$', self.code):
             file = os.path.join('', 'ansible', self.code)
@@ -112,7 +120,7 @@ class AnsibleOperation(IOperationEncapsulation):
                 with open(file, 'r') as fh:
                     code = fh.read()
 
-        template = self.rpl_params(params)
+        template = self.rpl_params(dict(var_context))
 
         system_kwargs = self.system_kwargs.copy()
 
@@ -137,16 +145,9 @@ class AnsibleOperation(IOperationEncapsulation):
 
 class RequestOperation(IOperationEncapsulation):
 
-    def post_processing(self, response: t.Union[Response, requests.Response], local: dict = None):
-        local = local or dict()
-        local.update(response=response)
-        if self.post_code:
-            byte_code = compile_restricted(self.post_code, '<inline>', 'exec')
-            exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
-
-    def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
-
-        kwargs = json.loads(self.rpl_params(params))
+    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
+        params_dict = dict(var_context)
+        kwargs = json.loads(self.rpl_params(params_dict))
         kwargs.update(self.system_kwargs)
         cp = CompletedProcess()
         cp.set_start_time()
@@ -158,7 +159,7 @@ class RequestOperation(IOperationEncapsulation):
 
         resp, exception = None, None
 
-        if 'software_id' in params:
+        if 'software_id' in var_context:
             def search_cost(ssa, route_list):
                 cost = [route['cost'] for route in route_list if str(ssa.server.id) == route['destination_id']]
                 if cost:
@@ -170,9 +171,9 @@ class RequestOperation(IOperationEncapsulation):
                     cost = 999999
                 return cost
 
-            soft = Software.query.get(params.get('software_id', None))
+            soft = Software.query.get(params_dict.get('software_id', None))
             if not soft:
-                cp.stderr = f"software id '{params.get('software_id', None)}' not found"
+                cp.stderr = f"software id '{params_dict.get('software_id', None)}' not found"
                 cp.success = False
                 cp.set_end_time()
                 return cp
@@ -181,9 +182,9 @@ class RequestOperation(IOperationEncapsulation):
                 cp.success = False
                 cp.set_end_time()
                 return cp
-            dest_server = Server.query.get(params.get('dest_server_id', None))
+            dest_server = Server.query.get(params_dict.get('server_id', None))
             if not dest_server:
-                cp.stderr = f"destination server id '{params.get('dest_server_id', None)}' not found"
+                cp.stderr = f"destination server id '{params_dict.get('server_id', None)}' not found"
                 cp.success = False
                 cp.set_end_time()
                 return cp
@@ -206,8 +207,8 @@ class RequestOperation(IOperationEncapsulation):
 
             # run request
             resp = request(method, server, view_or_url, **kwargs)
-            cp.stdout = resp.msg
-            cp.stderr = resp.exception
+            cp.stdout = flask.json.dumps(resp.msg) if isinstance(resp.msg, dict) else resp.msg
+            cp.stderr = str(resp.exception) if str(resp.exception) else resp.exception.__class__.__name__
             cp.rc = resp.code
             if resp.exception is None:
                 self.evaluate_result(cp)
@@ -222,48 +223,38 @@ class RequestOperation(IOperationEncapsulation):
                 exception = e
             else:
                 cp.rc = resp.status_code
-                try:
-                    cp.stdout = resp.json()
-                except:
-                    cp.stdout = resp.text
+                cp.stdout = resp.text
             if exception is None:
                 self.evaluate_result(cp)
             else:
                 cp.success = False
                 cp.stderr = str(exception) if str(exception) else exception.__class__.__name__
         cp.set_end_time()
-
-        if resp:
-            try:
-                self.post_processing(response=resp, local=dict(params=params, cp=cp))
-            except Exception as e:
-                cp.pre_post_error = e
         return cp
-
 
 class NativeOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None):
+    def execute(self, var_context: VarContext, timeout=None):
         pass
 
 
 class NativeWaitOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None):
+    def execute(self, var_context: VarContext, timeout=None):
         start = time.time()
         found = []
         cp = CompletedProcess()
         cp.set_start_time()
         try:
-            min_timeout = min(timeout, params.get('timeout', None))
+            min_timeout = min(timeout, var_context.get('timeout', None))
         except TypeError:
             if timeout is not None:
                 min_timeout = timeout
-            elif params.get('timeout', None) is not None:
-                min_timeout = params.get('timeout')
+            elif var_context.get('timeout', None) is not None:
+                min_timeout = var_context.get('timeout')
             else:
                 min_timeout = defaults.MAX_TIME_WAITING_SERVERS
-        for sn in params['list_server_names']:
+        for sn in var_context.get('list_server_names', []):
             count = db.session.query(Server).filter_by(name=sn).count()
             if count == 1:
                 found.append(sn)
@@ -276,26 +267,26 @@ class NativeWaitOperation(IOperationEncapsulation):
                     found.append(sn)
                     break
 
-        if params['list_server_names'] == found:
+        if var_context.get('list_server_names', []) == found:
             cp.success = True
-            cp.stdout = f"Servers {', '.join(params['list_server_names'])} found"
+            cp.stdout = f"Servers {', '.join(var_context.get('list_server_names', []))} found"
         else:
             cp.success = False
-            not_found = set(params['list_server_names']) - set(found)
+            not_found = set(var_context['list_server_names']) - set(found)
             cp.stderr = f"Servers {', '.join(not_found)} not created after {min_timeout} seconds"
         cp.set_end_time()
         return cp
 
 
 class PythonOperation(IOperationEncapsulation):
-    def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
+    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
         pass
 
 
 class ShellOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
-        tokens = self.rpl_params(params)
+    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
+        tokens = self.rpl_params(dict(var_context))
 
         system_kwargs = self.system_kwargs.copy()
 
@@ -303,6 +294,7 @@ class ShellOperation(IOperationEncapsulation):
 
         cp = CompletedProcess()
         cp.set_start_time()
+        r = None
         try:
             r = subprocess.run(tokens, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                **system_kwargs, timeout=timeout)
@@ -315,13 +307,43 @@ class ShellOperation(IOperationEncapsulation):
         finally:
             cp.set_end_time()
 
-        return self.evaluate_result(cp)
+        self.evaluate_result(cp)
+
+        return cp
 
 
 class OrchestrationOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None) -> CompletedProcess:
-        pass
+    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
+        from dm.web.async_functions import deploy_orchestration
+
+        exe = OrchExecution(orchestration_id=var_context.get('orchestration_id'),
+                            target=var_context.get('hosts'),
+                            params=dict(var_context),
+                            parent_orch_execution_id=var_context.globals.get('execution_id'),
+                            executor_id=var_context.globals.get('executor_id'),
+                            server=Server.get_current())
+        db.session.add(exe)
+        db.session.commit()
+        cp = CompletedProcess().set_start_time()
+        hosts = copy.deepcopy(var_context.get('hosts'))
+        not_found = normalize_hosts(hosts)
+        if not_found:
+            cp.stderr = str(errors.ServerNormalizationError(not_found))
+            cp.success = False
+        else:
+            try:
+                deploy_orchestration(orchestration=var_context.get('orchestration_id'), hosts=hosts,
+                                     var_context=var_context.create_new_ctx({}, initials=dict(var_context)),
+                                     execution=exe)
+            except Exception as e:
+                cp.stderr = str(e) if str(e) else e.__class__.__name__
+                cp.success = False
+            else:
+                db.session.refresh(exe)
+                cp.success = exe.success
+
+        return cp.set_end_time()
 
 
 from dm.domain.entities import ActionType
@@ -341,11 +363,13 @@ for at in ActionType:
 
 
 def create_operation(step: 'Step') -> IOperationEncapsulation:
-    kls = _factories[step.type]
+    kls = _factories[step.action_type]
 
     if kls == NativeOperation:
         if step.action_template.name == 'wait':
             kls = NativeWaitOperation
+    elif kls == RequestOperation:
+        pass
     return kls(code=step.code, expected_stdout=step.expected_stdout, expected_stderr=step.expected_stderr,
                expected_rc=step.expected_rc,
                system_kwargs=step.system_kwargs)

@@ -2,7 +2,7 @@ import os
 import signal
 from functools import partial
 
-from flask import Blueprint, request, current_app, jsonify
+from flask import Blueprint, request, current_app, jsonify, g
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_refresh_token_required, get_jwt_identity
 
 import dm
@@ -46,7 +46,9 @@ def healthcheck():
                 "scheduler": "running" if getattr(current_app.extensions.get('scheduler'), 'running',
                                                   None) else "stopped",
                 "neighbours": [str(server) for server in Server.get_neighbours()],
-                "services": []
+                "services": [],
+                "server": {'id': str(g.server.id),
+                           'name': g.server.name}
                 }
     elif request.method == 'POST':
         data = request.json
@@ -71,7 +73,10 @@ def ping():
 def login():
     user = User.get_by_user(user=request.json.get('username', None))
     password = request.json.get('password', None)
-    if not user or not user.verify_password(password):
+    try:
+        if not user or not user.verify_password(password):
+            return
+    except TypeError:
         return {"error": "Bad username or password"}, 401
 
     # Use create_access_token() and create_refresh_token() to create our

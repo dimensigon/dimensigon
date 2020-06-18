@@ -1,6 +1,5 @@
 import os
 import time
-import uuid
 
 from asynctest import patch, TestCase
 from testfixtures import LogCapture
@@ -77,12 +76,12 @@ class TestSendDataLog(TestCase):
             wait_mock_called(mock_post, 1, 10)
 
             mock_post.assert_called_once_with('http://server2.localdomain:81/socket',
-                                              json={'destination': uuid.UUID('bbbbbbbb-1234-5678-1234-56781234bbb2'),
+                                              json={'destination': 'bbbbbbbb-1234-5678-1234-56781234bbb2',
                                                     'data': encode(filename=os.path.basename(self.file2),
                                                                    data_log=self.lines[0], dest_folder=DEST_FOLDER)})
 
         with self.app2.app_context():
-            self.client2.post('/socket', json={'destination': uuid.UUID('bbbbbbbb-1234-5678-1234-56781234bbb2'),
+            self.client2.post('/socket', json={'destination': 'bbbbbbbb-1234-5678-1234-56781234bbb2',
                                                'data': encode(filename=os.path.basename(self.file2),
                                                               data_log=self.lines[0], dest_folder=DEST_FOLDER)})
             c = 0
@@ -101,12 +100,12 @@ class TestSendDataLog(TestCase):
             wait_mock_called(mock_post, 2, 10)
             interactor._awake.clear()
             mock_post.assert_called_with('http://server2.localdomain:81/socket',
-                                         json={'destination': uuid.UUID('bbbbbbbb-1234-5678-1234-56781234bbb2'),
+                                         json={'destination': 'bbbbbbbb-1234-5678-1234-56781234bbb2',
                                                'data': encode(filename=os.path.basename(self.file2),
                                                               data_log=self.lines[1], dest_folder=DEST_FOLDER)})
 
         with self.app2.app_context():
-            self.client2.post('/socket', json={'destination': uuid.UUID('bbbbbbbb-1234-5678-1234-56781234bbb2'),
+            self.client2.post('/socket', json={'destination': 'bbbbbbbb-1234-5678-1234-56781234bbb2',
                                                'data': encode(filename=os.path.basename(self.file2),
                                                               data_log=self.lines[1], dest_folder=DEST_FOLDER)})
             c = 0
@@ -138,7 +137,7 @@ class TestSendDataLog(TestCase):
             self.assertFalse(os.path.exists(self.file1 + '.offset'))
 
             mock_post.assert_called_once_with('http://server2.localdomain:81/socket',
-                                              json={'destination': uuid.UUID('bbbbbbbb-1234-5678-1234-56781234bbb2'),
+                                              json={'destination': 'bbbbbbbb-1234-5678-1234-56781234bbb2',
                                                     'data': encode(filename=os.path.basename(self.file2),
                                                                    data_log=self.lines[0], dest_folder=DEST_FOLDER)})
 
@@ -151,7 +150,7 @@ class TestSendDataLog(TestCase):
             wait_mock_called(mock_post, 2, 50)
             interactor._awake.clear()
             mock_post.assert_called_with('http://server2.localdomain:81/socket',
-                                         json={'destination': uuid.UUID('bbbbbbbb-1234-5678-1234-56781234bbb2'),
+                                         json={'destination': 'bbbbbbbb-1234-5678-1234-56781234bbb2',
                                                'data': encode(filename=os.path.basename(self.file2),
                                                               data_log=''.join(self.lines[0:2]),
                                                               dest_folder=DEST_FOLDER)})

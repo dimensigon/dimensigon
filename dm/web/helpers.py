@@ -4,14 +4,21 @@ import sys
 import threading
 import traceback
 import typing as t
+from contextlib import contextmanager
 from json import JSONEncoder
 
 from flask import current_app, request
 from flask_sqlalchemy import BaseQuery
+from sqlalchemy.orm import sessionmaker
 
 from dm import defaults
 from dm.utils.asyncio import run
+from dm.utils.helpers import is_iterable_not_string
+from dm.utils.typos import Id
 from dm.web.errors import EntityNotFound, NoDataFound
+
+if t.TYPE_CHECKING:
+    from dm.domain.entities import Server
 
 
 class BaseQueryJSON(BaseQuery):
@@ -96,9 +103,84 @@ class DatetimeEncoder(JSONEncoder):
             return obj.strftime(defaults.DATETIME_FORMAT)
         return JSONEncoder.default(self, obj)
 
+
 def json_format_error():
     return {'error': format_error()}
+
 
 def format_error():
     exc_type, exc_value, exc_traceback = sys.exc_info()
     return traceback.format_exc() if current_app.config['DEBUG'] else str(exc_value)
+
+
+def search(server_or_granule, servers: t.List['Server'], ids: bool = False) -> t.Union[t.List['Server'], t.List[Id]]:
+    """
+    Searches the server from list of servers
+    Args:
+        server_or_granule: server id, name or granule to search
+        servers: list of servers
+        ids: determines if it should return a list of ids or Servers
+
+    Returns:
+
+    """
+    if server_or_granule == 'all':
+        return servers
+    server_list = [(str(server.id) if ids else server) for server in servers if server.id == server_or_granule]
+    if not server_list:
+        server_list = [(str(server.id) if ids else server) for server in servers if server_or_granule == server.name]
+        if not server_list:
+            server_list = [(str(server.id) if ids else server) for server in servers if
+                           server_or_granule in server.granules]
+    return server_list
+
+
+def normalize_hosts(hosts: t.Dict[str, t.Union[str, t.List[str]]]) -> t.List[str]:
+    """ normalizes all str to server ids
+
+    Args:
+        hosts: data structure containing name, granules or id to convert into
+
+    Returns:
+        list: servers not found in catalog
+
+    Examples:
+        >>> normalize_hosts({'front': 'node1', 'back': 'tibero', 'all': ['node1', 'tibero', 'id_node4']})
+        { 'all': ['id_node1', 'id_tibero_node2', 'id_tibero_node3', 'id_node4'],
+          'databases': ['id_tibero_node2', 'id_tibero_node3'],
+          'front': ['id_node1']}
+
+    """
+    from dm.domain.entities import Server
+
+    not_found = []
+    servers = Server.query.all()
+    for target, v in hosts.items():
+        server_list = []
+        if is_iterable_not_string(v):
+            for vv in v:
+                sl = search(vv, servers, ids=True)
+                if len(sl) == 0:
+                    not_found.append(vv)
+                else:
+                    server_list.extend(sl)
+        else:
+            sl = search(v, servers, ids=True)
+            if len(sl) == 0:
+                not_found.append(v)
+            else:
+                server_list.extend(sl)
+        hosts[target] = server_list
+    return not_found
+
+
+@contextmanager
+def session():
+    from dm.web import db
+    engine = db.get_engine()
+    Session = sessionmaker(bind=engine)
+    s = Session()
+    try:
+        yield s
+    finally:
+        s.close()

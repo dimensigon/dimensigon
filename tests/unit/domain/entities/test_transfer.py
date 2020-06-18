@@ -1,9 +1,9 @@
 import threading
-from datetime import datetime
 from unittest import TestCase
 
 from dm import defaults
 from dm.domain.entities import Server, Dimension, Software, Transfer, TransferStatus
+from dm.utils.helpers import get_now
 from dm.web import create_app, db
 
 
@@ -47,22 +47,22 @@ class TestTransfer(TestCase):
         status = t.wait_transfer(timeout=0.1, refresh_interval=0.01)
         self.assertEqual(TransferStatus.COMPLETED, status)
 
-    def test_json(self):
-        d = datetime.now()
+    def test_to_json(self):
+        d = get_now()
         s = Software(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='test', version='1', filename='file')
-        t = Transfer(id='aaaaaaaa-1234-5678-1234-56781234aaa2', software=s, dest_path='', num_chunks=0, created_on=d)
+        t = Transfer(id='aaaaaaaa-1234-5678-1234-56781234aaa2', software=s, dest_path='/folder', num_chunks=0, created_on=d)
 
         self.assertDictEqual(
             dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', software_id='aaaaaaaa-1234-5678-1234-56781234aaa1',
-                 dest_path='', num_chunks=0,
+                 dest_path='/folder', num_chunks=0, file='/folder/file',
                  status='WAITING_CHUNKS', created_on=d.strftime(defaults.DATETIME_FORMAT)),
             t.to_json())
 
         t = Transfer(id='aaaaaaaa-1234-5678-1234-56781234aaa2', software='filename', size=10, checksum='abc12',
-                     dest_path='', num_chunks=0, created_on=d)
+                     dest_path='/folder', num_chunks=0, created_on=d)
 
         self.assertDictEqual(
-            dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', filename='filename', size=10, checksum='abc12',
-                 dest_path='', num_chunks=0,
+            dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', size=10, checksum='abc12',
+                 dest_path='/folder', num_chunks=0, file='/folder/filename',
                  status='WAITING_CHUNKS', created_on=d.strftime(defaults.DATETIME_FORMAT)),
             t.to_json())

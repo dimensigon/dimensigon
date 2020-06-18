@@ -43,6 +43,12 @@ def locker_prevent():
     l: Locker = Locker.query.with_for_update().get(Scope[json_data['scope']])
     current_app.logger.debug(f"PreventLock requested on {json_data.get('scope')} from {g.source}")
 
+    # when orchestration scope check if applicant is the same as the current
+    if Scope[json_data['scope']] == Scope.ORCHESTRATION \
+            and l.state in (State.PREVENTING, State.LOCKED) \
+            and l.applicant == json_data.get('applicant'):
+        return {'message': f"{Scope[json_data['scope']].name} already in {l.state.name} state"}, 210
+
     # check status from current scope
     if l.state == State.UNLOCKED:
         # check priority
@@ -79,6 +85,12 @@ def locker_lock():
     json_data = request.get_json()
     l: Locker = Locker.query.with_for_update().get(Scope[json_data['scope']])
     current_app.logger.debug(f"Lock requested on {json_data.get('scope')} from {g.source}")
+
+    if Scope[json_data['scope']] == Scope.ORCHESTRATION \
+            and l.state == State.LOCKED \
+            and l.applicant == json_data.get('applicant'):
+        return {'message': f"{Scope[json_data['scope']]} already in {l.state} state"}, 210
+
     if l.state == State.PREVENTING:
         if l.applicant == json_data['applicant']:
             l.state = State.LOCKED
@@ -100,7 +112,11 @@ def locker_unlock():
     json_data = request.get_json()
     l: Locker = Locker.query.with_for_update().get(Scope[json_data['scope']])
     current_app.logger.debug(f"Unlock requested on {json_data.get('scope')} from {g.source}")
-    if (l.state == State.PREVENTING or l.state == State.LOCKED):
+
+    if Scope[json_data['scope']] == Scope.ORCHESTRATION and l.state == State.UNLOCKED:
+        return {'message': f"{Scope[json_data['scope']]} already in {l.state} state"}, 210
+
+    if l.state == State.PREVENTING or l.state == State.LOCKED:
         if l.applicant == json_data['applicant']:
             l.state = State.UNLOCKED
             l.applicant = None

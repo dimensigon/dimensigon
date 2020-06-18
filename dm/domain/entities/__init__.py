@@ -2,8 +2,8 @@ import logging
 import threading
 from contextlib import contextmanager
 
-from sqlalchemy import event
-from sqlalchemy.orm import sessionmaker, object_session
+from sqlalchemy import event, inspect
+from sqlalchemy.orm import sessionmaker
 
 from dm.utils.helpers import get_distributed_entities, get_now
 from dm.web import db
@@ -54,11 +54,14 @@ catalog = threading.local()
 
 @contextmanager
 def bypass_datamark_update():
+    db.session.flush()
     update_datemark(False)
     try:
         yield None
     finally:
+        db.session.flush()
         update_datemark(True)
+
 
 
 def update_datemark(set):
@@ -80,7 +83,11 @@ def set_events():
 
         def receive_before_update(mapper, connection, target):
             # validate if target is updated
-            if object_session(target).is_modified(target, include_collections=False):
+            it = inspect(target)
+            columns = mapper.columns.keys()
+            changed = any(
+                [attr.history.has_changes() for attr in it.attrs if attr.key in columns])
+            if changed:
                 if not hasattr(catalog, 'data'):
                     catalog.data = {}
                 if getattr(catalog, 'datemark', True):
@@ -117,5 +124,12 @@ def receive_after_commit(session):
             logger.debug(f'changed catalog {c}')
             s.add(c)
             s.commit()
+            del c
         catalog.data = {}
         s.close()
+
+
+@event.listens_for(Orchestration, 'refresh')
+def receive_refresh(target, context, attrs):
+    "listen for the 'refresh' event"
+    target.init_on_load()

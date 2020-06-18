@@ -4,6 +4,7 @@ from unittest import TestCase, mock
 from dm.utils.async_operator import AsyncOperator
 
 from dm.use_cases.deployment import UndoCommand, StepExecution, Command, CompositeCommand
+from dm.utils.helpers import get_now
 
 
 class PickableMock(mock.Mock):
@@ -30,13 +31,13 @@ class TestCompositeCommand(TestCase):
         mocked_imp_error = mock.Mock()
 
         mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                         start_time=datetime.datetime.now(),
-                                                         end_time=datetime.datetime.now() + datetime.timedelta(
+                                                         start_time=get_now(),
+                                                         end_time=get_now() + datetime.timedelta(
                                                              5 / (24 * 60 * 60)))
 
         mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                          start_time=datetime.datetime.now(),
-                                                          end_time=datetime.datetime.now() + datetime.timedelta(
+                                                          start_time=get_now(),
+                                                          end_time=get_now() + datetime.timedelta(
                                                               5 / (24 * 60 * 60)))
 
         uc1 = UndoCommand(implementation=mocked_imp_succ, id_=1)
@@ -56,13 +57,13 @@ class TestCompositeCommand(TestCase):
         mocked_imp_error = mock.Mock()
 
         mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                         start_time=datetime.datetime.now(),
-                                                         end_time=datetime.datetime.now() + datetime.timedelta(
+                                                         start_time=get_now(),
+                                                         end_time=get_now() + datetime.timedelta(
                                                              5 / (24 * 60 * 60)))
 
         mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                          start_time=datetime.datetime.now(),
-                                                          end_time=datetime.datetime.now() + datetime.timedelta(
+                                                          start_time=get_now(),
+                                                          end_time=get_now() + datetime.timedelta(
                                                               5 / (24 * 60 * 60)))
 
         uc1 = UndoCommand(implementation=mocked_imp_succ, id_=1)
@@ -90,13 +91,13 @@ class TestCompositeCommand(TestCase):
         mocked_imp_error = mock.Mock()
 
         mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                         start_time=datetime.datetime.now(),
-                                                         end_time=datetime.datetime.now() + datetime.timedelta(
+                                                         start_time=get_now(),
+                                                         end_time=get_now() + datetime.timedelta(
                                                              5 / (24 * 60 * 60)))
 
         mocked_imp_error.execute.return_value = StepExecution(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                          start_time=datetime.datetime.now(),
-                                                          end_time=datetime.datetime.now() + datetime.timedelta(
+                                                          start_time=get_now(),
+                                                          end_time=get_now() + datetime.timedelta(
                                                               5 / (24 * 60 * 60)))
 
         uc1 = UndoCommand(implementation=mocked_imp_succ, id_=1)
@@ -123,8 +124,8 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        start_time = datetime.datetime.now()
-        end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
+        start_time = get_now()
+        end_time = get_now() + datetime.timedelta(5 / (24 * 60 * 60))
 
         mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,
@@ -181,8 +182,8 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        start_time = datetime.datetime.now()
-        end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
+        start_time = get_now()
+        end_time = get_now() + datetime.timedelta(5 / (24 * 60 * 60))
 
         mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,
@@ -222,8 +223,8 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = PickableMock()
         mocked_imp_error = PickableMock()
 
-        start_time = datetime.datetime.now()
-        end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
+        start_time = get_now()
+        end_time = get_now() + datetime.timedelta(5 / (24 * 60 * 60))
 
         mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,
@@ -287,8 +288,8 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        start_time = datetime.datetime.now()
-        end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
+        start_time = get_now()
+        end_time = get_now() + datetime.timedelta(5 / (24 * 60 * 60))
 
         mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,
@@ -333,8 +334,8 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        start_time = datetime.datetime.now()
-        end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
+        start_time = get_now()
+        end_time = get_now() + datetime.timedelta(5 / (24 * 60 * 60))
 
         mocked_imp_succ.execute.return_value = StepExecution(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                          start_time=start_time,

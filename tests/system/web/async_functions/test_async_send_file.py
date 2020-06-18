@@ -13,6 +13,7 @@ from dm.utils.helpers import generate_dimension, md5
 from dm.web import create_app, db
 from dm.web.async_functions import async_send_file
 from dm.web.network import HTTPBearerAuth
+from tests.helpers import set_callbacks
 
 
 class TestAsyncSendFile(TestCase):
@@ -90,32 +91,9 @@ class TestAsyncSendFile(TestCase):
             db.session.remove()
             db.drop_all()
 
-    def set_callbacks(self, m):
-        def post_callback_client(url, **kwargs):
-            kwargs.pop('allow_redirects')
-
-            r = self.client2.post(url.path, json=kwargs['json'], headers=kwargs['headers'])
-
-            return CallbackResult('POST', status=r.status_code, body=r.data, content_type=r.content_type,
-                                  headers=r.headers)
-
-        m.post(re.compile(Server.query.filter_by(name='node2').one().url() + '.*'), callback=post_callback_client,
-               repeat=True)
-
-        def patch_callback_client(url, **kwargs):
-            kwargs.pop('allow_redirects')
-
-            r = self.client2.patch(url.path, json=kwargs['json'], headers=kwargs['headers'])
-
-            return CallbackResult('PATCH', status=r.status_code, body=r.data, content_type=r.content_type,
-                                  headers=r.headers)
-
-        m.patch(re.compile(Server.query.filter_by(name='node2').one().url() + '.*'), callback=patch_callback_client,
-                repeat=True)
-
     @aioresponses()
     def test_async_send_file(self, m):
-        self.set_callbacks(m)
+        set_callbacks([(r'(node1|127\.0\.0\.1)', self.client1), ('node2', self.client2)], m)
 
         with self.app2.app_context():
             transfer = Transfer(software=self.filename,
@@ -140,7 +118,7 @@ class TestAsyncSendFile(TestCase):
 
     @aioresponses()
     def test_async_send_file_one_chunk(self, m):
-        self.set_callbacks(m)
+        set_callbacks([(r'(node1|127\.0\.0\.1)', self.client1), ('node2', self.client2)], m)
 
         with self.app2.app_context():
             transfer = Transfer(software=self.filename,
@@ -214,17 +192,3 @@ class TestAsyncSendFile(TestCase):
         self.assertEqual(self.size, os.path.getsize(os.path.join(self.dest_path, self.filename)))
         self.assertEqual(self.checksum, md5(os.path.join(self.dest_path, self.filename)))
 
-        os.remove(os.path.join(self.dest_path, self.filename))
-
-        m.post(re.compile(Server.query.filter_by(name='node2').one().url() + '.*'), callback=post_callback_client)
-        m.post(re.compile(Server.query.filter_by(name='node2').one().url() + '.*'), callback=post_callback_client)
-        m.post(re.compile(Server.query.filter_by(name='node2').one().url() + '.*'), exception=ConnectionError)
-        m.post(re.compile(Server.query.filter_by(name='node2').one().url() + '.*'), exception=ConnectionError)
-        m.post(re.compile(Server.query.filter_by(name='node2').one().url() + '.*'), callback=post_callback_client)
-
-        data = run(async_send_file(dest_server=self.remote, transfer_id=transfer_id,
-                                   file=os.path.join(self.source_path, self.filename), chunk_size=14,
-                                   auth=self.auth, retries=1))
-
-        self.assertIn('chunk1', data)
-        self.assertIn('chunk2', data)

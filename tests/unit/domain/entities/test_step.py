@@ -1,12 +1,11 @@
-import datetime
-import uuid
 from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
 
 from dm import defaults
 from dm.domain.entities import ActionType, Step, ActionTemplate, Orchestration
-from dm.web import create_app, db
+from dm.utils.helpers import get_now
+from dm.web import create_app, db, errors
 
 
 class TestStep(TestCase):
@@ -22,17 +21,17 @@ class TestStep(TestCase):
 
         db.create_all()
 
-        self.at1 = ActionTemplate(id=uuid.UUID('11111111-2222-3333-4444-555555550001'), name='action1', version=1,
+        self.at1 = ActionTemplate(id='11111111-2222-3333-4444-555555550001', name='action1', version=1,
                                   action_type=ActionType.SHELL, code='code to run', parameters={'param1': 'test'},
                                   expected_stdout='expected output', expected_stderr='stderr', expected_rc=0,
                                   system_kwargs={})
 
-        self.at2 = ActionTemplate(id=uuid.UUID('11111111-2222-3333-4444-555555550002'), name='action2', version=1,
+        self.at2 = ActionTemplate(id='11111111-2222-3333-4444-555555550002', name='action2', version=1,
                                   action_type=ActionType.SHELL, code='code to run', parameters={'param1': 'test'},
                                   expected_stdout='expected output', expected_stderr='stderr', expected_rc=0,
                                   system_kwargs={})
 
-        self.o = Orchestration(id=uuid.UUID('11111111-2222-3333-4444-666666660001'), name='orchestration_name',
+        self.o = Orchestration(id='11111111-2222-3333-4444-666666660001', name='orchestration_name',
                                version=1, description='desc')
         # db.session.add_all([self.at1, self.at2, self.o])
 
@@ -42,7 +41,7 @@ class TestStep(TestCase):
         self.app_context.pop()
 
     def test_equality(self):
-        created = datetime.datetime.now()
+        created = get_now()
         s1 = Step(orchestration=self.o, undo=True, stop_on_error=False, action_template=self.at1,
                   expected_stdout='expected', expected_stderr='stderr',
                   expected_rc=0, system_kwargs={'timeout': 180}, parameters={'param2': 2}, created_on=created)
@@ -61,27 +60,26 @@ class TestStep(TestCase):
         self.assertTrue(s1.eq_imp(s2))
 
     def test_target(self):
-
-        s = Step(None, True, None)
+        s = Step(None, True, self.at1)
         self.assertEqual(None, s.target)
 
         with self.assertRaises(ValueError):
-            s = Step(None, True, None, target='one')
+            s = Step(None, True, self.at1, target='one')
 
-        s = Step(None, False, None, target='one')
+        s = Step(None, False, self.at1, target='one')
         self.assertEqual(['one'], s.target)
 
-        s = Step(None, False, None)
+        s = Step(None, False, self.at1)
         self.assertEqual(['all'], s.target)
 
-        s = Step(None, False, None, target=[])
+        s = Step(None, False, self.at1, target=[])
         self.assertEqual(['all'], s.target)
 
-        s = Step(None, False, None, target=['one', 'two'])
+        s = Step(None, False, self.at1, target=['one', 'two'])
         self.assertEqual(['one', 'two'], s.target)
 
     def test_user_parameters(self):
-        at = ActionTemplate(id=uuid.UUID('11111111-2222-3333-4444-555555550001'), name='action1', version=1,
+        at = ActionTemplate(id='11111111-2222-3333-4444-555555550001', name='action1', version=1,
                              action_type=ActionType.SHELL, code='{{param1}}, {{ param2}}, {{param3}}',
                              parameters={'param1': 'param 2 is {{param2}}'},
                              expected_stdout='expected output', expected_stderr='stderr', expected_rc=0,
@@ -92,7 +90,7 @@ class TestStep(TestCase):
         self.assertCountEqual(['param2'], s.user_parameters)
 
     def test_to_from_json(self):
-        created = datetime.datetime.now()
+        created = get_now()
         s2 = Step(orchestration=self.o, undo=True,
                   stop_on_error=False,
                   action_template=self.at2,
@@ -148,8 +146,8 @@ class TestStep(TestCase):
                  parameters={'param2': 2},
                  created_on=created.strftime(defaults.DATETIME_FORMAT)), s2_json)
 
-        smashed_s1 = Step.from_json(s1_json)
-        self.assertNotEqual(s1, smashed_s1)
+        with self.assertRaises(errors.EntityNotFound):
+            Step.from_json(s1_json)
 
         db.session.add(s1)
 
@@ -157,5 +155,5 @@ class TestStep(TestCase):
         self.assertEqual(s1, smashed_s1)
 
         s1_json['parent_step_ids'].append('11111111-2222-3333-4444-111111110003')
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(errors.EntityNotFound):
             smashed_s1 = Step.from_json(s1_json)

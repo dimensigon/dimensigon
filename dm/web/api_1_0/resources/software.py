@@ -6,7 +6,7 @@ from flask_restful import Resource
 
 from dm.domain.entities import Software, Server, SoftwareServerAssociation
 from dm.utils.helpers import md5
-from dm.web import db
+from dm.web import db, errors
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
 from dm.web.json_schemas import software_post, software_patch
@@ -15,12 +15,12 @@ from dm.web.json_schemas import software_post, software_patch
 def set_software_server(soft, server, path, recalculate_data=False):
     file = os.path.join(path, soft.filename)
     if not os.path.exists(file):
-        return {"error": f"file '{file}' not found"}, 404
+        raise errors.FileNotFound(file)
 
     if soft.size != os.path.getsize(file):
-        return {"error": f"file '{file}' is not of size {soft.size}"}, 400
+        return errors.GenericError(f"file is not of specified size", file=file, size=soft.size)
     if soft.checksum != md5(file):
-        return {"error": f"checksum error on file '{file}'"}, 400
+        return errors.GenericError(f"checksum error on file", file=file)
 
     return SoftwareServerAssociation(software=soft, server=server, path=path)
 
@@ -47,7 +47,7 @@ class SoftwareList(Resource):
 
         file = json['file']
         if not os.path.exists(file):
-            return {"error": f"file '{file}' not found in current server"}, 404
+            raise errors.FileNotFound(file)
 
         soft = Software(name=json['name'], version=json['version'], filename=os.path.basename(json['file']),
                         size=os.path.getsize(file), checksum=md5(file),

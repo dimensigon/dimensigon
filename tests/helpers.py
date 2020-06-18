@@ -11,10 +11,20 @@ from threading import Thread
 from unittest import TestCase, mock
 from unittest.mock import Mock
 
+import flask
 import requests
 from aioresponses import aioresponses, CallbackResult
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from flask.testing import FlaskClient
 from flask_jwt_extended import create_access_token
+
+from dm import defaults
+from dm.domain.entities import User, update_datemark
+from dm.utils.helpers import get_entities, get_distributed_entities
+from dm.web import create_app, db, errors
+from dm.web.network import HTTPBearerAuth
 
 
 def start_mock_server(port, mock_server_request_handler):
@@ -120,3 +130,64 @@ def set_callbacks(target: t.List[t.Tuple[str, FlaskClient]], m: aioresponses = N
                 func = getattr(m, method.lower())
                 func(re.compile(f'https?://{dest_regexp}.*'),
                      callback=functools.partial(callback_client, method, client), repeat=True)
+
+
+class ValidateResponseMixin:
+
+    def validate_error_response(self, resp: flask.Response, error: errors.BaseError):
+        self.assertEqual(error.status_code, resp.status_code)
+        self.assertDictEqual(errors.format_error_content(error), resp.get_json())
+
+
+class TestDimensigonBase(TestCase, ValidateResponseMixin):
+
+    def setUp(self) -> None:
+        self.maxDiff = None
+        self.app = create_app('test')
+        self.app.config['SECURIZER'] = False
+        self.app_context = self.app.app_context()
+        self.app_context.push()
+        self.client = self.app.test_client()
+        db.create_all()
+        User.set_initial()
+        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+        db.session.commit()
+
+    def tearDown(self) -> None:
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
+
+
+def generate_dimension_json_data():
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=1024,
+        backend=default_backend()
+    )
+    priv_pem = private_key.private_bytes(encoding=serialization.Encoding.PEM,
+                                         format=serialization.PrivateFormat.TraditionalOpenSSL,
+                                         encryption_algorithm=serialization.NoEncryption())
+    pub_pem = private_key.public_key().public_bytes(encoding=serialization.Encoding.PEM,
+                                                    format=serialization.PublicFormat.PKCS1)
+
+    return {'id': '0000000d-0000-0000-0000-000000000001', 'name': 'dimension',
+            'private': priv_pem.decode('ascii'),
+            'public': pub_pem.decode('ascii'),
+            'created_at': defaults.INITIAL_DATEMARK.strftime(defaults.DATETIME_FORMAT), 'current': True}
+
+
+def load_data(catalog: t.Dict[str, t.List[t.Dict]]):
+    e = dict(get_entities())
+    de = dict(get_distributed_entities())
+
+    for name, dtos in catalog:
+        cls = e[name]
+        for dto in dtos:
+            if 'last_modified_at' in dto and name in de:
+                update_datemark(False)
+            o = cls.from_json(dto)
+            db.session.add(o)
+            db.session.commit()
+            if 'last_modified_at' in dto and name in de:
+                update_datemark(True)

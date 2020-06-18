@@ -1,11 +1,9 @@
-import uuid
 from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Step, ActionTemplate, ActionType, Orchestration
-from dm.domain.exceptions import CycleError
-from dm.web import create_app, db
+from dm.web import create_app, db, errors
 from dm.web.network import HTTPBearerAuth
 
 
@@ -29,7 +27,7 @@ class TestOrchestration(TestCase):
         self.app_context.pop()
 
     def test_orch_creation(self):
-        o = Orchestration(id=uuid.UUID("aaaaaaaa-1234-5678-1234-56781234aaa1"),
+        o = Orchestration(id="aaaaaaaa-1234-5678-1234-56781234aaa1",
                           name='Test Orchestration',
                           version=1,
                           description='description',
@@ -60,13 +58,13 @@ class TestOrchestration(TestCase):
 
     def test_set_dependencies(self):
         s1 = Step(orchestration=None, undo=False, stop_on_error=False, action_template=self.at,
-                  id=uuid.UUID('11111111-2222-3333-4444-555555550001'))
+                  id='11111111-2222-3333-4444-555555550001')
         s2 = Step(orchestration=None, undo=False, stop_on_error=False, action_template=self.at,
-                  id=uuid.UUID('11111111-2222-3333-4444-555555550002'))
+                  id='11111111-2222-3333-4444-555555550002')
         s3 = Step(orchestration=None, undo=False, stop_on_error=False, action_template=self.at,
-                  id=uuid.UUID('11111111-2222-3333-4444-555555550003'))
+                  id='11111111-2222-3333-4444-555555550003')
 
-        o = Orchestration('test', 1, id=uuid.UUID('11111111-2222-3333-4444-555555550004'),
+        o = Orchestration('test', 1, id='11111111-2222-3333-4444-555555550004',
                           description='description test', steps=[s1, s2, s3],
                           dependencies={s1.id: [s2.id], s2.id: [s3.id], s3.id: []})
 
@@ -77,7 +75,7 @@ class TestOrchestration(TestCase):
         with self.assertRaises(ValueError):
             o.set_dependencies({s1: [s2], s2: [s3], s3: [4]})
 
-        o = Orchestration('test', 1, id=uuid.UUID('11111111-2222-3333-4444-555555550004'),
+        o = Orchestration('test', 1, id='11111111-2222-3333-4444-555555550004',
                           description='description test', steps=[s1, s2, s3])
 
         self.assertListEqual([s1, s2, s3], o.steps)
@@ -96,7 +94,7 @@ class TestOrchestration(TestCase):
         s2 = o.add_step(undo=True, action_template=self.at, parents=[s1], children=[], stop_on_error=False,
                         id=2)
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(errors.ParentUndoError):
             o.add_step(undo=False, action_template=self.at, parents=[s2], children=[], stop_on_error=False)
         self.assertListEqual(o.steps, [s1, s2])
 
@@ -127,10 +125,10 @@ class TestOrchestration(TestCase):
         self.assertDictEqual(o.parents,
                              {s1: [], s2: [s1, s7], s3: [s2], s4: [s2], s5: [s4], s6: [s4], s7: [s1]})
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(errors.ChildDoError):
             o.add_step(undo=True, action_template=self.at, parents=[s1], children=[s2], stop_on_error=False)
 
-        with self.assertRaises(CycleError):
+        with self.assertRaises(errors.CycleError):
             o.add_step(undo=False, action_template=self.at, parents=[s6], children=[s1], stop_on_error=False)
 
         # Check parent functions

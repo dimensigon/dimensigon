@@ -2,9 +2,8 @@ import copy
 import ipaddress
 import socket
 import typing as t
-from datetime import datetime
 
-from flask import current_app, url_for
+from flask import current_app, url_for, g
 from sqlalchemy import or_
 
 from dm.utils.typos import ScalarListType, Gate as TGate
@@ -95,7 +94,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
     @property
     def hidden_gates(self):
         hg = [g for g in self.gates if g.hidden]
-        hg.sort(key=lambda x: x.last_modified_at or datetime.now())
+        hg.sort(key=lambda x: x.last_modified_at or get_now())
         return hg
 
     def add_new_gate(self, dns_or_ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address], port: int,
@@ -128,7 +127,9 @@ class Server(db.Model, UUIDistributedEntityMixin):
         """
         scheme = current_app.config['PREFERRED_URL_SCHEME'] or 'https'
         gate = None
-        if self._me and (self.route is None or self.route.cost is None):
+        # route = Route.query.filter_by(destination_id=self.id)
+        route = self.route
+        if self._me and (route is None or route.cost is None):
             try:
                 gate = self.localhost_gates[0]
             except IndexError:
@@ -137,14 +138,14 @@ class Server(db.Model, UUIDistributedEntityMixin):
                 if len(self.gates) == 0:
                     raise RuntimeError(f"No gate set for server '{self}'")
                 gate = self.gates[0]
-        elif self.route is not None and self.route.cost == 0:
-            gate = self.route.gate
+        elif route is not None and route.cost == 0:
+            gate = route.gate
         else:
-            if self.route.proxy_server:
-                gate = self.route.proxy_server.route.gate
+            if route.proxy_server:
+                gate = route.proxy_server.route.gate
 
         if not gate:
-            raise errors.UnreachableDestination(self)
+            raise errors.UnreachableDestination(self, getattr(g, 'server', None))
 
         root_path = f"{scheme}://{gate}"
 

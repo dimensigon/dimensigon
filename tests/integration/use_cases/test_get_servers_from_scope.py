@@ -1,4 +1,4 @@
-import datetime
+import datetime as dt
 import random
 from unittest import TestCase, mock
 
@@ -21,7 +21,7 @@ class Test(TestCase):
         self.app_context.push()
         self.client = self.app.test_client()
         db.create_all()
-        set_initial()
+        set_initial(user=True)
         self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
 
     def tearDown(self) -> None:
@@ -31,7 +31,7 @@ class Test(TestCase):
 
     @mock.patch('dm.domain.entities.get_now')
     def test_get_servers_from_scope_more_than_min_quorum(self, mock_get_now):
-        mock_get_now.return_value = datetime.datetime(2019, 4, 1)
+        mock_get_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
 
         servers = []
         for i in range(0, 7):
@@ -47,7 +47,7 @@ class Test(TestCase):
 
             servers.append(s)
 
-        mock_get_now.return_value = datetime.datetime(2019, 4, 2)
+        mock_get_now.return_value = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
         s62 = Server(f'node72', port=5000)
         Route(s62, proxy_server=random.choice(servers), cost=6)
         db.session.add(s62)
@@ -61,7 +61,7 @@ class Test(TestCase):
 
     @mock.patch('dm.domain.entities.get_now')
     def test_get_servers_from_scope_less_than_min_quorum(self, mock_get_now):
-        mock_get_now.return_value = datetime.datetime(2019, 4, 1)
+        mock_get_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
 
         servers = []
         for i in range(1, 4):
@@ -79,7 +79,7 @@ class Test(TestCase):
 
     @mock.patch('dm.domain.entities.get_now')
     def test_get_servers_from_scope_more_than_min_quorum_no_cost(self, mock_get_now):
-        mock_get_now.return_value = datetime.datetime(2019, 4, 1)
+        mock_get_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
 
         servers = []
         for i in range(0, 7):
@@ -95,7 +95,7 @@ class Test(TestCase):
 
             servers.append(s)
 
-        mock_get_now.return_value = datetime.datetime(2019, 4, 2)
+        mock_get_now.return_value = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
         s62 = Server(f'node72', port=5000)
         Route(s62, proxy_server=random.choice(servers), cost=6)
         db.session.add(s62)

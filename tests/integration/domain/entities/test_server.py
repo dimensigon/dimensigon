@@ -1,4 +1,3 @@
-import uuid
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -106,7 +105,7 @@ class TestServer(TestCase):
 
     @patch('dm.domain.entities.base.uuid.uuid4')
     def test_from_to_json_with_gate(self, mock_uuid):
-        mock_uuid.return_value = uuid.UUID('22cd859d-ee91-4079-a112-000000000002')
+        mock_uuid.return_value = '22cd859d-ee91-4079-a112-000000000002'
         s = Server('server2', gates=[('dns', 6000)], id='22cd859d-ee91-4079-a112-000000000001')
         self.assertDictEqual(
             {'id': '22cd859d-ee91-4079-a112-000000000001', 'name': 'server2', 'granules': [],

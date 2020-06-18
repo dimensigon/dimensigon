@@ -2,9 +2,8 @@ from flask import request
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
 
-from dm.domain.entities import Step, Orchestration, ActionTemplate
-from dm.domain.exceptions import CycleError
-from dm.web import db
+from dm.domain.entities import Step, Orchestration, ActionTemplate, ActionType
+from dm.web import db, errors
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import filter_query
 from dm.web.json_schemas import step_post, step_put, step_patch
@@ -31,12 +30,20 @@ class StepList(Resource):
 
         new_id_steps = []
         id2step = {}
+        relation_steps = {}
         o = None
         for json_step in json_data:
-            if o is None:
-                o = Orchestration.query.get_or_404(json_step.get('orchestration_id'))
-            at = ActionTemplate.query.get_or_404(json_step.pop('action_template_id'))
-            json_step['action_template'] = at
+            rid = json_step.pop('id', None)
+            if rid is not None and rid in id2step.keys():
+                raise errors.DuplicatedId(rid)
+            if o is None or str(o.id) != json_step.get('orchestration_id'):
+                o = Orchestration.query.get_or_404(json_step.pop('orchestration_id'))
+            else:
+                json_step.pop('orchestration_id')
+            if 'action_template_id' in json_step:
+                json_step['action_template'] = ActionTemplate.query.get_or_404(json_step.pop('action_template_id'))
+            elif 'action_type' in json_step:
+                json_step['action_type'] = ActionType[json_step.pop('action_type')]
             parent_steps = []
             for parent_step_id in json_step.pop('parent_step_ids', []):
                 if parent_step_id in id2step:
@@ -53,11 +60,14 @@ class StepList(Resource):
                     cs = Step.query.get_or_404(child_step_id)
                 child_steps.append(cs)
             json_step['children'] = child_steps
-            rid = json_step.pop('id', None)
+
             s = o.add_step(**json_step)
+            db.session.add(s)
             new_id_steps.append(str(s.id))
             if rid:
                 id2step[rid] = s
+
+            continue
 
         db.session.commit()
 
@@ -90,20 +100,14 @@ class StepResource(Resource):
         for parent_step_id in parent_step_ids:
             cs = Step.query.get_or_404(parent_step_id)
             parent_steps.append(cs)
-        try:
             s.orchestration.add_parents(s, parent_steps)
-        except (CycleError, ValueError) as e:
-            return {'error': str(e)}, 409
 
         child_step_ids = json_data.pop('child_step_ids', [])
         child_steps = []
         for child_step_id in child_step_ids:
             cs = Step.query.get_or_404(child_step_id)
             child_steps.append(cs)
-        try:
             s.orchestration.add_children(s, child_steps)
-        except (CycleError, ValueError) as e:
-            return {'error': str(e)}, 409
 
         s.stop_on_error = json_data.pop('stop_on_error', None)
         s.stop_undo_on_error = json_data.pop('stop_undo_on_error', None)
@@ -137,20 +141,14 @@ class StepResource(Resource):
             for parent_step_id in parent_step_ids:
                 ps = Step.query.get_or_404(parent_step_id)
                 parent_steps.append(ps)
-            try:
                 s.orchestration.add_parents(s, parent_steps)
-            except (CycleError, ValueError) as e:
-                return {'error': str(e)}, 409
         if 'child_step_ids' in json_data:
             child_step_ids = json_data.pop('child_step_ids')
             child_steps = []
             for child_step_id in child_step_ids:
                 cs = Step.query.get_or_404(child_step_id)
                 child_steps.append(cs)
-            try:
                 s.orchestration.add_children(s, child_steps)
-            except (CycleError, ValueError) as e:
-                return {'error': str(e)}, 409
 
         for k, v in json_data.items():
             setattr(s, k, v)

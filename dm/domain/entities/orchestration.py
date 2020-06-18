@@ -1,11 +1,11 @@
+import itertools
 import typing as t
 
 from sqlalchemy import orm
 
 from dm.domain.entities.base import UUIDistributedEntityMixin
-from dm.domain.exceptions import CycleError
 from dm.utils.dag import DAG
-from dm.web import db
+from dm.web import db, errors
 from .step import Step
 from ...utils.typos import JSON
 
@@ -25,7 +25,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     stop_on_error = db.Column(db.Boolean)
     stop_undo_on_error = db.Column(db.Boolean)
     undo_on_error = db.Column(db.Boolean)
-    params = db.Column(JSON)
+    parameters = db.Column("parameters", JSON)
 
     steps = db.relationship("Step", primaryjoin="Step.orchestration_id==Orchestration.id",
                             back_populates="orchestration")
@@ -33,7 +33,8 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     __table_args__ = (db.UniqueConstraint('name', 'version', name='D_orchestration_uq01'),)
 
     def __init__(self, name: str, version: int, description: t.Optional[str] = None, steps: t.List[Step] = None,
-                 stop_on_error: bool = True, stop_undo_on_error: bool = True, undo_on_error: bool = True, params=None,
+                 stop_on_error: bool = True, stop_undo_on_error: bool = True, undo_on_error: bool = True,
+                 parameters=None,
                  dependencies: Tdependencies = None, **kwargs):
 
         UUIDistributedEntityMixin.__init__(self, **kwargs)
@@ -48,7 +49,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         self.stop_undo_on_error = stop_undo_on_error
         assert isinstance(undo_on_error, bool)
         self.undo_on_error = undo_on_error
-        self.params = params or {}
+        self.parameters = parameters or {}
 
         if dependencies:
             self.set_dependencies(dependencies)
@@ -116,7 +117,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         params = set()
         for s in self.steps:
             params = params.union(s.user_parameters)
-        return params - set(self.params.keys())
+        return params - set(self.parameters.keys()) - set(itertools.chain(*[list(s.parameters.keys()) for s in self.steps]))
 
     def _step_exists(self, step: t.Union[t.List[Step], Step]):
         """Checks if all the steps belong to the current orchestration
@@ -169,24 +170,24 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         children = children or []
         if parents:
             if any([p.undo for p in parents]) and not step.undo:
-                raise ValueError(f"a 'do' step cannot have parent 'undo' steps")
+                raise errors.ParentUndoError()
         if children:
             if any([not c.undo for c in children]) and step.undo:
-                raise ValueError(f"an 'undo' step cannot have child 'do' steps")
+                raise errors.ChildDoError()
         g = self._graph.copy()
         g.add_edges_from([(p, step) for p in parents])
         g.add_edges_from([(step, c) for c in children])
         if g.is_cyclic():
-            raise CycleError('Cycle detected while trying to add dependency')
+            raise errors.CycleError()
 
     def add_step(self, *args, parents=None, children=None, **kwargs) -> Step:
-        """
-        Allows to add step into the orchestration
+        """Allows to add step into the orchestration
 
-        Returns
-        -------
-        step: Step
-            Step created
+        :param args: args passed to Step: undo, action_template.
+        :param parents: list of parent steps.
+        :param children: list of children steps.
+        :param kwargs: keyword arguments passed to the Step
+        :return: The step created.
         """
         parents = parents or []
         children = children or []

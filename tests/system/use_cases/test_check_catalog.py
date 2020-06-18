@@ -1,6 +1,5 @@
+import datetime as dt
 import os
-import uuid
-from datetime import datetime
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -15,7 +14,7 @@ from dm.domain.entities import Server, Dimension, Catalog
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.background_tasks import update_catalog
-from dm.web.network import HTTPBearerAuth
+from dm.web.network import HTTPBearerAuth, Response
 from tests.helpers import set_callbacks
 
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -23,7 +22,7 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 
 @patch('dm.web.background_tasks.dm_version', '1')
 @patch('dm.web.routes.dm.__version__', '1')
-class TestLockScopeFullChain(TestCase):
+class TestUpdateCatalog(TestCase):
 
     # @staticmethod
     # def remove_db_files():
@@ -50,7 +49,7 @@ class TestLockScopeFullChain(TestCase):
         self.app2.config['SECURIZER'] = True
         self.client2 = self.app2.test_client()
 
-        mocked_now.return_value = datetime(2019, 4, 1)
+        mocked_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
         with self.app1.app_context():
             db.create_all()
             Locker.set_initial()
@@ -82,15 +81,15 @@ class TestLockScopeFullChain(TestCase):
             db.session.add(dim)
             db.session.commit()
 
-        mocked_now.return_value = datetime(2019, 4, 2)
+        mocked_now.return_value = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
         with self.app1.app_context():
-            soft = Software(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='test', version='1',
+            soft = Software(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='test', version='1',
                             filename='file')
-            at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'),
+            at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-56781234aaa2',
                                 name='mkdir', version=1, action_type=ActionType.SHELL, code='mkdir {dir}')
             db.session.add_all([soft, at])
             db.session.commit()
-            mocked_now.return_value = datetime(2019, 4, 3)
+            mocked_now.return_value = dt.datetime(2019, 4, 3, tzinfo=dt.timezone.utc)
             ssa = SoftwareServerAssociation(software=soft, server=Server.get_current(), path='/root')
             db.session.add(ssa)
             db.session.commit()
@@ -115,16 +114,22 @@ class TestLockScopeFullChain(TestCase):
         with self.app2.app_context():
             self.assertListEqual([('Gate',), ('Server',), ('User',)],
                                  db.session.query(Catalog.entity).order_by(Catalog.entity).all())
-            self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Server').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('Server').last_modified_at)
 
         with self.app1.app_context():
             self.assertEqual(6, Catalog.query.count())
             self.assertEqual(defaults.INITIAL_DATEMARK, Catalog.query.get('User').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Server').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Gate').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('Software').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 3), Catalog.query.get('SoftwareServerAssociation').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('ActionTemplate').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('Server').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('Gate').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('Software').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 3, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('SoftwareServerAssociation').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('ActionTemplate').last_modified_at)
 
             resp = self.client1.get(url_for('root.healthcheck'))
 
@@ -132,9 +137,9 @@ class TestLockScopeFullChain(TestCase):
             with self.app2.test_request_context('https://node1:5000/api/v1.0/catalog', headers=self.auth.header):
                 verify_jwt_in_request()
 
-
                 s = Server.query.filter_by(_me=False).one()
-                update_catalog({s: (resp.get_json(), resp.status_code)})
+                update_catalog({s: Response(msg=resp.get_json(), code=resp.status_code)})
+                db.session.commit()
 
         with self.app2.app_context():
             soft = Software.query.get('aaaaaaaa-1234-5678-1234-56781234aaa1')
@@ -144,9 +149,13 @@ class TestLockScopeFullChain(TestCase):
 
             self.assertEqual(6, Catalog.query.count())
             self.assertEqual(defaults.INITIAL_DATEMARK, Catalog.query.get('User').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('Software').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 3), Catalog.query.get('SoftwareServerAssociation').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 2), Catalog.query.get('ActionTemplate').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Server').last_modified_at)
-            self.assertEqual(datetime(2019, 4, 1), Catalog.query.get('Gate').last_modified_at)
-
+            self.assertEqual(dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('Software').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 3, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('SoftwareServerAssociation').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('ActionTemplate').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('Server').last_modified_at)
+            self.assertEqual(dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc),
+                             Catalog.query.get('Gate').last_modified_at)

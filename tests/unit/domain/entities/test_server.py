@@ -1,4 +1,3 @@
-import uuid
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -85,9 +84,9 @@ class TestServer(TestCase):
 
     @patch('dm.domain.entities.base.uuid.uuid4')
     def test_to_from_json(self, mock_uuid):
-        mock_uuid.side_effect = [uuid.UUID('22cd859d-ee91-4079-a112-000000000001'),
-                                 uuid.UUID('22cd859d-ee91-4079-a112-000000000002'),
-                                 uuid.UUID('22cd859d-ee91-4079-a112-000000000003')]
+        mock_uuid.side_effect = ['22cd859d-ee91-4079-a112-000000000001',
+                                 '22cd859d-ee91-4079-a112-000000000002',
+                                 '22cd859d-ee91-4079-a112-000000000003']
 
         s = Server('server', dns_or_ip='dns', gates=[('gdns', 6000)])
         self.assertDictEqual({'id': '22cd859d-ee91-4079-a112-000000000001', 'name': 'server', 'granules': []},

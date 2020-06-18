@@ -252,6 +252,7 @@ class TestLock(TestCase):
 
         self.assertEqual(Scope.CATALOG, e.exception.scope)
         self.assertEqual(errors.LockError.action_map['P'], e.exception.action)
-        self.assertListEqual([Response(exception=errors.UnreachableDestination(self.n1), server=self.n1)],
-                             e.exception.responses)
+        self.assertDictEqual(errors.format_error_content(errors.LockError(Scope.CATALOG, action='P', responses=[
+            Response(exception=errors.UnreachableDestination(self.n1), server=self.n1)])),
+                             errors.format_error_content(e.exception))
         self.assertEqual(2, len(m.requests))

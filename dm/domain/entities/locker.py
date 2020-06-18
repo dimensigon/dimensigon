@@ -1,5 +1,6 @@
 from enum import Enum
 
+from dm.utils import typos
 from dm.utils.typos import Pickle
 from dm.web import db
 
@@ -22,8 +23,8 @@ class State(Enum):
 class Locker(db.Model):
     __tablename__ = 'L_locker'
 
-    scope = db.Column(db.Enum(Scope), primary_key=True)
-    state = db.Column(db.Enum(State), nullable=False)
+    scope = db.Column(typos.Enum(Scope, name=True), primary_key=True)
+    state = db.Column(typos.Enum(State), nullable=False)
     applicant = db.Column(Pickle)
 
     @classmethod

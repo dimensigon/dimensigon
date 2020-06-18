@@ -4,20 +4,26 @@ from unittest import TestCase
 import responses
 from aioresponses import CallbackResult, aioresponses
 from flask_jwt_extended import create_access_token
-from requests import ConnectTimeout, PreparedRequest
+from requests import PreparedRequest
+from requests.exceptions import ConnectTimeout
 
-from dm.domain.entities import Server
+from dm.domain.entities import Server, Dimension
 from dm.utils import asyncio
 from dm.utils.asyncio import run
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.decorators import securizer
 from dm.web.network import HTTPBearerAuth, get, post, async_get, async_post, Response, pack_msg, unpack_msg
+from tests.helpers import generate_dimension_json_data
 
 healthcheck_view = 'root.healthcheck'
 
 
 class TestNetwork(TestCase):
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.json_dim = generate_dimension_json_data()
 
     def setUp(self):
         """Create and configure a new app instance for each test."""
@@ -40,10 +46,8 @@ class TestNetwork(TestCase):
         db.create_all()
         self.server = Server('me', port=5000, me=True)
         db.session.add(self.server)
-
-        self.dim = generate_dimension('dimension')
-        self.dim.current = True
-        db.session.add(self.dim)
+        db.session.add(Dimension.from_json(self.json_dim))
+        db.session.commit()
 
         self.token = create_access_token('test')
         self.auth = HTTPBearerAuth(self.token)

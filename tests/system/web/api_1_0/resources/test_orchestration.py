@@ -52,7 +52,7 @@ class Test(TestCaseLockBypass):
 
         resp = self.client.get(url_for('api_1_0.orchestrationresource', orchestration_id=o_id),
                                headers=self.auth.header)
-
+        db.session.refresh(o)
         self.assertDictEqual(o.to_json(add_target=True, add_params=True), resp.get_json())
 
         self.assertTrue(o.stop_on_error)
@@ -61,5 +61,6 @@ class Test(TestCaseLockBypass):
                                  json={"stop_on_error": False},
                                  headers=self.auth.header)
         self.assertEqual(204, resp.status_code)
+        db.session.refresh(o)
         self.assertFalse(o.stop_on_error)
         self.assertTrue(o.stop_undo_on_error)

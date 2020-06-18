@@ -6,7 +6,8 @@ from passlib.hash import sha256_crypt
 
 from dm import defaults
 from dm.domain.entities.base import UUIDistributedEntityMixin
-from dm.utils.typos import ScalarListType
+from dm.utils.helpers import get_now
+from dm.utils.typos import ScalarListType, UtcDateTime
 from dm.web import db
 
 
@@ -16,7 +17,7 @@ class User(db.Model, UUIDistributedEntityMixin):
     user = db.Column(db.String(30), nullable=False)
     _password = db.Column('password', db.String(256))
     email = db.Column(db.String)
-    created_at = db.Column(db.Date)
+    created_at = db.Column(UtcDateTime)
     active = db.Column('is_active', db.Boolean(), nullable=False)
     groups = db.Column(ScalarListType(str))
 
@@ -29,7 +30,7 @@ class User(db.Model, UUIDistributedEntityMixin):
         self.user = user
         self._password = password or kwargs.get('_password', None)
         self.email = email
-        self.created_at = created_at or datetime.now()
+        self.created_at = created_at or get_now()
         self.active = active
         if isinstance(groups, str):
             self.groups = groups.split(':')
@@ -74,27 +75,29 @@ class User(db.Model, UUIDistributedEntityMixin):
 
     @classmethod
     def set_initial(cls):
-        root = cls.get_by_user('root')
-        if not root:
-            root = User(id='00000000-0000-0000-0000-000000000001', user='root', groups=['administrator'],
-                        last_modified_at=defaults.INITIAL_DATEMARK)
-            root.set_password('')
-            db.session.add(root)
-        ops = cls.get_by_user('ops')
-        if not ops:
-            ops = User(id='00000000-0000-0000-0000-000000000002', user='ops', groups=['operator', 'deployer'],
-                       last_modified_at=defaults.INITIAL_DATEMARK)
-            db.session.add(ops)
-        reporter = cls.get_by_user('reporter')
-        if not reporter:
-            reporter = User(id='00000000-0000-0000-0000-000000000003', user='reporter', groups=['readonly'],
+        from dm.domain.entities import bypass_datamark_update
+        with bypass_datamark_update():
+            root = cls.get_by_user('root')
+            if not root:
+                root = User(id='00000000-0000-0000-0000-000000000001', user='root', groups=['administrator'],
                             last_modified_at=defaults.INITIAL_DATEMARK)
-            db.session.add(reporter)
-        join = cls.get_by_user('join')
-        if not join:
-            join = User(id='00000000-0000-0000-0000-000000000004', user='join', groups=[''],
-                            last_modified_at=defaults.INITIAL_DATEMARK)
-            db.session.add(join)
+                root.set_password('')
+                db.session.add(root)
+            ops = cls.get_by_user('ops')
+            if not ops:
+                ops = User(id='00000000-0000-0000-0000-000000000002', user='ops', groups=['operator', 'deployer'],
+                           last_modified_at=defaults.INITIAL_DATEMARK)
+                db.session.add(ops)
+            reporter = cls.get_by_user('reporter')
+            if not reporter:
+                reporter = User(id='00000000-0000-0000-0000-000000000003', user='reporter', groups=['readonly'],
+                                last_modified_at=defaults.INITIAL_DATEMARK)
+                db.session.add(reporter)
+            join = cls.get_by_user('join')
+            if not join:
+                join = User(id='00000000-0000-0000-0000-000000000004', user='join', groups=[''],
+                                last_modified_at=defaults.INITIAL_DATEMARK)
+                db.session.add(join)
 
     @classmethod
     @staticmethod

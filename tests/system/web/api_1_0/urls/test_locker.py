@@ -5,6 +5,7 @@ from unittest.mock import patch
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
+from dm import defaults
 from dm.domain.entities import Catalog
 from dm.domain.entities.bootstrap import set_initial
 from dm.domain.entities.locker import State, Locker, Scope
@@ -37,7 +38,6 @@ class TestLocker(TestCase):
     @patch('dm.web.api_1_0.urls.locker.defaults.TIMEOUT_PREVENTING_LOCK', 0.01)
     def test_lock_prevent_timer(self):
 
-
         resp = self.client.post(url_for('api_1_0.locker_prevent'),
                                 json=dict(scope=Scope.ORCHESTRATION.name, datemark=self.datemark,
                                           applicant=['applicant']),
@@ -61,21 +61,20 @@ class TestLocker(TestCase):
     @mock.patch('dm.web.api_1_0.urls.locker.threading')
     def test_lock(self, mock_thread):
 
-
         resp = self.client.post(url_for('api_1_0.locker_prevent'),
-                                json=dict(scope=Scope.ORCHESTRATION.name, datemark=self.datemark,
+                                json=dict(scope=Scope.CATALOG.name, datemark=self.datemark,
                                           applicant=['applicant']),
                                 headers=self.headers)
 
         resp = self.client.post(url_for('api_1_0.locker_prevent'),
-                                json=dict(scope=Scope.ORCHESTRATION.name, datemark=self.datemark,
+                                json=dict(scope=Scope.CATALOG.name, datemark=self.datemark,
                                           applicant=['applicant']),
                                 headers=self.headers)
 
         self.assertEqual(409, resp.status_code)
 
         resp = self.client.post(url_for('api_1_0.locker_prevent'),
-                                json=dict(scope=Scope.ORCHESTRATION.name, datemark=self.datemark,
+                                json=dict(scope=Scope.CATALOG.name, datemark=self.datemark,
                                           applicant='applicant2'),
                                 headers=self.headers)
 
@@ -87,6 +86,15 @@ class TestLocker(TestCase):
                                 headers=self.headers)
 
         self.assertEqual(409, resp.status_code)
+
+        l = Locker.query.get(Scope.CATALOG)
+        l.applicant = None
+        l.state = State.UNLOCKED
+
+        l = Locker.query.get(Scope.ORCHESTRATION)
+        l.applicant = ['applicant']
+        l.state = State.PREVENTING
+        db.session.commit()
 
         # HIGHER PRIORITY LOCKER
         resp = self.client.post(url_for('api_1_0.locker_prevent'),
@@ -145,9 +153,37 @@ class TestLocker(TestCase):
 
     def test_lock_datemark(self):
         resp = self.client.post(url_for('api_1_0.locker_prevent'),
-                                json=dict(scope=Scope.ORCHESTRATION.name, datemark='19000101.000000.000000',
+                                json=dict(scope=Scope.ORCHESTRATION.name,
+                                          datemark=defaults.INITIAL_DATEMARK.strftime(defaults.DATEMARK_FORMAT),
                                           applicant=['applicant']),
                                 headers=self.headers)
 
         self.assertEqual(409, resp.status_code)
 
+    def test_lock_orchestration(self):
+        resp = self.client.post(url_for('api_1_0.locker_unlock'),
+                                json=dict(scope=Scope.ORCHESTRATION.name, applicant="1"),
+                                headers=self.headers)
+        self.assertEqual(210, resp.status_code)
+
+        l = Locker.query.get(Scope.ORCHESTRATION)
+        l.state = State.PREVENTING
+        l.applicant = "1"
+        db.session.commit()
+        resp = self.client.post(url_for('api_1_0.locker_prevent'),
+                                json=dict(scope=Scope.ORCHESTRATION.name, datemark=self.datemark, applicant="1"),
+                                headers=self.headers)
+        self.assertEqual(210, resp.status_code)
+
+        l.state = State.LOCKED
+        db.session.commit()
+
+        resp = self.client.post(url_for('api_1_0.locker_prevent'),
+                                json=dict(scope=Scope.ORCHESTRATION.name, datemark=self.datemark, applicant="1"),
+                                headers=self.headers)
+        self.assertEqual(210, resp.status_code)
+
+        resp = self.client.post(url_for('api_1_0.locker_lock'),
+                                json=dict(scope=Scope.ORCHESTRATION.name, applicant="1"),
+                                headers=self.headers)
+        self.assertEqual(210, resp.status_code)

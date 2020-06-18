@@ -38,6 +38,7 @@ class TestLogResourceList(TestCaseLockBypass):
 
         root = User(user='root')
         db.session.add(root)
+        db.session.commit()
 
         # test with filter
         resp = self.client.get(url_for('api_1_0.userlist') + "?filter[active]=True",
@@ -47,6 +48,7 @@ class TestLogResourceList(TestCaseLockBypass):
         # test with filter on a server
         resp = self.client.get(url_for('api_1_0.userlist') + f"?filter[user]=root",
                                headers=self.auth.header)
+        db.session.refresh(root)
         self.assertListEqual([root.to_json()], resp.get_json())
 
     def test_post(self):
@@ -108,6 +110,7 @@ class TestUserResource(TestCaseLockBypass):
         resp = self.client.patch(url_for('api_1_0.userresource', user_id=str(self.user.id)), headers=self.auth.header,
                                  json=patch_user_json)
         self.assertEqual(400, resp.status_code)
+        db.session.refresh(self.user)
 
         patch_user_json = {"email": "root@dimensigon.com"}
 
@@ -115,6 +118,7 @@ class TestUserResource(TestCaseLockBypass):
         resp = self.client.patch(url_for('api_1_0.userresource', user_id=str(self.user.id)), headers=self.auth.header,
                                  json=patch_user_json)
         self.assertEqual(204, resp.status_code)
+        db.session.refresh(self.user)
         self.assertEqual('root@dimensigon.com', self.user.email)
 
         resp = self.client.patch(url_for('api_1_0.userresource', user_id=str(self.user.id)), headers=self.auth.header,

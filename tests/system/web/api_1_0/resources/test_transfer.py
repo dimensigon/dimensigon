@@ -99,6 +99,7 @@ class TestTransferList(TestCase):
     def test_post_create_software_transfer_with_pending_transfer(self, ):
         t = Transfer(software=self.soft, dest_path=self.dest_path, num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
+        db.session.commit()
 
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id), 'dest_path': self.dest_path,
@@ -109,6 +110,7 @@ class TestTransferList(TestCase):
     def test_post_create_software_transfer_with_pending_transfer_cancel(self):
         t = Transfer(software=self.soft, dest_path=self.dest_path, num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
+        db.session.commit()
 
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id), 'dest_path': self.dest_path,
@@ -120,6 +122,7 @@ class TestTransferList(TestCase):
         t = Transfer(software=self.filename, size=self.size, checksum=self.checksum, dest_path=self.dest_path,
                      num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
+        db.session.commit()
 
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"filename": self.filename,
@@ -136,6 +139,7 @@ class TestTransferList(TestCase):
         t = Transfer(software=self.filename, size=self.size, checksum=self.checksum, dest_path=self.dest_path,
                      num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
+        db.session.commit()
 
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"filename": self.filename,
@@ -237,6 +241,7 @@ class TestTransferList(TestCase):
     def test_post_create_transfer_error_with_pending_transfer(self):
         t = Transfer(software=self.soft, dest_path=self.dest_path, num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
+        db.session.commit()
 
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id), 'dest_path': self.dest_path,
@@ -309,6 +314,7 @@ class TestTransferResource(TestCase):
                                 headers=self.auth.header)
 
         self.assertEqual(201, resp.status_code)
+        db.session.refresh(self.transfer)
         self.assertDictEqual({'message': f"Chunk 0 from transfer {str(self.transfer.id)} generated successfully"},
                              resp.get_json())
         self.assertEqual(TransferStatus.IN_PROGRESS, self.transfer.status)
@@ -317,6 +323,7 @@ class TestTransferResource(TestCase):
 
     def test_post_create_filename_one_chunk(self):
         self.transfer.num_chunks = 1
+        db.session.commit()
         resp = self.client.post(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
                                 json={'chunk': 1,
                                       'content': base64.b64encode(self.content).decode('ascii')},
@@ -329,6 +336,7 @@ class TestTransferResource(TestCase):
 
     def test_patch_transfer_file(self):
         self.transfer.status = TransferStatus.IN_PROGRESS
+        db.session.commit()
         for chunk_content, chunk_id in zip([self.content[i:i + 4] for i in range(0, len(self.content), 4)],
                                            range(0, 16)):
             self.fs.create_file(os.path.join(self.dest_path, f"{self.filename}_chunk.{chunk_id}"))
@@ -346,6 +354,7 @@ class TestTransferResource(TestCase):
 
     def test_patch_transfer_status_completed(self):
         self.transfer.status = TransferStatus.COMPLETED
+        db.session.commit()
 
         resp = self.client.patch(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
                                  headers=self.auth.header)
@@ -360,6 +369,7 @@ class TestTransferResource(TestCase):
 
     def test_create_file_error_chunks(self):
         self.transfer.status = TransferStatus.IN_PROGRESS
+        db.session.commit()
         # Generate put with files
         for chunk_content, chunk_id in zip([self.content[i:i + 4] for i in range(0, len(self.content), 4)],
                                            [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]):
@@ -377,7 +387,7 @@ class TestTransferResource(TestCase):
 
     def test_create_file_error_no_chunk(self):
         self.transfer.status = TransferStatus.IN_PROGRESS
-
+        db.session.commit()
         resp = self.client.patch(
             url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id), _external=False),
             json={},
@@ -388,6 +398,7 @@ class TestTransferResource(TestCase):
 
     def test_error_checksum(self):
         self.transfer.status = TransferStatus.IN_PROGRESS
+        db.session.commit()
         # Generate put with files
         content = b'abcdefghijklmnopqrstuvwxyzXXXDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
         for chunk_content, chunk_id in zip([content[i:i + 4] for i in range(0, len(self.content), 4)],
@@ -402,6 +413,7 @@ class TestTransferResource(TestCase):
             headers=self.auth.header)
 
         self.assertEqual(404, resp.status_code)
+        db.session.refresh(self.transfer)
         self.assertDictEqual(
             {"error": f"Error on transfer '{str(self.transfer.id)}': Checksum error"},
             resp.get_json())
@@ -409,6 +421,7 @@ class TestTransferResource(TestCase):
 
     def test_error_size_file(self):
         self.transfer.status = TransferStatus.IN_PROGRESS
+        db.session.commit()
         # Generate put with files
         content = b'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345678'
         for chunk_content, chunk_id in zip([content[i:i + 4] for i in range(0, len(content), 4)],
@@ -423,6 +436,7 @@ class TestTransferResource(TestCase):
             headers=self.auth.header)
 
         self.assertEqual(404, resp.status_code)
+        db.session.refresh(self.transfer)
         self.assertDictEqual(
             {"error": f"Error on transfer '{str(self.transfer.id)}': Final file size does not match expected size"},
             resp.get_json())

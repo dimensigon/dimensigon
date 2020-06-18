@@ -1,6 +1,7 @@
 import base64
 import concurrent
 import datetime
+import json
 import logging
 import pickle
 import re
@@ -12,15 +13,18 @@ from collections import ChainMap
 from concurrent.futures.process import ProcessPoolExecutor
 from functools import partial
 
-from flask import current_app
+from RestrictedPython import compile_restricted, safe_builtins
+from flask import current_app, Flask, has_app_context
 from flask_jwt_extended import create_access_token
+from sqlalchemy.orm import sessionmaker
 
 from dm import defaults
 from dm.domain.entities import Server, Orchestration, Step, StepExecution, OrchExecution
 from dm.use_cases.operations import CompletedProcess, IOperationEncapsulation, create_operation
 from dm.utils.dag import DAG
 from dm.utils.event_handler import Event
-from dm.utils.typos import Kwargs, Id
+from dm.utils.typos import Id
+from dm.utils.var_context import VarContext
 from dm.web import db
 from dm.web.network import post, HTTPBearerAuth
 
@@ -95,29 +99,40 @@ class ICommand(ABC):
 class ImplementationCommand(ICommand):
 
     def __init__(self, implementation: IOperationEncapsulation,
-                 params: Kwargs = None,
+                 var_context: VarContext = None,
                  id_=None,
                  register: 'RegisterStepExecution' = None,
-                 regexp_fetch=None,
-                 error_on_fetch=None):
+                 pre_process=None,
+                 post_process=None,
+                 ):
         super().__init__(id_)
         self.implementation = implementation
-        self.params = params or {}
-        self.regexp_fetch = regexp_fetch
+        self.var_context = var_context or {}
         self.register = register
-        self._fetched_data = None
-        self.fetch_result = None
-        self.error_on_fetch: bool = error_on_fetch
+        self.pre_process = pre_process
+        self.post_process = post_process
         self._cp: CompletedProcess = None
 
     def invoke(self, timeout=None) -> t.Optional[bool]:
         if not self._cp:
-            self._cp = self.implementation.execute(self.params, timeout=timeout)
-            self.params.update(self.fetched_data)
-            if self.regexp_fetch is not None:
-                self.fetch_result = len(self.fetched_data) == len(self.fetch_parameters)
+            try:
+                self.pre_processing(local=dict(vs=self.var_context, cp=self._cp))
+            except Exception as e:
+                self._cp.pre_post_error = e
+                self._cp.success = False
+                return self._cp.success
+
+            self._cp = self.implementation.execute(self.var_context, timeout=timeout)
+
+            try:
+                self.post_processing(local=dict(vc=self.var_context, cp=self._cp))
+            except Exception as e:
+                self._cp.pre_post_error = e
+                self._cp.success = False
+
             if self.register:
                 self.register.register_step_execution(self)
+
         return self.success
 
     @property
@@ -126,43 +141,39 @@ class ImplementationCommand(ICommand):
 
     @property
     def success(self) -> t.Optional[bool]:
-        r = getattr(self._cp, 'success', None)
-        if r is True and self.error_on_fetch and self.fetch_result is not None:
-            r = self.fetch_result
-        return r
+        return getattr(self._cp, 'success', None)
 
-    @property
-    def fetched_data(self):
-        if self._fetched_data is not None:
-            return self._fetched_data
-        else:
-            fetched = {}
-            if self.success is True:
-                if self.regexp_fetch is not None:
-                    match = re.search(self.regexp_fetch, self._cp.stdout)
-                    if not match:
-                        match = re.search(self.regexp_fetch, self._cp.stderr)
-                        if match:
-                            fetched.update(match.groupdict())
-                    else:
+    def pre_processing(self, local: dict = None):
+        local = local or dict()
+        if self.pre_process:
+            byte_code = compile_restricted(self.pre_process, '<inline>', 'exec')
+            safe_builtins.update(json=json)
+            exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
+
+    def post_processing(self, local: dict = None):
+        local = local or dict()
+        if self.post_process:
+            if set(re.findall(r'\(\?P<(\w+)>', self.post_process, flags=re.MULTILINE)):
+                fetched = {}
+                match = re.search(self.post_process, self._cp.stdout)
+                if not match:
+                    match = re.search(self.post_process, self._cp.stderr)
+                    if match:
                         fetched.update(match.groupdict())
-                self._fetched_data = fetched
-            return fetched
-
-    @property
-    def fetch_parameters(self):
-        return set(re.findall(r'\(\?P<(\w+)>', self.regexp_fetch, flags=re.MULTILINE))
+                else:
+                    fetched.update(match.groupdict())
+                for k, v in fetched.items():
+                    self.var_context.set(k, v)
+            else:
+                byte_code = compile_restricted(self.post_process, '<inline>', 'exec')
+                safe_builtins.update(json=json)
+                exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
 
 
 class UndoCommand(ImplementationCommand):
 
-    def __init__(self, implementation: IOperationEncapsulation, params: Kwargs = None, id_=None,
-                 stop_on_error: bool = None,
-                 register: 'RegisterStepExecution' = None,
-                 regexp_fetch: str = None,
-                 error_on_fetch: bool = None
-                 ):
-        super().__init__(implementation, params, id_, register, regexp_fetch, error_on_fetch)
+    def __init__(self, *args, stop_on_error: bool = None, **kwargs):
+        super().__init__(*args, **kwargs)
         self.stop_on_error = stop_on_error
 
     def undo(self, timeout=None) -> t.Optional[bool]:
@@ -174,11 +185,10 @@ class UndoCommand(ImplementationCommand):
 
 class Command(ImplementationCommand):
 
-    def __init__(self, implementation: IOperationEncapsulation,
+    def __init__(self, *args,
                  undo_command: t.Union['CompositeCommand', UndoCommand] = None,
-                 stop_on_error: bool = None, stop_undo_on_error: bool = None, undo_on_error: bool = True,
-                 params: Kwargs = None, id_=None, register: 'RegisterStepExecution' = None,
-                 regexp_fetch: str = None, error_on_fetch: bool = None):
+                 stop_on_error: bool = None, stop_undo_on_error: bool = None, undo_on_error: bool = True, **kwargs
+                 ):
         """
         
         Parameters
@@ -187,12 +197,12 @@ class Command(ImplementationCommand):
             operation to perform.
         undo_command:
             undo command
-        params:
-            params used to execute the implementation
+        var_context:
+            var_context used to execute the implementation
         undo_on_error:
             sets whether to execute "undo" function when "invoke" terminated incorrectly
         """
-        super().__init__(implementation, params, id_, register, regexp_fetch, error_on_fetch)
+        super().__init__(*args, **kwargs)
         self.undo_command = undo_command
         self.stop_on_error = stop_on_error
         self.stop_undo_on_error = stop_undo_on_error
@@ -408,7 +418,7 @@ class CompositeCommand(ICommand):
 
 class ProxyMixin(object):
 
-    def __init__(self, server: Id, jwt_identity, timeout: t.Union[int, float] = 300):
+    def __init__(self, server: Id, timeout: t.Union[int, float] = 300):
         """
         Parameters
         ----------
@@ -418,8 +428,8 @@ class ProxyMixin(object):
             operation to perform.
         undo_implementation:
             undo operation to perform
-        params:
-            params to pass to the execution
+        var_context:
+            var_context to pass to the execution
         undo_on_error:
             if the invoke ended up with an error, the undo process will be executed if undo_on_error is True
         id_:
@@ -428,7 +438,7 @@ class ProxyMixin(object):
             timeout when waiting response from remote server when invoke and undo executed
         """
         self.__dict__['_server'] = server
-        self.__dict__['_jwt_identity'] = jwt_identity
+        self.__dict__['_app'] = current_app._get_current_object()
         self.__dict__['_completion_event'] = threading.Event()
         self.__dict__['timeout'] = timeout
         self.__dict__['_command'] = None
@@ -462,16 +472,6 @@ class ProxyMixin(object):
     def server(self) -> 'Server':
         return self._server
 
-    @property
-    def auth(self):
-        return HTTPBearerAuth(create_access_token(self._jwt_identity, datetime.timedelta(seconds=15)))
-
-    # def __setattr__(self, key, value):
-    #     if key in self.__dict__:
-    #         self.__dict__[key] = value
-    #     else:
-    #         self._command.__setattr__(key, value)
-
     def callback_completion_event(self, event: Event):
         """callback executed on response to the invoke command on remote server
         """
@@ -481,9 +481,11 @@ class ProxyMixin(object):
                                                  stderr=event.data.get('stderr'),
                                                  rc=event.data.get('rc'),
                                                  start_time=datetime.datetime.strptime(event.data.get('start_time'),
-                                                                              defaults.DATETIME_FORMAT),
+                                                                                       defaults.DATETIME_FORMAT),
                                                  end_time=datetime.datetime.strptime(event.data.get('end_time'),
-                                                                            defaults.DATETIME_FORMAT))
+                                                                                     defaults.DATETIME_FORMAT))
+            var_context = pickle.loads(base64.b64decode(event.data['var_context'].encode()))
+            self._command.var_context.update_variables(var_context.extract_variables())
         else:
             self._command._cp = CompletedProcess(success=False, stdout=str(event.data),
                                                  stderr=f'Unknown message got on completion event.')
@@ -504,103 +506,83 @@ class ProxyMixin(object):
         TimeoutError:
             raised when timeout reached while waiting the response back from the remote server
         """
-        self.__dict__['_server'] = Server.query.get(self._server)
-        timeout = timeout or self.timeout
-        if self._command.success is None:
-            data = dict(operation=base64.b64encode(
-                pickle.dumps((self._command.implementation, self._command.params))).decode('ascii'),
-                        timeout=timeout,
-                        step_id=str(self.id[1]),
-                        execution=self._command.register.execution.to_json())
-            resp, code = post(server=self.server, view_or_url='api_1_0.launch_operation', json=data, auth=self.auth)
-            if code == 202:
-                current_app.events.register(resp.get('execution_id'), self.callback_completion_event)
-                event = self._completion_event.wait(timeout=timeout)
-                if event is not True:
-                    raise TimeoutError(f'Timeout reached while waiting invoke response of command {self.command}')
+        ctx = None
+        if not has_app_context():
+            ctx = self._app.app_context()
+            ctx.push()
+        try:
+            auth = HTTPBearerAuth(
+                create_access_token(self._command.var_context.globals['executor_id'], datetime.timedelta(seconds=15)))
+            self.__dict__['_server'] = Server.query.get(self._server)
+            timeout = timeout or self.timeout
+            if self._command.success is None:
+                try:
+                    self.pre_processing(local=dict(vs=self.var_context, cp=self._cp))
+                except Exception as e:
+                    self._cp.pre_post_error = e
+                    self._cp.success = False
+                    return self._cp.success
+
+                data = dict(operation=base64.b64encode(pickle.dumps(self._command.implementation)).decode('ascii'),
+                            var_context=base64.b64encode(pickle.dumps(self._command.var_context)).decode('ascii'),
+                            timeout=timeout,
+                            step_id=str(self.id[1]),
+                            execution=self._command.register.execution)
+                resp = post(server=self.server, view_or_url='api_1_0.launch_operation', json=data, auth=auth)
+                if resp.code == 202:
+                    current_app.events.register(resp.msg.get('execution_id'), self.callback_completion_event)
+                    event = self._completion_event.wait(timeout=timeout)
+                    if event is not True:
+                        self._command._cp = CompletedProcess(success=False, stdout='',
+                                                             stderr=f'Timeout of {timeout} reached waiting '
+                                                                    f'server operation completion')
+
+                elif resp.code == 200:
+                    self.callback_completion_event(Event(None, data=resp.msg))
+                else:
+                    self._command._cp = CompletedProcess(success=False, stdout='',
+                                                         stderr=resp.msg, rc=resp.code)
+
+                try:
+                    self.post_processing(local=dict(vc=self._command.var_context, cp=self._command._cp))
+                except Exception as e:
+                    self._cp.pre_post_error = e
+                    self._cp.success = False
+
                 if self.register:
                     self.register.register_step_execution(self)
-                self.params.update(self.fetched_data)
-            elif code == 200:
-                self.callback_completion_event(Event(None, data=resp))
-            else:
-                current_app.logger.error(
-                    f"Error while trying to run command {self.id} on server {self.server}: {code}, {resp}")
-
+        finally:
+            if ctx:
+                ctx.pop()
         return self.success
 
 
 class ProxyCommand(ProxyMixin, Command):
 
-    def __init__(self, server: Id, jwt_identity, *args, timeout: t.Union[int, float] = 300, **kwargs):
-        ProxyMixin.__init__(self, server, jwt_identity, timeout=timeout)
+    def __init__(self, server_id: Id, *args, timeout: t.Union[int, float] = 300, **kwargs):
+        ProxyMixin.__init__(self, server_id, timeout=timeout)
         object.__setattr__(self, "_command", Command(*args, **kwargs))
 
 
 class ProxyUndoCommand(ProxyMixin, UndoCommand):
 
-    def __init__(self, server: Id, jwt_identity, *args, timeout: t.Union[int, float] = 300, **kwargs):
-        ProxyMixin.__init__(self, server, jwt_identity, timeout=timeout)
+    def __init__(self, server_id: Id, *args, timeout: t.Union[int, float] = 300, **kwargs):
+        ProxyMixin.__init__(self, server_id, timeout=timeout)
         object.__setattr__(self, "_command", UndoCommand(*args, **kwargs))
 
 
-def _create_cmd_from_orchestration(orchestration: Orchestration, params: Kwargs) -> CompositeCommand:
-    def convert2cmd(d, mapping):
-        nd = {}
-        for k, v in d.items():
-            nd.update({mapping[k]: [mapping[s] for s in v]})
-        return nd
-
-    undo_step_cmd_map = {s: UndoCommand(implementation=create_operation(s), params=ChainMap(params, s.parameters),
-                                        id_=s.id)
-                         for s in orchestration.steps if s.undo}
-    step_cmd_map = {}
-    tree_step = {}
-
-    for s in (s for s in orchestration.steps if not s.undo):
-        tree_step.update({s: [s for s in orchestration.children[s] if not s.undo]})
-
-        # create Undo CompositeCommand for every command
-        cc_tree = convert2cmd(orchestration.subtree([s for s in orchestration.children[s] if s.undo]),
-                              undo_step_cmd_map)
-
-        c = Command(create_operation(s), undo_command=CompositeCommand(cc_tree),
-                    params=ChainMap(params, s.parameters), id_=s.id)
-
-        step_cmd_map.update({s: c})
-
-    return CompositeCommand(convert2cmd(tree_step, step_cmd_map))
-
-
-# def _create_do_cc_from_step_server(orchestration, executor, params, hosts, s: Step, current_server):
-#     d = {}
-#     c = None
-#     for t in s.target:
-#         for server in hosts[t]:
-#             if server == current_server:
-#                 c = UndoCommand(create_operation(s), params=params, id_=s.id)
-#                 d[c] = []
-#             else:
-#                 c = ProxyUndoCommand(server=server, implementation=create_operation(s), params=params,
-#                                      id_=s.id)
-#                 d[c] = []
-#     if len(d) <= 1:
-#         return c
-#     else:
-#         return CompositeCommand(dict_tree=d, executor=executor,
-#                                 undo_on_error=orchestration.undo_on_error if s.undo_on_error is None else s.undo_on_error,
-#                                 stop_on_error=orchestration.stop_on_error if s.stop_on_error is None else s.stop_on_error,
-#                                 id_=s)
-
-
-def _create_server_undo_command(executor, params, current_server, server: Id, s: Step, register, d=None,
-                                s2cc=None, jwt_identity=None) -> t.Optional[t.Union[UndoCommand, CompositeCommand]]:
+def _create_server_undo_command(executor, var_context, current_server, server_id: Id, s: Step, register, d=None,
+                                s2cc=None) -> t.Optional[t.Union[UndoCommand, CompositeCommand]]:
     def iterate_tree(_cls, _step: Step, _d, _s2cc):
         if _step in _s2cc:
             _uc = _s2cc[_step]
         else:
             stop_on_error = _step.step_stop_on_error if _step.step_stop_on_error is not None else s.stop_undo_on_error
-            _uc = _cls(create_operation(_step), params=params, id_=(server, _step.id),
+            _uc = _cls(create_operation(_step),
+                       var_context=var_context.create_new_ctx(
+                           defaults=ChainMap({**_step.parameters, 'server_id': server_id},
+                                             _step.orchestration.parameters)),
+                       id_=(str(server_id), str(_step.id)), post_process=_step.post_process,
                        stop_on_error=stop_on_error, register=register)
             _s2cc[_step] = _uc
         if _uc not in _d:
@@ -611,10 +593,10 @@ def _create_server_undo_command(executor, params, current_server, server: Id, s:
 
     d = d or {}
     s2cc = s2cc or {}
-    if server == current_server.id:
+    if str(server_id) == str(current_server.id):
         u_cmd_cls = UndoCommand
     else:
-        u_cmd_cls = partial(ProxyUndoCommand, server, jwt_identity)
+        u_cmd_cls = partial(ProxyUndoCommand, server_id)
     uc = None
     for child_undo_step in s.children_undo_steps:
         uc = iterate_tree(u_cmd_cls, child_undo_step, d, s2cc)
@@ -623,13 +605,14 @@ def _create_server_undo_command(executor, params, current_server, server: Id, s:
     elif len(d) > 1:
         return CompositeCommand(dict_tree=d, stop_on_error=s.stop_undo_on_error,
                                 stop_undo_on_error=None,
-                                id_=('undo', s.id),
+                                id_=('undo', str(s.id)),
                                 executor=executor)
 
 
-def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
-                                   hosts: t.Dict[str, t.List[Id]],
-                                   executor, register, jwt_identity=None) -> CompositeCommand:
+def create_cmd_from_orchestration(orchestration: Orchestration, var_context: VarContext,
+                                  hosts: t.Dict[str, t.List[Id]],
+                                  executor: concurrent.futures.Executor,
+                                  register: 'RegisterStepExecution') -> CompositeCommand:
     current_server = Server.get_current()
 
     def create_do_cmd_from_step(_step: Step, _s2cc):
@@ -638,23 +621,24 @@ def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
             cc = _s2cc[_step]
         else:
             for target in _step.target:
-                for server in hosts[target]:
-                    if server == current_server.id:
+                for server_id in hosts[target]:
+                    if str(server_id) == str(current_server.id):
                         cls = Command
                     else:
-                        if jwt_identity is None:
-                            RuntimeError('jwt_identity must be specified when executing orchestration to a remote server')
-                        cls = partial(ProxyCommand, server, jwt_identity)
+                        cls = partial(ProxyCommand, server_id)
 
                     c = cls(create_operation(_step),
-                            undo_command=_create_server_undo_command(executor, params, current_server, server, _step,
-                                                                     register, jwt_identity=jwt_identity),
-                            params=params,
+                            undo_command=_create_server_undo_command(executor, var_context, current_server, server_id,
+                                                                     _step, register),
+                            var_context=var_context.create_new_ctx(
+                                defaults=ChainMap({**_step.parameters, 'server_id': server_id},
+                                                  _step.orchestration.parameters)),
                             stop_on_error=_step.stop_on_error,
                             stop_undo_on_error=None,
                             undo_on_error=_step.undo_on_error,
+                            post_process=_step.post_process,
                             register=register,
-                            id_=(server, _step.id))
+                            id_=(str(server_id), str(_step.id)))
 
                     d[c] = []
             if len(d) == 1:
@@ -663,7 +647,7 @@ def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
                 cc = CompositeCommand(dict_tree=d,
                                       stop_on_error=False,
                                       stop_undo_on_error=False,
-                                      id_=_step.id, executor=executor)
+                                      id_=str(_step.id), executor=executor)
             else:
                 cc = None
         return cc
@@ -689,18 +673,37 @@ def create_cmd_from_orchestration2(orchestration: Orchestration, params: Kwargs,
     return CompositeCommand(dict_tree=tree,
                             stop_undo_on_error=orchestration.stop_undo_on_error,
                             stop_on_error=orchestration.stop_on_error,
-                            id_=orchestration.id, executor=executor)
+                            id_=str(orchestration.id), executor=executor)
 
 
 class RegisterStepExecution:
-    def __init__(self, execution: OrchExecution):
-        self.execution = execution
+    def __init__(self, execution: OrchExecution, app: Flask = None):
+        if app:
+            self.app = app
+        else:
+            self.app = current_app._get_current_object()
+        self.execution = execution.to_json()
+        engine = db.get_engine()
+        Session = sessionmaker(bind=engine)
+        self.s = Session()
 
     def register_step_execution(self, command: ImplementationCommand):
-        e = StepExecution(orch_execution_id=self.execution.id)
-        e.load_completed_result(command._cp)
-        e.step_id = command.id[1]
-        e.execution_server_id = command.id[0]
-        e.source_server_id = command.id[0]
-        db.session.add(e)
-        db.session.commit()
+        ctx = None
+        if not has_app_context():
+            ctx = self.app.app_context()
+            ctx.push()
+
+        try:
+            e = StepExecution(orch_execution_id=self.execution['id'])
+            e.load_completed_result(command._cp)
+            e.params = dict(command.var_context)
+            e.step_id = command.id[1]
+            e.server_id = command.id[0]
+            self.s.add(e)
+            self.s.commit()
+        finally:
+            if ctx:
+                ctx.pop()
+
+    def __del__(self):
+        self.s.close()

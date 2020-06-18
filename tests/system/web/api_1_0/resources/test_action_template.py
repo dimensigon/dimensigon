@@ -1,14 +1,16 @@
 from unittest import TestCase
 
+from dateutil.tz import tzlocal
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
+from dm import defaults
 from dm.domain.entities import ActionTemplate, bypass_datamark_update, Server, User
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
 
 
-class TestApi(TestCase):
+class TestActionTemplate(TestCase):
     def setUp(self):
         """Create and configure a new app instance for each test."""
         # create a temporary file to isolate the database for each test
@@ -24,31 +26,30 @@ class TestApi(TestCase):
         self.at1_json = {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
                          "action_type": "SHELL",
                          "code": "mkdir {dir}",
-                         "last_modified_at": "20190101.000530.100000",
-                         "expected_output": None,
-                         "expected_rc": None,
+                         "last_modified_at": defaults.INITIAL_DATEMARK.strftime(defaults.DATEMARK_FORMAT),
                          "name": "mkdir",
-                         "parameters": {},
-                         "system_kwargs": {},
                          "version": 1
                          }
         self.at2_json = {"id": "aaaaaaaa-1234-5678-1234-56781234aaa2",
                          "action_type": "SHELL",
                          "code": "rmdir {dir}",
-                         "last_modified_at": "20190101.000530.100000",
-                         "expected_output": None,
-                         "expected_rc": None,
+                         "last_modified_at": defaults.INITIAL_DATEMARK.strftime(defaults.DATEMARK_FORMAT),
+                         "expected_stdout": 'output',
+                         "expected_stderr": 'err',
+                         "expected_rc": 0,
                          "name": "rmdir",
-                         "parameters": {},
-                         "system_kwargs": {},
+                         "parameters": {'param1': 1},
+                         "system_kwargs": {'kwarg1': 1},
+                         'pre_process': 'pre_process',
+                         'post_process': 'post_process',
                          "version": 1
                          }
 
-        at1 = ActionTemplate.from_json(self.at1_json)
-        at2 = ActionTemplate.from_json(self.at2_json)
-
-        db.session.add_all([at1, at2])
         with bypass_datamark_update():
+            at1 = ActionTemplate.from_json(self.at1_json)
+            at2 = ActionTemplate.from_json(self.at2_json)
+
+            db.session.add_all([at1, at2])
             db.session.commit()
 
     def tearDown(self) -> None:
@@ -63,27 +64,22 @@ class TestApi(TestCase):
             {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
              "action_type": "SHELL",
              "code": "mkdir {dir}",
-             "last_modified_at": "20190101.000530.100000",
-             "expected_stdout": None,
-             "expected_stderr": None,
-             "expected_rc": None,
+             "last_modified_at": defaults.INITIAL_DATEMARK.astimezone(tzlocal()).strftime(defaults.DATEMARK_FORMAT),
              "name": "mkdir",
-             "parameters": {},
-             "system_kwargs": {},
-             'post_process': None,
              "version": 1
              },
             {"id": "aaaaaaaa-1234-5678-1234-56781234aaa2",
              "action_type": "SHELL",
              "code": "rmdir {dir}",
-             "last_modified_at": "20190101.000530.100000",
-             "expected_stdout": None,
-             "expected_stderr": None,
-             "expected_rc": None,
+             "last_modified_at": defaults.INITIAL_DATEMARK.astimezone(tzlocal()).strftime(defaults.DATEMARK_FORMAT),
+             "expected_stdout": 'output',
+             "expected_stderr": 'err',
+             "expected_rc": 0,
              "name": "rmdir",
-             "parameters": {},
-             "system_kwargs": {},
-             'post_process': None,
+             "parameters": {'param1': 1},
+             "system_kwargs": {'kwarg1': 1},
+             'pre_process': 'pre_process',
+             'post_process': 'post_process',
              "version": 1
              }
         ], response.get_json())
@@ -97,14 +93,8 @@ class TestApi(TestCase):
             {"id": "aaaaaaaa-1234-5678-1234-56781234aaa1",
              "action_type": "SHELL",
              "code": "mkdir {dir}",
-             "last_modified_at": "20190101.000530.100000",
-             "expected_stdout": None,
-             "expected_stderr": None,
-             "expected_rc": None,
+             "last_modified_at": defaults.INITIAL_DATEMARK.astimezone(tzlocal()).strftime(defaults.DATEMARK_FORMAT),
              "name": "mkdir",
-             "parameters": {},
-             'post_process': None,
-             "system_kwargs": {},
              "version": 1
              }, response.get_json())
 

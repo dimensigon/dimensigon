@@ -1,15 +1,23 @@
 from unittest import TestCase
 from unittest.mock import patch, MagicMock
 
+import requests
 import responses
 from flask import Flask
 
 from dm.domain.entities import Server, Route
-from dm.web import db
+from dm.web import db, errors
 from dm.web.decorators import forward_or_dispatch
+from tests.helpers import ValidateResponseMixin
 
 
-class TestForwardOrDispatch(TestCase):
+class TestForwardOrDispatch(TestCase, ValidateResponseMixin):
+
+    # def run(self, result=None):
+    #     with patch('dm.web.scopefunc') as mock_scopefunc:
+    #         mock_scopefunc.side_effect = lambda: threading.get_ident()
+    #         super().run(result)
+
     def setUp(self):
         """Create and configure a new self.app instance for each test."""
         # create a temporary file to isolate the database for each test
@@ -43,7 +51,7 @@ class TestForwardOrDispatch(TestCase):
 
     @patch('dm.web.decorators.g')
     @responses.activate
-    def test_forward_or_dispatch(self, mock_g):
+    def test_forward_or_dispatch_in_content(self, mock_g):
         mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
         responses.add(responses.POST, 'http://192.168.1.9:7123/', json={'msg': 'response'})
 
@@ -59,15 +67,6 @@ class TestForwardOrDispatch(TestCase):
         self.assertEqual({'msg': 'default response'}, response.json)
 
         self.assertEqual(1, len(responses.calls))
-
-    @patch('dm.web.decorators.g')
-    def test_server_not_found(self, mock_g):
-        mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
-
-        resp = self.client.post('/', json={'destination': 'bbbbbbbb-1234-5678-1234-56781234bbb5', 'data': None})
-
-        self.assertEqual(404, resp.status_code)
-
 
 
     @patch('dm.web.decorators.g')
@@ -123,6 +122,7 @@ class TestForwardOrDispatch(TestCase):
                                     environ_base={'REMOTE_ADDR': '10.1.2.4'})
         self.assertEqual({'msg': 'default response'}, response.json)
 
+        db.session.refresh(self.srv2)
         self.assertEqual(1, len(self.srv2.hidden_gates))
         self.assertEqual('10.1.2.4', str(hg.ip))
         self.assertEqual(7124, hg.port)
@@ -132,13 +132,19 @@ class TestForwardOrDispatch(TestCase):
     def test_forward_or_dispatch_hidden_ip_multiple_ports(self, mock_g):
         mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
 
-        self.srv2.add_new_gate('127.0.0.1', 7125)
+        g = self.srv2.add_new_gate('127.0.0.1', 7125)
+
+        db.session.add(g)
+        db.session.commit()
 
         response = self.client.post('/', json={'data': None},
                                     headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
                                              'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
                                     environ_base={'REMOTE_ADDR': '10.1.2.3'})
+
         self.assertEqual({'msg': 'default response'}, response.json)
+
+        db.session.refresh(self.srv2)
 
         self.assertEqual(2, len(self.srv2.hidden_gates))
         hg = self.srv2.hidden_gates
@@ -152,6 +158,8 @@ class TestForwardOrDispatch(TestCase):
                                              'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
                                     environ_base={'REMOTE_ADDR': '10.1.2.3'})
         self.assertEqual({'msg': 'default response'}, response.json)
+
+        db.session.refresh(self.srv2)
 
         self.assertEqual(2, len(self.srv2.hidden_gates))
         hg = self.srv2.hidden_gates
@@ -164,7 +172,10 @@ class TestForwardOrDispatch(TestCase):
                                     headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
                                              'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
                                     environ_base={'REMOTE_ADDR': '10.1.2.4'})
+
         self.assertEqual({'msg': 'default response'}, response.json)
+
+        db.session.refresh(self.srv2)
 
         self.assertEqual(2, len(self.srv2.hidden_gates))
         hg = self.srv2.hidden_gates
@@ -172,6 +183,44 @@ class TestForwardOrDispatch(TestCase):
         self.assertIn(hg[0].port, (7124, 7125))
         self.assertEqual('10.1.2.4', str(hg[1].ip))
         self.assertIn(hg[1].port, (7124, 7125))
+
+    @patch('dm.web.decorators.g')
+    def test_forward_or_dispatch_using_proxy_server(self, mock_g):
+        me = Server(id='bbbbbbbb-1234-5678-1234-56781234bbb0', name='server0',
+                    dns_or_ip='192.168.1.8', port=7123, me=True)
+        db.session.add(me)
+        db.session.commit()
+        mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb0')
+
+        response = self.client.post('/', json={'data': None},
+                                    headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb0',
+                                             'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2:bbbbbbbb-1234-5678-1234-56781234bbb1'},
+                                    environ_base={'REMOTE_ADDR': '192.168.1.9'})
+        self.assertEqual({'msg': 'default response'}, response.json)
+
+        db.session.refresh(self.srv2)
+        self.assertEqual(0, len(self.srv2.hidden_gates))
+
+        response = self.client.post('/', json={'data': None},
+                                    headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb0',
+                                             'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2:bbbbbbbb-1234-5678-1234-56781234bbb1'},
+                                    environ_base={'REMOTE_ADDR': '10.1.2.3'})
+        self.assertEqual({'msg': 'default response'}, response.json)
+
+        db.session.refresh(self.srv1)
+        self.assertEqual(1, len(self.srv1.hidden_gates))
+        hg = self.srv1.hidden_gates[0]
+        self.assertEqual('10.1.2.3', str(hg.ip))
+        self.assertEqual(7123, hg.port)
+
+    @patch('dm.web.decorators.g')
+    def test_server_not_found(self, mock_g):
+        mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
+
+        resp = self.client.post('/', json={'data': None},
+                                headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb5'})
+
+        self.validate_error_response(resp, errors.EntityNotFound('Server', 'bbbbbbbb-1234-5678-1234-56781234bbb5'))
 
     @patch('dm.web.decorators.socket.gethostbyname')
     @patch('dm.web.decorators.g')
@@ -183,8 +232,10 @@ class TestForwardOrDispatch(TestCase):
                 return '10.1.2.3'
             else:
                 return None
+
         mock_gethostbyname.side_effect = gethostbyname
         self.srv2.add_new_gate('server2', 7124)
+        db.session.commit()
 
         response = self.client.post('/', json={'data': None},
                                     headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
@@ -193,3 +244,43 @@ class TestForwardOrDispatch(TestCase):
         self.assertEqual({'msg': 'default response'}, response.json)
 
         self.assertEqual(0, len(self.srv2.hidden_gates))
+
+    @patch('dm.web.decorators.requests.request', autospec=True)
+    @patch('dm.web.decorators.g')
+    def test_forward_or_dispatch_proxy_request(self, mock_g, mock_request):
+        mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
+
+        def request(*args, **kwargs):
+            r = requests.Response()
+            r._content = kwargs['headers'].get('d-source')
+            r.status_code = 222
+            return r
+
+        mock_request.side_effect = request
+
+        # check if request is forwarded to the server without d-source header
+        resp = self.client.post('/', json={'data': None},
+                                headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb2'})
+
+        self.assertEqual(':bbbbbbbb-1234-5678-1234-56781234bbb1', resp.get_data(True))
+
+        # check if request is forwarded to the server with d-source header
+        resp = self.client.post('/', json={'data': None},
+                                headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb2',
+                                         'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb0'})
+
+        self.assertEqual('bbbbbbbb-1234-5678-1234-56781234bbb0:bbbbbbbb-1234-5678-1234-56781234bbb1',
+                         resp.get_data(True))
+
+    @patch('dm.web.decorators.requests.request', autospec=True)
+    @patch('dm.web.decorators.g')
+    def test_forward_or_dispatch_error_proxying(self, mock_g, mock_request):
+        mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
+        mock_request.side_effect = requests.exceptions.ConnectionError('error')
+
+        # check if request is forwarded to the server
+        resp = self.client.post('/', json={'data': None},
+                                headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb2'})
+
+        self.validate_error_response(resp, errors.ProxyForwardingError(self.srv2,
+                                                                       requests.exceptions.ConnectionError('error')))

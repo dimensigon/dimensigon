@@ -1,4 +1,3 @@
-import uuid
 from collections import OrderedDict
 from unittest import TestCase
 from unittest.mock import patch
@@ -16,7 +15,7 @@ class TestPack_msg_pickle(TestCase):
         cls.pub_key, cls.priv_key = rsa.newkeys(1024)
         cls.source = 'source'
         cls.dest = 'dest'
-        cls.data = {'test': 'some random data', 'id': uuid.UUID('11111111-2222-3333-4444-55555555abcd')}
+        cls.data = {'test': 'some random data', 'id': '11111111-2222-3333-4444-55555555abcd'}
         cls.sym_key = Fernet.generate_key()
 
     def test_pack_unpack_msg_with_keys(self):

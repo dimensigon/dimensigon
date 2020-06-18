@@ -1,5 +1,3 @@
-import datetime
-import uuid
 from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
@@ -28,8 +26,8 @@ class TestApi(TestCase):
         self.app_context.pop()
 
     def test_to_from_json(self):
-        now = datetime.datetime(2019, 4, 16, 12, 00, 00)
-        at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='ActionTest2', version=1,
+        now = defaults.INITIAL_DATEMARK
+        at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='ActionTest2', version=1,
                             action_type=ActionType.ORCHESTRATION,
                             code='test code',
                             parameters={'dir': '/home'},
@@ -41,8 +39,6 @@ class TestApi(TestCase):
 
         self.assertDictEqual(dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='ActionTest2', version=1,
                                   action_type='ORCHESTRATION', code='test code', parameters={'dir': '/home'},
-                                  expected_stdout=None, expected_stderr=None, expected_rc=None, post_process=None,
-                                  system_kwargs={},
                                   last_modified_at=now.strftime(defaults.DATEMARK_FORMAT)), at_json)
 
         at_json['name'] = "ChangedAction"

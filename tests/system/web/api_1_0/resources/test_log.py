@@ -127,6 +127,7 @@ class TestLogResource(TestCaseLockBypass):
         resp = self.client.patch(url_for('api_1_0.logresource', log_id=str(self.log.id)), headers=self.auth.header,
                                  json=patch_log_json)
         self.assertEqual(204, resp.status_code)
+        db.session.refresh(self.log)
         self.assertEqual('/dest', self.log.dest_folder)
 
         resp = self.client.patch(url_for('api_1_0.logresource', log_id=str(self.log.id)), headers=self.auth.header,

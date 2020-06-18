@@ -14,7 +14,7 @@ from .exceptions import NotValidMessage
 from .. import defaults
 
 if t.TYPE_CHECKING:
-    import flask
+    pass
 
 """
 Singleton class that allows communication between servers. create a routes dict like follows:
@@ -221,31 +221,3 @@ async def async_send_message(destination: Server, source: Server, pub_key=None, 
         if raise_for_status:
             r.raise_for_status()
         return await r.text(), r.status
-
-
-def proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
-    url = destination.url() + request.full_path
-    json = request.get_json()
-
-    if request.path == '/ping':
-        json['hops'] = json.get('hops', 0) + 1
-
-    kwargs = {
-        'json': json,
-        'allow_redirects': False
-    }
-
-    headers = dict([(key.upper(), value)
-                    for key, value in request.headers.items()])
-
-    # Let requests reset the host for us.
-    if 'HOST' in headers:
-        del headers['HOST']
-
-    kwargs['headers'] = headers
-
-    cookies = request.cookies
-
-    kwargs['cookies'] = cookies
-
-    return requests.request(request.method, url, verify=verify, **kwargs)

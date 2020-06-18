@@ -1,4 +1,4 @@
-import datetime
+import datetime as dt
 import functools
 import re
 from functools import partial
@@ -19,7 +19,7 @@ class TestApi(TestCase):
     @patch('dm.domain.entities.get_now')
     def setUp(self, mock_now):
         """Create and configure a new app instance for each test."""
-        mock_now.return_value = datetime.datetime(2019, 4, 1)
+        mock_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
         # create the app with common test config
         self.app_join = create_app('test')
         self.app_join.config['SECURIZER'] = True
@@ -32,14 +32,15 @@ class TestApi(TestCase):
             me = Server.get_current()
             # remove Gates
             [db.session.delete(g) for g in me.gates]
-            Gate(me, port=8000, dns='new')
+            g = Gate(me, port=8000, dns='new')
+            db.session.add(g)
             db.session.commit()
             self.server_new = Server.get_current().to_json()
 
         self.app = create_app('test')
         self.app.config['SERVER_NAME'] = 'node1'
         self.app.config['SECURIZER'] = True
-        mock_now.return_value = datetime.datetime(2019, 3, 1)
+        mock_now.return_value = dt.datetime(2019, 3, 1, tzinfo=dt.timezone.utc)
         with self.app.app_context():
             db.create_all()
             Locker.set_initial()
@@ -48,7 +49,8 @@ class TestApi(TestCase):
             me = Server.get_current()
             # remove Gates
             [db.session.delete(g) for g in me.gates]
-            Gate(me, port=8000, dns='node1')
+            g = Gate(me, port=8000, dns='node1')
+            db.session.add(g)
             db.session.commit()
             dim = generate_dimension('test')
             dim.current = True
@@ -72,7 +74,7 @@ class TestApi(TestCase):
     # @patch('dimensigon.rsa.newkeys')
     @aioresponses()
     def test_join_command(self, mock_now, mock_check, m):
-        mock_now.return_value = datetime.datetime(2019, 5, 1)
+        mock_now.return_value = dt.datetime(2019, 5, 1, tzinfo=dt.timezone.utc)
 
         mock_check.return_value = True
 
@@ -114,14 +116,13 @@ class TestApi(TestCase):
         with self.app.app_context():
             # check if new server created
             server_new = Server.query.get(self.server_new.get('id'))
-            self.assertEqual(server_new.last_modified_at, datetime.datetime(2019, 5, 1))
-            server_new.last_modified_at = datetime.datetime(2019, 4, 1)
-            self.assertDictEqual(self.server_new, server_new.to_json())
+            self.assertEqual(server_new.last_modified_at, dt.datetime(2019, 5, 1, tzinfo=dt.timezone.utc))
 
         with self.app_join.app_context():
             self.assertDictEqual(self.dimension, Dimension.get_current().to_json())
             s = Server.query.get(self.server_node1.get('id'))
             self.assertEqual(0, s.route.cost)
-            self.assertListEqual([('Gate',), ('Server',), ('User',)], db.session.query(Catalog.entity).order_by('entity').all())
-            self.assertEqual(datetime.datetime(2019, 5, 1),
+            self.assertListEqual([('Gate',), ('Server',), ('User',)],
+                                 db.session.query(Catalog.entity).order_by('entity').all())
+            self.assertEqual(dt.datetime(2019, 5, 1, tzinfo=dt.timezone.utc),
                              Catalog.query.filter_by(entity='Server').one().last_modified_at)

@@ -1,12 +1,9 @@
-import functools
 import hashlib
 import os
-import re
 import time
-import traceback
 
 import responses
-from aioresponses import CallbackResult, aioresponses
+from aioresponses import aioresponses
 from flask import url_for
 from flask_jwt_extended import create_access_token
 from pyfakefs.fake_filesystem_unittest import TestCase
@@ -16,10 +13,10 @@ from dm.domain.entities.bootstrap import set_initial
 from dm.utils.helpers import generate_dimension, md5
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
-from tests.helpers import set_callbacks
+from tests.helpers import set_callbacks, ValidateResponseMixin
 
 
-class TestSend(TestCase):
+class TestSend(TestCase, ValidateResponseMixin):
     def setUp(self) -> None:
         # create the app with common test config
         self.app1 = create_app('test')
@@ -133,127 +130,3 @@ class TestSend(TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.dest_path, self.filename)))
         self.assertEqual(self.size, os.path.getsize(os.path.join(self.dest_path, self.filename)))
         self.assertEqual(self.checksum, md5(os.path.join(self.dest_path, self.filename)))
-
-    @aioresponses()
-    @responses.activate
-    def test_send_foreground(self, m):
-        set_callbacks([('node2', self.client2)], m)
-
-        server = Server.query.filter_by(name='node2').one()
-
-        self.assertFalse(os.path.exists(os.path.join(self.dest_path, self.filename)))
-
-        resp = self.client1.post(url_for('api_1_0.send'),
-                                 json=dict(file=os.path.join(self.source_path, self.filename), dest_server_id=server.id,
-                                           dest_path=self.dest_path, background=False),
-                                 headers=self.auth.header)
-        self.assertEqual(204, resp.status_code)
-
-        self.assertTrue(os.path.exists(os.path.join(self.dest_path, self.filename)))
-        self.assertEqual(self.size, os.path.getsize(os.path.join(self.dest_path, self.filename)))
-        self.assertEqual(self.checksum, md5(os.path.join(self.dest_path, self.filename)))
-
-    @aioresponses()
-    @responses.activate
-    def test_send_file_not_found(self, m):
-        set_callbacks([('node2', self.client2)], m)
-
-        server = Server.query.filter_by(name='node2').one()
-
-        self.assertFalse(os.path.exists(os.path.join(self.dest_path, 'file')))
-
-        resp = self.client1.post(url_for('api_1_0.send'),
-                                 json=dict(file=os.path.join(self.source_path, 'file'), dest_server_id=server.id,
-                                           dest_path=self.dest_path),
-                                 headers=self.auth.header)
-        self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({'error': f"file '{os.path.join(self.source_path, 'file')}' not found"}, resp.get_json())
-
-        os.remove(os.path.join(self.source_path, self.filename))
-        resp = self.client1.post(url_for('api_1_0.send'),
-                                 json=dict(software_id=self.soft_json['id'], dest_server_id=server.id,
-                                           dest_path=self.dest_path),
-                                 headers=self.auth.header)
-        self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({'error': f"file '{os.path.join(self.source_path, self.filename)}' not found"},
-                             resp.get_json())
-
-    @responses.activate
-    def test_send_error_on_create_transfer(self):
-
-        responses.add(responses.POST, re.compile('https?://node2.*'), body=ConnectionError('No connection'))
-
-        server = Server.query.filter_by(name='node2').one()
-
-        self.assertFalse(os.path.exists(os.path.join(self.dest_path, self.filename)))
-
-        resp = self.client1.post(url_for('api_1_0.send'),
-                                 json=dict(software_id=self.soft_json['id'], dest_server_id=server.id,
-                                           dest_path=self.dest_path),
-                                 headers=self.auth.header)
-        self.assertEqual(500, resp.status_code)
-        self.assertDictEqual({'error': f'unable to create transfer on {server}',
-                              'message': 'No connection',
-                              'code': None}, resp.get_json())
-
-    def test_send_error_ssa_not_found(self):
-
-        server = Server.query.filter_by(name='node2').one()
-
-        soft = Software.query.get(self.soft_json['id'])
-
-        db.session.delete(soft.ssas[0])
-
-        resp = self.client1.post(url_for('api_1_0.send'),
-                                 json=dict(software_id=self.soft_json['id'], dest_server_id=server.id,
-                                           dest_path=self.dest_path),
-                                 headers=self.auth.header)
-        self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({'error': f"no Software Server Association found for software {soft.id} and "
-                                       f"server {server.id}"}, resp.get_json())
-
-    def test_send_error_ssa_not_found(self):
-        server = Server.query.filter_by(name='node2').one()
-
-        soft = Software.query.get(self.soft_json['id'])
-
-        db.session.delete(soft.ssas[0])
-
-        resp = self.client1.post(url_for('api_1_0.send'),
-                                 json=dict(software_id=self.soft_json['id'], dest_server_id=server.id,
-                                           dest_path=self.dest_path),
-                                 headers=self.auth.header)
-        self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({'error': f"no Software Server Association found for software {soft.id} and "
-                                       f"server {server.id}"}, resp.get_json())
-
-    @aioresponses()
-    @responses.activate
-    def test_send_catch_error_patch(self, m):
-        # INIT SET CALLBACKS
-        def requests_callback_client(client, request):
-            method_func = getattr(client, request.method.lower())
-            try:
-                resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
-            except Exception as e:
-                return 500, {}, traceback.format_exc()
-
-            return resp.status_code, resp.headers, resp.data
-
-        def callback_client(method, client, url, **kwargs):
-            return CallbackResult(method.upper(), status=500, payload={'error': 'error content'})
-
-        responses.add_callback('POST', re.compile(f'https?://node2.*'),
-                               callback=functools.partial(requests_callback_client, self.client2))
-
-        m.post(re.compile(f'https?://node2.*'),
-               callback=functools.partial(callback_client, 'POST', self.client2), repeat=True)
-        # END SET CALLBACKS
-
-        server = Server.query.filter_by(name='node2').one()
-
-        resp = self.client1.post(url_for('api_1_0.send'),
-                                 json=dict(software_id=self.soft_json['id'], dest_server_id=server.id,
-                                           dest_path=self.dest_path, background=False),
-                                 headers=self.auth.header)
-        self.assertEqual(500, resp.status_code)

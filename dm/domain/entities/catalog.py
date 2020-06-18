@@ -2,13 +2,14 @@ import typing as t
 from datetime import datetime
 
 from dm import defaults
+from dm.utils.typos import UtcDateTime
 from dm.web import db
 
 
 class Catalog(db.Model):
     __tablename__ = 'L_catalog'
     entity = db.Column(db.String(40), primary_key=True, unique=True)
-    last_modified_at = db.Column(db.DateTime, nullable=False)
+    last_modified_at = db.Column(UtcDateTime(timezone=True), nullable=False)
 
     def __init__(self, entity: str, last_modified_at: datetime):
         self.entity = entity

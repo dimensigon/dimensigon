@@ -59,6 +59,10 @@ class ActionTemplateResource(Resource):
             at.expected_stderr = data.get('expected_stderr')
         if 'expected_rc' in data and at.expected_rc != data.get('expected_rc'):
             at.expected_rc = data.get('expected_rc')
+        if 'pre_process' in data and at.pre_process != data.get('pre_process'):
+            at.pre_process = data.get('pre_process')
+        if 'post_process' in data and at.post_process != data.get('post_process'):
+            at.post_process = data.get('post_process')
         if at in db.session.dirty:
             db.session.commit()
             return {}, 204

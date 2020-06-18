@@ -1,7 +1,6 @@
 import base64
 import os
 import re
-from datetime import datetime
 
 from flask import request, current_app
 from flask_jwt_extended import jwt_required
@@ -10,8 +9,8 @@ from sqlalchemy import or_
 
 import dm.defaults as d
 from dm.domain.entities import Transfer, TransferStatus, Software
-from dm.utils.helpers import md5
-from dm.web import db
+from dm.utils.helpers import md5, get_now
+from dm.web import db, errors
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
 from dm.web.json_schemas import transfers_post, transfer_post
 
@@ -35,8 +34,8 @@ class TransferList(Resource):
         if 'software_id' in json_data:
             soft = Software.query.get_or_404(json_data['software_id'])
             pending = Transfer.query.filter_by(software=soft, dest_path=json_data['dest_path']).filter(
-                or_(Transfer.status != TransferStatus.WAITING_CHUNKS,
-                    Transfer.status != TransferStatus.IN_PROGRESS)).all()
+                or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
+                    Transfer.status == TransferStatus.IN_PROGRESS)).all()
 
             if pending and not json_data.get('cancel_pending', False):
                 return {"error": f"There is already a transfer sending software {soft.id}"}, 409
@@ -50,8 +49,8 @@ class TransferList(Resource):
         else:
             pending = Transfer.query.filter_by(_filename=json_data['filename'],
                                                dest_path=json_data['dest_path']).filter(
-                or_(Transfer.status != TransferStatus.WAITING_CHUNKS,
-                    Transfer.status != TransferStatus.IN_PROGRESS)).all()
+                or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
+                    Transfer.status == TransferStatus.IN_PROGRESS)).all()
 
             if pending and not json_data.get('cancel_pending', False):
                 return {"error": f"There is already a transfer sending file "
@@ -126,15 +125,11 @@ class TransferResource(Resource):
         data = request.get_json()
         trans: Transfer = Transfer.query.get_or_404(transfer_id)
         if trans.status == TransferStatus.WAITING_CHUNKS:
-            trans.started_on = datetime.now()
+            trans.started_on = get_now()
             trans.status = TransferStatus.IN_PROGRESS
             db.session.commit()
-        elif trans.status == TransferStatus.COMPLETED:
-            return {'error': 'transfer has already completed'}, 410
-        elif trans.status == TransferStatus.CANCELED:
-            return {'error': 'transfer has been canceled'}, 410
-        elif trans.status in (TransferStatus.CHECKSUM_ERROR, TransferStatus.SIZE_ERROR):
-            return {'error': 'transfer has finished with an error'}, 410
+        elif trans.status != TransferStatus.IN_PROGRESS:
+            raise errors.TransferNotInValidState(transfer_id, trans.status.name)
 
         chunk = data.get('content')
         chunk_id = data.get('chunk')

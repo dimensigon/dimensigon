@@ -26,6 +26,7 @@ class Test(TestCaseLockBypass):
         self.s2 = self.o.add_step(undo=False, action_template=self.at, parents=[self.s1])
         self.s3 = self.o.add_step(undo=False, action_template=self.at, parents=[self.s2])
         db.session.add_all([self.at, self.o])
+        db.session.commit()
 
     def tearDown(self) -> None:
         db.session.remove()

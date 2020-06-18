@@ -20,9 +20,9 @@ from dm.use_cases.use_cases import run_elevator, get_software, upgrade_catalog_f
 from dm.utils import asyncio
 from dm.utils.asyncio import create_task
 from dm.utils.helpers import get_filename_from_cd, convert
-from dm.web import db
+from dm.web import db, errors
 from dm.web.decorators import run_as
-from dm.web.network import async_get, ping, get
+from dm.web.network import async_get, ping, get, Response
 
 logger = logging.getLogger('dm.background')
 routing_logger = logging.getLogger('dm.background.routing')
@@ -171,7 +171,7 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     new_neighbours = []
     if discover_new_neighbours:
         routing_logger.debug(
-            f"Checking new neighbours: " + ', '.join([str(s) for s in not_neighbours_anymore]))
+            f"Checking new neighbours: " + ', '.join([str(s) for s in not_neighbours]))
         for server in not_neighbours:
             for gate in server.gates:
                 if (gate.ip and not gate.ip.is_loopback) or (gate.dns and gate.dns != 'localhost'):
@@ -197,7 +197,7 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
         routing_logger.info(f"New Neighbour list {', '.join([str(s) for s in neighoburs])}")
 
     for server in neighoburs:
-        pool_responses.append(get(server, 'api_1_0.routes', auth=get_auth_root()))
+        pool_responses.append(get(server, 'api_1_0.routes', auth=get_auth_root(), timeout=10))
 
     for resp in pool_responses:
         if resp.code == 200:
@@ -208,14 +208,6 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
 
             for route_json in resp.msg['route_list']:
                 route_json = convert(route_json)
-                # noinspection PyTypeChecker
-                route_json.destination_id = uuid.UUID(route_json.destination_id)
-                if route_json.gate_id:
-                    # noinspection PyTypeChecker
-                    route_json.gate_id = uuid.UUID(route_json.gate_id)
-                if route_json.proxy_server_id:
-                    # noinspection PyTypeChecker
-                    route_json.proxy_server_id = uuid.UUID(route_json.proxy_server_id)
                 if route_json.destination_id != me.id \
                         and route_json.proxy_server_id != me.id \
                         and route_json.gate_id not in [g.id for g in me.gates]:
@@ -241,8 +233,11 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     for destination_id in filter(lambda s: s not in neighbour_ids, temp_table_routes.keys()):
         route = db.session.query(Route).filter_by(destination_id=destination_id).one_or_none()
         if not route:
-            # TODO: handle how to create new server. If through repository or through new routes
-            continue
+            server = Server.query.get(destination_id)
+            if not server:
+                continue
+            else:
+                route = Route(destination=server)
         temp_table_routes[destination_id].sort(key=lambda x: x.cost or MAX_COST)
         if len(temp_table_routes[destination_id]) > 0:
             min_route = temp_table_routes[destination_id][0]
@@ -265,7 +260,8 @@ def update_table_routing_cost(discover_new_neighbours=False, check_current_neigh
     routing_logger.debug(f'Changed routes from neighbours: {json.dumps(data, indent=4)}')
     return changed_routes
 
-async def _get_neighbour_catalog_data_mark() -> t.Dict[Server, t.Tuple[t.Any, int]]:
+
+async def _get_neighbour_catalog_data_mark() -> t.Dict[Server, Response]:
     server_responses = {}
     servers = Server.get_neighbours()
     catalog_logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
@@ -274,32 +270,31 @@ async def _get_neighbour_catalog_data_mark() -> t.Dict[Server, t.Tuple[t.Any, in
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(
             ssl=current_app.config['SSL_VERIFY'])) as session:
         for server in servers:
-
-                server_responses[server] = create_task(async_get(server, 'root.healthcheck', session=session,
-                                                           auth=auth))
+            server_responses[server] = create_task(async_get(server, 'root.healthcheck', session=session,
+                                                             auth=auth))
 
         for server, future in server_responses.items():
             server_responses[server] = await future
-
-            try:
-                data = json.dumps(server_responses[server][0], indent=4, sort_keys=True)
-            except json.decoder.JSONDecodeError:
-                data = server_responses[server][0]
-            except:
-                data = f"Exception {server_responses[server][0].__class__.__name__}: {server_responses[server][0]}"
-            code = server_responses[server][1]
+            if server_responses[server].code == 200:
+                id_response = server_responses[server].msg.get('server', {}).get('id', '')
+                if id_response and str(server.id) != id_response:
+                    server_responses[server].exception = errors.HealthCheckMismatch(
+                        expected={'id': str(server.id), 'name': server.name},
+                        actual=server_responses[server].msg.get('server', {}))
+                    server_responses[server].msg = None
+                    server_responses[server].code = None
 
             catalog_logger.debug(
-                f"Response from server {server.name}: {code}, {data}")
+                f"Response from server {server.name}: {json.dumps(server_responses[server].to_dict(), indent=4)}")
 
     return server_responses
 
 
-def upgrade_version(data: t.Dict[Server, t.Tuple[t.Any, int]]):
+def upgrade_version(data: t.Dict[Server, Response]):
     mayor_version, mayor_server = None, None
     for server, response in data.items():
-        if response[1] == 200 and 'version' in response[0]:
-            remote_version = parse_version(response[0]['version'])
+        if response.code == 200 and 'version' in response.msg:
+            remote_version = parse_version(response.msg['version'])
             if remote_version > parse_version(dm_version):
                 if mayor_version is None or mayor_version < remote_version:
                     mayor_version, mayor_server = remote_version, server
@@ -312,27 +307,27 @@ def upgrade_version(data: t.Dict[Server, t.Tuple[t.Any, int]]):
     return False
 
 
-def update_catalog(data: t.Dict[Server, t.Tuple[t.Any, int]]):
+def update_catalog(data: t.Dict[Server, Response]):
     reference_server = None
     catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
     if catalog_ver:
         for server, response in data.items():
-            if response[1] == 200 and 'catalog_version' in response[0]:
-                new_catalog_ver = datetime.datetime.strptime(response[0]['catalog_version'],
+            if response.code == 200 and 'catalog_version' in response.msg:
+                new_catalog_ver = datetime.datetime.strptime(response.msg['catalog_version'],
                                                              defaults.DATEMARK_FORMAT)
                 if new_catalog_ver > catalog_ver:
-                    if response[0]['version'] == dm_version:
+                    if response.msg['version'] == dm_version:
                         reference_server = server
                         catalog_ver = new_catalog_ver
                     else:
                         catalog_logger.debug(
-                            f"Server {server} has different software version {response[0]['version']}")
+                            f"Server {server} has different software version {response.msg['version']}")
             else:
                 msg = f"Error while trying to get healthcheck from server {server.name}. "
-                if response[1]:
-                    msg = msg + f"Response from server (code {response[1]}): {response[0]}"
+                if response.code:
+                    msg = msg + f"Response from server (code {response.code}): {response.msg}"
                 else:
-                    msg = msg + f"Exception: {response[0]}"
+                    msg = msg + f"Exception: {response.code}"
                 catalog_logger.warning(msg)
         if reference_server:
             catalog_logger.info(f"New catalog found from server {reference_server.name}: {catalog_ver}")

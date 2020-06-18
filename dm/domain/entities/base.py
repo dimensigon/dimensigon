@@ -2,11 +2,10 @@ import abc
 import uuid
 from datetime import datetime
 
-import six
-from sqlalchemy import DateTime, Column
+from sqlalchemy import Column
 
 from dm import defaults
-from dm.utils.typos import UUID
+from dm.utils.typos import UUID, UtcDateTime
 
 
 class JSONEntity:
@@ -23,7 +22,7 @@ class JSONEntity:
 
 class DistributedEntityMixin(JSONEntity):
     order = None
-    last_modified_at = Column(DateTime, nullable=False)
+    last_modified_at = Column(UtcDateTime(), nullable=False)
 
     def __init__(self, **kwargs):
         self.last_modified_at = kwargs.pop('last_modified_at', None)
@@ -43,13 +42,13 @@ class DistributedEntityMixin(JSONEntity):
 
 
 class UUIDEntityMixin:
-    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    id = Column(UUID, primary_key=True, default=str(uuid.uuid4))
 
     def __init__(self, **kwargs):
         if 'id' in kwargs:
-            self.id = uuid.UUID(kwargs['id']) if isinstance(kwargs['id'], six.string_types) else kwargs['id']
+            self.id = str(kwargs['id']).lower()
         else:
-            self.id = uuid.uuid4()
+            self.id = str(uuid.uuid4())
 
 
 class UUIDistributedEntityMixin(UUIDEntityMixin, DistributedEntityMixin):
@@ -68,9 +67,6 @@ class UUIDistributedEntityMixin(UUIDEntityMixin, DistributedEntityMixin):
     @abc.abstractmethod
     def from_json(cls, kwargs):
         super().from_json(kwargs)
-        if 'id' in kwargs:
-            kwargs['id'] = uuid.UUID(kwargs.get('id'))
-
         try:
             o = cls.query.get(kwargs.get('id'))
         except RuntimeError as e:

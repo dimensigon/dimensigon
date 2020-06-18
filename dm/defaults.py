@@ -1,12 +1,12 @@
 import itertools
 import os
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
 
 import netifaces
 
-DATETIME_FORMAT = "%m/%d/%Y, %H:%M:%S.%f"
-DATEMARK_FORMAT = "%Y%m%d.%H%M%S.%f"
+DATETIME_FORMAT = "%m/%d/%Y, %H:%M:%S.%f %z"
+DATEMARK_FORMAT = "%Y%m%d.%H%M%S.%f%z"
 HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOSTNAME = socket.gethostname()
 
@@ -15,7 +15,7 @@ ips = list(filter(lambda x: x != '127.0.0.1', itertools.chain(
       netifaces.interfaces()])))
 
 MIN_SERVERS_QUORUM = 5  # minimum servers to run quorum algorithm
-INITIAL_DATEMARK = datetime(2019, 4, 1)
+INITIAL_DATEMARK = datetime(2019, 4, 1, tzinfo=timezone.utc)
 DEFAULT_PORT = 8000
 LOOPBACK_PORT = 20194
 

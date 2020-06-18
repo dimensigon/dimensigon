@@ -8,6 +8,7 @@ import typing as t
 
 from flask import current_app
 from flask_jwt_extended import create_access_token, get_jwt_identity
+from sqlalchemy.orm.attributes import flag_modified
 
 from dm import defaults
 from dm.domain.entities import Server, bypass_datamark_update, Scope, Catalog
@@ -59,7 +60,9 @@ def upgrade_catalog(catalog, check_mismatch=True):
                     current_app.logger.debug(
                         f"Adding/Modifying new '{name}' entities: \n{json.dumps(catalog[name], indent=2, sort_keys=True)}")
                 for dto in catalog[name]:
-                    o = cls.from_json(dto)
+                    o = cls.from_json(dict(dto))
+                    # force modification to update catalog last_modified_at
+                    flag_modified(o, 'last_modified_at')
                     db.session.add(o)
 
         db.session.commit()

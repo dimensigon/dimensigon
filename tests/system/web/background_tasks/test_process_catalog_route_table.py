@@ -1,8 +1,7 @@
+import datetime as dt
 import json
 import re
 import traceback
-import uuid
-from datetime import datetime
 from functools import partial
 from unittest import TestCase
 from unittest.mock import patch
@@ -41,15 +40,15 @@ class TestUpdateTableRoutingCost(TestCase):
     @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario1(self, mocked_ping, mocked_check_host):
-        s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1')
-        g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+        s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1')
+        g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
                   dns=s1.name)
 
-        s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-        g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+        s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+        g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
                   dns=s2.name)
-        s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3', me=True)
-        g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+        s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3', me=True)
+        g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
                   dns=s3.name)
         Route(s1, gate=g1, cost=0)
         db.session.add_all([s1, s2, s3])
@@ -114,15 +113,15 @@ class TestUpdateTableRoutingCost(TestCase):
     @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario2(self, mocked_ping, mocked_check_host):
-        s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-        g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+        s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+        g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
                   dns=s1.name)
 
-        s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-        g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+        s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+        g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
                   dns=s2.name)
-        s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-        g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+        s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+        g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
                   dns=s3.name)
         Route(s2, gate=g2, cost=0)
         Route(s3, gate=g3, cost=0)
@@ -183,14 +182,14 @@ class TestUpdateTableRoutingCost(TestCase):
     @responses.activate
     def test_update_table_routing_cost_scenario3(self, mocked_ping, mocked_check_host):
         # Node 1 loses connection to gate's Node 2 and sets the second gate as default gate
-        s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-        g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+        s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+        g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
                   dns=s1.name)
 
-        s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-        g21 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5012,
+        s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+        g21 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5012,
                    dns=s2.name)
-        g22 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440022'), server=s2, port=5022,
+        g22 = Gate(id='123e4567-e89b-12d3-a456-426655440022', server=s2, port=5022,
                    dns=s2.name)
 
         Route(s2, gate=g21, cost=0)
@@ -246,15 +245,15 @@ class TestUpdateTableRoutingCost(TestCase):
     @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario4(self, mocked_ping, mocked_check_host):
-        s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-        g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+        s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+        g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
                   dns=s1.name)
 
-        s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-        g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+        s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+        g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
                   dns=s2.name)
-        s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-        g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+        s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+        g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
                   dns=s3.name)
         Route(s2, gate=g2, cost=0)
         Route(s3, gate=g3, cost=0)
@@ -315,12 +314,12 @@ class TestUpdateTableRoutingCost(TestCase):
     @patch('dm.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario5(self, mocked_ping, mocked_check_host):
-        s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-        g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+        s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+        g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
                   dns=s1.name)
 
-        s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-        g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5012,
+        s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+        g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5012,
                   dns=s2.name)
 
         Route(s2, gate=g2, cost=0)
@@ -367,16 +366,16 @@ class TestUpdateTableRoutingCost(TestCase):
     @responses.activate
     def test_update_table_routing_cost_scenario6(self, mocked_ping, mocked_check_host):
         # Nodes have localhost and node2 is not a neighbour anymore
-        s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-        g11 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5000,
+        s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+        g11 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5000,
                    ip='127.0.0.1')
-        g12 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s1, port=5000,
+        g12 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s1, port=5000,
                    ip='10.0.0.1')
 
-        s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-        g21 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440021'), server=s2, port=5000,
+        s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+        g21 = Gate(id='123e4567-e89b-12d3-a456-426655440021', server=s2, port=5000,
                    ip='127.0.0.1')
-        g22 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440022'), server=s2, port=5000,
+        g22 = Gate(id='123e4567-e89b-12d3-a456-426655440022', server=s2, port=5000,
                    ip='10.0.0.2')
 
         Route(s2, gate=g22, cost=0)
@@ -437,16 +436,16 @@ class TestUpdateTableRoutingCost(TestCase):
     @responses.activate
     def test_update_table_routing_cost_scenario6(self, mocked_ping, mocked_check_host):
         # Node have localhost and node2 appears as a new neighbour
-        s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-        g11 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5000,
+        s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+        g11 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5000,
                    ip='127.0.0.1')
-        g12 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s1, port=5000,
+        g12 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s1, port=5000,
                    ip='10.0.0.1')
 
-        s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-        g21 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440021'), server=s2, port=5000,
+        s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+        g21 = Gate(id='123e4567-e89b-12d3-a456-426655440021', server=s2, port=5000,
                    ip='127.0.0.1')
-        g22 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440022'), server=s2, port=5000,
+        g22 = Gate(id='123e4567-e89b-12d3-a456-426655440022', server=s2, port=5000,
                    ip='10.0.0.2')
 
         Route(s2, gate=None, cost=None)
@@ -517,7 +516,7 @@ class TestProcessCatalogRouteTable(TestCase):
         # create the app with common test config
         self.app = create_app('test')
         self.app.config['SECURIZER'] = True
-        mock_now.return_value = datetime(2019, 4, 1)
+        mock_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
         with self.app.app_context():
             self.dim = generate_dimension('test')
             self.dim.current = True
@@ -532,7 +531,7 @@ class TestProcessCatalogRouteTable(TestCase):
 
             server = Server('node1', dns_or_ip='127.0.0.1', port=8000, me=True)
             for g in server.gates:
-                g.last_modified_at = datetime(2019, 4, 1)
+                g.last_modified_at = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
             db.session.add_all([server, self.dim])
             db.session.commit()
 
@@ -543,15 +542,16 @@ class TestProcessCatalogRouteTable(TestCase):
         self.app2 = create_app('test')
         self.app2.config['SECURIZER'] = True
         self.client2 = self.app2.test_client()
-        mock_now.return_value = datetime(2019, 4, 2)
+        mock_now.return_value = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
         with self.app2.app_context():
             db.create_all()
             Locker.set_initial()
             User.set_initial()
 
-            me = Server('node2', port=8000, me=True, granules='granule', last_modified_at=datetime(2019, 4, 2))
+            me = Server('node2', port=8000, me=True, granules='granule',
+                        last_modified_at=dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc))
             for g in me.gates:
-                g.last_modified_at = datetime(2019, 4, 2)
+                g.last_modified_at = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
             db.session.add(me)
 
             src_server = Server.from_json(self.json_node1)
@@ -570,10 +570,10 @@ class TestProcessCatalogRouteTable(TestCase):
             # dump data
             self.json_node2 = me.to_json(add_gates=True)
 
-        mock_now.return_value = datetime(2019, 4, 1)
+        mock_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
         with self.app.app_context():
             node2 = Server.from_json(self.json_node2)
-            node2.last_modified_at = datetime(2019, 4, 1)
+            node2.last_modified_at = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
             Route(node2, cost=0)
             db.session.add(node2)
             db.session.commit()
@@ -635,10 +635,10 @@ class TestProcessCatalogRouteTable(TestCase):
 
         with self.app.app_context():
             datemark = Catalog.max_catalog()
-        self.assertEqual(datetime(2019, 4, 1), datemark)
+        self.assertEqual(dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc), datemark)
 
         process_catalog_route_table(self.app)
 
         with self.app.app_context():
             datemark = Catalog.max_catalog()
-        self.assertEqual(datetime(2019, 4, 2), datemark)
+        self.assertEqual(dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc), datemark)

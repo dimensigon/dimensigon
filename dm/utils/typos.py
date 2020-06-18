@@ -1,3 +1,4 @@
+import datetime as dt
 import ipaddress
 import json
 import pickle
@@ -5,7 +6,8 @@ import typing as t
 import uuid
 
 import rsa
-from sqlalchemy import types
+from dateutil.tz import tzlocal
+from sqlalchemy import types, DateTime
 from sqlalchemy.dialects.postgresql import UUID as pUUID
 from sqlalchemy.ext.mutable import MutableDict
 
@@ -23,7 +25,7 @@ Callback = t.Tuple[t.Callable[[], None], t.Tuple, t.Dict]
 Priority = t.TypeVar('T')
 
 
-class BaseTypeDecorator(types.TypeDecorator):
+class TypeDecorator(types.TypeDecorator):
     def __repr__(self):
         return self.impl.__repr__()
 
@@ -32,7 +34,7 @@ class ScalarListException(Exception):
     pass
 
 
-class ScalarListType(BaseTypeDecorator):
+class ScalarListType(TypeDecorator):
     """
     ScalarListType type provides convenient way for saving multiple scalar
     values in one column. ScalarListType works like list on python side and
@@ -108,40 +110,66 @@ class ScalarListType(BaseTypeDecorator):
             ))
 
 
-class UUID(BaseTypeDecorator):
+class UUID(TypeDecorator):
+    """Platform-independent GUID type.
+
+    Uses Postgresql's UUID type, otherwise uses
+    CHAR(36)
+
+    """
+    impl = types.CHAR(36)
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(pUUID())
+        else:
+            return dialect.type_descriptor(types.CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        return str(value).lower()
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        return value.lower()
+
+
+class Enum(TypeDecorator):
     """Platform-independent GUID type.
 
     Uses Postgresql's UUID type, otherwise uses
     CHAR(32), storing as stringified hex values.
 
     """
-    impl = types.CHAR
+    impl = types.VARCHAR(80)
 
-    def load_dialect_impl(self, dialect):
-        if dialect.name == 'postgresql':
-            return dialect.type_descriptor(pUUID())
-        else:
-            return dialect.type_descriptor(types.CHAR(32))
+    def __init__(self, enum, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.enum = enum
 
     def process_bind_param(self, value, dialect):
         if value is None:
             return value
-        return str(value)
+        return value.name
 
     def process_result_value(self, value, dialect):
         if value is None:
             return value
         else:
-            return uuid.UUID(value)
+            return self.enum[value]
+
 
 class UUIDEncoder(json.JSONEncoder):
-     def default(self, obj):
-         if isinstance(obj, uuid.UUID):
-             return str(obj)
-         # Let the base class default method raise the TypeError
-         return json.JSONEncoder.default(self, obj)
+    def default(self, obj):
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+        # Let the base class default method raise the TypeError
+        return json.JSONEncoder.default(self, obj)
 
-class JSONEncodedDict(BaseTypeDecorator):
+
+class JSONEncodedDict(TypeDecorator):
     impl = types.JSON
 
     def process_bind_param(self, value, dialect):
@@ -152,13 +180,15 @@ class JSONEncodedDict(BaseTypeDecorator):
     def process_result_value(self, value, dialect):
         if value is not None:
             value = json.loads(value)
+        else:
+            value = {}
         return value
 
 
 JSON = MutableDict.as_mutable(JSONEncodedDict)
 
 
-class PrivateKey(BaseTypeDecorator):
+class PrivateKey(TypeDecorator):
     impl = types.BLOB
 
     def process_bind_param(self, value, dialect):
@@ -172,7 +202,7 @@ class PrivateKey(BaseTypeDecorator):
         return value
 
 
-class PublicKey(BaseTypeDecorator):
+class PublicKey(TypeDecorator):
     impl = types.BLOB
 
     def process_bind_param(self, value, dialect):
@@ -186,8 +216,8 @@ class PublicKey(BaseTypeDecorator):
         return value
 
 
-class IP(BaseTypeDecorator):
-    impl = types.CHAR
+class IP(TypeDecorator):
+    impl = types.VARCHAR(39)
 
     def process_bind_param(self, value, dialect):
         if value is not None:
@@ -200,7 +230,7 @@ class IP(BaseTypeDecorator):
         return value
 
 
-class Pickle(BaseTypeDecorator):
+class Pickle(TypeDecorator):
     impl = types.BLOB
 
     def process_bind_param(self, value, dialect):
@@ -212,3 +242,55 @@ class Pickle(BaseTypeDecorator):
         if value is not None:
             value = pickle.loads(value)
         return value
+
+
+class Utc(dt.tzinfo):
+    __slots__ = ()
+
+    zero = dt.timedelta(0)
+
+    def utcoffset(self, _):
+        return self.zero
+
+    def dst(self, _):
+        return self.zero
+
+    def tzname(self, _):
+        return 'UTC'
+
+
+try:
+    utc = dt.timezone.utc
+except AttributeError:
+    utc = Utc()
+
+
+class UtcDateTime(TypeDecorator):
+    """Almost equivalent to :class:`~sqlalchemy.types.DateTime` with
+    ``timezone=True`` option, but it differs from that by:
+    - Never silently take naive :class:`~datetime.datetime`, instead it
+      always raise :exc:`ValueError` unless time zone aware value.
+    - :class:`~datetime.datetime` value's :attr:`~datetime.datetime.tzinfo`
+      is always converted to UTC.
+    - Unlike SQLAlchemy's built-in :class:`~sqlalchemy.types.DateTime`,
+      it never return naive :class:`~datetime.datetime`, but time zone
+      aware value, even with SQLite or MySQL.
+    """
+
+    impl = DateTime(timezone=True)
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            if not isinstance(value, dt.datetime):
+                raise TypeError('expected datetime.datetime, not ' +
+                                repr(value))
+            elif value.tzinfo is None:
+                raise ValueError('naive datetime is disallowed')
+            return value.astimezone(utc)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        elif value.tzinfo is None:
+            value = value.replace(tzinfo=utc)
+        return value.astimezone(tzlocal())

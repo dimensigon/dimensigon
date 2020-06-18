@@ -151,6 +151,7 @@ def join(server, token, ssl, verify):
             resp_data = {}
         else:
             if resp.status_code != 200:
+                db.session.rollback()
                 click.echo(f"Error while trying to join the dimension: {resp.status_code}, {resp.content}")
                 resp_data = {}
             else:
@@ -177,6 +178,8 @@ def join(server, token, ssl, verify):
             # update_table_routing_cost(True)
             db.session.commit()
 
+            click.echo('Catalog updated')
+
 
 
 @dm.command(help="""Create a token for joining the dimension.""")
@@ -200,9 +203,8 @@ def new(name):
     private_key = serialization.load_pem_private_key(dim.private.save_pkcs1(), password=None, backend=default_backend())
     dim.current = count == 0
     db.session.add(dim)
-    User.set_initial()
 
-    now = datetime.datetime.utcnow()
+    now = get_now()
 
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, u"LU"),
@@ -243,8 +245,13 @@ def new(name):
     if 'SECRET_KEY' not in dotenv.dotenv_values() or count == 0:
         dotenv.set_key(dotenv.find_dotenv(), 'SECRET_KEY', str(dim.id))
 
-    click.echo(f"New dimension created successfully")
+    u = User.get_by_user('root')
+    u.set_password("dimensigon")
+
+    dotenv.set_key(dotenv.find_dotenv(), 'SECRET_KEY', str(dim.id))
+
     db.session.commit()
+    click.echo(f"New dimension created successfully")
 
 
 @dm.command(help="""Activates the dimension""")

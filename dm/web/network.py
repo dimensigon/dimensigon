@@ -5,6 +5,7 @@ import typing as t
 
 import aiohttp
 import requests
+import rsa
 from aiohttp import ContentTypeError
 from flask import current_app as __ca, current_app, url_for
 from requests.auth import AuthBase
@@ -63,6 +64,31 @@ class Response:
             return f"{self.exception.__class__.__name__}: {self.exception}"
         return f"{self.code}, {self.msg}"
 
+    def to_dict(self):
+        dump = dict()
+        if self.code:
+            dump.update(code=self.code, response=self.msg)
+            if self.url:
+                dump.update(url=self.url)
+            if self.server:
+                dump.update(server=dict(id=str(self.server.id), name=self.server.name))
+        else:
+            dump.update(exception=str(self.exception) if str(self.exception) else self.exception.__class__.__name__)
+        return dump
+
+    def raise_on_error(self):
+        if self.exception:
+            raise self.exception
+
+    def raise_for_status(self):
+        if self.code < 200 or 299 < self.code:
+            raise errors.HTTPError(self)
+
+    def raise_if_not_ok(self):
+        self.raise_on_error()
+        self.raise_for_status()
+
+
 def pack_msg(data, *args, **kwargs):
     if not __ca.config['SECURIZER']:
         return data
@@ -120,6 +146,17 @@ def unpack_msg(data, *args, **kwargs):
             return data
 
 
+def unpack_msg_no_ctx(data, securizer: bool, public_key: rsa.PublicKey, private_key: rsa.PrivateKey, *args, **kwargs):
+    if not securizer:
+        return data
+    else:
+        if not 'error' in data:
+            return _unpack_msg(data, *args, pub_key=public_key,
+                               priv_key=private_key, **kwargs)
+        else:
+            return data
+
+
 def unpack_msg2(data, *args, **kwargs):
     if not __ca.config['SECURIZER']:
         return data
@@ -142,7 +179,11 @@ def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, veri
         url = f"{schema}://{dest}/{url_for('root.ping', _external=False)}"
     else:
         server = dest
-        url = dest.url('root.ping')
+        try:
+            url = dest.url('root.ping')
+        except:
+            logger.exception(f"exception while getting url to {dest}")
+            return None, None
     while tries < retries:
         try:
             tries += 1
@@ -212,17 +253,8 @@ def _prepare_headers(server, headers=None):
     return headers
 
 
-def request(method, server, view_or_url, view_data=None, session=None, **kwargs) -> Response:
-    exception = None
-    content = None
-    status = None
-    json_data = None
-
-    if not session:
-        _session = requests.session()
-
-    raise_on_error = kwargs.pop('raise_on_error', False)
-
+def prepare_request(server, view_or_url, view_data=None, **kwargs):
+    raise_on_error = kwargs.get('raise_on_error', False)
     try:
         url = _prepare_url(server, view_or_url, view_data)
     except (RuntimeError, ConnectionError) as e:
@@ -239,6 +271,23 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
         kwargs['json'] = pack_msg(kwargs['json'])
 
     kwargs['verify'] = current_app.config['SSL_VERIFY']
+
+    return url
+
+
+def request(method, server, view_or_url, view_data=None, session=None, **kwargs) -> Response:
+    exception = None
+    content = None
+    status = None
+    json_data = None
+
+    if not session:
+        _session = requests.session()
+
+    raise_on_error = kwargs.pop('raise_on_error', False)
+
+    url = prepare_request(server, view_or_url, view_data, **kwargs)
+
     func = getattr(_session, method.lower())
 
     if 'timeout' not in kwargs:
@@ -334,21 +383,7 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
 
     raise_on_error = kwargs.pop('raise_on_error', False)
 
-    try:
-        url = _prepare_url(server, view_or_url, view_data)
-    except (RuntimeError, ConnectionError, errors.UnreachableDestination) as e:
-        if raise_on_error:
-            raise
-        return Response(exception=e, server=server)
-
-    kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
-
-    if 'auth' in kwargs and kwargs['auth'] is not None:
-        kwargs['auth'](kwargs)
-
-    kwargs['json'] = pack_msg(kwargs.get('json') or {})
-
-    kwargs['ssl'] = current_app.config['SSL_VERIFY']
+    url = prepare_request(server, view_or_url, view_data, **kwargs)
 
     if 'timeout' in kwargs and isinstance(kwargs['timeout'], (int, float)):
         kwargs['timeout'] = aiohttp.ClientTimeout(total=kwargs['timeout'])

@@ -22,6 +22,7 @@ class Test(TestCaseLockBypass):
 
         db.session.add_all([self.o, self.at])
         set_initial()
+        db.session.commit()
 
     def tearDown(self) -> None:
         db.session.remove()
@@ -34,6 +35,8 @@ class Test(TestCaseLockBypass):
         self.assertEqual([], resp.get_json())
 
         s = self.o.add_step(undo=True, action_template=self.at)
+        db.session.add(s)
+        db.session.commit()
 
         resp = self.client.get(url_for('api_1_0.steplist'), headers=self.auth.header)
 
@@ -63,11 +66,14 @@ class Test(TestCaseLockBypass):
                                  json={"stop_on_error": False},
                                  headers=self.auth.header)
         self.assertEqual(204, resp.status_code)
+        db.session.refresh(s)
         self.assertFalse(s.stop_on_error)
         self.assertTrue(s.stop_undo_on_error)
 
         s2 = self.o.add_step(undo=True, action_template=self.at)
         s3 = self.o.add_step(undo=True, action_template=self.at)
+        db.session.add_all([s2, s3])
+        db.session.commit()
 
         resp = self.client.patch(url_for('api_1_0.stepresource', step_id=s_id),
                                  json={"child_step_ids": [str(s2.id)]},
@@ -81,6 +87,7 @@ class Test(TestCaseLockBypass):
 
         self.assertEqual(204, resp.status_code)
 
+        db.session.refresh(s)
         self.assertEqual(2, len(s.children))
         self.assertIn(s2, s.children)
         self.assertIn(s3, s.children)
@@ -106,6 +113,7 @@ class Test(TestCaseLockBypass):
                                          child_step_ids=[str(s3.id)]),
                                headers=self.auth.header)
 
+        db.session.refresh(s4)
         self.assertEqual(204, resp.status_code)
         self.assertListEqual([s2], s4.parents)
         self.assertListEqual([s3], s4.children)
@@ -113,23 +121,24 @@ class Test(TestCaseLockBypass):
         resp = self.client.delete(url_for('api_1_0.stepresource', step_id=s_id),
                                headers=self.auth.header)
 
+        db.session.expire_all()
         self.assertEqual(204, resp.status_code)
         self.assertIsNone(Step.query.get(s_id))
 
     def test_step_resource_multiple_steps(self):
         resp = self.client.post(url_for('api_1_0.steplist'),
-                                json=[dict(id=1, orchestration_id=str(self.o.id),
+                                json=[dict(id=1, name="1", orchestration_id=str(self.o.id),
                                            undo=False,
                                            action_template_id=str(self.at.id)),
-                                      dict(id=2, orchestration_id=str(self.o.id),
+                                      dict(id=2, name="2", orchestration_id=str(self.o.id),
                                            undo=False,
                                            action_template_id=str(self.at.id),
                                            parent_step_ids=[1]),
-                                      dict(id=3, orchestration_id=str(self.o.id),
+                                      dict(id=3, name="3", orchestration_id=str(self.o.id),
                                            undo=False,
                                            action_template_id=str(self.at.id),
                                            parent_step_ids=[2]),
-                                      dict(id=4, orchestration_id=str(self.o.id),
+                                      dict(id=4, name="4", orchestration_id=str(self.o.id),
                                            undo=False,
                                            action_template_id=str(self.at.id),
                                            parent_step_ids=[1],
@@ -138,6 +147,7 @@ class Test(TestCaseLockBypass):
                                 headers=self.auth.header)
 
         self.assertEqual(201, resp.status_code)
+        db.session.refresh(self.o)
         s1, = self.o.root
         self.assertEqual(0, len(s1.parents))
         self.assertEqual(2, len(s1.children))

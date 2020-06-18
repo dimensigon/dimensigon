@@ -1,28 +1,27 @@
 import typing as t
-import uuid
 from datetime import datetime
 
 import rsa
 
 from dm import defaults
-from dm.domain.entities.base import EntityReprMixin
-from dm.utils.typos import PrivateKey, PublicKey, UUID
+from dm.domain.entities.base import EntityReprMixin, UUIDEntityMixin
+from dm.utils.helpers import get_now
+from dm.utils.typos import PrivateKey, PublicKey, UtcDateTime
 from dm.web import db
 
 
-class Dimension(db.Model, EntityReprMixin):
+class Dimension(db.Model, UUIDEntityMixin, EntityReprMixin):
     __tablename__ = 'L_dimension'
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(40), nullable=False, unique=True)
     private = db.Column(PrivateKey, unique=True)
     public = db.Column(PublicKey, unique=True)
     current = db.Column(db.Boolean, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now)
+    created_at = db.Column(UtcDateTime(timezone=True), default=get_now)
 
     def __init__(self, name: str, private: t.Union[rsa.PrivateKey, bytes] = None,
-                 public: t.Union[rsa.PublicKey, bytes] = None,
-                 created_at: datetime = datetime.now(), id: uuid.UUID = None, current=False):
-        self.id = id
+                 public: t.Union[rsa.PublicKey, bytes] = None, created_at: datetime = get_now(), current=False,
+                 **kwargs):
+        UUIDEntityMixin.__init__(self, **kwargs)
         self.name = name
         if isinstance(private, bytes):
             self.private = rsa.PrivateKey.load_pkcs1(private)

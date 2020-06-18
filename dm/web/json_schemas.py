@@ -63,7 +63,9 @@ send_post = {
                        },
         "max_senders": {"type": "integer",
                         "minimum": 1},
-        "background": {"type": "boolean"}
+        "background": {"type": "boolean"},
+        "force": {"type": "boolean"},
+        "include_transfer_data": {"type": "boolean"},
     },
     "oneOf": [{"required": ["software_id", "dest_server_id"]},
               {"required": ["file", "dest_server_id"]}],
@@ -113,6 +115,7 @@ software_servers_put = {
     "additionalProperties": False
 }
 
+action_type_pattern = f"^({'|'.join([at.name for at in ActionType if at.name != 'NATIVE'])})$"
 action_template_post = {
     "type": "object",
     "properties": {
@@ -120,12 +123,14 @@ action_template_post = {
         "version": {"type": "integer",
                     "minimum": 1},
         "action_type": {"type": "string",
-                        "pattern": f"^({'|'.join([at.name for at in ActionType if at.name != 'NATIVE'])})$"},
+                        "pattern": action_type_pattern},
+        "code": {"type": "string"},
         "parameters": {"type": "object"},
         "expected_output": {"type": "string"},
         "expected_err": {"type": "string"},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
+        "pre_process": {"type": "string"},
         "post_process": {"type": "string"},
     },
     "if": {
@@ -153,6 +158,7 @@ action_template_patch = {
         "expected_err": {"type": "string"},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
+        "pre_process": {"type": "string"},
         "post_process": {"type": "string"},
     },
     "additionalProperties": False
@@ -165,18 +171,22 @@ _step_post = {
         "orchestration_id": {"type": "string",
                              "pattern": UUID_pattern},
         "undo": {"type": "boolean"},
-        "action_template_id": {"type": "string",
-                               "pattern": UUID_pattern},
+        "name": {"type": "string"},
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
+        "action_template_id": {"type": "string",
+                               "pattern": UUID_pattern},
+        "action_type": {"type": "string",
+                        "pattern": action_type_pattern},
         "undo_on_error": {"type": "boolean"},
-        "expected_stdout": {"type": "string"},
-        "expected_stderr": {"type": "string"},
-        "expected_rc": {"type": "integer"},
+        "code": {"type": "string"},
         "parameters": {"type": "object"},
+        "expected_output": {"type": "string"},
+        "expected_err": {"type": "string"},
+        "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "regexp_fetch": {"type": "string"},
-        "error_on_fetch": {"type": "boolean"},
+        "pre_process": {"type": "string"},
+        "post_process": {"type": "string"},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
                                                 {"type": "integer", "minimum": 1}]
@@ -190,7 +200,8 @@ _step_post = {
         "target": {"anyOf": [{"type": "string"},
                              {"type": "array", "items": {"type": "string"}}]}
     },
-    "required": ["orchestration_id", "undo", "action_template_id"],
+    "oneOf": [{"required": ["orchestration_id", "undo", "action_template_id"]},
+              {"required": ["orchestration_id", "undo", "action_type"]}],
     "additionalProperties": False
 }
 
@@ -211,13 +222,18 @@ step_put = {
         "undo_on_error": {"type": "boolean"},
         "action_template_id": {"type": "string",
                                "pattern": UUID_pattern},
-        "expected_stdout": {"type": "string"},
-        "expected_stderr": {"type": "string"},
-        "expected_rc": {"type": "integer"},
+        "action_type": {"type": "string",
+                        "pattern": action_type_pattern},
+
+        "code": {"type": "string"},
         "parameters": {"type": "object"},
+        "expected_output": {"type": "string"},
+        "expected_err": {"type": "string"},
+        "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "regexp_fetch": {"type": "string"},
-        "error_on_fetch": {"type": "boolean"},
+        "pre_process": {"type": "string"},
+        "post_process": {"type": "string"},
+        "name": {"type": "string"},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
                                                 {"type": "integer", "minimum": 1}]
@@ -231,7 +247,8 @@ step_put = {
         "target": {"anyOf": [{"type": "string"},
                              {"type": "array", "items": {"type": "string"}}]}
     },
-    "required": ["undo", "action_template_id"],
+    "oneOf": [{"required": ["undo", "action_template_id"]},
+              {"required": ["undo", "action_type"]}],
     "additionalProperties": False
 }
 
@@ -239,18 +256,22 @@ step_patch = {
     "type": "object",
     "properties": {
         "undo": {"type": "boolean"},
-        "action_template_id": {"type": "string",
-                               "pattern": UUID_pattern},
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
+        "action_template_id": {"type": "string",
+                               "pattern": UUID_pattern},
+        "action_type": {"type": "string",
+                        "pattern": action_type_pattern},
         "undo_on_error": {"type": "boolean"},
-        "expected_stdout": {"type": "string"},
-        "expected_stderr": {"type": "string"},
-        "expected_rc": {"type": "integer"},
+        "code": {"type": "string"},
         "parameters": {"type": "object"},
+        "expected_output": {"type": "string"},
+        "expected_err": {"type": "string"},
+        "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "regexp_fetch": {"type": "string"},
-        "error_on_fetch": {"type": "boolean"},
+        "pre_process": {"type": "string"},
+        "post_process": {"type": "string"},
+        "name": {"type": "string"},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
                                                 {"type": "integer", "minimum": 1}]
@@ -367,7 +388,8 @@ launch_orchestration_post = {
                              },
                              }]
                   },
-        "params": {"type": "object"}
+        "params": {"type": "object"},
+        "background": {"type": "boolean"}
     },
     "required": ["hosts"],
     "additionalProperties": False,

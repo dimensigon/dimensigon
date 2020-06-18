@@ -5,13 +5,15 @@ from uuid import UUID
 import aiohttp
 from flask import current_app
 from flask_jwt_extended import create_access_token, get_jwt_identity
+from sqlalchemy.orm import sessionmaker
 
 from dm.domain.entities import Server, Catalog
 from dm.domain.entities.locker import Scope
 from dm.use_cases.helpers import get_servers_from_scope
 from dm.utils.asyncio import run, create_task
 from dm.utils.helpers import is_iterable_not_string
-from dm.web import errors
+from dm.utils.typos import Id
+from dm.web import errors, db
 from dm.web.network import async_post, HTTPBearerAuth, Response
 
 
@@ -70,7 +72,7 @@ def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=No
         pool_responses = run(
             request_locker(servers=servers, scope=scope, action='unlock', applicant=applicant, auth=auth))
 
-        if len(servers) == len([r for r in pool_responses if r.code == 200]):
+        if len(servers) == len([r for r in pool_responses if r.code in (200, 210)]):
             return
     else:
         action = 'P'
@@ -78,17 +80,17 @@ def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=No
         pool_responses = run(
             request_locker(servers=servers, scope=scope, action='prevent', applicant=applicant, datemark=catalog_ver, auth=auth))
 
-        if len(servers) == len([r for r in pool_responses if r.code == 200]):
+        if len(servers) == len([r for r in pool_responses if r.code in (200, 210)]):
             action = 'L'
             pool_responses = run(
                 request_locker(servers=servers, scope=scope, action='lock', applicant=applicant, auth=auth))
-            if len(servers) == len([r for r in pool_responses if r.code == 200]):
+            if len(servers) == len([r for r in pool_responses if r.code in (200, 210)]):
                 return
 
-    raise errors.LockError(scope, action, [r for r in pool_responses if r.code != 200])
+    raise errors.LockError(scope, action, [r for r in pool_responses if r.code not in (200, 210)])
 
 
-def lock(scope: Scope, servers: t.List[Server] = None) -> UUID:
+def lock(scope: Scope, servers: t.List[Server] = None, applicant=None) -> UUID:
     """
     locks the Locker if allowed
     Parameters
@@ -97,6 +99,8 @@ def lock(scope: Scope, servers: t.List[Server] = None) -> UUID:
         scope that lock will affect.
     servers
         if scope set to Scope.ORCHESTRATION,
+    applicant
+        identifier of the lock
     Returns
     -------
     Result
@@ -112,7 +116,7 @@ def lock(scope: Scope, servers: t.List[Server] = None) -> UUID:
     if len(servers) == 0:
         raise RuntimeError('no server to lock')
 
-    applicant = [str(s.id) for s in servers]
+    applicant = applicant if applicant is not None else [str(s.id) for s in servers]
     try:
         lock_unlock(action='L', scope=scope, servers=servers, applicant=applicant)
     # exception goes here because we need the applicant to unlock already locked servers
@@ -124,7 +128,7 @@ def lock(scope: Scope, servers: t.List[Server] = None) -> UUID:
     return applicant
 
 
-def unlock(scope: Scope, applicant, servers=None):
+def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]] =None):
     """
     unlocks the Locker if allowed
     Parameters
@@ -138,12 +142,23 @@ def unlock(scope: Scope, applicant, servers=None):
     if scope.ORCHESTRATION == scope and servers is None:
         raise ValueError('servers must be set')
 
+    s = None
+    if servers:
+        if not isinstance(servers[0], Server):
+            engine = db.get_engine()
+            Session = sessionmaker(bind=engine)
+            s = Session()
+            servers = [s.session.query(Server).get(s) for s in servers]
     servers = servers or get_servers_from_scope(scope)
 
     if not servers:
+        if s:
+            s.close()
         raise RuntimeError('no server to unlock')
 
     lock_unlock(action='U', scope=scope, servers=servers, applicant=applicant)
+    if s:
+        s.close()
 
 
 @contextmanager

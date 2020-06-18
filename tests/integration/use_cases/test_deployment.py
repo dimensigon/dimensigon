@@ -1,5 +1,4 @@
 import datetime
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from unittest import TestCase, mock
 
@@ -7,7 +6,9 @@ from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import ActionTemplate, ActionType, Orchestration, Server
 from dm.use_cases.deployment import UndoCommand, CompositeCommand, CompletedProcess, Command, \
-    create_cmd_from_orchestration2, ProxyCommand, ProxyUndoCommand
+    create_cmd_from_orchestration, ProxyCommand, ProxyUndoCommand
+from dm.utils.helpers import get_now
+from dm.utils.var_context import VarContext
 from dm.web import create_app, db
 from dm.web.network import HTTPBearerAuth
 
@@ -20,13 +21,13 @@ class TestCompositeCommand(TestCase):
         mocked_imp_error = mock.Mock()
 
         mocked_imp_succ.execute.return_value = CompletedProcess(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                                start_time=datetime.datetime.now(),
-                                                                end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                start_time=get_now(),
+                                                                end_time=get_now() + datetime.timedelta(
                                                                     5 / (24 * 60 * 60)))
 
         mocked_imp_error.execute.return_value = CompletedProcess(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                                 start_time=datetime.datetime.now(),
-                                                                 end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                 start_time=get_now(),
+                                                                 end_time=get_now() + datetime.timedelta(
                                                                      5 / (24 * 60 * 60)))
 
         uc1 = UndoCommand(implementation=mocked_imp_succ, id_=1)
@@ -56,13 +57,13 @@ class TestCompositeCommand(TestCase):
         mocked_imp_error = mock.Mock()
 
         mocked_imp_succ.execute.return_value = CompletedProcess(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                                start_time=datetime.datetime.now(),
-                                                                end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                start_time=get_now(),
+                                                                end_time=get_now() + datetime.timedelta(
                                                                     5 / (24 * 60 * 60)))
 
         mocked_imp_error.execute.return_value = CompletedProcess(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                                 start_time=datetime.datetime.now(),
-                                                                 end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                 start_time=get_now(),
+                                                                 end_time=get_now() + datetime.timedelta(
                                                                      5 / (24 * 60 * 60)))
 
         uc1 = UndoCommand(implementation=mocked_imp_succ, id_=1)
@@ -92,13 +93,13 @@ class TestCompositeCommand(TestCase):
         mocked_imp_error = mock.Mock()
 
         mocked_imp_succ.execute.return_value = CompletedProcess(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                                start_time=datetime.datetime.now(),
-                                                                end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                start_time=get_now(),
+                                                                end_time=get_now() + datetime.timedelta(
                                                                     5 / (24 * 60 * 60)))
 
         mocked_imp_error.execute.return_value = CompletedProcess(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                                 start_time=datetime.datetime.now(),
-                                                                 end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                 start_time=get_now(),
+                                                                 end_time=get_now() + datetime.timedelta(
                                                                      5 / (24 * 60 * 60)))
 
         uc1 = UndoCommand(implementation=mocked_imp_succ, id_=1)
@@ -128,13 +129,13 @@ class TestCompositeCommand(TestCase):
         mocked_imp_error = mock.Mock()
 
         mocked_imp_succ.execute.return_value = CompletedProcess(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                                start_time=datetime.datetime.now(),
-                                                                end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                start_time=get_now(),
+                                                                end_time=get_now() + datetime.timedelta(
                                                                     5 / (24 * 60 * 60)))
 
         mocked_imp_error.execute.return_value = CompletedProcess(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                                 start_time=datetime.datetime.now(),
-                                                                 end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                 start_time=get_now(),
+                                                                 end_time=get_now() + datetime.timedelta(
                                                                      5 / (24 * 60 * 60)))
 
         uc1 = UndoCommand(implementation=mocked_imp_succ, id_=1)
@@ -164,13 +165,13 @@ class TestCompositeCommand(TestCase):
         mocked_imp_error = mock.Mock()
 
         mocked_imp_succ.execute.return_value = CompletedProcess(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                                start_time=datetime.datetime.now(),
-                                                                end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                start_time=get_now(),
+                                                                end_time=get_now() + datetime.timedelta(
                                                                     5 / (24 * 60 * 60)))
 
         mocked_imp_error.execute.return_value = CompletedProcess(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                                 start_time=datetime.datetime.now(),
-                                                                 end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                 start_time=get_now(),
+                                                                 end_time=get_now() + datetime.timedelta(
                                                                      5 / (24 * 60 * 60)))
 
         uc1 = UndoCommand(implementation=mocked_imp_succ, id_=1)
@@ -200,13 +201,13 @@ class TestCompositeCommand(TestCase):
         mocked_imp_error = mock.Mock()
 
         mocked_imp_succ.execute.return_value = CompletedProcess(success=True, stdout='stdout', stderr='stderr', rc=0,
-                                                                start_time=datetime.datetime.now(),
-                                                                end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                start_time=get_now(),
+                                                                end_time=get_now() + datetime.timedelta(
                                                                     5 / (24 * 60 * 60)))
 
         mocked_imp_error.execute.return_value = CompletedProcess(success=False, stdout='stdout', stderr='stderr', rc=0,
-                                                                 start_time=datetime.datetime.now(),
-                                                                 end_time=datetime.datetime.now() + datetime.timedelta(
+                                                                 start_time=get_now(),
+                                                                 end_time=get_now() + datetime.timedelta(
                                                                      5 / (24 * 60 * 60)))
 
         uc1 = UndoCommand(implementation=mocked_imp_succ, id_=1)
@@ -235,8 +236,8 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        start_time = datetime.datetime.now()
-        end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
+        start_time = get_now()
+        end_time = get_now() + datetime.timedelta(5 / (24 * 60 * 60))
 
         mocked_imp_succ.execute.return_value = CompletedProcess(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                                 start_time=start_time,
@@ -293,8 +294,8 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        start_time = datetime.datetime.now()
-        end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
+        start_time = get_now()
+        end_time = get_now() + datetime.timedelta(5 / (24 * 60 * 60))
 
         mocked_imp_succ.execute.return_value = CompletedProcess(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                                 start_time=start_time,
@@ -333,8 +334,8 @@ class TestCompositeCommand(TestCase):
         mocked_imp_succ = mock.Mock()
         mocked_imp_error = mock.Mock()
 
-        start_time = datetime.datetime.now()
-        end_time = datetime.datetime.now() + datetime.timedelta(5 / (24 * 60 * 60))
+        start_time = get_now()
+        end_time = get_now() + datetime.timedelta(5 / (24 * 60 * 60))
 
         mocked_imp_succ.execute.return_value = CompletedProcess(success=True, stdout='stdout', stderr='stderr', rc=0,
                                                                 start_time=start_time,
@@ -417,82 +418,82 @@ class TestCreateCmdFromOrchestration2(TestCase):
         self.app_context.pop()
 
     # @mock.patch('dm.use_cases.deployment.create_operation', autospec=IOperationEncapsulation)
-    def test_create_cmd_from_orchestration2(self):
+    def test_create_cmd_from_orchestration(self):
 
-        at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
+        at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001', name='create dir', version=1,
                             action_type=ActionType.SHELL, code='mkdir {{dir}}',
                             parameters={}, expected_output='',
                             expected_rc=0, system_kwargs={})
 
-        o = Orchestration('Test Orchestration', 1, 'description', id=uuid.UUID('bbbbbbbb-1234-5678-1234-bbbbbbbb0001'))
+        o = Orchestration('Test Orchestration', 1, 'description', id='bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
 
-        me = Server('me', port=5000, me=True, id=uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'))
-        remote = Server('remote', port=5000, id=uuid.UUID('cccccccc-1234-5678-1234-cccccccc0002'))
+        me = Server('me', port=5000, me=True, id='cccccccc-1234-5678-1234-cccccccc0001')
+        remote = Server('remote', port=5000, id='cccccccc-1234-5678-1234-cccccccc0002')
 
         db.session.add_all([me, remote, o])
 
-        s1 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0001'), undo=False, action_template=at,
+        s1 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0001', undo=False, action_template=at,
                         parents=[], target=['frontend'])
-        s2 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0002'), undo=True, action_template=at,
+        s2 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0002', undo=True, action_template=at,
                         parents=[s1], stop_on_error=False, target=[])
-        s3 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0003'), undo=False, action_template=at,
+        s3 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0003', undo=False, action_template=at,
                         parents=[s1], stop_on_error=False, stop_undo_on_error=False, target=['frontend'])
-        s4 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0004'), undo=True, action_template=at,
+        s4 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0004', undo=True, action_template=at,
                         parents=[s3], target=[])
-        s5 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0005'), undo=True, action_template=at,
+        s5 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0005', undo=True, action_template=at,
                         parents=[s4], stop_on_error=True, target=[])
-        s6 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0006'), undo=True, action_template=at,
+        s6 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0006', undo=True, action_template=at,
                         parents=[s4, s5], target=[])
-        s7 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0007'), undo=False, action_template=at,
+        s7 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0007', undo=False, action_template=at,
                         parents=[s3], undo_on_error=False, target=[])
-        s8 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0008'), undo=True, action_template=at,
+        s8 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0008', undo=True, action_template=at,
                         parents=[s7], target=[])
-        s9 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0009'), undo=False, action_template=at,
+        s9 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0009', undo=False, action_template=at,
                         children=[s2, s3], target=['backend'])
 
-        cc = create_cmd_from_orchestration2(o, {'dir': 'C:\\test_folder'},
+        cc = create_cmd_from_orchestration(o, VarContext({'dir': 'C:\\test_folder'}),
                                             hosts={'all': [me.id, remote.id], 'frontend': [me.id],
                                                    'backend': [remote.id]},
                                             executor=None, register=mock.Mock())
 
 
         c1, c9 = cc._dag.get_nodes_at_level(1)
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0001')), c1.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0001',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0001'), c1.id)
         self.assertIsInstance(c1, Command)
         self.assertTrue(c1.stop_on_error)
         self.assertTrue(c1.undo_on_error)
         self.assertIsNone(c1.stop_undo_on_error)
 
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0002'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0009')), c9.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0002',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0009'), c9.id)
         self.assertIsInstance(c9, Command)
         self.assertTrue(c9.stop_on_error)
         self.assertTrue(c9.undo_on_error)
         self.assertIsNone(c9.stop_undo_on_error)
 
         c21 = c1.undo_command
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0002')), c21.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0001',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0002'), c21.id)
         self.assertIsInstance(c21, UndoCommand)
         self.assertFalse(c21.stop_on_error)
 
         c22 = c9.undo_command
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0002'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0002')), c22.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0002',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0002'), c22.id)
         self.assertIsInstance(c22, UndoCommand)
         self.assertFalse(c22.stop_on_error)
 
         c3, = cc._dag.get_nodes_at_level(2)
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0003')), c3.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0001',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0003'), c3.id)
         self.assertIsInstance(c3, Command)
         self.assertFalse(c3.stop_on_error)
         self.assertTrue(c3.undo_on_error)
         self.assertFalse(c3.stop_undo_on_error)
 
         self.assertTupleEqual(('undo',
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0003')), c3.undo_command.id)
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0003'), c3.undo_command.id)
         self.assertIsInstance(c3.undo_command, CompositeCommand)
         self.assertFalse(c3.undo_command.stop_on_error)
         self.assertIsNone(c3.undo_command.stop_undo_on_error)
@@ -510,60 +511,60 @@ class TestCreateCmdFromOrchestration2(TestCase):
         self.assertFalse(c6.stop_on_error)
 
         cc7, = cc._dag.get_nodes_at_level(3)
-        self.assertEqual(uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0007'), cc7.id)
+        self.assertEqual('eeeeeeee-1234-5678-1234-eeeeeeee0007', cc7.id)
         self.assertIsInstance(cc7, CompositeCommand)
         self.assertFalse(cc7.stop_on_error)
         self.assertFalse(cc7.stop_undo_on_error)
 
         c71, c72 = cc7._dag.root
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0007')), c71.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0001',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0007'), c71.id)
         self.assertIsInstance(c71, Command)
         self.assertTrue(c71.stop_on_error)
         self.assertFalse(c71.undo_on_error)
         self.assertIsNone(c71.stop_undo_on_error)
 
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0008')), c71.undo_command.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0001',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0008'), c71.undo_command.id)
         self.assertIsInstance(c71.undo_command, UndoCommand)
         self.assertTrue(c71.undo_command.stop_on_error)
 
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0002'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0007')), c72.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0002',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0007'), c72.id)
         self.assertIsInstance(c72, ProxyCommand)
         self.assertTrue(c72.stop_on_error)
         self.assertFalse(c72.undo_on_error)
         self.assertIsNone(c72.stop_undo_on_error)
 
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0002'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0008')), c72.undo_command.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0002',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0008'), c72.undo_command.id)
         self.assertIsInstance(c72.undo_command, ProxyUndoCommand)
         self.assertTrue(c72.undo_command.stop_on_error)
 
     def test_create_cmd_from_orchestration_one_step(self):
-        at = ActionTemplate(id=uuid.UUID('aaaaaaaa-1234-5678-1234-aaaaaaaa0001'), name='create dir', version=1,
+        at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001', name='create dir', version=1,
                             action_type=ActionType.SHELL, code='mkdir {{dir}}',
                             parameters={}, expected_output='',
                             expected_rc=0, system_kwargs={})
 
         o = Orchestration('Test Orchestration', 1, 'description',
-                          id=uuid.UUID('bbbbbbbb-1234-5678-1234-bbbbbbbb0001'))
+                          id='bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
 
-        me = Server('me', port=5000, me=True, id=uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'))
-        remote = Server('remote', port=5000, id=uuid.UUID('cccccccc-1234-5678-1234-cccccccc0002'))
+        me = Server('me', port=5000, me=True, id='cccccccc-1234-5678-1234-cccccccc0001')
+        remote = Server('remote', port=5000, id='cccccccc-1234-5678-1234-cccccccc0002')
 
         db.session.add_all([me, remote, o])
 
-        s1 = o.add_step(id=uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0001'), undo=False, action_template=at,
+        s1 = o.add_step(id='eeeeeeee-1234-5678-1234-eeeeeeee0001', undo=False, action_template=at,
                         parents=[], target=[])
 
-        cc = create_cmd_from_orchestration2(o, {'dir': './test_folder'},
+        cc = create_cmd_from_orchestration(o, VarContext({'dir': './test_folder'}),
                                             hosts={'all': [me.id]},
                                             executor=None, register=mock.Mock())
 
         c1,  = cc._dag.get_nodes_at_level(1)
-        self.assertTupleEqual((uuid.UUID('cccccccc-1234-5678-1234-cccccccc0001'),
-                               uuid.UUID('eeeeeeee-1234-5678-1234-eeeeeeee0001')), c1.id)
+        self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0001',
+                               'eeeeeeee-1234-5678-1234-eeeeeeee0001'), c1.id)
         self.assertIsInstance(c1, Command)
         self.assertTrue(c1.stop_on_error)
         self.assertTrue(c1.undo_on_error)

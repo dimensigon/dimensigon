@@ -47,7 +47,7 @@ class TestApi(TestCase):
 
     def test_base_error(self):
         def raise_error():
-            raise errors.GenericError('error content', payload={'some': 'payload'})
+            raise errors.GenericError('error content', some='payload')
 
         self.app.add_url_rule('/error', 'error', raise_error)
 

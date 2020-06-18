@@ -1,5 +1,3 @@
-import uuid
-from datetime import datetime
 from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
@@ -23,9 +21,9 @@ class TestApi(TestCase):
         db.create_all()
         set_initial()
 
-        self.soft = Software(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa1'), name='test', version='1',
+        self.soft = Software(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='test', version='1',
                              filename='file')
-        self.soft2 = Software(id=uuid.UUID('aaaaaaaa-1234-5678-1234-56781234aaa2'), name='test', version='2',
+        self.soft2 = Software(id='aaaaaaaa-1234-5678-1234-56781234aaa2', name='test', version='2',
                               filename='file')
         self.ssa = SoftwareServerAssociation(software=self.soft, server=Server.get_current(), path='/root')
         db.session.add_all([self.soft, self.soft2, self.ssa])
@@ -62,11 +60,11 @@ class TestApi(TestCase):
         ssa_json = dict(software_id='aaaaaaaa-1234-5678-1234-56781234aaa2',
                         server_id=str(Server.get_current().id),
                         path='/root',
-                        last_modified_at=datetime(2019, 4, 1).strftime(defaults.DATEMARK_FORMAT))
+                        last_modified_at=defaults.INITIAL_DATEMARK.strftime(defaults.DATEMARK_FORMAT))
 
         smashed = SoftwareServerAssociation.from_json(ssa_json)
 
-        self.assertEqual(datetime(2019, 4, 1), smashed.last_modified_at)
+        self.assertEqual(defaults.INITIAL_DATEMARK, smashed.last_modified_at)
         self.assertIsNotNone(smashed.last_modified_at)
         self.assertEqual("/root", smashed.path)
         self.assertIsNotNone(smashed.path)

@@ -5,7 +5,7 @@ import threading
 import typing as t
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, g, _app_ctx_stack
+from flask import Flask, g, _app_ctx_stack, _request_ctx_stack
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import MetaData
@@ -15,13 +15,17 @@ from dm.utils.event_handler import EventHandler
 from dm.web import errors
 from .extensions.flask_executor.executor import Executor
 from .helpers import BaseQueryJSON, run_in_background
+from ..utils.helpers import get_now
 
 
 def scopefunc():
     try:
-        return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident())
+        return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident()) + str(id(_request_ctx_stack.top.request))
     except:
-        return str(threading.get_ident())
+        try:
+            return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident())
+        except:
+            return str(threading.get_ident())
 
 
 meta = MetaData(naming_convention={
@@ -54,18 +58,18 @@ class DimensigonApp(Flask):
                 if self.config.get('AUTOUPGRADE'):
                     bs.add_job(func=process_get_new_version_from_gogs, args=(self,), trigger="interval", hours=6)
                 bs.add_job(func=process_catalog_route_table, name="catalog & route upgrade", args=(self,),
-                           trigger="interval", minutes=2,
-                           next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=5))
+                           trigger="interval", minutes=5,
+                           next_run_time=get_now() + datetime.timedelta(seconds=5))
                 bs.add_job(func=run_in_background, name="log_sender", args=(ls.send_new_data, self),
                            trigger="interval",
-                           minutes=2, next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=30))
+                           minutes=2, next_run_time=get_now() + datetime.timedelta(seconds=30))
 
                 # Shut down the scheduler when exiting the app
                 atexit.register(lambda: bs.shutdown())
 
     def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
-        from ..domain.entities import Locker
-        Locker.set_initial()
+        from dm.domain.entities.bootstrap import set_initial
+        set_initial(server=False, user=False)
         db.session.commit()
         self.start_background_tasks()
         super(DimensigonApp, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)

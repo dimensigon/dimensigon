@@ -1,8 +1,7 @@
 import base64
 import concurrent
-import datetime
+import datetime as dt
 import ipaddress
-import json
 import math
 import os
 import pickle
@@ -23,17 +22,19 @@ from dm.domain.entities import Software, Server, SoftwareServerAssociation, Cata
     Orchestration, OrchExecution, User
 from dm.utils import asyncio, subprocess
 from dm.utils.event_handler import Event
-from dm.utils.helpers import get_distributed_entities, is_iterable_not_string, md5
+from dm.utils.helpers import get_distributed_entities, is_iterable_not_string, md5, get_now
 from dm.utils.typos import Id
-from dm.web import db, executor
+from dm.utils.var_context import VarContext
+from dm.web import db, executor, errors
 from dm.web.api_1_0 import api_bp
 from dm.web.async_functions import deploy_orchestration, async_send_file
-from dm.web.background_tasks import update_table_routing_cost
+from dm.web.background_tasks import update_table_routing_cost, _get_neighbour_catalog_data_mark, upgrade_version, \
+    update_catalog
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dm.web.helpers import check_param_in_uri, format_error, json_format_error
+from dm.web.helpers import check_param_in_uri, normalize_hosts, search
 from dm.web.json_schemas import launch_command_post, routes_post, routes_patch, \
     launch_orchestration_post, send_post
-from dm.web.network import HTTPBearerAuth, post
+from dm.web.network import HTTPBearerAuth, post, get
 from dm.web.network import async_post
 
 if t.TYPE_CHECKING:
@@ -48,7 +49,7 @@ def home():
 @api_bp.route('/join/public', methods=['GET'])
 @jwt_required
 def join_public():
-    if current_user == User.get_by_user('join'):
+    if current_user.user == User.get_by_user('join').user:
         return g.dimension.public.save_pkcs1(), 200, {'content-type': 'application/octet-stream'}
     else:
         return {}, 401
@@ -59,7 +60,7 @@ def join_public():
 @jwt_required
 @lock_catalog
 def join():
-    if current_user == User.get_by_user('join'):
+    if current_user.user == User.get_by_user('join').user:
         js = request.get_json()
         current_app.logger.debug(f"New server wanting to join: {js}")
         s = Server.from_json(js)
@@ -71,7 +72,7 @@ def join():
         Route(destination=s, cost=0)
         db.session.add(s)
         db.session.commit()
-        catalog = fetch_catalog(datetime.datetime(datetime.MINYEAR, 1, 1))
+        catalog = fetch_catalog(dt.datetime(dt.MINYEAR, 1, 1, tzinfo=dt.timezone.utc))
         catalog.update(Dimension=g.dimension.to_json())
         catalog.update(me=str(Server.get_current().id))
         return catalog, 200
@@ -86,76 +87,68 @@ def join():
 @validate_schema(send_post)
 def send():
     # Validate Data
-    data = request.get_json()
+    json_data = request.get_json()
 
-    dest_server = Server.query.get_or_404(data['dest_server_id'])
+    dest_server = Server.query.get_or_404(json_data['dest_server_id'])
 
-    if 'software_id' in data:
-        software = Software.query.get_or_404(data['software_id'])
+    if 'software_id' in json_data:
+        software = Software.query.get_or_404(json_data['software_id'])
 
         ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
         if not ssa:
-            return {'error': f"no Software Server Association found for software {data['software_id']} and "
-                             f"server {data['dest_server_id']}"}, 404
+            raise errors.SoftwareServerNotFound(software_id=json_data['software_id'],
+                                                server_id=json_data['dest_server_id'])
         file = os.path.join(ssa.path, software.filename)
         if not os.path.exists(file):
-            return {'error': f"file '{file}' not found"}, 404
+            raise errors.FileNotFound(file)
         size = ssa.software.size
     else:
-        file = data['file']
+        file = json_data['file']
         if os.path.exists(file):
-            try:
-                size = os.path.getsize(file)
-                checksum = md5(data.get('file'))
-            except Exception as e:
-                return {'error': format_error()}, 500
+            size = os.path.getsize(file)
+            checksum = md5(json_data.get('file'))
         else:
-            return {'error': f"file '{file}' not found"}, 404
+            raise errors.FileNotFound(file)
 
-    chunk_size = min(data.get('chunk_size', d.CHUNK_SIZE), d.CHUNK_SIZE) * 1024
-    max_senders = min(data.get('max_senders', d.MAX_SENDERS), d.MAX_SENDERS)
+    chunk_size = min(json_data.get('chunk_size', d.CHUNK_SIZE), d.CHUNK_SIZE) * 1024
+    max_senders = min(json_data.get('max_senders', d.MAX_SENDERS), d.MAX_SENDERS)
     chunks = math.ceil(size / chunk_size)
 
-    if 'software_id' in data:
-        json_msg = dict(software_id=str(software.id), num_chunks=chunks, dest_path=data.get('dest_path'))
+    if 'software_id' in json_data:
+        json_msg = dict(software_id=str(software.id), num_chunks=chunks, dest_path=json_data.get('dest_path'))
     else:
-        json_msg = dict(filename=os.path.basename(data.get('file')), size=size, checksum=checksum,
-                        num_chunks=chunks, dest_path=data.get('dest_path'))
+        json_msg = dict(filename=os.path.basename(json_data.get('file')), size=size, checksum=checksum,
+                        num_chunks=chunks, dest_path=json_data.get('dest_path'))
+    if 'force' in json_data:
+        json_msg['force'] = json_data['force']
 
-    auth = HTTPBearerAuth(create_access_token(get_jwt_identity(), expires_delta=datetime.timedelta(
+    auth = HTTPBearerAuth(create_access_token(get_jwt_identity(), expires_delta=dt.timedelta(
         minutes=30)))
 
-    resp, code = post(dest_server, 'api_1_0.transferlist', json=json_msg, auth=auth)
+    resp = post(dest_server, 'api_1_0.transferlist', json=json_msg, auth=auth)
+    resp.raise_if_not_ok()
 
-    if code == 202:
-        transfer_id = resp.get('transfer_id')
-        current_app.logger.debug(
-                f"Transfer {transfer_id} created. Sending {file} to {dest_server}:{data.get('dest_path')}.")
+    transfer_id = resp.msg.get('transfer_id')
+    current_app.logger.debug(
+        f"Transfer {transfer_id} created. Sending {file} to {dest_server}:{json_data.get('dest_path')}.")
+
+    if json_data.get('background', True):
+        executor.submit(asyncio.run,
+                        async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
+                                        chunk_size=chunk_size, max_senders=max_senders, auth=auth))
     else:
-        current_app.logger.error(f"Error on creating transfer on {dest_server.url('api_1_0.transferlist')}\n"
-                                 f"Data: {json.dumps(json_msg, indent=4)}\n"
-                                 f"Error: {resp}")
-        transfer_id = None
+        asyncio.run(async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
+                                    chunk_size=chunk_size, max_senders=max_senders, auth=auth))
 
-    if transfer_id:
-        if data.get('background', True):
-            executor.submit(asyncio.run,
-                            async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
-                                            chunk_size=chunk_size, max_senders=max_senders, auth=auth))
+    if json_data.get('include_transfer_data', False):
+        resp = get(dest_server, "api_1_0.transferresource", view_data=dict(transfer_id=transfer_id), auth=auth)
+        if resp.code == 200:
+            msg = resp.msg
         else:
-            try:
-                r = asyncio.run(async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
-                                                chunk_size=chunk_size, max_senders=max_senders, auth=auth,
-                                                raise_on_error=True))
-            except Exception as e:
-                return json_format_error(), 500
-            else:
-                return {}, 204
-
-        return {'transfer_id': transfer_id}, 202
-    return {'error': f'unable to create transfer on {dest_server}',
-            'message': str(resp) if isinstance(resp, Exception) else resp,
-            'code': code}, 500
+            resp.raise_if_not_ok()
+    else:
+        msg = {'transfer_id': transfer_id}
+    return msg, 202 if json_data.get('background', True) else 201
 
 
 @api_bp.route('/software/dimensigon', methods=['GET'])
@@ -181,6 +174,19 @@ def software_dimensigon():
         return {}, 204
 
 
+@api_bp.route('/catalog', methods=['POST'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+def catalog_update():
+    data = asyncio.run(_get_neighbour_catalog_data_mark())
+    # check version upgrade before catalog upgrade to match database revision
+    if not upgrade_version(data):
+        update_catalog(data)
+    db.session.commit()
+    return {}, 204
+
+
 @api_bp.route('/catalog/<string:data_mark>', methods=['GET', 'POST'])
 @forward_or_dispatch
 @jwt_required
@@ -188,10 +194,10 @@ def software_dimensigon():
 def catalog(data_mark):
     # Input Validation
     if data_mark == 'initial':
-        data_validated = datetime.datetime(datetime.MINYEAR, 1, 1)
+        data_validated = dt.datetime(dt.MINYEAR, 1, 1)
     else:
         try:
-            data_validated = datetime.datetime.strptime(data_mark, defaults.DATEMARK_FORMAT)
+            data_validated = dt.datetime.strptime(data_mark, defaults.DATEMARK_FORMAT)
         except Exception as e:
             return {'error': f'Invalid Data Mark: {e}'}, 400
 
@@ -203,8 +209,10 @@ def fetch_catalog(data_mark):
     for name, obj in get_distributed_entities():
         c = Catalog.query.get(name)
         repo_data = obj.query.filter(obj.last_modified_at > data_mark).all()
-        # if repo_data:
-        data.update({name: [e.to_json() for e in repo_data]})
+        if name == 'User':
+            data.update({name: [e.to_json(password=True) for e in repo_data]})
+        else:
+            data.update({name: [e.to_json() for e in repo_data]})
     return data
 
 
@@ -342,9 +350,9 @@ def routes():
     return {}, 204
 
 
-def run_command_and_callback(operation: 'IOperationEncapsulation', params, source: Id, execution: Id, jwt_identity,
+def run_command_and_callback(operation: 'IOperationEncapsulation', var_context, source: Id, execution: Id, jwt_identity,
                              timeout=None):
-    cp = operation.execute(params=params, timeout=timeout)
+    cp = operation.execute(var_context=var_context, timeout=timeout)
 
     execution = StepExecution.query.get(execution)
     source = Server.query.get(source)
@@ -353,14 +361,15 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', params, sourc
         db.session.commit()
     except Exception as e:
         current_app.logger.exception(f"Error on commit for execution {execution.id}")
-
+    data = dict(**execution.to_json(),
+                                var_context=base64.b64encode(pickle.dumps(var_context)).decode('ascii'))
     resp, code = post(server=source, view_or_url='api_1_0.events', view_data={'event_id': str(execution.id)},
-                      json=execution.to_json(),
+                      json=data,
                       auth=HTTPBearerAuth(
-                          create_access_token(jwt_identity, expires_delta=datetime.timedelta(seconds=30))))
+                          create_access_token(jwt_identity, expires_delta=dt.timedelta(seconds=30))))
     if code != 202:
         current_app.logger.error(f"Error while sending result for execution {execution.id}: {code}, {resp}")
-    return execution.to_json()
+    return data
 
 
 @api_bp.route('/launch/operation', methods=['POST'])
@@ -369,15 +378,16 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', params, sourc
 @securizer
 def launch_operation():
     data = request.get_json()
-    operation, params = pickle.loads(base64.b64decode(data['operation'].encode('ascii')))
+    operation = pickle.loads(base64.b64decode(data['operation'].encode('ascii')))
+    var_context = pickle.loads(base64.b64decode(data['var_context'].encode('ascii')))
     orch_exec_json = data['execution']
     orch_exec = OrchExecution.from_json(orch_exec_json)
 
-    e = StepExecution(execution_server=g.server, step_id=data.get('step_id'),
-                      source_server=g.source, orch_execution=orch_exec)
+    e = StepExecution(server=g.server, step_id=data.get('step_id'), orch_execution=orch_exec, params=dict(var_context),
+                      start_time=get_now())
     db.session.add_all([orch_exec, e])
     db.session.commit()
-    future = executor.submit(run_command_and_callback, operation, params, g.source.id, e.id,
+    future = executor.submit(run_command_and_callback, operation, var_context, g.source.id, e.id,
                              get_jwt_identity(),
                              timeout=data.get('timeout'))
     try:
@@ -392,18 +402,7 @@ def launch_operation():
         return r, 200
 
 
-def search(server_or_granule, servers):
-    if server_or_granule == 'all':
-        return servers
-    try:
-        uid = uuid.UUID(server_or_granule)
-    except ValueError:
-        server_list = [server for server in servers if server_or_granule == server.name]
-        if not server_list:
-            server_list = [server for server in servers if server_or_granule in server.granules]
-    else:
-        server_list = [server for server in servers if server.id == uid]
-    return server_list
+
 
 
 @api_bp.route('/launch/orchestration/<orchestration_id>', methods=['POST'])
@@ -422,60 +421,48 @@ def launch_orchestration(orchestration_id):
     b = set(hosts.keys())
     c = a - b
     if len(c) > 0:
-        return {'error': f"Target(s) not specified: {', '.join(c)}"}, 404
+        raise errors.TargetUnspecified(c)
     c = b - a
     if len(c) > 0:
-        return {'error': f"Target(s) not in orchestration: {', '.join(c)}"}, 400
+        raise errors.TargetNotNeeded(c)
 
-    servers = Server.query.all()
-    # convert hosts into servers
-    not_found = []
-    for target, v in hosts.items():
-        server_list = []
-        if is_iterable_not_string(v):
-            for vv in v:
-                sl = search(vv, servers)
-                if len(sl) == 0:
-                    not_found.append(vv)
-                else:
-                    server_list.extend(sl)
-        else:
-            sl = search(v, servers)
-            if len(sl) == 0:
-                not_found.append(v)
-            else:
-                server_list.extend(sl)
-        hosts[target] = server_list
+    not_found = normalize_hosts(hosts)
     if not_found:
-        return {'error': "Following granules or ids did not match to any server: " + ', '.join(not_found)}, 404
+        raise errors.ServerNormalizationError(not_found)
 
     # check param entries
-    rest = orchestration.user_parameters - set(params.keys())
-    if rest:
-        rest = list(rest)
-        rest.sort()
-        return {'error': f"Parameter(s) not specified: {', '.join(rest)}"}, 404
+    # rest = orchestration.user_parameters - set(params.keys())
+    # if rest:
+    #     rest = list(rest)
+    #     rest.sort()
+    #     return {'error': f"Parameter(s) not specified: {', '.join(rest)}"}, 404
 
     if not orchestration.steps:
-        return {'error': 'orchestration does not have steps to execute.'}, 400
+        return errors.GenericError('orchestration does not have steps to execute', orchestration_id=orchestration_id)
 
-    # convert servers to id:
-    execution_id = uuid.uuid4()
-    hosts = {k: [server.id for server in servers] for k, servers in hosts.items()}
-    future = executor.submit(deploy_orchestration, orchestration=orchestration.id, params=params, hosts=hosts,
-                             jwt_identity=get_jwt_identity(), execution=execution_id)
-    try:
-        r = future.result(1)
-    except concurrent.futures.TimeoutError:
-        return {'execution_id': execution_id}, 202
-    except Exception as e:
-        current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
-        return {'error': 'error while executing orchestration. Check the logs.'}, 500
+    execution_id = str(uuid.uuid4())
+
+    vc = VarContext(globals=dict(execution_id=execution_id, executor_id=get_jwt_identity()), initials=params)
+
+    if request.get_json().get('background', True):
+        future = executor.submit(deploy_orchestration, orchestration=orchestration.id, var_context=vc, hosts=hosts)
+        try:
+            r = future.result(1)
+        except concurrent.futures.TimeoutError:
+            return {'execution_id': execution_id}, 202
+        except Exception as e:
+            current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
+            raise
+        else:
+            return jsonify(r), 200
     else:
-        if 'error' in r:
-            return jsonify(r), 500
-        return jsonify(r), 200
-
+        try:
+            orch_exe = deploy_orchestration(orchestration=orchestration.id, var_context=vc, hosts=hosts)
+        except Exception as e:
+            current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
+            raise
+        else:
+            return orch_exe.to_json(add_step_exec=True, human=check_param_in_uri('human')), 200
 
 async def parallel_command_run(servers, data, auth):
     server_responses = {}

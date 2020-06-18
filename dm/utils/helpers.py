@@ -1,5 +1,5 @@
 import configparser
-import datetime
+import datetime as dt
 import hashlib
 import inspect
 import itertools
@@ -9,12 +9,14 @@ import platform
 import re
 import sys
 import typing as t
+import uuid
 from collections import Iterable, ChainMap
 
 import netifaces
 import six
 import yaml
 from cryptography.fernet import Fernet
+from dateutil.tz import tzlocal
 from flask import current_app
 
 import dm.defaults as d
@@ -38,6 +40,15 @@ def is_iterable_not_string(var):
     return is_iterable(var) and not is_string_types(var)
 
 
+def is_valid_uuid(var):
+    try:
+        uuid.UUID(var)
+    except ValueError:
+        return False
+    else:
+        return True
+
+
 def convert(d):
     for k, v in d.items():
         if isinstance(v, dict):
@@ -46,8 +57,8 @@ def convert(d):
 
 
 # function to mock datetime.now
-def get_now() -> datetime.datetime:
-    return datetime.datetime.now()
+def get_now() -> dt.datetime:
+    return dt.datetime.now(tzlocal())
 
 
 def str_to_key(id_: str):
@@ -156,6 +167,16 @@ def get_logger(self=None):
     else:
         logger = current_app.logger
     return logger
+
+
+def get_entities() -> t.List[t.Tuple['str', t.Any]]:
+    from dm.web import db
+    entities = []
+    for name, cls in inspect.getmembers(sys.modules['dm.domain.entities'],
+                                        lambda x: (inspect.isclass(x) and issubclass(x, db.Model))):
+        entities.append((name, cls))
+
+    return entities
 
 
 def get_distributed_entities() -> t.List[t.Tuple['str', t.Any]]:

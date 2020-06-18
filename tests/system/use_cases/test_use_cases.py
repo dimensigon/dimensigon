@@ -1,52 +1,32 @@
-import uuid
-from unittest import TestCase
-
 from flask import url_for
-from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, Gate, User
+from dm.domain.entities import Server, Gate
 from dm.domain.entities.route import Route
-from dm.web import create_app, db
-from dm.web.network import HTTPBearerAuth
+from dm.web import db
+from tests.helpers import TestDimensigonBase
 
 
-class TestRoutes(TestCase):
+class TestRoutes(TestDimensigonBase):
 
-    def setUp(self) -> None:
-        self.maxDiff = None
-        self.app = create_app('test')
-        self.app.config['SECURIZER'] = False
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        db.create_all()
-        User.set_initial()
-        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
-
-
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
 
     def test_routes_get(self):
-        s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='server1', me=True)
-        g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+        s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='server1', me=True)
+        g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
                   dns=s1.name)
-        s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='server2')
-        g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+        s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='server2')
+        g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
                   dns=s2.name)
         Route(s2, gate=g2, cost=0)
-        s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='server3')
-        g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+        s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='server3')
+        g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
                   dns=s3.name)
         Route(s3, gate=g3, cost=0)
-        s4 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440004'), name='server4')
-        g4 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440014'), server=s4, port=5001,
+        s4 = Server(id='123e4567-e89b-12d3-a456-426655440004', name='server4')
+        g4 = Gate(id='123e4567-e89b-12d3-a456-426655440014', server=s4, port=5001,
                   dns=s4.name)
         Route(s4, proxy_server=s2, cost=1)
         db.session.add_all([s1, s2, s3, s4])
+        db.session.commit()
 
         response = self.client.get(url_for('api_1_0.routes', _external=False),
                                    headers=self.auth.header)
@@ -66,19 +46,19 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.threading')
     # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch(self, mocked_ping, mocked_thread):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='server1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='server1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
     #               dns=s1.name)
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='server2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='server2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
     #               dns=s2.name)
     #     Route(s2, gate=g2, cost=0)
-    #     s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='server3')
-    #     g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+    #     s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='server3')
+    #     g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
     #               dns=s3.name)
     #     Route(s3, gate=g3, cost=0)
-    #     s4 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440004'), name='server4')
-    #     g4 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440014'), server=s4, port=5001,
+    #     s4 = Server(id='123e4567-e89b-12d3-a456-426655440004', name='server4')
+    #     g4 = Gate(id='123e4567-e89b-12d3-a456-426655440014', server=s4, port=5001,
     #               dns=s4.name)
     #     Route(s4, proxy_server=s2, cost=1)
     #     db.session.add_all([s1, s2, s3, s4])
@@ -120,12 +100,12 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.update_table_routing_cost')
     # @responses.activate
     # def test_routes_post(self, mocked_utr, mocked_threading):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='server1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='server1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
     #               dns=s1.name)
     #
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='server2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5001,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='server2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5001,
     #               dns=s2.name)
     #     Route(destination=s2, cost=0)
     #     db.session.add_all([s1, s2])
@@ -152,14 +132,14 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.check_host')
     # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario1(self, mocked_ping, mocked_check_host, mocked_threading):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
     #               dns=s1.name)
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
     #               dns=s2.name)
-    #     s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-    #     g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+    #     s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+    #     g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
     #               dns=s3.name)
     #
     #     Route(s2, gate=g2, cost=0)
@@ -226,14 +206,14 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.check_host')
     # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario2(self, mocked_ping, mocked_check_host, mocked_threading):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
     #               dns=s1.name)
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
     #               dns=s2.name)
-    #     s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-    #     g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+    #     s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+    #     g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
     #               dns=s3.name)
     #
     #     Route(s2, gate=g2, cost=0)
@@ -294,14 +274,14 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.check_host')
     # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario3(self, mocked_ping, mocked_check_host, mocked_threading):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
     #               dns=s1.name)
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
     #               dns=s2.name)
-    #     s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-    #     g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+    #     s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+    #     g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
     #               dns=s3.name)
     #
     #     Route(s2, gate=g2, cost=0)
@@ -365,14 +345,14 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.check_host')
     # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario4(self, mocked_ping, mocked_check_host, mocked_threading):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
     #               dns=s1.name)
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
     #               dns=s2.name)
-    #     s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-    #     g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+    #     s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+    #     g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
     #               dns=s3.name)
     #
     #     db.session.add_all([s1, s2, s3])
@@ -428,14 +408,14 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.check_host')
     # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario5(self, mocked_ping, mocked_check_host, mocked_threading):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
     #               dns=s1.name)
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
     #               dns=s2.name)
-    #     s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-    #     g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+    #     s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+    #     g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
     #               dns=s3.name)
     #
     #     Route(s2, gate=g2, cost=0)
@@ -489,14 +469,14 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.check_host')
     # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario6(self, mocked_ping, mocked_check_host, mocked_threading):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
     #               dns=s1.name)
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
     #               dns=s2.name)
-    #     s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-    #     g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+    #     s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+    #     g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
     #               dns=s3.name)
     #
     #     Route(s2, gate=g2, cost=0)
@@ -550,14 +530,14 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.check_host')
     # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario7(self, mocked_ping, mocked_check_host, mocked_threading):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5001,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
     #               dns=s1.name)
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5002,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
     #               dns=s2.name)
-    #     s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-    #     g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5003,
+    #     s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+    #     g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
     #               dns=s3.name)
     #
     #     Route(s2, proxy_server=None, gate=g2, cost=0)
@@ -613,18 +593,18 @@ class TestRoutes(TestCase):
     # @patch('dm.web.api_1_0.urls.use_cases.check_host')
     # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario8(self, mocked_ping, mocked_check_host, mocked_threading):
-    #     s1 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440001'), name='node1', me=True)
-    #     g1 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440011'), server=s1, port=5000,
+    #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
+    #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5000,
     #               dns=s1.name)
-    #     s2 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440002'), name='node2')
-    #     g2 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440012'), server=s2, port=5000,
+    #     s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='node2')
+    #     g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5000,
     #               dns=s2.name)
-    #     s3 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440003'), name='node3')
-    #     g3 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440013'), server=s3, port=5000,
+    #     s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='node3')
+    #     g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5000,
     #               dns=s3.name)
     #
-    #     s4 = Server(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440004'), name='node4')
-    #     g4 = Gate(id=uuid.UUID('123e4567-e89b-12d3-a456-426655440014'), server=s4, port=5000,
+    #     s4 = Server(id='123e4567-e89b-12d3-a456-426655440004', name='node4')
+    #     g4 = Gate(id='123e4567-e89b-12d3-a456-426655440014', server=s4, port=5000,
     #               dns=s4.name)
     #
     #     Route(s2, proxy_server=None, gate=g2, cost=0)

@@ -2,26 +2,28 @@ import base64
 import math
 import os
 import typing as t
-from datetime import datetime
+from concurrent.futures.thread import ThreadPoolExecutor
 
 import aiohttp
-from flask import current_app
-from flask_jwt_extended import get_jwt_identity
+from flask import current_app, g
 
+import dm.use_cases.lock as lock
 from dm import defaults
-from dm.domain.entities import Orchestration, Server, Scope, OrchExecution
-from dm.use_cases.deployment import create_cmd_from_orchestration2, RegisterStepExecution
-from dm.use_cases.lock import lock, unlock
+from dm.domain.entities import Orchestration, Server, Scope, OrchExecution, User
+from dm.use_cases.deployment import create_cmd_from_orchestration, RegisterStepExecution
 from dm.utils import asyncio
-from dm.utils.typos import Kwargs, Id
-from dm.web import db, executor, errors
-from dm.web.exceptions import HTTPError
+from dm.utils.helpers import get_now
+from dm.utils.typos import Id
+from dm.web import db, errors
 from dm.web.network import async_post, async_patch
+
+if t.TYPE_CHECKING:
+    from dm.utils.var_context import VarContext
 
 
 async def async_send_file(dest_server: Server, transfer_id: Id, file,
                           chunk_size: int = None, chunks: int = None, max_senders: int = None,
-                          auth=None, retries: int = 1, raise_on_error=False):
+                          auth=None, retries: int = 1):
     async def send_chunk(server: Server, view: str, chunk, sem):
         async with sem:
             json_msg = dict(chunk=chunk)
@@ -51,65 +53,91 @@ async def async_send_file(dest_server: Server, transfer_id: Id, file,
 
             for chunk, task in responses.items():
                 resp = await task
-                if resp[1] != 201:
+                if resp.code != 201:
                     retry_chunks.append(chunk)
-                elif resp[1] == 410:
-                    msg = f"Transfer {transfer_id} is no longer available: {resp[0]}"
-                    if raise_on_error:
-                        raise HTTPError(msg)
-                    else:
-                        current_app.logger.error(msg)
-                    return
+                elif resp.code == 410:
+                    raise errors.TransferNotInValidState(transfer_id, resp.msg['error'].get(['status'], None))
 
             if len(retry_chunks) == 0 and chunks != 1:
-                data, code = await async_patch(dest_server, 'api_1_0.transferresource',
-                                               view_data={'transfer_id': transfer_id},
-                                               session=session,
-                                               auth=auth, raise_on_error=raise_on_error)
-                if code != 201:
+                resp = await async_patch(dest_server, 'api_1_0.transferresource',
+                                         view_data={'transfer_id': transfer_id},
+                                         session=session,
+                                         auth=auth)
+                if resp.code != 201:
                     current_app.logger.error(
                         f"Transfer {transfer_id}: Unable to create file at destination {dest_server.name}: "
-                        f"{code}, {data}")
+                        f"{resp}")
             l_chunks = retry_chunks
             retries -= 1
     if l_chunks:
-        data = {f'chunk{c}': responses[c].result() for c in l_chunks}
-        if raise_on_error:
-            raise HTTPError('Error while trying to send chunks to server. ' + str(data))
-        else:
-            current_app.logger.error(f"Error while trying to send chunks to server: {data}")
-        return data
+        data = {c: responses[c].result() for c in l_chunks}
+        raise errors.ChunkSendError(data)
 
 
 def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
                          hosts: t.Dict[str, t.Union[t.List[Id]]],
-                         params: Kwargs = None,
-                         execution=None,
-                         **kwargs):
-    try:
-        if not isinstance(orchestration, Orchestration):
-            orchestration = Orchestration.query.get(orchestration)
-        if not isinstance(execution, OrchExecution):
-            exe = None
-            if execution is not None:
-                exe = OrchExecution.query.get(execution)
-            if exe is None:
-                exe = OrchExecution(id=execution, orchestration=orchestration, target=hosts, params=params,
-                                    executor_id=get_jwt_identity())
-                db.session.add(exe)
-                db.session.commit()
-        current_app.logger.debug(
-            f"Execution {exe.id}: Launching orchestration {orchestration} on {hosts} with {params}")
-        return _deploy_orchestration(orchestration, params, hosts, exe, **kwargs)
-    except Exception as e:
-        current_app.logger.exception(f"Execution {exe.id}: Error while executing orchestration {orchestration}")
-        raise
+                         var_context: 'VarContext' = None,
+                         execution: t.Union[Id, OrchExecution] = None,
+                         executor: t.Union[Id, User] = None,
+                         execution_server: t.Union[Id, Server] = None) -> OrchExecution:
+    """deploy the orchestration
+
+    Args:
+        orchestration: id or orchestration to execute
+        hosts: Mapping to all distributions
+        params: VarContext configuration
+        execution: id or execution to associate with the orchestration. If none, a new one is created
+        executor: id or User who executes the orchestration
+        execution_server: id or User who executes the orchestration
+
+    Returns:
+        dict: dict with tuple ids and the :class: CompletedProcess
+
+    Raises:
+        Exception: if anything goes wrong
+    """
+    execution = execution or var_context.globals.get('execution_id')
+    executor = executor or var_context.globals.get('executor_id')
+    hosts = hosts or var_context.globals.get('hosts')
+    if not isinstance(orchestration, Orchestration):
+        orchestration = Orchestration.query.get(orchestration)
+    if not isinstance(execution, OrchExecution):
+
+        if execution is not None:
+            exe = OrchExecution.query.get(execution)
+        else:
+            exe = OrchExecution.query.get(var_context.globals.get('execution_id'))
+        if exe is None:
+            if not isinstance(executor, User):
+                executor = User.query.get(executor)
+            if executor is None:
+                raise ValueError('executor must be set')
+            if not isinstance(execution_server, Server):
+                if execution_server is None:
+                    try:
+                        execution_server = g.server
+                    except AttributeError:
+                        execution_server = Server.get_current()
+                    if execution_server is None:
+                        raise ValueError('execution server not found')
+                else:
+                    execution_server = Server.query.get(execution_server)
+            exe = OrchExecution(id=execution, orchestration=orchestration, target=hosts, params=dict(var_context),
+                                _executor=executor, server=execution_server)
+            db.session.add(exe)
+            db.session.commit()
+    else:
+        exe = execution
+    current_app.logger.debug(
+        f"Execution {exe.id}: Launching orchestration {orchestration} on {hosts} with {var_context}")
+    return _deploy_orchestration(orchestration, var_context, hosts, exe)
 
 
-def _deploy_orchestration(orchestration: Orchestration, params: Kwargs, hosts: t.Dict[str, t.List[Id]],
-                          execution: OrchExecution,
-                          jwt_identity=None, max_parallel_tasks=None
-                          ):
+def _deploy_orchestration(orchestration: Orchestration,
+                          var_context: 'VarContext',
+                          hosts: t.Dict[str, t.List[Id]],
+                          execution: OrchExecution
+                          ) -> OrchExecution:
     """
     Parameters
     ----------
@@ -126,14 +154,16 @@ def _deploy_orchestration(orchestration: Orchestration, params: Kwargs, hosts: t
         dict with all the executions). If undo process not executed, boolean set to None
     """
     rse = RegisterStepExecution(execution)
-    cc = create_cmd_from_orchestration2(orchestration, params, hosts=hosts, executor=executor,
-                                        jwt_identity=jwt_identity,
-                                        register=rse)
-    servers = Server.query.filter(Server.id.in_(hosts['all'])).all()
+    execution.start_time = execution.start_time or get_now()
+    cc = create_cmd_from_orchestration(orchestration, var_context, hosts=hosts, register=rse, executor=ThreadPoolExecutor())
+
+    # convert UUID into str as in_ filter does not handle UUID type
+    all = [str(s) for s in hosts['all']]
+    servers = Server.query.filter(Server.id.in_(all)).all()
     try:
-        applicant = lock(Scope.ORCHESTRATION, servers)
+        applicant = lock.lock(Scope.ORCHESTRATION, servers, execution.id)
     except errors.LockError as e:
-        execution.end_time = datetime.now()
+        execution.end_time = get_now()
         execution.success = False
         execution.message = str(e)
         db.session.commit()
@@ -142,8 +172,12 @@ def _deploy_orchestration(orchestration: Orchestration, params: Kwargs, hosts: t
         execution.success = cc.invoke()
         if not execution.success and orchestration.undo_on_error:
             execution.undo_success = cc.undo()
-        execution.end_time = datetime.now()
+        execution.end_time = get_now()
         db.session.commit()
+    except Exception as e:
+        current_app.logger.exception("Exception while executing invocation command")
+
     finally:
-        unlock(Scope.ORCHESTRATION, applicant=applicant, servers=servers)
-    return cc.result
+        lock.unlock(Scope.ORCHESTRATION, applicant=applicant, servers=servers)
+    db.session.refresh(execution)
+    return execution

@@ -2,7 +2,9 @@ import base64
 import functools
 import ipaddress
 import socket
+import typing as t
 
+import requests
 import rsa
 from flask import current_app, url_for, g
 from jsonschema import validate
@@ -14,10 +16,66 @@ from dm.use_cases.lock import lock_scope
 from dm.web import db, errors
 from dm.web.network import unpack_msg, pack_msg, unpack_msg2, pack_msg2
 
+if t.TYPE_CHECKING:
+    import flask
+
+
+def save_if_hidden_ip(remote_addr: str, server: Server):
+    ip = ipaddress.ip_address(remote_addr)
+    if not ip.is_loopback:
+        def get_ip(dns: str):
+            if dns is None:
+                return
+            else:
+                try:
+                    return ipaddress.ip_address(socket.gethostbyname(dns))
+                except:
+                    return
+
+        gate = [gate for gate in server.gates if ip in (gate.ip, get_ip(gate.dns))]
+        if not gate:
+            hidden_gates = server.hidden_gates
+            if hidden_gates:
+                for hg in hidden_gates:
+                    hg.ip = remote_addr
+            else:
+                for port in set([gate.port for gate in server.gates]):
+                    gate = server.add_new_gate(dns_or_ip=remote_addr, port=port, hidden=True)
+                    db.session.add(gate)
+            db.session.commit()
+
+
+def _proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
+    url = destination.url() + request.full_path
+    json = request.get_json()
+
+    if request.path == '/ping':
+        json['hops'] = json.get('hops', 0) + 1
+
+    kwargs = {
+        'json': json,
+        'allow_redirects': False
+    }
+
+    headers = {key.lower(): value for key, value in request.headers.items()}
+
+    # Let requests reset the host for us.
+    if 'host' in headers:
+        del headers['host']
+
+    headers['d-source'] = headers.get('d-source', '') + ':' + str(g.server.id)
+
+    kwargs['headers'] = headers
+
+    cookies = request.cookies
+
+    kwargs['cookies'] = cookies
+
+    return requests.request(request.method, url, verify=verify, **kwargs)
+
 
 def forward_or_dispatch(func):
     from flask import request
-    from dm.network.gateway import proxy_request
 
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
@@ -36,40 +94,27 @@ def forward_or_dispatch(func):
             if destination is None:
                 return errors.format_error_response(errors.EntityNotFound('Server', destination_id))
             try:
-                resp = proxy_request(request=request, destination=destination)
-            except ConnectionError as e:
-                return str(e), 502
-            return resp.content, resp.status_code, dict(resp.headers)
+                resp = _proxy_request(request=request, destination=destination)
+            except requests.exceptions.RequestException as e:
+                return errors.format_error_response(errors.ProxyForwardingError(destination, e))
+            else:
+                return resp.content, resp.status_code, dict(resp.headers)
 
         else:
             # not call get_or_404 to allow make requests without D-Source header
-            source = db.session.query(Server).get(request.headers.get('D-Source'))
+            source_id, proxies = (request.headers.get('D-Source', '') + ':').split(':', 1)
+            proxies = proxies.strip(':')
+            source = db.session.query(Server).get(source_id)
             # check hidden ip on server
-            if source:
-                ip = ipaddress.ip_address(request.remote_addr)
-                if not ip.is_loopback:
-                    def get_ip(dns: str):
-                        if dns is None:
-                            return
-                        else:
-                            try:
-                                return ipaddress.ip_address(socket.gethostbyname(dns))
-                            except:
-                                return
-
-                    gate = [gate for gate in source.gates if ip in (gate.ip, get_ip(gate.dns))]
-                    if not gate:
-                        hidden_gates = source.hidden_gates
-                        if hidden_gates:
-                            for hg in hidden_gates:
-                                hg.ip = request.remote_addr
-                        else:
-                            for port in set([gate.port for gate in source.gates]):
-                                source.add_new_gate(dns_or_ip=request.remote_addr, port=port, hidden=True)
-                        db.session.commit()
-
-            else:
+            if proxies:
+                lp = proxies.split(':')
+                neighbour = db.session.query(Server).get(lp[-1])
+                if neighbour:
+                    save_if_hidden_ip(request.remote_addr, neighbour)
+            if not source:
                 source = request.headers.get('D-Source') or request.remote_addr
+            elif not proxies:
+                save_if_hidden_ip(request.remote_addr, source)
             g.source = source
 
             value = func(*args, **kwargs)
