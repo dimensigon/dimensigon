@@ -2,7 +2,6 @@ import base64
 import math
 import os
 import typing as t
-from concurrent.futures.thread import ThreadPoolExecutor
 
 import aiohttp
 from flask import current_app, g
@@ -14,7 +13,7 @@ from dm.use_cases.deployment import create_cmd_from_orchestration, RegisterStepE
 from dm.utils import asyncio
 from dm.utils.helpers import get_now
 from dm.utils.typos import Id
-from dm.web import db, errors
+from dm.web import db, errors, executor
 from dm.web.network import async_post, async_patch
 
 if t.TYPE_CHECKING:
@@ -155,7 +154,7 @@ def _deploy_orchestration(orchestration: Orchestration,
     """
     rse = RegisterStepExecution(execution)
     execution.start_time = execution.start_time or get_now()
-    cc = create_cmd_from_orchestration(orchestration, var_context, hosts=hosts, register=rse, executor=ThreadPoolExecutor())
+    cc = create_cmd_from_orchestration(orchestration, var_context, hosts=hosts, register=rse, executor=executor)
 
     # convert UUID into str as in_ filter does not handle UUID type
     all = [str(s) for s in hosts['all']]

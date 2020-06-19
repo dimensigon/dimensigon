@@ -253,14 +253,10 @@ def _prepare_headers(server, headers=None):
     return headers
 
 
-def prepare_request(server, view_or_url, view_data=None, **kwargs):
-    raise_on_error = kwargs.get('raise_on_error', False)
-    try:
-        url = _prepare_url(server, view_or_url, view_data)
-    except (RuntimeError, ConnectionError) as e:
-        if raise_on_error:
-            raise
-        return Response(exception=e, server=server)
+def prepare_request(server, view_or_url, view_data, kwargs):
+    params = kwargs.pop('params', {}) or {}
+
+    url = _prepare_url(server, view_or_url, dict(**view_data, **params))
 
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
@@ -269,8 +265,6 @@ def prepare_request(server, view_or_url, view_data=None, **kwargs):
 
     if 'json' in kwargs and kwargs['json']:
         kwargs['json'] = pack_msg(kwargs['json'])
-
-    kwargs['verify'] = current_app.config['SSL_VERIFY']
 
     return url
 
@@ -286,12 +280,19 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
 
     raise_on_error = kwargs.pop('raise_on_error', False)
 
-    url = prepare_request(server, view_or_url, view_data, **kwargs)
+    try:
+        url = prepare_request(server, view_or_url, view_data or {}, kwargs)
+    except Exception as e:
+        if raise_on_error:
+            raise
+        return Response(exception=e, server=server)
 
     func = getattr(_session, method.lower())
 
     if 'timeout' not in kwargs:
         kwargs['timeout'] = defaults.TIMEOUT_REQUEST
+
+    kwargs['verify'] = current_app.config['SSL_VERIFY']
 
     try:
         resp: requests.Response = func(url, **kwargs)
@@ -348,7 +349,7 @@ def head(server: Server, view_or_url: str, view_data: Kwargs = None, session: re
 def post(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
          json=None, **kwargs) -> Response:
     r"""Sends a POST request."""
-    return request('post', server, view_or_url, view_data=view_data, session=session, json=json, **kwargs)
+    return request('post', server, view_or_url, view_data=view_data, session=session, json=json or {}, **kwargs)
 
 
 def put(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
@@ -383,7 +384,14 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
 
     raise_on_error = kwargs.pop('raise_on_error', False)
 
-    url = prepare_request(server, view_or_url, view_data, **kwargs)
+    try:
+        url = prepare_request(server, view_or_url, view_data or {}, kwargs)
+    except Exception as e:
+        if raise_on_error:
+            raise
+        return Response(exception=e, server=server)
+
+    kwargs['ssl'] = current_app.config['SSL_VERIFY']
 
     if 'timeout' in kwargs and isinstance(kwargs['timeout'], (int, float)):
         kwargs['timeout'] = aiohttp.ClientTimeout(total=kwargs['timeout'])
@@ -423,8 +431,7 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
 async def async_get(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
                     params: Kwargs = None, **kwargs) -> Response:
     """Sends a GET request."""
-    return await async_request('get', server, view_or_url, view_data=view_data, session=session, params=params,
-                               **kwargs)
+    return await async_request('get', server, view_or_url, view_data=view_data, session=session, params=params, **kwargs)
 
 
 async def async_options(server: Server, view_or_url: str, view_data: Kwargs = None,

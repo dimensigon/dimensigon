@@ -78,7 +78,7 @@ def upgrade_catalog_from_server(server):
                                                                                  expires_delta=datetime.timedelta(
                                                                                      seconds=15))})
 
-            if 199 < resp.code < 300:
+            if resp.code and 199 < resp.code < 300:
                 delta_catalog = resp.msg
                 upgrade_catalog(delta_catalog)
             else:

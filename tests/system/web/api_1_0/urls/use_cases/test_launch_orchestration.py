@@ -89,7 +89,7 @@ class TestLaunchOrchestrationNested(FSTestCase):
         self.s21 = self.o2.add_step(undo=False,
                                     action_type=ActionType.SHELL,
                                     code="ls",
-                                    post_process="vs.variables.update(hosts={'all': '00000000-2222-0000-0000-000000000000'})"
+                                    post_process="vc.set('hosts', {'all': '00000000-2222-0000-0000-000000000000'})"
                                     )
 
         self.s22 = self.o2.add_step(undo=False,
@@ -326,7 +326,7 @@ class TestLaunchOrchestrationNested(FSTestCase):
     @mock.patch('dm.use_cases.operations.subprocess.run')
     @responses.activate
     @aioresponses()
-    def test_launch_orchestration_install_software_remote(self, mock_run, m):
+    def test_launch_orchestration_install_software_dual(self, mock_run, m):
         set_callbacks([(r'(127\.0\.0\.1|node1)', self.client), ('node2', self.client2)], m)
         self.setUpPyfakefs()
 

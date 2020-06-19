@@ -86,7 +86,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
             if at is None:
                 at = ActionTemplate(name='send', version=1, action_type=ActionType.REQUEST,
                                     code='{"method": "post",'\
-                                         '"view_or_url":"api_1_0.send",'\
+                                         '"view":"api_1_0.send",'\
                                          '"json": {"software_id": "{{software_id}}", "dest_server_id": "{{server_id}}"'\
                                          '{% if dest_path is defined %}, "dest_path":"{{dest_path}}"{% endif %}'\
                                          '{% if chunk_size is defined %}, "chunk_size":"{{chunk_size}}"{% endif %}'\

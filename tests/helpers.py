@@ -113,7 +113,7 @@ def set_callbacks(target: t.List[t.Tuple[str, FlaskClient]], m: aioresponses = N
         # passing headers as a workarround for https://github.com/pnuckowski/aioresponses/issues/111
         func = getattr(client, method.lower())
         try:
-            r = func(url.path, headers=kwargs['headers'], json=kwargs['json'])
+            r = func(url.path, headers=kwargs['headers'], json=kwargs.get('json'))
         except Exception as e:
             return CallbackResult(method.upper(), status=500, body=traceback.format_exc(), headers={})
 

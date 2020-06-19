@@ -368,8 +368,6 @@ def create_operation(step: 'Step') -> IOperationEncapsulation:
     if kls == NativeOperation:
         if step.action_template.name == 'wait':
             kls = NativeWaitOperation
-    elif kls == RequestOperation:
-        pass
     return kls(code=step.code, expected_stdout=step.expected_stdout, expected_stderr=step.expected_stderr,
                expected_rc=step.expected_rc,
                system_kwargs=step.system_kwargs)

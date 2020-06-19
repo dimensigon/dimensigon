@@ -1,13 +1,11 @@
 import datetime as dt
 import json
 import re
-import traceback
-from functools import partial
 from unittest import TestCase
 from unittest.mock import patch
 
 import responses
-from aioresponses import aioresponses, CallbackResult
+from aioresponses import aioresponses
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
@@ -17,6 +15,7 @@ from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.background_tasks import TempRoute, update_table_routing_cost, process_catalog_route_table
 from dm.web.network import HTTPBearerAuth
+from tests.helpers import set_callbacks
 
 
 class TestUpdateTableRoutingCost(TestCase):
@@ -587,42 +586,6 @@ class TestProcessCatalogRouteTable(TestCase):
             db.session.remove()
             db.drop_all()
 
-    @staticmethod
-    def set_callbacks(target, m: aioresponses = None):
-        import responses
-        method_list = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-
-        def requests_callback_client(client, request):
-            method_func = getattr(client, request.method.lower())
-            try:
-                resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
-            except Exception as e:
-                return 500, {}, traceback.format_exc()
-
-            return resp.status_code, resp.headers, resp.data
-
-        def callback_client(method, client, url, **kwargs):
-            kwargs.pop('allow_redirects')
-            # passing headers as a workarround for https://github.com/pnuckowski/aioresponses/issues/111
-            func = getattr(client, method.lower())
-            try:
-                r = func(url.path, headers=kwargs['headers'], json=kwargs['json'])
-            except Exception as e:
-                return CallbackResult(method.upper(), status=500, body=traceback.format_exc(), headers={})
-
-            return CallbackResult(method.upper(), status=r.status_code, body=r.data, content_type=r.content_type,
-                                  headers=r.headers)
-
-        for dest_regexp, client in target:
-
-            for method in method_list:
-                responses.add_callback(method, re.compile(f'https?://{dest_regexp}.*'),
-                                       callback=partial(requests_callback_client, client))
-            if m:
-                for method in method_list:
-                    func = getattr(m, method.lower())
-                    func(re.compile(f'https?://{dest_regexp}.*'),
-                         callback=partial(callback_client, method, client), repeat=True)
 
     @responses.activate
     @aioresponses()
@@ -630,7 +593,7 @@ class TestProcessCatalogRouteTable(TestCase):
     @patch('dm.web.background_tasks.upgrade_version', return_value=False)
     def test_catalog(self, m, mock_version, mock_routing):
         # test all system from process_catalog_route_table to lock server and upgrade catalog
-        self.set_callbacks([("(127.0.0.1|node1)", self.app.test_client()),
+        set_callbacks([("(127.0.0.1|node1)", self.app.test_client()),
                        ("node2", self.app2.test_client())], m=m)
 
         with self.app.app_context():
@@ -641,4 +604,4 @@ class TestProcessCatalogRouteTable(TestCase):
 
         with self.app.app_context():
             datemark = Catalog.max_catalog()
-        self.assertEqual(dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc), datemark)
+        self.assertEqual(dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc), datemark.astimezone(dt.timezone.utc))

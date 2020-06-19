@@ -37,6 +37,7 @@ async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope
         for server in it:
             r = await tasks.pop(0)
             server_responses.append(r)
+
     return server_responses
 
 

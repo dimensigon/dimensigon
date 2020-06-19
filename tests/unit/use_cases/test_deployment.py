@@ -130,10 +130,10 @@ class TestCommand(TestCase):
                               rc=0, start_time=datetime(2019, 4, 1))
         self.mock_implementation.execute.return_value = cp
         c = Command(implementation=self.mock_implementation, var_context=self.mock_parameters,
-                    undo_on_error=False, post_process="vs.variables.update(json.loads(cp.stdout))", id_=1)
+                    undo_on_error=False, post_process="vc.set('response', json.loads(cp.stdout))", id_=1)
 
         c.invoke()
-        self.mock_parameters.variables.update.assert_called_once_with({"output": "this is a message"})
+        self.mock_parameters.set.assert_called_once_with('response', {"output": "this is a message"})
 
         c = Command(implementation=self.mock_implementation, var_context=self.mock_parameters,
                     undo_on_error=False, post_process="raise RuntimeError()", id_=1)
