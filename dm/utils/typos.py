@@ -79,7 +79,7 @@ class ScalarListType(TypeDecorator):
 
     """
 
-    impl = types.UnicodeText()
+    impl = types.Text()
 
     def __init__(self, coerce_func=str, separator=':'):
         self.separator = separator

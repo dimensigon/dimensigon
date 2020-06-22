@@ -1,0 +1,6 @@
+pyfakefs
+aioresponses
+responses
+pytest
+pytest-xdist
+asynctest
