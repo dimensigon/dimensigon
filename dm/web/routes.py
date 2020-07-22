@@ -3,12 +3,14 @@ import signal
 from functools import partial
 
 from flask import Blueprint, request, current_app, jsonify, g
-from flask_jwt_extended import create_access_token, create_refresh_token, jwt_refresh_token_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_refresh_token_required, get_jwt_identity, \
+    current_user
 
 import dm
 from dm import defaults
 from dm.domain.entities import Server, Catalog
 from dm.domain.entities.user import User
+from dm.utils.helpers import get_now
 from dm.web.decorators import forward_or_dispatch, validate_schema
 from dm.web.json_schemas import schema_healthcheck, login_post
 
@@ -63,8 +65,14 @@ def healthcheck():
 @root_bp.route('/ping', methods=['POST'])
 @forward_or_dispatch
 def ping():
-    resp = request.get_json()
-    return jsonify({'hops': 0})
+    req_data = request.json
+    if req_data:
+        req_data.update(dest_time=get_now().strftime(defaults.DATETIME_FORMAT))
+        if 'servers' not in req_data:
+            req_data.update(servers={})
+    else:
+        req_data = dict(dest_time=get_now().strftime(defaults.DATETIME_FORMAT))
+    return req_data, 200
 
 
 @root_bp.route('/login', methods=['POST'])
@@ -75,7 +83,7 @@ def login():
     password = request.json.get('password', None)
     try:
         if not user or not user.verify_password(password):
-            return
+            return {"error": "Bad username or password"}, 401
     except TypeError:
         return {"error": "Bad username or password"}, 401
 
@@ -92,9 +100,10 @@ def login():
 @forward_or_dispatch
 @jwt_refresh_token_required
 def refresh():
-    current_user = get_jwt_identity()
+    current_user_id = get_jwt_identity()
     ret = {
-        'access_token': create_access_token(identity=current_user, fresh=False)
+        'username': current_user.user,
+        'access_token': create_access_token(identity=current_user_id, fresh=False)
     }
     return jsonify(ret), 200
 

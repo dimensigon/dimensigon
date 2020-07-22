@@ -16,8 +16,8 @@ import netifaces
 import six
 import yaml
 from cryptography.fernet import Fernet
-from dateutil.tz import tzlocal
 from flask import current_app
+from tzlocal import get_localzone
 
 import dm.defaults as d
 from dm import defaults
@@ -58,7 +58,7 @@ def convert(d):
 
 # function to mock datetime.now
 def get_now() -> dt.datetime:
-    return dt.datetime.now(tzlocal())
+    return dt.datetime.now(get_localzone())
 
 
 def str_to_key(id_: str):
@@ -329,3 +329,38 @@ def get_ips_listening_for() -> t.List[t.Tuple[str, int]]:
         else:
             gates.append((dns_or_ip, port))
     return gates
+
+
+def clean_string(incoming_string):
+    replace_char = '_'
+    newstring = incoming_string
+    newstring = newstring.replace("!", replace_char)
+    newstring = newstring.replace("@", replace_char)
+    newstring = newstring.replace("#", replace_char)
+    newstring = newstring.replace("$", replace_char)
+    newstring = newstring.replace("%", replace_char)
+    newstring = newstring.replace("^", replace_char)
+    newstring = newstring.replace("&", replace_char)
+    newstring = newstring.replace("*", replace_char)
+    newstring = newstring.replace("(", replace_char)
+    newstring = newstring.replace(")", replace_char)
+    newstring = newstring.replace("+", replace_char)
+    newstring = newstring.replace("=", replace_char)
+    newstring = newstring.replace("?", replace_char)
+    newstring = newstring.replace("\'", replace_char)
+    newstring = newstring.replace("\"", replace_char)
+    newstring = newstring.replace("{", replace_char)
+    newstring = newstring.replace("}", replace_char)
+    newstring = newstring.replace("[", replace_char)
+    newstring = newstring.replace("]", replace_char)
+    newstring = newstring.replace("<", replace_char)
+    newstring = newstring.replace(">", replace_char)
+    newstring = newstring.replace("~", replace_char)
+    newstring = newstring.replace("`", replace_char)
+    newstring = newstring.replace(":", replace_char)
+    newstring = newstring.replace(";", replace_char)
+    newstring = newstring.replace("|", replace_char)
+    newstring = newstring.replace("\\", replace_char)
+    newstring = newstring.replace("/", replace_char)
+    newstring = newstring.replace("-", replace_char)
+    return newstring

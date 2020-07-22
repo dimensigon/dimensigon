@@ -29,6 +29,7 @@ api.add_resource(OrchExecStepExecRelationship, '/orchestration_executions/<execu
 
 api.add_resource(ServerList, '/servers')
 api.add_resource(ServerResource, '/servers/<server_id>')
+api.add_resource(GranuleList, '/granules')
 
 api.add_resource(SoftwareList, '/software')
 api.add_resource(SoftwareResource, '/software/<software_id>')

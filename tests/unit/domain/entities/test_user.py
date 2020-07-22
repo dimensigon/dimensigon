@@ -3,8 +3,8 @@ from unittest import TestCase
 from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import User
+from dm.network.auth import HTTPBearerAuth
 from dm.web import create_app, db
-from dm.web.network import HTTPBearerAuth
 
 
 class Test(TestCase):

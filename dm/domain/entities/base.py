@@ -1,8 +1,11 @@
 import abc
+import inspect
+import random
+import string
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column
+from sqlalchemy import Column, Boolean
 
 from dm import defaults
 from dm.utils.typos import UUID, UtcDateTime
@@ -18,6 +21,26 @@ class JSONEntity:
     @abc.abstractmethod
     def from_json(cls, kwargs):
         ...
+
+
+class SoftDeleteMixin:
+    __prefix__ = '_old_'
+    deleted = Column(Boolean(), default=False)
+
+    def __init__(self, deleted=False, **kwargs):
+        self.deleted = deleted
+        for attr in [attr for attr, value in inspect.getmembers(self) if attr.startswith(self.__prefix__)]:
+            setattr(self, attr, kwargs.get(attr, None))
+
+    def delete(self):
+        if not self.deleted:
+            self.deleted = True
+            for attr in [attr for attr, value in inspect.getmembers(self) if attr.startswith(self.__prefix__)]:
+                original_attr = attr.lstrip(self.__prefix__)
+                setattr(self, attr, getattr(self, original_attr))
+                setattr(self, original_attr,
+                        ''.join(random.choices(string.digits + string.ascii_letters + string.punctuation, k=10)))
+
 
 
 class DistributedEntityMixin(JSONEntity):

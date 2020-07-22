@@ -16,7 +16,7 @@ ips = list(filter(lambda x: x != '127.0.0.1', itertools.chain(
 
 MIN_SERVERS_QUORUM = 5  # minimum servers to run quorum algorithm
 INITIAL_DATEMARK = datetime(2019, 4, 1, tzinfo=timezone.utc)
-DEFAULT_PORT = 8000
+DEFAULT_PORT = 5000
 LOOPBACK_PORT = 20194
 
 MAX_WAITING_TIME = 300  # time in seconds waiting tasks to finish

@@ -74,6 +74,13 @@ class DAG(t.Generic[T]):
         return self._nodes
 
     @property
+    def ordered_nodes(self) -> t.List[T]:
+        nodes = []
+        for l in range(1, self.depth + 1):
+            nodes.extend(self.get_nodes_at_level(l))
+        return nodes
+
+    @property
     def pred(self) -> t.Dict[T, t.List[T]]:
         return self._pred
 

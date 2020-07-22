@@ -6,8 +6,8 @@ from werkzeug.exceptions import InternalServerError
 
 from dm.domain.entities import User
 from dm.domain.entities.bootstrap import set_initial
+from dm.network.auth import HTTPBearerAuth
 from dm.web import create_app, db, errors
-from dm.web.network import HTTPBearerAuth
 
 
 class TestApi(TestCase):

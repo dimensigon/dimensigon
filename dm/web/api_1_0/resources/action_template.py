@@ -25,11 +25,21 @@ class ActionTemplateList(Resource):
     @lock_catalog
     def post(self):
         json_data = request.get_json()
-        json_data['action_type'] = ActionType[json_data['action_type']]
-        at = ActionTemplate(**json_data)
-        db.session.add(at)
+        if isinstance(json_data, dict):
+            json_data = [json_data]
+        resp_data = []
+        for json_at in json_data:
+            json_at['action_type'] = ActionType[json_at['action_type']]
+            if 'version' not in json_at:
+                json_at['version'] = ActionTemplate.query.filter_by(name=json_at['name']).count() + 1
+            at = ActionTemplate(**json_at)
+            db.session.add(at)
+            data = {'id': at.id}
+            if 'version' not in json_at:
+                data.update(version=at.version)
+            resp_data.append(data)
         db.session.commit()
-        return {'action_template_id': str(at.id)}, 201
+        return resp_data[0] if isinstance(request.get_json(), dict) else resp_data, 201
 
 
 class ActionTemplateResource(Resource):

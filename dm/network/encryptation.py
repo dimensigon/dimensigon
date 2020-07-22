@@ -4,14 +4,11 @@ import json
 import pickle
 import typing as t
 
-import aiohttp
-import requests
 import rsa
 
 from dm.domain.entities import Server
-from dm.utils.helpers import generate_url, encrypt, decrypt
+from dm.utils.helpers import encrypt, decrypt
 from .exceptions import NotValidMessage
-from .. import defaults
 
 if t.TYPE_CHECKING:
     pass
@@ -164,60 +161,3 @@ def unpack_msg(msg, pub_key: rsa.PublicKey = None, priv_key: rsa.PrivateKey = No
     return data
 
 
-def send_message(destination: Server, source: Server, pub_key=None, priv_key=None, raise_for_status=True, data=None) -> \
-        t.Tuple[str, int]:
-    """Sends a message to the corresponding server
-
-    Parameters
-    ----------
-    destination
-    source
-    pub_key
-    priv_key
-    raise_for_status
-    data
-
-    Returns
-    -------
-    response t.Tuple[str, int]:
-        returns the response from the server in a tuple ('message response', 204) message response from server and
-        the corresponding HTTP code.
-    """
-    url = generate_url(destination, uri='/socket', protocol=defaults.PROTOCOL)
-    json = pack_msg(destination, source, pub_key, priv_key, data=data)
-    r = requests.post(url, json=json, verify=False)
-    # TODO Handle errors codes in HTTP to convert to understandable errors in Domain Application
-    if raise_for_status:
-        r.raise_for_status()
-    try:
-        response = r.json()
-    except ValueError:
-        response = r.text()
-    return response, r.status_code
-
-
-async def async_send_message(destination: Server, source: Server, pub_key=None, priv_key=None, raise_for_status=True,
-                             data=None) -> t.Any:
-    """Sends a message to the corresponding server
-
-    Parameters
-    ----------
-    destination:
-        server destination
-    kwargs:
-        kwargs will be sent through network to the destination
-
-    Returns
-    -------
-    response
-        returns the response from the server in a tuple ('message response', 204) message response from server and
-        the corresponding HTTP code.
-    """
-    url = generate_url(destination, uri='/socket', protocol=defaults.PROTOCOL)
-    json = pack_msg(destination, source, pub_key, priv_key, data=data)
-    async with aiohttp.ClientSession() as s:
-        r = await s.post(url, json=json)
-        # TODO Handle errors codes in HTTP to convert to understandable errors in Domain Application
-        if raise_for_status:
-            r.raise_for_status()
-        return await r.text(), r.status

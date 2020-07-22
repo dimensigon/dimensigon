@@ -31,7 +31,7 @@ from dm.web.network import pack_msg2, unpack_msg2
 from dm.web import create_app, db
 
 from dm.use_cases.use_cases import upgrade_catalog
-from dm.utils.helpers import generate_symmetric_key, generate_dimension
+from dm.utils.helpers import generate_symmetric_key, generate_dimension, get_now
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
 migrate = Migrate(db, user_module_prefix="sa.")
@@ -109,18 +109,20 @@ server: Reference Server which will allow to join the dimension. You must specif
 token: Authentication Token used for authentication to the reference server""")
 @click.argument('server', nargs=1)
 @click.argument('token', nargs=1)
+@click.option('--port', nargs=1, default=5000)
 @click.option('--ssl/--no-ssl', help="makes connection with HTTP protocol", default=True)
 @click.option('--verify/--no-verify', help="verifies certificate", default=False)
 @with_appcontext
-def join(server, token, ssl, verify):
+def join(server, token, port, ssl, verify):
     Server.set_initial()
     db.session.commit()
     protocol = "https" if ssl else "http"
     with requests.Session() as session:
         # TODO: send ca.cert from the dimension
         try:
-            resp = session.get(f"{protocol}://{server}/api/v1.0/join/public", headers={'Authorization': 'Bearer ' + token},
-                           verify=verify, timeout=5)
+            resp = session.get(f"{protocol}://{server}:{port}/api/v1.0/join/public",
+                               headers={'Authorization': 'Bearer ' + token},
+                               verify=verify, timeout=5)
         except requests.exceptions.ConnectionError as e:
             click.echo(f"Unable to contact to {server}")
             exit(1)
@@ -141,7 +143,7 @@ def join(server, token, ssl, verify):
         data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
         click.echo("Joining to dimension")
         try:
-            resp = session.post(f"{protocol}://{server}/api/v1.0/join", json=data,
+            resp = session.post(f"{protocol}://{server}:{port}/api/v1.0/join", json=data,
                                 headers={'Authorization': 'Bearer ' + token}, verify=verify)
         except requests.exceptions.ConnectionError as e:
             click.echo(f"Error while trying to join the dimension: {e}")

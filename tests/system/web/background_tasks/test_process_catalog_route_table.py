@@ -11,10 +11,10 @@ from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Gate, Locker, Catalog
 from dm.domain.entities import Server, Route, Dimension, User
+from dm.network.auth import HTTPBearerAuth
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.background_tasks import TempRoute, update_table_routing_cost, process_catalog_route_table
-from dm.web.network import HTTPBearerAuth
 from tests.helpers import set_callbacks
 
 

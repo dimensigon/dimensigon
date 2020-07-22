@@ -5,12 +5,12 @@ from unittest import TestCase, mock
 from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import ActionTemplate, ActionType, Orchestration, Server
+from dm.network.auth import HTTPBearerAuth
 from dm.use_cases.deployment import UndoCommand, CompositeCommand, CompletedProcess, Command, \
     create_cmd_from_orchestration, ProxyCommand, ProxyUndoCommand
 from dm.utils.helpers import get_now
 from dm.utils.var_context import VarContext
 from dm.web import create_app, db
-from dm.web.network import HTTPBearerAuth
 
 
 class TestCompositeCommand(TestCase):

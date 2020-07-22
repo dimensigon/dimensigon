@@ -9,12 +9,13 @@ from sqlalchemy.orm import sessionmaker
 
 from dm.domain.entities import Server, Catalog
 from dm.domain.entities.locker import Scope
+from dm.network.auth import HTTPBearerAuth
 from dm.use_cases.helpers import get_servers_from_scope
 from dm.utils.asyncio import run, create_task
 from dm.utils.helpers import is_iterable_not_string
 from dm.utils.typos import Id
 from dm.web import errors, db
-from dm.web.network import async_post, HTTPBearerAuth, Response
+from dm.web.network import async_post, Response
 
 
 async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope, applicant, auth=None,

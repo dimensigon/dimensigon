@@ -10,9 +10,9 @@ from pyfakefs.fake_filesystem_unittest import TestCase
 
 from dm.domain.entities import Server, Route, Dimension, Software, SoftwareServerAssociation, Transfer, TransferStatus
 from dm.domain.entities.bootstrap import set_initial
+from dm.network.auth import HTTPBearerAuth
 from dm.utils.helpers import generate_dimension, md5
 from dm.web import create_app, db
-from dm.web.network import HTTPBearerAuth
 from tests.helpers import set_callbacks, ValidateResponseMixin
 
 

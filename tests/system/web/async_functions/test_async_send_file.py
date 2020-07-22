@@ -8,11 +8,11 @@ from pyfakefs.fake_filesystem_unittest import TestCase
 
 from dm.domain.entities import Server, Route, Dimension, Transfer, TransferStatus
 from dm.domain.entities.bootstrap import set_initial
+from dm.network.auth import HTTPBearerAuth
 from dm.utils.asyncio import run
 from dm.utils.helpers import generate_dimension, md5
 from dm.web import create_app, db
 from dm.web.async_functions import async_send_file
-from dm.web.network import HTTPBearerAuth
 from tests.helpers import set_callbacks
 
 

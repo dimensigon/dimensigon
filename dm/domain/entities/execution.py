@@ -5,7 +5,7 @@ from datetime import datetime
 
 from dm import defaults
 from dm.domain.entities.base import EntityReprMixin
-from dm.utils.typos import UUID, JSONEncodedDict, JSON, UtcDateTime
+from dm.utils.typos import UUID, UtcDateTime
 from dm.web import db
 from .server import Server
 from ...utils.helpers import is_iterable_not_string, get_now
@@ -31,7 +31,7 @@ class StepExecution(db.Model, EntityReprMixin):
 
     start_time = db.Column(UtcDateTime(timezone=True), nullable=False, default=get_now())
     end_time = db.Column(UtcDateTime(timezone=True))
-    params = db.Column(JSONEncodedDict)
+    params = db.Column(db.JSON)
     rc = db.Column(db.Integer)
     stdout = db.Column(db.Text)
     stderr = db.Column(db.Text)
@@ -98,8 +98,8 @@ class OrchExecution(db.Model, EntityReprMixin):
     start_time = db.Column(UtcDateTime(timezone=True), nullable=False, default=get_now)
     end_time = db.Column(UtcDateTime(timezone=True))
     orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'), nullable=False)
-    target = db.Column(JSON)
-    params = db.Column(JSON)
+    target = db.Column(db.JSON)
+    params = db.Column(db.JSON)
     executor_id = db.Column(UUID, db.ForeignKey('D_user.id'))
     service_id = db.Column(UUID, db.ForeignKey('D_service.id'))
     success = db.Column(db.Boolean)
@@ -137,9 +137,17 @@ class OrchExecution(db.Model, EntityReprMixin):
             data.update(target=d)
             data.update(executor=str(self._executor) if self._executor else None)
             data.update(service=str(self.service) if self.service else None)
-            data.update(
-                orchestration=str(self.orchestration) if self.orchestration else None)
-            data.update(server=str(self.server) if self.server else None)
+            if self.orchestration:
+                data.update(
+                    orchestration=dict(id=str(self.orchestration.id), name=self.orchestration.name,
+                                       version=self.orchestration.version))
+            else:
+                data.update(
+                    orchestration=None)
+            if self.server:
+                data.update(server=dict(id=str(self.server.id), name=self.server.name))
+            else:
+                data.update(server=None)
         else:
             data.update(target=self.target)
             data.update(

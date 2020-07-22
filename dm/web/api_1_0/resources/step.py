@@ -29,12 +29,12 @@ class StepList(Resource):
             json_data = [json_data]
 
         new_id_steps = []
-        id2step = {}
-        relation_steps = {}
-        o = None
+        rid2step = {}
+        dependencies = {}
+        o: Orchestration = None
         for json_step in json_data:
             rid = json_step.pop('id', None)
-            if rid is not None and rid in id2step.keys():
+            if rid is not None and rid in rid2step.keys():
                 raise errors.DuplicatedId(rid)
             if o is None or str(o.id) != json_step.get('orchestration_id'):
                 o = Orchestration.query.get_or_404(json_step.pop('orchestration_id'))
@@ -44,34 +44,37 @@ class StepList(Resource):
                 json_step['action_template'] = ActionTemplate.query.get_or_404(json_step.pop('action_template_id'))
             elif 'action_type' in json_step:
                 json_step['action_type'] = ActionType[json_step.pop('action_type')]
-            parent_steps = []
-            for parent_step_id in json_step.pop('parent_step_ids', []):
-                if parent_step_id in id2step:
-                    ps = id2step[parent_step_id]
-                else:
-                    ps = Step.query.get_or_404(parent_step_id)
-                parent_steps.append(ps)
-            json_step['parents'] = parent_steps
-            child_steps = []
-            for child_step_id in json_step.pop('child_step_ids', []):
-                if child_step_id in id2step:
-                    cs = id2step[child_step_id]
-                else:
-                    cs = Step.query.get_or_404(child_step_id)
-                child_steps.append(cs)
-            json_step['children'] = child_steps
-
+            dependencies[rid] = {'parent_step_ids': json_step.pop('parent_step_ids', []),
+                                 'child_step_ids': json_step.pop('child_step_ids', [])}
             s = o.add_step(**json_step)
             db.session.add(s)
             new_id_steps.append(str(s.id))
             if rid:
-                id2step[rid] = s
+                rid2step[rid] = s
 
             continue
 
+        # process dependencies
+        for rid, dep in dependencies.items():
+            step = rid2step[rid]
+            parents = []
+            for p_s_id in dep['parent_step_ids']:
+                if p_s_id in rid2step:
+                    parents.append(rid2step[p_s_id])
+                else:
+                    parents.append(Step.query.get_or_404(p_s_id))
+            o.set_parents(step, parents)
+            children = []
+            for c_s_id in dep['child_step_ids']:
+                if c_s_id in rid2step:
+                    children.append(rid2step[c_s_id])
+                else:
+                    children.append(Step.query.get_or_404(c_s_id))
+            o.set_children(step, children)
+
         db.session.commit()
 
-        return {'step_id': new_id_steps[0]} if len(new_id_steps) == 1 else {'step_ids': new_id_steps}, 201
+        return {'step_id': new_id_steps[0]} if isinstance(json_data, dict) else {'step_ids': new_id_steps}, 201
 
 
 class StepResource(Resource):
@@ -100,14 +103,14 @@ class StepResource(Resource):
         for parent_step_id in parent_step_ids:
             cs = Step.query.get_or_404(parent_step_id)
             parent_steps.append(cs)
-            s.orchestration.add_parents(s, parent_steps)
+            s.orchestration.set_parents(s, parent_steps)
 
         child_step_ids = json_data.pop('child_step_ids', [])
         child_steps = []
         for child_step_id in child_step_ids:
             cs = Step.query.get_or_404(child_step_id)
             child_steps.append(cs)
-            s.orchestration.add_children(s, child_steps)
+            s.orchestration.set_children(s, child_steps)
 
         s.stop_on_error = json_data.pop('stop_on_error', None)
         s.stop_undo_on_error = json_data.pop('stop_undo_on_error', None)

@@ -11,6 +11,7 @@ from werkzeug.exceptions import InternalServerError
 
 from dm import defaults
 from dm.utils.helpers import is_iterable_not_string, is_string_types
+from dm.utils.typos import Id
 
 if t.TYPE_CHECKING:
     from dm.web.network import Response
@@ -79,6 +80,7 @@ def handle_error(error):
 def validation_error(error: ValidationError):
     response = {"error": {'type': error.__class__.__name__,
                           'message': error.message,
+                          'path': list(error.absolute_path),
                           'schema': error.schema}}
     return response, 400
 
@@ -313,6 +315,16 @@ class TargetNotNeeded(BaseError):
         return f"Target not in orchestration"
 
 
+class EmptyTarget(BaseError):
+    status_code = 400
+
+    def __init__(self, target: str):
+        self.target = target
+
+    def _format_error_msg(self) -> str:
+        return f"Target does not have any host specified"
+
+
 class DuplicatedId(BaseError):
     status_code = 400
 
@@ -326,15 +338,41 @@ class DuplicatedId(BaseError):
     def payload(self) -> t.Optional[dict]:
         return {'id': self.rid}
 
-class ParentUndoError(BaseError):
+
+class UndoStepWithoutParent(BaseError):
+
+    def __init__(self, step_id: Id) -> None:
+        self.step_id = step_id
 
     def _format_error_msg(self) -> str:
-        return "fa 'do' step cannot have parent 'undo' steps"
+        return "'undo' step must have a parent step"
+
+
+class ParentUndoError(BaseError):
+
+    def __init__(self, step_id: Id, parent_step_ids: t.Union[Id, t.List[Id]]) -> None:
+        if isinstance(parent_step_ids, str):
+            self.parent_step_ids = [parent_step_ids]
+        else:
+            self.parent_step_ids = parent_step_ids
+        self.step_id = step_id
+
+    def _format_error_msg(self) -> str:
+        return "a 'do' step cannot have parent 'undo' steps"
+
 
 class ChildDoError(BaseError):
 
+    def __init__(self, step_id: Id, child_step_ids: t.Union[Id, t.List[Id]]) -> None:
+        if isinstance(child_step_ids, str):
+            self.child_step_ids = [child_step_ids]
+        else:
+            self.child_step_ids = child_step_ids
+        self.step_id = step_id
+
     def _format_error_msg(self) -> str:
         return "an 'undo' step cannot have child 'do' steps"
+
 
 class CycleError(BaseError):
 
@@ -375,6 +413,16 @@ class SoftwareServerNotFound(BaseError):
         return "Software Server Association not found"
 
 
+class NoSoftwareServer(BaseError):
+    status_code = 500
+
+    def __init__(self, software_id):
+        self.software_id = software_id
+
+    def _format_error_msg(self) -> str:
+        return "Software does not have any server location"
+
+
 class ChunkSendError(BaseError):
     status_code = 500
 
@@ -389,7 +437,38 @@ class ChunkSendError(BaseError):
         return {'chunks': {c: r.to_dict() for c, r in self.chunk_responses.items()}}
 
 
-class TransferNotInValidState(BaseError):
+class TransferBase(BaseError):
+    status_code = 409
+
+
+class TransferFileAlreadyExists(TransferBase):
+
+    def __init__(self, file=None):
+        self.file = file
+
+    def _format_error_msg(self) -> str:
+        return "File already exists. Use force=True if needed"
+
+
+class TransferFileAlreadyOpen(TransferBase):
+
+    def __init__(self, file=None):
+        self.file = file
+
+    def _format_error_msg(self) -> str:
+        return "There is already a transfer sending file"
+
+
+class TransferSoftwareAlreadyOpen(TransferBase):
+
+    def __init__(self, software_id=None):
+        self.software_id = software_id
+
+    def _format_error_msg(self) -> str:
+        return "There is already a transfer sending software"
+
+
+class TransferNotInValidState(TransferBase):
     status_code = 410
 
     def __init__(self, transfer_id: str, status: str):
@@ -485,3 +564,13 @@ class HealthCheckMismatch(BaseError):
 
     def _format_error_msg(self) -> str:
         return "Healtcheck response does not match with the server requested"
+
+
+class ParameterMustBeSet(BaseError):
+    status_code = 404
+
+    def __init__(self, msg):
+        self.msg = msg
+
+    def _format_error_msg(self) -> str:
+        return self.msg

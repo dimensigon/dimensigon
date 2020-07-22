@@ -7,9 +7,8 @@ import uuid
 
 import rsa
 from dateutil.tz import tzlocal
-from sqlalchemy import types, DateTime
+from sqlalchemy import types, DateTime, Enum as _Enum
 from sqlalchemy.dialects.postgresql import UUID as pUUID
-from sqlalchemy.ext.mutable import MutableDict
 
 Kwargs = t.Union[t.Mapping['str', t.Any]]
 Id = t.TypeVar('Id', int, str, uuid.UUID, tuple)
@@ -19,6 +18,8 @@ Id_or_Ids = t.Union[Id, Ids]
 IPs = t.Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 Gate = t.Union[t.Tuple[t.Union[str, IPs], int]]
+
+tJSON = t.Union[t.List[t.Dict[str, t.Any]], t.Dict[str, t.Any]]
 
 Callback = t.Tuple[t.Callable[[], None], t.Tuple, t.Dict]
 
@@ -136,7 +137,7 @@ class UUID(TypeDecorator):
         return value.lower()
 
 
-class Enum(TypeDecorator):
+class Enum(_Enum):
     """Platform-independent GUID type.
 
     Uses Postgresql's UUID type, otherwise uses
@@ -145,20 +146,6 @@ class Enum(TypeDecorator):
     """
     impl = types.VARCHAR(80)
 
-    def __init__(self, enum, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.enum = enum
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return value
-        return value.name
-
-    def process_result_value(self, value, dialect):
-        if value is None:
-            return value
-        else:
-            return self.enum[value]
 
 
 class UUIDEncoder(json.JSONEncoder):
@@ -167,25 +154,6 @@ class UUIDEncoder(json.JSONEncoder):
             return str(obj)
         # Let the base class default method raise the TypeError
         return json.JSONEncoder.default(self, obj)
-
-
-class JSONEncodedDict(TypeDecorator):
-    impl = types.JSON
-
-    def process_bind_param(self, value, dialect):
-        if value is not None:
-            value = json.dumps(value, cls=UUIDEncoder)
-        return value
-
-    def process_result_value(self, value, dialect):
-        if value is not None:
-            value = json.loads(value)
-        else:
-            value = {}
-        return value
-
-
-JSON = MutableDict.as_mutable(JSONEncodedDict)
 
 
 class PrivateKey(TypeDecorator):

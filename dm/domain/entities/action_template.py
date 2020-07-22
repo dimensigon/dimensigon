@@ -1,10 +1,11 @@
 import copy
 from enum import Enum
 
+from sqlalchemy import orm
+
 from dm import defaults
 from dm.domain.entities.base import UUIDistributedEntityMixin
 from dm.utils import typos
-from dm.utils.typos import JSON, Kwargs
 from dm.web import db
 
 
@@ -24,17 +25,17 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
     version = db.Column(db.Integer, nullable=False)
     action_type = db.Column(typos.Enum(ActionType), nullable=False)
     code = db.Column(db.Text, nullable=False)
-    parameters = db.Column(JSON)
+    parameters = db.Column(db.JSON)
     expected_stdout = db.Column(db.Text)
     expected_stderr = db.Column(db.Text)
     expected_rc = db.Column(db.Integer)
-    system_kwargs = db.Column(JSON)
+    system_kwargs = db.Column(db.JSON)
     pre_process = db.Column(db.Text)
     post_process = db.Column(db.Text)
 
-    def __init__(self, name: str, version: int, action_type: ActionType, code: str = None, parameters: Kwargs = None,
+    def __init__(self, name: str, version: int, action_type: ActionType, code: str = None, parameters: typos.Kwargs = None,
                  expected_stdout: str = None, expected_stderr: str = None, expected_rc: int = None,
-                 system_kwargs: Kwargs = None, pre_process: str = None, post_process: str = None,
+                 system_kwargs: typos.Kwargs = None, pre_process: str = None, post_process: str = None,
                  **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         self.name = name
@@ -51,25 +52,23 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
 
     __table_args__ = (db.UniqueConstraint('name', 'version'),)
 
+    @orm.reconstructor
+    def init_on_load(self):
+        self.parameters = self.parameters or {}
+        self.system_kwargs = self.system_kwargs or {}
+
     def to_json(self):
         data = super().to_json()
         data.update(name=self.name, version=self.version,
                     action_type=self.action_type.name,
                     code=self.code)
-        if self.parameters:
-            data.update(parameters=self.parameters)
-        if self.system_kwargs:
-            data.update(system_kwargs=self.system_kwargs)
-        if self.expected_stdout is not None:
-            data.update(expected_stdout=self.expected_stdout)
-        if self.expected_stderr is not None:
-            data.update(expected_stderr=self.expected_stderr)
-        if self.expected_rc is not None:
-            data.update(expected_rc=self.expected_rc)
-        if self.pre_process is not None:
-            data.update(pre_process=self.pre_process)
-        if self.post_process is not None:
-            data.update(post_process=self.post_process)
+        data.update(parameters=self.parameters)
+        data.update(system_kwargs=self.system_kwargs)
+        data.update(expected_stdout=self.expected_stdout)
+        data.update(expected_stderr=self.expected_stderr)
+        data.update(expected_rc=self.expected_rc)
+        data.update(pre_process=self.pre_process)
+        data.update(post_process=self.post_process)
         return data
 
     @classmethod

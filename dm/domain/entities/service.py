@@ -3,7 +3,7 @@ from datetime import datetime
 
 from dm.domain.entities.base import DistributedEntityMixin, EntityReprMixin
 from dm.utils.helpers import get_now
-from dm.utils.typos import UUID, Kwargs, JSON, UtcDateTime
+from dm.utils.typos import UUID, Kwargs, UtcDateTime
 from dm.web import db
 
 
@@ -22,7 +22,7 @@ class Service(db.Model, EntityReprMixin, DistributedEntityMixin):
 
     id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(255), nullable=False)
-    details = db.Column(JSON)
+    details = db.Column(db.JSON)
     created_on = db.Column(UtcDateTime(timezone=True), nullable=False, default=get_now)
     last_ping = db.Column(UtcDateTime(timezone=True))
     status = db.Column(db.String(40))

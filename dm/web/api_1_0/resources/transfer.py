@@ -9,10 +9,12 @@ from sqlalchemy import or_
 
 import dm.defaults as d
 from dm.domain.entities import Transfer, TransferStatus, Software
+from dm.domain.entities.transfer import Status
 from dm.utils.helpers import md5, get_now
 from dm.web import db, errors
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema
-from dm.web.json_schemas import transfers_post, transfer_post
+from dm.web.helpers import filter_query
+from dm.web.json_schemas import transfers_post, transfer_post, transfer_patch
 
 
 class TransferList(Resource):
@@ -21,7 +23,8 @@ class TransferList(Resource):
     @jwt_required
     @securizer
     def get(self):
-        return [t.to_json() for t in Transfer.query.all()]
+        query = filter_query(Transfer, request.args)
+        return [t.to_json() for t in query.all()]
 
     @forward_or_dispatch
     @jwt_required
@@ -38,7 +41,7 @@ class TransferList(Resource):
                     Transfer.status == TransferStatus.IN_PROGRESS)).all()
 
             if pending and not json_data.get('cancel_pending', False):
-                return {"error": f"There is already a transfer sending software {soft.id}"}, 409
+                raise errors.TransferSoftwareAlreadyOpen(str(soft.id))
             elif pending and json_data['cancel_pending']:
                 for trans in pending:
                     trans.status = TransferStatus.CANCELED
@@ -53,8 +56,7 @@ class TransferList(Resource):
                     Transfer.status == TransferStatus.IN_PROGRESS)).all()
 
             if pending and not json_data.get('cancel_pending', False):
-                return {"error": f"There is already a transfer sending file "
-                                 f"{os.path.join(json_data['dest_path'], json_data['filename'])}"}, 409
+                raise errors.TransferFileAlreadyOpen(os.path.join(json_data['dest_path'], json_data['filename']))
             elif pending and json_data.get('cancel_pending', False):
                 for trans in pending:
                     trans.status = TransferStatus.CANCELED
@@ -64,7 +66,7 @@ class TransferList(Resource):
 
         if os.path.exists(file):
             if not json_data.get('force', False):
-                return {"error": "File already exists. Use force=True if needed"}, 409
+                raise errors.TransferFileAlreadyExists(file)
             else:
                 try:
                     os.remove(file)
@@ -102,7 +104,7 @@ class TransferList(Resource):
 
         db.session.add(t)
         db.session.commit()
-        return {'transfer_id': str(t.id)}, 202
+        return {'id': str(t.id)}, 202
 
 
 CHUNK_READ_BUFFER = d.CHUNK_SIZE
@@ -115,6 +117,17 @@ class TransferResource(Resource):
     @securizer
     def get(self, transfer_id):
         return Transfer.query.get_or_404(transfer_id).to_json()
+
+    @forward_or_dispatch
+    @jwt_required
+    @securizer
+    @validate_schema(transfer_patch)
+    def patch(self, transfer_id):
+        data = request.get_json()
+        trans: Transfer = Transfer.query.get_or_404(transfer_id)
+        trans.status = Status[data.get('status')]
+        db.session.commit()
+        return {'transfer_id': transfer_id, 'status': str(trans.status)}, 200
 
     @forward_or_dispatch
     @jwt_required
@@ -153,7 +166,7 @@ class TransferResource(Resource):
     @forward_or_dispatch
     @jwt_required
     @securizer
-    def patch(self, transfer_id):
+    def put(self, transfer_id):
         """ends the transfer creating the file"""
         trans: Transfer = Transfer.query.get_or_404(transfer_id)
         if trans.status == TransferStatus.COMPLETED:

@@ -8,8 +8,8 @@ from flask_jwt_extended import create_access_token
 from dm.domain.entities import Server, Software, SoftwareServerAssociation
 from dm.domain.entities import User
 from dm.domain.entities.bootstrap import set_initial
+from dm.network.auth import HTTPBearerAuth
 from dm.web import create_app, db, errors
-from dm.web.network import HTTPBearerAuth
 from dm.web.network import Response
 from tests.helpers import ValidateResponseMixin
 

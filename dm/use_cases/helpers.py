@@ -4,7 +4,7 @@ from flask_jwt_extended import create_access_token
 
 from dm import defaults
 from dm.domain.entities import Scope, Server, User
-from dm.web.network import HTTPBearerAuth
+from dm.network.auth import HTTPBearerAuth
 
 
 def get_servers_from_scope(scope: Scope, *args, **kwargs) -> t.List[Server]:

@@ -11,10 +11,11 @@ from flask_jwt_extended import create_access_token, verify_jwt_in_request
 from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, User, Locker
 from dm import defaults
 from dm.domain.entities import Server, Dimension, Catalog
+from dm.network.auth import HTTPBearerAuth
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.background_tasks import update_catalog
-from dm.web.network import HTTPBearerAuth, Response
+from dm.web.network import Response
 from tests.helpers import set_callbacks
 
 basedir = os.path.abspath(os.path.dirname(__file__))

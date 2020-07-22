@@ -5,10 +5,11 @@ import uuid
 from collections import ChainMap
 
 from jinja2schema import infer
+from sqlalchemy import orm
 
 from dm import defaults
 from dm.domain.entities.base import UUIDistributedEntityMixin
-from dm.utils.typos import UUID, JSON, ScalarListType, UtcDateTime
+from dm.utils.typos import UUID, ScalarListType, UtcDateTime
 from dm.web import db, errors
 from .action_template import ActionType
 from ...utils import typos
@@ -34,13 +35,11 @@ class Step(db.Model, UUIDistributedEntityMixin):
     step_stop_on_error = db.Column("stop_on_error", db.Boolean)
     step_stop_undo_on_error = db.Column("stop_undo_on_error", db.Boolean)
     step_undo_on_error = db.Column("undo_on_error", db.Boolean)
-    step_parameters = db.Column("parameters", JSON)
+    step_parameters = db.Column("parameters", db.JSON)
     step_expected_stdout = db.Column("expected_stdout", db.Text)
     step_expected_stderr = db.Column("expected_stderr", db.Text)
     step_expected_rc = db.Column("expected_rc", db.Integer)
-    step_system_kwargs = db.Column("system_kwargs", JSON)
-    regexp_fetch = db.Column(db.Text)
-    error_on_fetch = db.Column(db.Boolean)
+    step_system_kwargs = db.Column("system_kwargs", db.JSON)
     target = db.Column(ScalarListType(str))
     created_on = db.Column(UtcDateTime(), nullable=False, default=get_now())
     step_action_type = db.Column("action_type", typos.Enum(ActionType))
@@ -72,7 +71,7 @@ class Step(db.Model, UUIDistributedEntityMixin):
                  expected_rc: t.Optional[int] = None, parameters: t.Dict[str, t.Any] = None,
                  system_kwargs: t.Dict[str, t.Any] = None,
                  parent_steps: t.List['Step'] = None, children_steps: t.List['Step'] = None,
-                 target: t.Union[str, t.Iterable[str]] = None, regexp_fetch=None, error_on_fetch=True, name=None, **kwargs):
+                 target: t.Union[str, t.Iterable[str]] = None, name=None, **kwargs):
 
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         assert undo in (False, True)
@@ -98,8 +97,6 @@ class Step(db.Model, UUIDistributedEntityMixin):
         self.step_code = code if code is not None else kwargs.pop('step_code', None)
         self.step_post_process = post_process if post_process is not None else kwargs.pop('step_post_process', None)
         self.step_pre_process = pre_process if pre_process is not None else kwargs.pop('step_pre_process', None)
-        self.regexp_fetch = regexp_fetch
-        self.error_on_fetch = error_on_fetch
         self.orchestration = orchestration
         self.parent_steps = parent_steps or []
         self.children_steps = children_steps or []
@@ -110,10 +107,14 @@ class Step(db.Model, UUIDistributedEntityMixin):
                 self.target = [target] if isinstance(target, str) else (target if len(target) > 0 else ['all'])
         else:
             if target:
-                raise ValueError('target must not be set when creating an UNDO step')
-        self.created_on = kwargs.get('created_on')
+                raise errors.BaseError('target must not be set when creating an UNDO step')
+        self.created_on = kwargs.get('created_on') or get_now()
         self.step_name = name if name is not None else kwargs.pop('step_name', None)
 
+    @orm.reconstructor
+    def init_on_load(self):
+        self.parameters = self.parameters or {}
+        self.system_kwargs = self.system_kwargs or {}
 
     @property
     def parents(self):
@@ -293,7 +294,7 @@ class Step(db.Model, UUIDistributedEntityMixin):
         defined_params = set(self.parameters.keys())
         params_from_param_value = set()
         for v in self.parameters.values():
-            params_from_param_value.union(re.findall(r'\{\{\s*([\.\w]+)\s*\}\}', v, flags=re.MULTILINE))
+            params_from_param_value.union(re.findall(r'\{\{\s*([\.\w]+)\s*\}\}', str(v), flags=re.MULTILINE))
 
         return code_params.union(params_from_param_value).difference(defined_params)
 
@@ -361,33 +362,32 @@ class Step(db.Model, UUIDistributedEntityMixin):
             if step in self.children_steps:
                 self.children_steps.remove(step)
 
-    def to_json(self):
+    def to_json(self, add_action=False):
         data = super().to_json()
         if getattr(self.orchestration, 'id', None):
             data.update(orchestration_id=str(self.orchestration.id))
         if getattr(self.action_template, 'id', None):
-            data.update(action_template_id=str(self.action_template.id))
-        data.update(undo=self.undo, stop_on_error=self.step_stop_on_error,
-                    stop_undo_on_error=self.step_stop_undo_on_error,
-                    undo_on_error=self.step_undo_on_error,
-                    parameters=self.step_parameters,
-                    expected_stdout=self.step_expected_stdout,
-                    expected_stderr=self.step_expected_stderr,
-                    expected_rc=self.step_expected_rc,
-                    system_kwargs=self.step_system_kwargs,
-                    parent_step_ids=[str(step.id) for step in self.parents],
-                    regexp_fetch=self.regexp_fetch,
-                    error_on_fetch=self.error_on_fetch)
-        if self.step_code:
-            data.update(step_code=self.step_code)
-        if self.step_action_type:
-            data.update(action_type=self.step_action_type.name)
-        if self.step_post_process:
-            data.update(post_process=self.step_post_process)
-        if self.step_pre_process:
-            data.update(pre_process=self.step_pre_process)
-        if self.created_on is not None:
-            data.update(created_on=self.created_on.strftime(defaults.DATETIME_FORMAT))
+            if add_action:
+                data.update(action_template=self.action_template.to_json())
+            else:
+                data.update(action_template_id=str(self.action_template.id))
+        data.update(undo=self.undo)
+        data.update(stop_on_error=self.step_stop_on_error) if self.step_stop_on_error is not None else None
+        data.update(
+            stop_undo_on_error=self.step_stop_undo_on_error) if self.step_stop_undo_on_error is not None else None
+        data.update(undo_on_error=self.step_undo_on_error) if self.step_undo_on_error is not None else None
+        data.update(parameters=self.step_parameters) if self.step_parameters is not None else None
+        data.update(expected_stdout=self.step_expected_stdout) if self.step_expected_stdout is not None else None
+        data.update(expected_stderr=self.step_expected_stderr) if self.step_expected_stderr is not None else None
+        data.update(expected_rc=self.step_expected_rc) if self.step_expected_rc is not None else None
+        data.update(system_kwargs=self.step_system_kwargs) if self.step_system_kwargs is not None else None
+        data.update(parent_step_ids=[str(step.id) for step in self.parents])
+        data.update(code=self.step_code) if self.step_code is not None else None
+        data.update(action_type=self.step_action_type.name) if self.step_action_type is not None else None
+        data.update(post_process=self.step_post_process) if self.step_post_process is not None else None
+        data.update(pre_process=self.step_pre_process) if self.step_pre_process is not None else None
+        data.update(created_on=self.created_on.strftime(defaults.DATETIME_FORMAT))
+
         return data
 
     @classmethod

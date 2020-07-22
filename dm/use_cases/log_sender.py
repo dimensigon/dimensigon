@@ -4,9 +4,9 @@ import os
 import typing as t
 
 from dm.domain.entities import Log, Server
+from dm.domain.entities.log import Mode
 from dm.use_cases.helpers import get_auth_root
 from dm.utils import asyncio
-from dm.utils.helpers import remove_prefix
 from dm.utils.pygtail import Pygtail
 from dm.utils.typos import Id
 from dm.web.network import async_post
@@ -49,7 +49,7 @@ class LogSender:
         logs = self.logs
         id2log = {log.id: log for log in logs}
         # remove logs
-        for log_id in self._mapper.keys():
+        for log_id in list(self._mapper.keys()):
             if log_id not in id2log:
                 del self._mapper[log_id]
 
@@ -85,24 +85,34 @@ class LogSender:
                 dirnames[:] = new_dirnames
 
     async def send_new_data(self):
-
         self.update_mapper()
-
         tasks = []
-
         auth = get_auth_root()
         for log_id, pb in self._mapper.items():
             log = Log.query.get(log_id)
             for pytail in pb:
                 data = pytail.fetch()
                 data = data.encode() if isinstance(data, str) else data
-                if log.dest_folder:
-                    if pytail.file == log.target:
-                        file = os.path.join(log.dest_folder, os.path.basename(log.target))
-                    else:
-                        file = os.path.join(log.dest_folder, remove_prefix(pytail.file, log.target).lstrip('/'))
-                else:
+                if log.mode == Mode.MIRROR:
                     file = pytail.file
+                elif log.mode == Mode.REPO_ROOT:
+                    path_to_remove = os.path.dirname(log.target)
+                    relative = os.path.relpath(pytail.file, path_to_remove)
+                    file = os.path.join('{LOG_REPO}', relative)
+                elif log.mode == Mode.FOLDER:
+                    path_to_remove = os.path.dirname(log.target)
+                    relative = os.path.relpath(pytail.file, path_to_remove)
+                    file = os.path.join(log.dest_folder, relative)
+                else:
+                    def get_root(dirname):
+                        new_dirname = os.path.dirname(dirname)
+                        if new_dirname == dirname:
+                            return dirname
+                        else:
+                            return get_root(new_dirname)
+
+                    relative = os.path.relpath(pytail.file, get_root(pytail.file))
+                    file = os.path.join('{LOG_REPO}', relative)
                 task = asyncio.create_task(
                     async_post(log.destination_server, 'api_1_0.logresource', view_data={'log_id': str(log_id)},
                                json={"file": file, 'data': base64.b64encode(data).decode('ascii')},
@@ -112,16 +122,16 @@ class LogSender:
                 logger.debug(f"Sending data from '{pytail.file}' to '{log.destination_server}'")
 
         for task, pytail, log in tasks:
-            response, status_code = await task
-            if isinstance(response, Exception):
-                logger.exception(
-                    f"Unable to send log information from '{pytail.file}' to '{log.destination_server}'",
-                    exc_info=response)
+            response = await task
+            if response.ok:
+                pytail.update_offset_file()
+                logger.debug(f"Updated offset from '{pytail.file}'")
             else:
-                if 199 < status_code < 300:
-                    pytail.update_offset_file()
-                    logger.debug(f"Updated offset from '{pytail.file}'")
+                if response.exception:
+                    logger.exception(
+                        f"Unable to send log information from '{pytail.file}' to '{log.destination_server}'",
+                        exc_info=response)
                 else:
                     logger.error(
-                        f"Unable to send log information from '{pytail.file}' to '{log.destination_server}'. Error"
+                        f"Unable to send log information from '{pytail.file}' to '{log.destination_server}'. Error:"
                         f"{response[1]}, {response[0]}")

@@ -4,9 +4,10 @@ from unittest.mock import patch
 from flask_jwt_extended import create_access_token
 from pkg_resources import parse_version
 
+from dm.network.auth import HTTPBearerAuth
 from dm.web import create_app, db
 from dm.web.background_tasks import upgrade_version, catalog_logger
-from dm.web.network import HTTPBearerAuth, Response
+from dm.web.network import Response
 
 
 class Test(TestCase):

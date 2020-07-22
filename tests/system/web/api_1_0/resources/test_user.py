@@ -2,8 +2,8 @@ from flask import url_for
 from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Server, User
+from dm.network.auth import HTTPBearerAuth
 from dm.web import create_app, db
-from dm.web.network import HTTPBearerAuth
 from tests.helpers import TestCaseLockBypass
 
 

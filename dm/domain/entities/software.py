@@ -58,7 +58,7 @@ class Software(db.Model, UUIDistributedEntityMixin):
     size = db.Column(db.Integer)
     checksum = db.Column(db.Text())
 
-    ssas: t.List[SoftwareServerAssociation] = db.relationship("SoftwareServerAssociation", back_populates="software")
+    ssas: t.List[SoftwareServerAssociation]= db.relationship("SoftwareServerAssociation", back_populates="software")
 
     __table_args__ = (
         db.UniqueConstraint('name', 'version', name='D_software_u01'),)
@@ -72,10 +72,16 @@ class Software(db.Model, UUIDistributedEntityMixin):
         self.size = size
         self.checksum = checksum
 
-    def to_json(self):
+    def to_json(self, servers=False):
         data = super().to_json()
         data.update({'name': self.name, 'version': self.version, 'family': self.family,
                      'filename': self.filename, 'size': self.size, 'checksum': self.checksum})
+        if servers:
+            servers = []
+            for ssa in self.ssas:
+                server_data = dict(server=ssa.server.name, server_id=str(ssa.server.id), path=ssa.path)
+                servers.append(server_data)
+            data.update(servers=servers)
         return data
 
     @classmethod

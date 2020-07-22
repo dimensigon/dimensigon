@@ -13,7 +13,7 @@ from .dimension import Dimension
 from .execution import StepExecution, OrchExecution
 from .gate import Gate
 from .locker import Locker, State, Scope
-from .log import Log
+from .log import Log, Mode as LogMode
 from .orchestration import Orchestration
 from .route import Route
 from .server import Server
@@ -37,6 +37,7 @@ __all__ = [
     "State",
     "Scope",
     "Log",
+    "LogMode",
     "Orchestration",
     "Route",
     "Service",

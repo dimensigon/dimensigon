@@ -9,10 +9,10 @@ from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import Server, Route, Dimension, User
 from dm.domain.entities.bootstrap import set_initial
+from dm.network.auth import HTTPBearerAuth
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.api_1_0.urls.use_cases import wrap_sudo
-from dm.web.network import HTTPBearerAuth
 
 
 class TestLaunchCommand(TestCase):

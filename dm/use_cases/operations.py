@@ -18,13 +18,14 @@ from flask_jwt_extended import create_access_token, get_jwt_identity
 
 from dm import defaults
 from dm.domain.entities import Step, Server, Software, OrchExecution
+from dm.network.auth import HTTPBearerAuth
 from dm.utils import subprocess
 from dm.utils.helpers import get_now
 from dm.utils.typos import Kwargs
 from dm.utils.var_context import VarContext
 from dm.web import db, errors
 from dm.web.helpers import normalize_hosts
-from dm.web.network import HTTPBearerAuth, request, get
+from dm.web.network import request, get
 
 
 @dataclass

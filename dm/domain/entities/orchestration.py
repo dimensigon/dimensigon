@@ -7,7 +7,8 @@ from dm.domain.entities.base import UUIDistributedEntityMixin
 from dm.utils.dag import DAG
 from dm.web import db, errors
 from .step import Step
-from ...utils.typos import JSON
+from ...utils.helpers import get_now
+from ...utils.typos import UtcDateTime
 
 if t.TYPE_CHECKING:
     from dm.domain.entities import ActionTemplate, ActionType
@@ -25,7 +26,8 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     stop_on_error = db.Column(db.Boolean)
     stop_undo_on_error = db.Column(db.Boolean)
     undo_on_error = db.Column(db.Boolean)
-    parameters = db.Column("parameters", JSON)
+    parameters = db.Column("parameters", db.JSON)
+    created_at = db.Column(UtcDateTime(timezone=True), default=get_now)
 
     steps = db.relationship("Step", primaryjoin="Step.orchestration_id==Orchestration.id",
                             back_populates="orchestration")
@@ -35,7 +37,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     def __init__(self, name: str, version: int, description: t.Optional[str] = None, steps: t.List[Step] = None,
                  stop_on_error: bool = True, stop_undo_on_error: bool = True, undo_on_error: bool = True,
                  parameters=None,
-                 dependencies: Tdependencies = None, **kwargs):
+                 dependencies: Tdependencies = None, created_at=None, **kwargs):
 
         UUIDistributedEntityMixin.__init__(self, **kwargs)
 
@@ -50,6 +52,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         assert isinstance(undo_on_error, bool)
         self.undo_on_error = undo_on_error
         self.parameters = parameters or {}
+        self.created_at = created_at or get_now()
 
         if dependencies:
             self.set_dependencies(dependencies)
@@ -58,6 +61,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
 
     @orm.reconstructor
     def init_on_load(self):
+        self.parameters = self.parameters or {}
         self._graph = DAG()
         for step in self.steps:
             if step.parents:
@@ -170,10 +174,10 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         children = children or []
         if parents:
             if any([p.undo for p in parents]) and not step.undo:
-                raise errors.ParentUndoError()
+                raise errors.ParentUndoError(self.step.id, [p.undo for p in parents if p.undo])
         if children:
             if any([not c.undo for c in children]) and step.undo:
-                raise errors.ChildDoError()
+                raise errors.ChildDoError(self.step.id, [c.undo for c in children if not c.undo])
         g = self._graph.copy()
         g.add_edges_from([(p, step) for p in parents])
         g.add_edges_from([(step, c) for c in children])
@@ -388,13 +392,21 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     def subtree(self, steps: t.Union[t.List[Step], t.Iterable[Step]]) -> t.Dict[Step, t.List[Step]]:
         return self._graph.subtree(steps)
 
-    def to_json(self, add_target=False, add_params=False):
+    def to_json(self, add_target=False, add_params=False, add_steps=False, add_action=False):
         data = super().to_json()
-        data.update(name=self.name, version=self.version)
+        data.update(name=self.name, version=self.version, stop_on_error=self.stop_on_error,
+                    undo_on_error=self.undo_on_error, stop_undo_on_error=self.stop_undo_on_error)
         if add_target:
             data.update(target=list(self.target))
         if add_params:
             data.update(params=list(self.user_parameters))
+        if add_steps:
+            json_steps = []
+            for step in self.steps:
+                json_step = step.to_json(add_action=add_action)
+                json_step.pop('orchestration_id')
+                json_steps.append(json_step)
+            data['steps'] = json_steps
         return data
 
     @classmethod

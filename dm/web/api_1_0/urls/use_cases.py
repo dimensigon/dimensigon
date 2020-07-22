@@ -1,16 +1,19 @@
 import base64
 import concurrent
+import copy
 import datetime as dt
+import functools
 import ipaddress
 import math
 import os
 import pickle
+import random
 import re
-import shlex
 import time
 import traceback
 import typing as t
 import uuid
+from collections import OrderedDict
 
 from flask import request, current_app, jsonify, g
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, current_user
@@ -19,8 +22,10 @@ from pkg_resources import parse_version
 import dm
 from dm import defaults as d, defaults
 from dm.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
-    Orchestration, OrchExecution, User
+    Orchestration, OrchExecution, User, ActionTemplate, ActionType
+from dm.network.auth import HTTPBearerAuth
 from dm.utils import asyncio, subprocess
+from dm.utils.dag import DAG
 from dm.utils.event_handler import Event
 from dm.utils.helpers import get_distributed_entities, is_iterable_not_string, md5, get_now
 from dm.utils.typos import Id
@@ -33,9 +38,9 @@ from dm.web.background_tasks import update_table_routing_cost, _get_neighbour_ca
 from dm.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dm.web.helpers import check_param_in_uri, normalize_hosts, search
 from dm.web.json_schemas import launch_command_post, routes_post, routes_patch, \
-    launch_orchestration_post, send_post
-from dm.web.network import HTTPBearerAuth, post, get
+    launch_orchestration_post, send_post, orchestration_full
 from dm.web.network import async_post
+from dm.web.network import post, get
 
 if t.TYPE_CHECKING:
     from dm.use_cases.operations import IOperationEncapsulation
@@ -72,7 +77,7 @@ def join():
         Route(destination=s, cost=0)
         db.session.add(s)
         db.session.commit()
-        catalog = fetch_catalog(dt.datetime(dt.MINYEAR, 1, 1, tzinfo=dt.timezone.utc))
+        catalog = fetch_catalog(defaults.INITIAL_DATEMARK)
         catalog.update(Dimension=g.dimension.to_json())
         catalog.update(me=str(Server.get_current().id))
         return catalog, 200
@@ -86,6 +91,19 @@ def join():
 @securizer
 @validate_schema(send_post)
 def send():
+    def search_cost(ssa, route_list):
+        cost = [route['cost'] for route in route_list if str(ssa.server.id) == route['destination_id']]
+        if cost:
+            if cost[0] is None:
+                cost = 999999
+            else:
+                cost = cost[0]
+        else:
+            cost = 999999
+        return cost
+
+    auth = HTTPBearerAuth(create_access_token(get_jwt_identity(), expires_delta=dt.timedelta(
+        minutes=30)))
     # Validate Data
     json_data = request.get_json()
 
@@ -95,13 +113,28 @@ def send():
         software = Software.query.get_or_404(json_data['software_id'])
 
         ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
+        # if current server does not have the software, forward request to the closest server who has it
         if not ssa:
-            raise errors.SoftwareServerNotFound(software_id=json_data['software_id'],
-                                                server_id=json_data['dest_server_id'])
-        file = os.path.join(ssa.path, software.filename)
-        if not os.path.exists(file):
-            raise errors.FileNotFound(file)
-        size = ssa.software.size
+            resp = get(dest_server, 'api_1_0.routes', auth=auth, timeout=5)
+            if resp.code == 200:
+                ssas = copy.copy(software.ssas)
+                ssas.sort(key=functools.partial(search_cost, route_list=resp.msg['route_list']))
+            # unable to get route cost, we take the first option we have
+            else:
+                ssas = random.shuffle(list(software.ssas))
+            if len(ssas) == 0:
+                raise errors.NoSoftwareServer(software_id=str(software.id))
+            server = ssas[0].server  # closest server from dest_server who has the software
+
+            resp = post(server, 'api_1_0.send', json=json_data, auth=auth)
+            resp.raise_if_not_ok()
+            return resp.msg, resp.code
+        else:
+
+            file = os.path.join(ssa.path, software.filename)
+            if not os.path.exists(file):
+                raise errors.FileNotFound(file)
+            size = ssa.software.size
     else:
         file = json_data['file']
         if os.path.exists(file):
@@ -115,20 +148,18 @@ def send():
     chunks = math.ceil(size / chunk_size)
 
     if 'software_id' in json_data:
-        json_msg = dict(software_id=str(software.id), num_chunks=chunks, dest_path=json_data.get('dest_path'))
+        json_msg = dict(software_id=str(software.id), num_chunks=chunks,
+                        dest_path=json_data.get('dest_path', current_app.config['SOFTWARE_REPO']))
     else:
         json_msg = dict(filename=os.path.basename(json_data.get('file')), size=size, checksum=checksum,
-                        num_chunks=chunks, dest_path=json_data.get('dest_path'))
+                        num_chunks=chunks, dest_path=json_data.get('dest_path', current_app.config['SOFTWARE_REPO']))
     if 'force' in json_data:
         json_msg['force'] = json_data['force']
-
-    auth = HTTPBearerAuth(create_access_token(get_jwt_identity(), expires_delta=dt.timedelta(
-        minutes=30)))
 
     resp = post(dest_server, 'api_1_0.transferlist', json=json_msg, auth=auth)
     resp.raise_if_not_ok()
 
-    transfer_id = resp.msg.get('transfer_id')
+    transfer_id = resp.msg.get('id')
     current_app.logger.debug(
         f"Transfer {transfer_id} created. Sending {file} to {dest_server}:{json_data.get('dest_path')}.")
 
@@ -430,6 +461,9 @@ def launch_orchestration(orchestration_id):
     if not_found:
         raise errors.ServerNormalizationError(not_found)
 
+    for target, target_hosts in hosts.items():
+        if len(target_hosts) == 0:
+            raise errors.EmptyTarget(target)
     # check param entries
     # rest = orchestration.user_parameters - set(params.keys())
     # if rest:
@@ -468,7 +502,7 @@ async def parallel_command_run(servers, data, auth):
     server_responses = {}
     for server in servers:
         server_responses[str(server.id)] = asyncio.create_task(
-            async_post(server, 'api_1_0.launch_command', json=data, auth=auth, timeout=data.get('timeout', None) + 1))
+            async_post(server, 'api_1_0.launch_command', json=data, auth=auth, timeout=data.get('timeout', None)))
 
     for server in servers:
         server_responses[str(server.id)] = await server_responses[str(server.id)]
@@ -481,9 +515,9 @@ def wrap_sudo(user, cmd):
     else:
         username = user
     if isinstance(cmd, str):
-        return f"sudo -u {username} -iS {cmd}"
+        return f"sudo -Siu {username} {cmd}"
     else:
-        args = ["sudo", "-u", username, "-iS"]
+        args = ["sudo", "-Siu", username]
         args.extend(cmd)
         return args
 
@@ -525,19 +559,16 @@ def launch_command():
     data.pop('hosts', None)
     start = None
     resp = {}
+    username = getattr(current_user, 'user', None)
+    if not username:
+        raise errors.EntityNotFound('User', current_user)
+    cmd = wrap_sudo(username, data['command'])
     if g.server in server_list:
         start = time.time()
         server_list.pop(server_list.index(g.server))
-        username = getattr(current_user, 'user', None)
-        if not username:
-            return {"error": f"User '{get_jwt_identity()}' not found"}, 404
-
-        args = shlex.split(data['command'])
-        cmd = wrap_sudo(username, args)
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if data.get('input', None) else None,
                                 stderr=subprocess.PIPE, stdout=subprocess.PIPE,
-                                encoding='utf-8'
-                                )
+                                shell=True, close_fds=True)
 
     resp_data = {}
     if server_list:
@@ -563,25 +594,32 @@ def launch_command():
     if start:
         timeout = data.get('timeout', defaults.TIMEOUT_COMMAND)
         try:
-            outs, errs = proc.communicate(input=data.get('input', None),
-                                          timeout=timeout - (time.time() - start))
+            outs, errs = proc.communicate(input=(data.get('input', '') or '').encode(), timeout=timeout - (time.time() - start))
         except (TimeoutError, subprocess.TimeoutExpired):
             proc.kill()
-            outs, errs = proc.communicate()
-            resp_data[str(g.server.id)] = {
-                'error': f"Command '{' '.join(cmd)}' timed out after {timeout} seconds",
-                'stdout': outs, 'stderr': errs}
+            try:
+                outs, errs = proc.communicate(timeout=1)
+            except:
+                resp_data[str(g.server.id)] = {
+                    'error': f"Command '{cmd}' timed out after {timeout} seconds. Unable to communicate with the process."}
+            else:
+                resp_data[str(g.server.id)] = {
+                    'error': f"Command '{cmd}' timed out after {timeout} seconds",
+                    'stdout': outs.split('\n'), 'stderr': errs.split('\n')}
         except Exception as e:
             current_app.logger.exception("Exception raised while trying to run command")
             resp_data[str(g.server.id)] = {
                 'error': traceback.format_exc() if current_app.config['DEBUG'] else traceback.format_exception_only()}
         else:
-            resp_data[str(g.server.id)] = {'stdout': outs, 'stderr': errs, 'returncode': proc.returncode}
+            resp_data[str(g.server.id)] = {'stdout': outs.decode().split('\n'), 'stderr': errs.decode().split('\n'),
+                                           'returncode': proc.returncode}
     if check_param_in_uri("human"):
         convert_human = {}
         for s_id, r in resp_data.items():
             convert_human[Server.query.get(s_id).name] = r
         resp_data = convert_human
+    resp_data['cmd'] = cmd
+    resp_data['input'] = data.get('input', None)
     return resp_data, 200
 
 
@@ -593,3 +631,80 @@ def events(event_id):
     e = Event(event_id, data=request.get_json())
     current_app.events.dispatch(e)
     return {}, 202
+
+
+@api_bp.route('/orchestrations/full', methods=['POST'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+@validate_schema(orchestration_full)
+@lock_catalog
+def orchestrations_full():
+    json_data = request.get_json()
+    json_steps = json_data.pop('steps')
+    generated_version = False
+    if 'version' not in json_data:
+        generated_version = True
+        json_data['version'] = Orchestration.query.filter_by(name=json_data['name']).count() + 1
+    o = Orchestration(**json_data)
+    db.session.add(o)
+    resp_data = {'id': str(o.id)}
+    if generated_version:
+        resp_data.update(version=o.version)
+
+    # reorder steps in order of dependency
+    id2step = {str(s['id']): s for s in json_steps}
+
+    dag = DAG()
+    for s in json_steps:
+        step_id = str(s['id'])
+        if s['undo'] and len(s.get('parent_step_ids', [])) == 0:
+            raise errors.UndoStepWithoutParent(step_id)
+        dag.add_node(step_id)
+        for p_s_id in s.get('parent_step_ids', []):
+            dag.add_edge(str(p_s_id), step_id)
+
+    if dag.is_cyclic():
+        raise errors.CycleError
+
+    new_steps = []
+    for step_id in dag.ordered_nodes:
+        step = id2step[step_id]
+        new_steps.append(step)
+    # end reorder steps in order of dependency
+
+    rid2step = OrderedDict()
+    dependencies = {}
+    for json_step in new_steps:
+        rid = str(json_step.pop('id', None))
+        if rid is not None and rid in rid2step.keys():
+            raise errors.DuplicatedId(rid)
+        if 'action_template_id' in json_step:
+            json_step['action_template'] = ActionTemplate.query.get_or_404(json_step.pop('action_template_id'))
+        elif 'action_type' in json_step:
+            json_step['action_type'] = ActionType[json_step.pop('action_type')]
+        dependencies[rid] = {'parent_step_ids': [str(p_id) for p_id in json_step.pop('parent_step_ids', [])]}
+        s = o.add_step(**json_step)
+        db.session.add(s)
+        if rid:
+            rid2step[rid] = s
+
+        continue
+
+    # process dependencies
+    for rid, dep in dependencies.items():
+        step = rid2step[rid]
+        parents = []
+        for p_s_id in dep['parent_step_ids']:
+            if p_s_id in rid2step:
+                parents.append(rid2step[p_s_id])
+        o.set_parents(step, parents)
+
+    db.session.commit()
+
+    # send new ids in order of appearance at beginning
+    new_id_steps = []
+    for rid in rid2step.keys():
+        new_id_steps.append(str(rid2step[rid].id))
+    resp_data.update({'step_ids': new_id_steps})
+    return resp_data, 201

@@ -9,8 +9,8 @@ from pyfakefs.fake_filesystem_unittest import TestCase
 
 from dm.domain.entities import Software, SoftwareServerAssociation, Server, Transfer, TransferStatus
 from dm.domain.entities.bootstrap import set_initial
+from dm.network.auth import HTTPBearerAuth
 from dm.web import create_app, db
-from dm.web.network import HTTPBearerAuth
 
 
 class TestTransferList(TestCase):
@@ -72,7 +72,7 @@ class TestTransferList(TestCase):
                                       'num_chunks': 16}, headers=self.auth.header)
         self.assertEqual(202, resp.status_code)
         data = resp.json
-        t: Transfer = Transfer.query.get(data.get('transfer_id'))
+        t: Transfer = Transfer.query.get(data.get('id'))
         self.assertEqual(self.soft.id, t.software.id)
         self.assertEqual(16, t.num_chunks)
         self.assertEqual('/new_dest_path', t.dest_path)
@@ -88,7 +88,7 @@ class TestTransferList(TestCase):
                                       'num_chunks': 16}, headers=self.auth.header)
         self.assertEqual(202, resp.status_code)
         data = resp.json
-        t: Transfer = Transfer.query.get(data.get('transfer_id'))
+        t: Transfer = Transfer.query.get(data.get('id'))
         self.assertEqual(self.soft.id, t.software.id)
         self.assertEqual(16, t.num_chunks)
         self.assertEqual(self.dest_path, t.dest_path)
@@ -334,7 +334,7 @@ class TestTransferResource(TestCase):
             resp.get_json())
         self.assertTrue(os.path.exists(os.path.join(self.dest_path, self.filename)))
 
-    def test_patch_transfer_file(self):
+    def test_put_transfer_file(self):
         self.transfer.status = TransferStatus.IN_PROGRESS
         db.session.commit()
         for chunk_content, chunk_id in zip([self.content[i:i + 4] for i in range(0, len(self.content), 4)],
@@ -343,7 +343,7 @@ class TestTransferResource(TestCase):
             with open(os.path.join(self.dest_path, f"{self.filename}_chunk.{chunk_id}"), 'wb') as fh:
                 fh.write(chunk_content)
 
-        resp = self.client.patch(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
+        resp = self.client.put(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
                                  headers=self.auth.header)
         self.assertEqual(201, resp.status_code)
         self.assertDictEqual({'message': f"File {os.path.join(self.dest_path, self.filename)} from transfer "
@@ -352,17 +352,17 @@ class TestTransferResource(TestCase):
         with open(os.path.join(self.dest_path, self.filename), 'rb') as fh:
             self.assertEqual(self.content, fh.read())
 
-    def test_patch_transfer_status_completed(self):
+    def test_put_transfer_status_completed(self):
         self.transfer.status = TransferStatus.COMPLETED
         db.session.commit()
 
-        resp = self.client.patch(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
+        resp = self.client.put(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
                                  headers=self.auth.header)
         self.assertEqual(410, resp.status_code)
         self.assertDictEqual({'error': 'Transfer has already completed'}, resp.get_json())
 
-    def test_patch_transfer_status_waiting_chunks(self):
-        resp = self.client.patch(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
+    def test_put_transfer_status_waiting_chunks(self):
+        resp = self.client.put(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
                                  headers=self.auth.header)
         self.assertEqual(406, resp.status_code)
         self.assertDictEqual({'error': 'Transfer still waiting for chunks'}, resp.get_json())
@@ -377,7 +377,7 @@ class TestTransferResource(TestCase):
             with open(os.path.join(self.dest_path, f"{self.filename}_chunk.{chunk_id}"), 'wb') as fh:
                 fh.write(chunk_content)
 
-        resp = self.client.patch(
+        resp = self.client.put(
             url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id), _external=False),
             json={},
             headers=self.auth.header)
@@ -388,7 +388,7 @@ class TestTransferResource(TestCase):
     def test_create_file_error_no_chunk(self):
         self.transfer.status = TransferStatus.IN_PROGRESS
         db.session.commit()
-        resp = self.client.patch(
+        resp = self.client.put(
             url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id), _external=False),
             json={},
             headers=self.auth.header)
@@ -407,7 +407,7 @@ class TestTransferResource(TestCase):
             with open(os.path.join(self.dest_path, f"{self.filename}_chunk.{chunk_id}"), 'wb') as fh:
                 fh.write(chunk_content)
 
-        resp = self.client.patch(
+        resp = self.client.put(
             url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id), _external=False),
             json={},
             headers=self.auth.header)
@@ -430,7 +430,7 @@ class TestTransferResource(TestCase):
             with open(os.path.join(self.dest_path, f"{self.filename}_chunk.{chunk_id}"), 'wb') as fh:
                 fh.write(chunk_content)
 
-        resp = self.client.patch(
+        resp = self.client.put(
             url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id), _external=False),
             json={},
             headers=self.auth.header)

@@ -62,7 +62,7 @@ class TestSendDataLog(TestCase):
             interactor.stop_send_data_logs()
         self.remove_files()
 
-    @patch('dm.network.gateway.requests.post')
+    @patch('dm.network.encryptation.requests.post')
     def test_send_data_log(self, mock_post):
         set_response_from_mock(mock_post, url='http://server2.localdomain:81/socket?', status=200, json='')
         with self.app1.app_context():
@@ -116,7 +116,7 @@ class TestSendDataLog(TestCase):
             with open(self.file2) as fd:
                 self.assertEqual(''.join(self.lines[0:2]), fd.read())
 
-    @patch('dm.network.gateway.requests.post')
+    @patch('dm.network.encryptation.requests.post')
     def test_send_data_log_with_error(self, mock_post):
 
         with self.app1.app_context():

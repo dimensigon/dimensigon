@@ -54,7 +54,8 @@ class OrchExecutionList(Resource):
     @securizer
     def get(self):
         query = filter_query(OrchExecution, request.args)
-        return [oe.to_json(human=check_param_in_uri('human')) for oe in query.order_by(OrchExecution.start_time).all()]
+        return [oe.to_json(human=check_param_in_uri('human'), add_step_exec=check_param_in_uri('steps')) for oe in
+                query.order_by(OrchExecution.start_time).all()]
 
 
 class OrchExecutionResource(Resource):

@@ -20,8 +20,10 @@ class Config(object):
     SSL_VERIFY = False
 
     GIT_REPO = os.environ.get('DM_GIT_REPO') or 'https://codebase.knowtrade.ch:3000'
-    SOFTWARE_REPO = os.path.abspath(
-        os.environ.get('DM_SOFTWARE_REPO', os.path.join(os.path.expanduser("~"), 'software')))
+    SOFTWARE_REPO = os.path.abspath(os.path.expanduser(
+        os.environ.get('DM_SOFTWARE_REPO', os.path.join("~", 'software'))))
+    LOG_REPO = os.path.abspath(os.path.expanduser(
+        os.environ.get('DM_LOG_REPO', os.path.join("~", 'log'))))
     AUTOUPGRADE = True
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
@@ -32,6 +34,7 @@ class Config(object):
     def init_app(cls, app):
         os.makedirs(cls.SOFTWARE_REPO, exist_ok=True)
         os.makedirs(os.path.join(cls.SOFTWARE_REPO, 'dimensigon'), exist_ok=True)
+        os.makedirs(cls.LOG_REPO, exist_ok=True)
 
 
 class ProductionConfig(Config):

@@ -9,10 +9,12 @@ import rsa
 from flask import current_app, url_for, g
 from jsonschema import validate
 
+from dm import defaults
 from dm.domain.entities import Server, Scope, User
 from dm.network.exceptions import NotValidMessage
 from dm.use_cases.helpers import get_servers_from_scope
 from dm.use_cases.lock import lock_scope
+from dm.utils.helpers import get_now
 from dm.web import db, errors
 from dm.web.network import unpack_msg, pack_msg, unpack_msg2, pack_msg2
 
@@ -47,13 +49,19 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
 def _proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
     url = destination.url() + request.full_path
-    json = request.get_json()
+    req_data = request.get_json()
 
     if request.path == '/ping':
-        json['hops'] = json.get('hops', 0) + 1
-
+        server_data = {'id': str(g.server.id), 'name': g.server.name,
+                       'time': get_now().strftime(defaults.DATETIME_FORMAT)}
+        if req_data:
+            if 'servers' not in req_data:
+                req_data['servers'] = {}
+            req_data['servers'].update({len(req_data['servers']) + 1: server_data})
+        else:
+            req_data = dict(servers={1: server_data})
     kwargs = {
-        'json': json,
+        'json': req_data,
         'allow_redirects': False
     }
 
@@ -225,8 +233,24 @@ def lock_catalog(f):
     def wrapper(*args, **kw):
         servers = get_servers_from_scope(Scope.CATALOG)
         with lock_scope(Scope.CATALOG, servers):
-            ret = f(*args, **kw)
+            try:
+                ret = f(*args, **kw)
+            except Exception as e:
+                db.session.rollback()
+                raise
         return ret
+
+    return wrapper
+
+
+def rollback_on_error(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kw):
+        try:
+            return f(*args, **kw)
+        except Exception:
+            db.session.rollback()
+            raise
 
     return wrapper
 

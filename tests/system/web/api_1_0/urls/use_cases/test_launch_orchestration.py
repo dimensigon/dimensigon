@@ -13,9 +13,9 @@ from dm import defaults
 from dm.domain.entities import Server, Route, Dimension, User, ActionTemplate, ActionType, Orchestration, OrchExecution, \
     StepExecution
 from dm.domain.entities.bootstrap import set_initial
+from dm.network.auth import HTTPBearerAuth
 from dm.use_cases.use_cases import upgrade_catalog
 from dm.web import create_app, db
-from dm.web.network import HTTPBearerAuth
 from tests.helpers import set_callbacks, generate_dimension_json_data
 
 

@@ -5,7 +5,7 @@ from unittest.mock import patch
 import rsa
 from cryptography.fernet import Fernet
 
-from dm.network.gateway import pack_msg, unpack_msg
+from dm.network.encryptation import pack_msg, unpack_msg
 
 
 class TestPack_msg_pickle(TestCase):

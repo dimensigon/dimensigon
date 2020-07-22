@@ -8,9 +8,10 @@ from flask_jwt_extended import create_access_token
 
 from dm.domain.entities import User, ActionTemplate, Server, Software, SoftwareServerAssociation
 from dm.domain.entities.bootstrap import set_initial
+from dm.network.auth import HTTPBearerAuth
 from dm.use_cases.operations import RequestOperation, NativeWaitOperation
 from dm.web import create_app, db
-from dm.web.network import HTTPBearerAuth, Response
+from dm.web.network import Response
 
 
 class TestRequestOperation(TestCase):

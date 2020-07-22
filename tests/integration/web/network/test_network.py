@@ -8,12 +8,13 @@ from requests import PreparedRequest
 from requests.exceptions import ConnectTimeout
 
 from dm.domain.entities import Server, Dimension
+from dm.network.auth import HTTPBearerAuth
 from dm.utils import asyncio
 from dm.utils.asyncio import run
 from dm.utils.helpers import generate_dimension
 from dm.web import create_app, db
 from dm.web.decorators import securizer
-from dm.web.network import HTTPBearerAuth, get, post, async_get, async_post, Response, pack_msg, unpack_msg
+from dm.web.network import get, post, async_get, async_post, Response, pack_msg, unpack_msg
 from tests.helpers import generate_dimension_json_data
 
 healthcheck_view = 'root.healthcheck'

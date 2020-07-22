@@ -22,9 +22,9 @@ from flask_jwt_extended import create_access_token
 
 from dm import defaults
 from dm.domain.entities import User, update_datemark
+from dm.network.auth import HTTPBearerAuth
 from dm.utils.helpers import get_entities, get_distributed_entities
 from dm.web import create_app, db, errors
-from dm.web.network import HTTPBearerAuth
 
 
 def start_mock_server(port, mock_server_request_handler):

@@ -8,14 +8,14 @@ import requests
 import rsa
 from aiohttp import ContentTypeError
 from flask import current_app as __ca, current_app, url_for
-from requests.auth import AuthBase
 from requests.exceptions import Timeout
 
 from dm import defaults
 from dm.domain.entities import Server, Dimension, Gate
+from dm.network.encryptation import pack_msg as _pack_msg, unpack_msg as _unpack_msg
 from dm.network.exceptions import NotValidMessage
-from dm.network.gateway import pack_msg as _pack_msg, unpack_msg as _unpack_msg
-from dm.utils.typos import Kwargs
+from dm.utils.helpers import get_now
+from dm.utils.typos import Kwargs, tJSON
 from dm.web import errors
 
 requests.packages.urllib3.disable_warnings()
@@ -25,14 +25,15 @@ logger = logging.getLogger('dm.network')
 
 class Response:
 
-    def __init__(self, msg: t.Union[str, t.Dict[str, t.Any]] = None, code: int = None, exception: Exception = None,
+    def __init__(self, msg: tJSON = None, code: int = None, exception: Exception = None,
                  server=None,
-                 url=None):
+                 url=None, headers=None):
         self.code = code
         self.msg = msg
         self.exception = exception
         self.server = server
         self.url = url
+        self.headers = headers
 
     def __eq__(self, other):
         return isinstance(other, self.__class__) \
@@ -87,6 +88,11 @@ class Response:
     def raise_if_not_ok(self):
         self.raise_on_error()
         self.raise_for_status()
+
+    @property
+    def ok(self):
+        return not bool(self.exception) and bool(self.code) and 200 <= self.code <= 299
+
 
 
 def pack_msg(data, *args, **kwargs):
@@ -188,8 +194,8 @@ def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, veri
         try:
             tries += 1
             resp = requests.post(url,
-                                 json={'source': str(source.id)},
-                                 headers={'D-Destination': str(server.id)},
+                                 json={'start_time': get_now().strftime(defaults.DATETIME_FORMAT)},
+                                 headers={'D-Source': str(source.id), 'D-Destination': str(server.id)},
                                  verify=verify,
                                  timeout=timeout)
         except requests.exceptions.ReadTimeout as e:
@@ -209,32 +215,6 @@ def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, veri
         elif isinstance(exc, requests.exceptions.ConnectionError):
             logger.debug(f'Unable to connect with {url}')
     return cost, elapsed
-
-
-class HTTPBearerAuth(AuthBase):
-    def __init__(self, token):
-        self.token = token
-
-    def __eq__(self, other):
-        return self.token == getattr(other, 'token', None)
-
-    def __ne__(self, other):
-        return not self == other
-
-    def __call__(self, r):
-        if hasattr(r, 'headers'):
-            r.headers.update(self.header)
-        else:
-            r['headers'].update(self.header)
-            r.pop('auth', None)
-        return r
-
-    @property
-    def header(self):
-        return {'Authorization': str(self)}
-
-    def __str__(self):
-        return 'Bearer ' + self.token
 
 
 def _prepare_url(server: Server, view_or_url: str, view_data=None):
@@ -274,9 +254,12 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     content = None
     status = None
     json_data = None
+    headers = None
 
     if not session:
         _session = requests.session()
+    else:
+        _session = session
 
     raise_on_error = kwargs.pop('raise_on_error', False)
 
@@ -310,6 +293,7 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
 
     if exception is None:
         status = resp.status_code
+        headers = resp.headers
         try:
             json_data = resp.json()
         except (ValueError,):
@@ -324,7 +308,7 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
         if raise_on_error:
             raise exception
 
-    return Response(msg=content, code=status, exception=exception, server=server, url=url)
+    return Response(msg=content, code=status, exception=exception, server=server, url=url, headers=headers)
 
 
 def get(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
@@ -401,6 +385,7 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     try:
         async with func(url, **kwargs) as resp:
             status = resp.status
+            headers = resp.headers
             try:
                 json_data = await resp.json()
             except (ContentTypeError, ValueError):
@@ -425,7 +410,7 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     else:
         content = await resp.text()
 
-    return Response(msg=content, code=status, exception=exception, server=server, url=url)
+    return Response(msg=content, code=status, exception=exception, server=server, url=url, headers=headers)
 
 
 async def async_get(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,

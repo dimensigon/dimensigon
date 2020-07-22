@@ -1,39 +1,57 @@
 import copy
 import re
 import typing as t
+from enum import Enum
 
-from dm.domain.entities.base import UUIDistributedEntityMixin
-from dm.utils.typos import UUID
+from dm.domain.entities.base import UUIDistributedEntityMixin, SoftDeleteMixin
+from dm.utils import typos
 from dm.web import db
+from dm.web.helpers import QueryWithSoftDelete
 
 if t.TYPE_CHECKING:
     from dm.domain.entities import Server
 
 
-class Log(db.Model, UUIDistributedEntityMixin):
+class Mode(Enum):
+    REPO_MIRROR = 0
+    REPO_ROOT = 1
+    MIRROR = 2
+    FOLDER = 3
+
+
+class Log(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     __tablename__ = 'D_log'
 
-    src_server_id = db.Column(UUID, db.ForeignKey('D_server.id'), nullable=False)
+    src_server_id = db.Column(typos.UUID, db.ForeignKey('D_server.id'), nullable=False)
     target = db.Column(db.Text, nullable=False)
     include = db.Column(db.Text)
     exclude = db.Column(db.Text)
-    dst_server_id = db.Column(UUID, db.ForeignKey('D_server.id'), nullable=False)
+    dst_server_id = db.Column(typos.UUID, db.ForeignKey('D_server.id'), nullable=False)
+    mode = db.Column(typos.Enum(Mode))
     dest_folder = db.Column(db.Text)
     recursive = db.Column(db.Boolean, default=False)
+    _old_target = db.Column("$$target", db.Text)
 
     source_server = db.relationship("Server", foreign_keys=[src_server_id])
     destination_server = db.relationship("Server", foreign_keys=[dst_server_id])
 
     __table_args__ = (db.UniqueConstraint('src_server_id', 'target', 'dst_server_id'),)
 
+    query_class = QueryWithSoftDelete
+
     def __init__(self, source_server: 'Server', target: str, destination_server: 'Server', dest_folder=None,
-                 include=None, exclude=None, recursive=False, **kwargs):
+                 include=None, exclude=None, recursive=False, mode=Mode.REPO_MIRROR, **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
+        SoftDeleteMixin.__init__(self, **kwargs)
 
         self.source_server = source_server
         self.target = target
         self.destination_server = destination_server
         self.dest_folder = dest_folder
+        if self.dest_folder is None:
+            self.mode = mode
+        else:
+            self.mode = Mode.FOLDER
         self.include = include
         self._re_include = re.compile(self.include or '')
         self.exclude = exclude
@@ -43,19 +61,33 @@ class Log(db.Model, UUIDistributedEntityMixin):
     def __str__(self):
         return f"{self.source_server}:{self.target} -> {self.destination_server}:{self.dest_folder}"
 
-    def to_json(self):
+    def to_json(self, human=False, delete_data=True, include: t.List[str] = None, exclude: t.List[str] = None):
         data = super().to_json()
         if self.source_server.id is None or self.destination_server.id is None:
             raise RuntimeError('Set ids for servers before')
-        data.update(src_server_id=str(self.source_server.id), target=self.target, include=self.include,
-                    exclude=self.exclude, dst_server_id=str(self.destination_server.id), dest_folder=self.dest_folder,
-                    recursive=self.recursive)
+        data.update(target=self.target, include=self.include,
+                    exclude=self.exclude, dest_folder=self.dest_folder,
+                    recursive=self.recursive, mode=self.mode.name, deleted=self.deleted, _old_target=self._old_target)
+        if human:
+            data.update(src_server=str(self.source_server.name), dst_server=str(self.destination_server.name))
+        else:
+            data.update(src_server_id=str(self.source_server.id), dst_server_id=str(self.destination_server.id))
+
+        if not delete_data:
+            data.pop('deleted', None)
+            data = {k: v for k, v in data.items() if not k.startswith(SoftDeleteMixin.__prefix__)}
+
+        if include:
+            data = {k: v for k, v in data.items() if k in include}
+        if exclude:
+            data = {k: v for k, v in data.items() if k not in exclude}
         return data
 
     @classmethod
     def from_json(cls, kwargs) -> 'Log':
         from dm.domain.entities import Server
         kwargs = copy.deepcopy(kwargs)
+        kwargs['mode'] = Mode[kwargs.get('mode')]
         kwargs['source_server'] = db.session.query(Server).get(kwargs.pop('src_server_id'))
         kwargs['destination_server'] = db.session.query(Server).get(kwargs.pop('dst_server_id'))
         return super().from_json(kwargs)

@@ -30,7 +30,7 @@ class UserList(Resource):
         u.set_password(password)
         db.session.add(u)
         db.session.commit()
-        return {'user_id': str(u.id)}, 201
+        return {'id': str(u.id)}, 201
 
 
 class UserResource(Resource):

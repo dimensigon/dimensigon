@@ -14,7 +14,7 @@ from dm.utils import asyncio
 from dm.utils.helpers import get_now
 from dm.utils.typos import Id
 from dm.web import db, errors, executor
-from dm.web.network import async_post, async_patch
+from dm.web.network import async_post, async_put
 
 if t.TYPE_CHECKING:
     from dm.utils.var_context import VarContext
@@ -58,10 +58,10 @@ async def async_send_file(dest_server: Server, transfer_id: Id, file,
                     raise errors.TransferNotInValidState(transfer_id, resp.msg['error'].get(['status'], None))
 
             if len(retry_chunks) == 0 and chunks != 1:
-                resp = await async_patch(dest_server, 'api_1_0.transferresource',
-                                         view_data={'transfer_id': transfer_id},
-                                         session=session,
-                                         auth=auth)
+                resp = await async_put(dest_server, 'api_1_0.transferresource',
+                                       view_data={'transfer_id': transfer_id},
+                                       session=session,
+                                       auth=auth)
                 if resp.code != 201:
                     current_app.logger.error(
                         f"Transfer {transfer_id}: Unable to create file at destination {dest_server.name}: "

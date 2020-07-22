@@ -7,9 +7,9 @@ from flask_jwt_extended import create_access_token
 from dm import defaults
 from dm.domain.entities import User, Server, Route, Scope
 from dm.domain.entities.bootstrap import set_initial
+from dm.network.auth import HTTPBearerAuth
 from dm.use_cases.helpers import get_servers_from_scope
 from dm.web import create_app, db
-from dm.web.network import HTTPBearerAuth
 
 
 class Test(TestCase):

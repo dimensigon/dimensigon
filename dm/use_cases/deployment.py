@@ -20,13 +20,14 @@ from sqlalchemy.orm import sessionmaker
 
 from dm import defaults
 from dm.domain.entities import Server, Orchestration, Step, StepExecution, OrchExecution
+from dm.network.auth import HTTPBearerAuth
 from dm.use_cases.operations import CompletedProcess, IOperationEncapsulation, create_operation
 from dm.utils.dag import DAG
 from dm.utils.event_handler import Event
 from dm.utils.typos import Id
 from dm.utils.var_context import VarContext
 from dm.web import db
-from dm.web.network import post, HTTPBearerAuth
+from dm.web.network import post
 
 # if t.TYPE_CHECKING:
 
