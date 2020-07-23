@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(
-    name='dm',
+    name='dimensigon',
     version=dm.__version__,
     packages=find_packages(),
     url='https://github.com/dimensigon/dimensigon',
