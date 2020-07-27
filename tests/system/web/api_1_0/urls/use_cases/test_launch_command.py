@@ -7,12 +7,12 @@ from aioresponses import aioresponses, CallbackResult
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, Route, Dimension, User
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.utils.helpers import generate_dimension
-from dm.web import create_app, db
-from dm.web.api_1_0.urls.use_cases import wrap_sudo
+from dimensigon.domain.entities import Server, Route, Dimension, User
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.utils.helpers import generate_dimension
+from dimensigon.web import create_app, db
+from dimensigon.web.api_1_0.urls.use_cases import wrap_sudo
 
 
 class TestLaunchCommand(TestCase):
@@ -95,7 +95,7 @@ class TestLaunchCommand(TestCase):
                callback=partial(callback_client, 'POST', self.app2.test_client()), repeat=True)
 
     @aioresponses()
-    @mock.patch('dm.web.api_1_0.urls.use_cases.subprocess.Popen')
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.subprocess.Popen')
     def test_launch_command(self, m, mock_popen):
         self.maxDiff = None
         self.set_callbacks(m)
@@ -136,7 +136,7 @@ class TestLaunchCommand(TestCase):
                              resp.get_json())
 
     @aioresponses()
-    @mock.patch('dm.web.api_1_0.urls.use_cases.subprocess.Popen')
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.subprocess.Popen')
     def test_launch_command_timeout(self, m, mock_popen):
         self.maxDiff = None
         self.set_callbacks(m)

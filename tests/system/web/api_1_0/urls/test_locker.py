@@ -5,11 +5,11 @@ from unittest.mock import patch
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm import defaults
-from dm.domain.entities import Catalog
-from dm.domain.entities.bootstrap import set_initial
-from dm.domain.entities.locker import State, Locker, Scope
-from dm.web import create_app, db
+from dimensigon import defaults
+from dimensigon.domain.entities import Catalog
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.domain.entities.locker import State, Locker, Scope
+from dimensigon.web import create_app, db
 
 
 class TestLocker(TestCase):
@@ -27,7 +27,7 @@ class TestLocker(TestCase):
         db.session.commit()
         self.datemark = Catalog.max_catalog(str)
 
-        import dm.web.api_1_0.urls.locker as locker_mod
+        import dimensigon.web.api_1_0.urls.locker as locker_mod
         self.revert_preventing = locker_mod.revert_preventing
 
     def tearDown(self) -> None:
@@ -35,7 +35,7 @@ class TestLocker(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.web.api_1_0.urls.locker.defaults.TIMEOUT_PREVENTING_LOCK', 0.01)
+    @patch('dimensigon.web.api_1_0.urls.locker.defaults.TIMEOUT_PREVENTING_LOCK', 0.01)
     def test_lock_prevent_timer(self):
 
         resp = self.client.post(url_for('api_1_0.locker_prevent'),
@@ -58,7 +58,7 @@ class TestLocker(TestCase):
 
         self.assertEqual(State.UNLOCKED, l.state)
 
-    @mock.patch('dm.web.api_1_0.urls.locker.threading')
+    @mock.patch('dimensigon.web.api_1_0.urls.locker.threading')
     def test_lock(self, mock_thread):
 
         resp = self.client.post(url_for('api_1_0.locker_prevent'),

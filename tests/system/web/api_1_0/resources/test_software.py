@@ -3,11 +3,11 @@ import os
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Software, Server, User
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.utils.helpers import md5
-from dm.web import create_app, db
+from dimensigon.domain.entities import Software, Server, User
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.utils.helpers import md5
+from dimensigon.web import create_app, db
 from tests.helpers import TestCaseLockBypass
 
 

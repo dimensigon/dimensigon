@@ -4,12 +4,12 @@ from unittest import TestCase, mock
 
 from flask_jwt_extended import create_access_token
 
-from dm import defaults
-from dm.domain.entities import User, Server, Route, Scope
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.use_cases.helpers import get_servers_from_scope
-from dm.web import create_app, db
+from dimensigon import defaults
+from dimensigon.domain.entities import User, Server, Route, Scope
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.use_cases.helpers import get_servers_from_scope
+from dimensigon.web import create_app, db
 
 
 class Test(TestCase):
@@ -29,7 +29,7 @@ class Test(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @mock.patch('dm.domain.entities.get_now')
+    @mock.patch('dimensigon.domain.entities.get_now')
     def test_get_servers_from_scope_more_than_min_quorum(self, mock_get_now):
         mock_get_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
 
@@ -59,7 +59,7 @@ class Test(TestCase):
         self.assertIn(s, quorum)
         self.assertIn(Server.get_current(), quorum)
 
-    @mock.patch('dm.domain.entities.get_now')
+    @mock.patch('dimensigon.domain.entities.get_now')
     def test_get_servers_from_scope_less_than_min_quorum(self, mock_get_now):
         mock_get_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
 
@@ -77,7 +77,7 @@ class Test(TestCase):
         self.assertEqual(4, len(quorum))
         self.assertIn(Server.get_current(), quorum)
 
-    @mock.patch('dm.domain.entities.get_now')
+    @mock.patch('dimensigon.domain.entities.get_now')
     def test_get_servers_from_scope_more_than_min_quorum_no_cost(self, mock_get_now):
         mock_get_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
 

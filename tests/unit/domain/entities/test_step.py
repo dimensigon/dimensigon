@@ -2,10 +2,10 @@ from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
 
-from dm import defaults
-from dm.domain.entities import ActionType, Step, ActionTemplate, Orchestration
-from dm.utils.helpers import get_now
-from dm.web import create_app, db, errors
+from dimensigon import defaults
+from dimensigon.domain.entities import ActionType, Step, ActionTemplate, Orchestration
+from dimensigon.utils.helpers import get_now
+from dimensigon.web import create_app, db, errors
 
 
 class TestStep(TestCase):

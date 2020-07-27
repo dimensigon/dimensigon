@@ -1,7 +1,7 @@
 from unittest import TestCase
 
-from dm.domain.entities.bootstrap import set_initial
-from dm.web import create_app, db
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.web import create_app, db
 
 
 class TestRoot(TestCase):

@@ -9,12 +9,12 @@ from aioresponses import aioresponses
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Gate, Locker, Catalog
-from dm.domain.entities import Server, Route, Dimension, User
-from dm.network.auth import HTTPBearerAuth
-from dm.utils.helpers import generate_dimension
-from dm.web import create_app, db
-from dm.web.background_tasks import TempRoute, update_table_routing_cost, process_catalog_route_table
+from dimensigon.domain.entities import Gate, Locker, Catalog
+from dimensigon.domain.entities import Server, Route, Dimension, User
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.utils.helpers import generate_dimension
+from dimensigon.web import create_app, db
+from dimensigon.web.background_tasks import TempRoute, update_table_routing_cost, process_catalog_route_table
 from tests.helpers import set_callbacks
 
 
@@ -35,8 +35,8 @@ class TestUpdateTableRoutingCost(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.web.background_tasks.check_host', autospec=True)
-    @patch('dm.web.background_tasks.ping', autospec=True)
+    @patch('dimensigon.web.background_tasks.check_host', autospec=True)
+    @patch('dimensigon.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario1(self, mocked_ping, mocked_check_host):
         s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1')
@@ -108,8 +108,8 @@ class TestUpdateTableRoutingCost(TestCase):
         self.assertIsNone(s3.route)
         self.assertDictEqual({s2: (None, g2, 0)}, changed_routes)
 
-    @patch('dm.web.background_tasks.check_host', autospec=True)
-    @patch('dm.web.background_tasks.ping', autospec=True)
+    @patch('dimensigon.web.background_tasks.check_host', autospec=True)
+    @patch('dimensigon.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario2(self, mocked_ping, mocked_check_host):
         s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
@@ -176,8 +176,8 @@ class TestUpdateTableRoutingCost(TestCase):
 
         self.assertDictEqual({s3: (s2, None, 1)}, changed_routes)
 
-    @patch('dm.web.background_tasks.check_host', autospec=True)
-    @patch('dm.web.background_tasks.ping', autospec=True)
+    @patch('dimensigon.web.background_tasks.check_host', autospec=True)
+    @patch('dimensigon.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario3(self, mocked_ping, mocked_check_host):
         # Node 1 loses connection to gate's Node 2 and sets the second gate as default gate
@@ -240,8 +240,8 @@ class TestUpdateTableRoutingCost(TestCase):
         self.assertDictEqual({s2: TempRoute(
             None, g22, 0)}, changed_routes)
 
-    @patch('dm.web.background_tasks.check_host', autospec=True)
-    @patch('dm.web.background_tasks.ping', autospec=True)
+    @patch('dimensigon.web.background_tasks.check_host', autospec=True)
+    @patch('dimensigon.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario4(self, mocked_ping, mocked_check_host):
         s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
@@ -309,8 +309,8 @@ class TestUpdateTableRoutingCost(TestCase):
         self.assertDictEqual({s3: TempRoute(
             None, None, None)}, changed_routes)
 
-    @patch('dm.web.background_tasks.check_host', autospec=True)
-    @patch('dm.web.background_tasks.ping', autospec=True)
+    @patch('dimensigon.web.background_tasks.check_host', autospec=True)
+    @patch('dimensigon.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario5(self, mocked_ping, mocked_check_host):
         s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
@@ -360,8 +360,8 @@ class TestUpdateTableRoutingCost(TestCase):
 
         self.assertDictEqual({}, changed_routes)
 
-    @patch('dm.web.background_tasks.check_host', autospec=True)
-    @patch('dm.web.background_tasks.ping', autospec=True)
+    @patch('dimensigon.web.background_tasks.check_host', autospec=True)
+    @patch('dimensigon.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario6(self, mocked_ping, mocked_check_host):
         # Nodes have localhost and node2 is not a neighbour anymore
@@ -430,8 +430,8 @@ class TestUpdateTableRoutingCost(TestCase):
         self.assertDictEqual({s2: TempRoute(
             None, None, None)}, changed_routes)
 
-    @patch('dm.web.background_tasks.check_host', autospec=True)
-    @patch('dm.web.background_tasks.ping', autospec=True)
+    @patch('dimensigon.web.background_tasks.check_host', autospec=True)
+    @patch('dimensigon.web.background_tasks.ping', autospec=True)
     @responses.activate
     def test_update_table_routing_cost_scenario6(self, mocked_ping, mocked_check_host):
         # Node have localhost and node2 appears as a new neighbour
@@ -509,7 +509,7 @@ class TestUpdateTableRoutingCost(TestCase):
 
 class TestProcessCatalogRouteTable(TestCase):
 
-    @patch('dm.domain.entities.get_now')
+    @patch('dimensigon.domain.entities.get_now')
     def setUp(self, mock_now):
         """Create and configure a new app instance for each test."""
         # create the app with common test config
@@ -589,8 +589,8 @@ class TestProcessCatalogRouteTable(TestCase):
 
     @responses.activate
     @aioresponses()
-    @patch('dm.web.background_tasks.update_table_routing_cost', return_value=True)
-    @patch('dm.web.background_tasks.upgrade_version', return_value=False)
+    @patch('dimensigon.web.background_tasks.update_table_routing_cost', return_value=True)
+    @patch('dimensigon.web.background_tasks.upgrade_version', return_value=False)
     def test_catalog(self, m, mock_version, mock_routing):
         # test all system from process_catalog_route_table to lock server and upgrade catalog
         set_callbacks([("(127.0.0.1|node1)", self.app.test_client()),

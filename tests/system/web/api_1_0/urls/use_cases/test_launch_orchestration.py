@@ -9,13 +9,14 @@ from flask import url_for
 from flask_jwt_extended import create_access_token
 from pyfakefs.fake_filesystem_unittest import TestCase as FSTestCase
 
-from dm import defaults
-from dm.domain.entities import Server, Route, Dimension, User, ActionTemplate, ActionType, Orchestration, OrchExecution, \
+from dimensigon import defaults
+from dimensigon.domain.entities import Server, Route, Dimension, User, ActionTemplate, ActionType, Orchestration, \
+    OrchExecution, \
     StepExecution
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.use_cases.use_cases import upgrade_catalog
-from dm.web import create_app, db
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.use_cases.use_cases import upgrade_catalog
+from dimensigon.web import create_app, db
 from tests.helpers import set_callbacks, generate_dimension_json_data
 
 
@@ -110,7 +111,7 @@ class TestLaunchOrchestrationNested(FSTestCase):
         with self.app2.app_context():
             upgrade_catalog(self.dtos, check_mismatch=False)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run', autospec=True)
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run', autospec=True)
     @responses.activate
     @aioresponses()
     def test_launch_orchestration_nested_orchestration(self, mock_run, m):
@@ -235,7 +236,7 @@ class TestLaunchOrchestrationNested(FSTestCase):
         with self.app2.app_context():
             upgrade_catalog(self.dtos, check_mismatch=False)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     @aioresponses()
     def test_launch_orchestration_install_software_local(self, mock_run, m):
@@ -279,7 +280,7 @@ class TestLaunchOrchestrationNested(FSTestCase):
         self.assertTupleEqual((f"echo '{os.path.join(self.dest_folder, self.filename)}'",), mock_run.call_args[0])
         self.assertTrue(os.path.exists(os.path.join(self.dest_folder, self.filename)))
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     @aioresponses()
     def test_launch_orchestration_install_software_remote(self, mock_run, m):
@@ -323,7 +324,7 @@ class TestLaunchOrchestrationNested(FSTestCase):
         self.assertTupleEqual((f"echo '{os.path.join(self.dest_folder, self.filename)}'",), mock_run.call_args[0])
         self.assertTrue(os.path.exists(os.path.join(self.dest_folder, self.filename)))
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     @aioresponses()
     def test_launch_orchestration_install_software_dual(self, mock_run, m):

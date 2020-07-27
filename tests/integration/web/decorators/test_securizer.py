@@ -3,11 +3,11 @@ from unittest.mock import patch
 
 from flask import Flask
 
-from dm.domain.entities import Server, Route
-from dm.network.exceptions import NotValidMessage
-from dm.utils.helpers import generate_dimension
-from dm.web import db
-from dm.web.decorators import securizer
+from dimensigon.domain.entities import Server, Route
+from dimensigon.network.exceptions import NotValidMessage
+from dimensigon.utils.helpers import generate_dimension
+from dimensigon.web import db
+from dimensigon.web.decorators import securizer
 
 
 class TestSecurizer(TestCase):
@@ -42,8 +42,8 @@ class TestSecurizer(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.web.decorators.url_for')
-    @patch('dm.web.decorators.pack_msg')
+    @patch('dimensigon.web.decorators.url_for')
+    @patch('dimensigon.web.decorators.pack_msg')
     def test_get_securizer(self, mock_pack_msg, mock_url_for):
         # mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
         mock_pack_msg.return_value = {'data': 'encrypted data'}
@@ -61,8 +61,8 @@ class TestSecurizer(TestCase):
         mock_pack_msg.assert_called_once()
         self.assertDictEqual({'msg': 'default response'}, resp.get_json())
 
-    @patch('dm.web.decorators.url_for')
-    @patch('dm.web.decorators.pack_msg')
+    @patch('dimensigon.web.decorators.url_for')
+    @patch('dimensigon.web.decorators.pack_msg')
     def test_get_securizer_plain_not_allowed(self, mock_pack_msg, mock_url_for):
         # mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
         mock_pack_msg.return_value = {'data': 'encrypted data'}
@@ -74,9 +74,9 @@ class TestSecurizer(TestCase):
         mock_pack_msg.assert_not_called()
         self.assertDictEqual({'error': 'plain data is not allowed'}, resp.get_json())
 
-    @patch('dm.web.decorators.url_for')
-    @patch('dm.web.decorators.unpack_msg')
-    @patch('dm.web.decorators.pack_msg')
+    @patch('dimensigon.web.decorators.url_for')
+    @patch('dimensigon.web.decorators.unpack_msg')
+    @patch('dimensigon.web.decorators.pack_msg')
     def test_post_securizer(self, mock_pack_msg, mock_unpack_msg, mock_url_for):
         # mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
         mock_pack_msg.return_value = {'data': 'encrypted data'}
@@ -96,9 +96,9 @@ class TestSecurizer(TestCase):
         mock_pack_msg.assert_called_once()
         self.assertDictEqual({'msg': 'default response'}, resp.get_json())
 
-    @patch('dm.web.decorators.url_for')
-    @patch('dm.web.decorators.unpack_msg')
-    @patch('dm.web.decorators.pack_msg')
+    @patch('dimensigon.web.decorators.url_for')
+    @patch('dimensigon.web.decorators.unpack_msg')
+    @patch('dimensigon.web.decorators.pack_msg')
     def test_post_securizer_plain_not_allowed(self, mock_pack_msg, mock_unpack_msg, mock_url_for):
         # mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
         mock_pack_msg.return_value = {'data': 'encrypted data'}
@@ -113,9 +113,9 @@ class TestSecurizer(TestCase):
         mock_pack_msg.assert_not_called()
         self.assertDictEqual({'error': 'plain data is not allowed'}, resp.get_json())
 
-    @patch('dm.web.decorators.url_for')
-    @patch('dm.web.decorators.unpack_msg')
-    @patch('dm.web.decorators.pack_msg')
+    @patch('dimensigon.web.decorators.url_for')
+    @patch('dimensigon.web.decorators.unpack_msg')
+    @patch('dimensigon.web.decorators.pack_msg')
     def test_post_securizer_validation_error(self, mock_pack_msg, mock_unpack_msg, mock_url_for):
         # mock_g.server = MagicMock(id='bbbbbbbb-1234-5678-1234-56781234bbb1')
 

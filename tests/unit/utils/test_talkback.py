@@ -1,7 +1,7 @@
 import threading
 from unittest import TestCase
 
-from dm.utils.talkback import Talkback
+from dimensigon.utils.talkback import Talkback
 
 
 class TestTalkback(TestCase):

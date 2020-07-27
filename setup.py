@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-import dm
+import dimensigon as dm
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -44,7 +44,9 @@ setup(
         "RestrictedPython",
         "setuptools",
         "click",
-        "pygments"
+        "pygments",
+        "prompt_toolkit",
+        "docopt"
     ],
     classifiers=[
         "Programming Language :: Python :: 3.6",
@@ -52,5 +54,7 @@ setup(
         "Operating System :: POSIX",
     ],
     python_requires='>=3.6',
-    entry_points = {'console_scripts': ['dshell=dm.dshell.batch.dshell:main']},
+    scripts = ['elevator.py'],
+    entry_points = {'console_scripts': ['dshell = dimensigon.dshell.batch.dshell:main',
+                                        'dimensigon = dimensigon.__main__:main']},
 )

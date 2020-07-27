@@ -5,7 +5,7 @@ from unittest import TestCase
 
 from flask import Flask, current_app, g, request
 
-from dm.web.extensions.flask_executor.executor import Executor, propagate_exceptions_callback
+from dimensigon.web.extensions.flask_executor.executor import Executor, propagate_exceptions_callback
 
 
 def fib(n):

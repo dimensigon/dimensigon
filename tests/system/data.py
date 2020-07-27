@@ -1,4 +1,4 @@
-from config import Config
+from dimensigon.web.config import Config
 
 data1 = {
     'ActionTemplateRepo': [

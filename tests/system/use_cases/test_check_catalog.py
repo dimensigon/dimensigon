@@ -8,21 +8,21 @@ from aioresponses import aioresponses
 from flask import url_for
 from flask_jwt_extended import create_access_token, verify_jwt_in_request
 
-from dimensigon import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, User, Locker
-from dm import defaults
-from dm.domain.entities import Server, Dimension, Catalog
-from dm.network.auth import HTTPBearerAuth
-from dm.utils.helpers import generate_dimension
-from dm.web import create_app, db
-from dm.web.background_tasks import update_catalog
-from dm.web.network import Response
+from dimensigon import defaults
+from dimensigon.__main__ import Software, ActionTemplate, ActionType, SoftwareServerAssociation, Route, User, Locker
+from dimensigon.domain.entities import Server, Dimension, Catalog
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.utils.helpers import generate_dimension
+from dimensigon.web import create_app, db
+from dimensigon.web.background_tasks import update_catalog
+from dimensigon.web.network import Response
 from tests.helpers import set_callbacks
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 
-@patch('dm.web.background_tasks.dm_version', '1')
-@patch('dm.web.routes.dm.__version__', '1')
+@patch('dimensigon.web.background_tasks.dm_version', '1')
+@patch('dimensigon.web.routes.dimensigon.__version__', '1')
 class TestUpdateCatalog(TestCase):
 
     # @staticmethod
@@ -39,7 +39,7 @@ class TestUpdateCatalog(TestCase):
     # def tearDownClass(cls) -> None:
     #     cls.remove_db_files()
 
-    @patch('dm.domain.entities.get_now')
+    @patch('dimensigon.domain.entities.get_now')
     def setUp(self, mocked_now):
         """Create and configure a new app instance for each test."""
         # create the app with common test config

@@ -4,13 +4,13 @@ from unittest import TestCase, mock
 
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import ActionTemplate, ActionType, Orchestration, Server
-from dm.network.auth import HTTPBearerAuth
-from dm.use_cases.deployment import UndoCommand, CompositeCommand, CompletedProcess, Command, \
+from dimensigon.domain.entities import ActionTemplate, ActionType, Orchestration, Server
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.use_cases.deployment import UndoCommand, CompositeCommand, CompletedProcess, Command, \
     create_cmd_from_orchestration, ProxyCommand, ProxyUndoCommand
-from dm.utils.helpers import get_now
-from dm.utils.var_context import VarContext
-from dm.web import create_app, db
+from dimensigon.utils.helpers import get_now
+from dimensigon.utils.var_context import VarContext
+from dimensigon.web import create_app, db
 
 
 class TestCompositeCommand(TestCase):
@@ -417,7 +417,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    # @mock.patch('dm.use_cases.deployment.create_operation', autospec=IOperationEncapsulation)
+    # @mock.patch('dimensigon.use_cases.deployment.create_operation', autospec=IOperationEncapsulation)
     def test_create_cmd_from_orchestration(self):
 
         at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001', name='create dir', version=1,

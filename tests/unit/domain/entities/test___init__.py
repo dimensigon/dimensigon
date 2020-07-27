@@ -2,8 +2,8 @@ import datetime as dt
 import os
 from unittest import TestCase, mock
 
-from dm.domain.entities import bypass_datamark_update, catalog, Orchestration, Catalog, Server, Route
-from dm.web import db, create_app
+from dimensigon.domain.entities import bypass_datamark_update, catalog, Orchestration, Catalog, Server, Route
+from dimensigon.web import db, create_app
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -39,7 +39,7 @@ class TestInit(TestCase):
             self.assertFalse(catalog.datemark)
         self.assertTrue(catalog.datemark)
 
-    @mock.patch('dm.domain.entities.get_now')
+    @mock.patch('dimensigon.domain.entities.get_now')
     def test_sqlalchemy_entity_events(self, mock_now):
         mock_now.return_value = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
 
@@ -91,7 +91,7 @@ class TestInit(TestCase):
         c = Catalog.query.get('Orchestration')
         self.assertEqual(dt.datetime(2019, 4, 4, tzinfo=dt.timezone.utc), c.last_modified_at)
 
-    @mock.patch('dm.domain.entities.get_now')
+    @mock.patch('dimensigon.domain.entities.get_now')
     def test_sqlalchemy_entity_events_server(self, mock_now):
         mock_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
         s = Server('source', port=5000)

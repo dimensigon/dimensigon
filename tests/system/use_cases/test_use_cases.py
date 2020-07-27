@@ -1,8 +1,8 @@
 from flask import url_for
 
-from dm.domain.entities import Server, Gate
-from dm.domain.entities.route import Route
-from dm.web import db
+from dimensigon.domain.entities import Server, Gate
+from dimensigon.domain.entities.route import Route
+from dimensigon.web import db
 from tests.helpers import TestDimensigonBase
 
 
@@ -43,8 +43,8 @@ class TestRoutes(TestDimensigonBase):
                                        gate_id=None,
                                        proxy_server_id='123e4567-e89b-12d3-a456-426655440002', cost=1)]}, data)
 
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch(self, mocked_ping, mocked_thread):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='server1', me=True)
     #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
@@ -96,8 +96,8 @@ class TestRoutes(TestDimensigonBase):
     #
     #     self.assertEqual(1, mocked_thread.Thread.call_count)
     #
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.update_table_routing_cost')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.update_table_routing_cost')
     # @responses.activate
     # def test_routes_post(self, mocked_utr, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='server1', me=True)
@@ -128,9 +128,9 @@ class TestRoutes(TestDimensigonBase):
     #                                           'gate_id': '123e4567-e89b-12d3-a456-426655440011',
     #                                           'cost': 0}]}, kwargs['kwargs']['json'])
     #
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.check_host')
-    # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.check_host')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario1(self, mocked_ping, mocked_check_host, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
     #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
@@ -202,9 +202,9 @@ class TestRoutes(TestDimensigonBase):
     #                                                     'cost': 0}]},
     #                                       'headers': self.headers}), kwargs)
     #
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.check_host')
-    # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.check_host')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario2(self, mocked_ping, mocked_check_host, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
     #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
@@ -270,9 +270,9 @@ class TestRoutes(TestDimensigonBase):
     #
     #     mocked_threading.Thread.assert_not_called()
     #
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.check_host')
-    # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.check_host')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario3(self, mocked_ping, mocked_check_host, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
     #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
@@ -341,9 +341,9 @@ class TestRoutes(TestDimensigonBase):
     #                                                     'cost': 0}]},
     #                                       'headers': self.headers}), kwargs)
     #
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.check_host')
-    # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.check_host')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario4(self, mocked_ping, mocked_check_host, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
     #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
@@ -404,9 +404,9 @@ class TestRoutes(TestDimensigonBase):
     #
     #     mocked_threading.Thread.assert_not_called()
     #
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.check_host')
-    # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.check_host')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario5(self, mocked_ping, mocked_check_host, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
     #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
@@ -465,9 +465,9 @@ class TestRoutes(TestDimensigonBase):
     #
     #     mocked_threading.Thread.assert_not_called()
     #
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.check_host')
-    # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.check_host')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario6(self, mocked_ping, mocked_check_host, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
     #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
@@ -526,9 +526,9 @@ class TestRoutes(TestDimensigonBase):
     #
     #     mocked_threading.Thread.assert_not_called()
     #
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.check_host')
-    # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.check_host')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario7(self, mocked_ping, mocked_check_host, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
     #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
@@ -589,9 +589,9 @@ class TestRoutes(TestDimensigonBase):
     #
     #     mocked_threading.Thread.assert_not_called()
     #
-    # @patch('dm.web.api_1_0.urls.use_cases.threading')
-    # @patch('dm.web.api_1_0.urls.use_cases.check_host')
-    # @patch('dm.web.api_1_0.urls.use_cases.ping_server')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.check_host')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')
     # def test_routes_patch_scenario8(self, mocked_ping, mocked_check_host, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='node1', me=True)
     #     g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5000,

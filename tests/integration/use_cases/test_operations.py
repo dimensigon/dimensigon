@@ -6,12 +6,12 @@ import flask
 import responses
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import User, ActionTemplate, Server, Software, SoftwareServerAssociation
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.use_cases.operations import RequestOperation, NativeWaitOperation
-from dm.web import create_app, db
-from dm.web.network import Response
+from dimensigon.domain.entities import User, ActionTemplate, Server, Software, SoftwareServerAssociation
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.use_cases.operations import RequestOperation, NativeWaitOperation
+from dimensigon.web import create_app, db
+from dimensigon.web.network import Response
 
 
 class TestRequestOperation(TestCase):
@@ -32,9 +32,9 @@ class TestRequestOperation(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @mock.patch('dm.use_cases.operations.get')
-    @mock.patch('dm.use_cases.operations.create_access_token')
-    @mock.patch('dm.use_cases.operations.request')
+    @mock.patch('dimensigon.use_cases.operations.get')
+    @mock.patch('dimensigon.use_cases.operations.create_access_token')
+    @mock.patch('dimensigon.use_cases.operations.request')
     def test_execute_send_software(self, mock_request, mock_token, mock_get):
         at = ActionTemplate.query.get('00000000-0000-0000-000a-000000000001')
         soft = Software(name='test', version=1, filename='test.zip')
@@ -104,7 +104,7 @@ class TestRequestOperation(TestCase):
         self.assertFalse(cp.success)
         self.assertEqual(f"destination server id 'a' not found", cp.stderr)
 
-    @mock.patch('dm.use_cases.operations.get')
+    @mock.patch('dimensigon.use_cases.operations.get')
     def test_execute_send_software_no_ssa(self, mock_get):
         at = ActionTemplate.query.get('00000000-0000-0000-000a-000000000001')
         soft = Software(name='test', version=1, filename='test.zip')
@@ -123,9 +123,9 @@ class TestRequestOperation(TestCase):
         self.assertFalse(cp.success)
         self.assertEqual(f'{soft.id} has no server association', cp.stderr)
 
-    @mock.patch('dm.use_cases.operations.get')
-    @mock.patch('dm.use_cases.operations.create_access_token')
-    @mock.patch('dm.use_cases.operations.request')
+    @mock.patch('dimensigon.use_cases.operations.get')
+    @mock.patch('dimensigon.use_cases.operations.create_access_token')
+    @mock.patch('dimensigon.use_cases.operations.request')
     def test_execute_send_software_error(self, mock_request, mock_token, mock_get):
         at = ActionTemplate.query.get('00000000-0000-0000-000a-000000000001')
         soft = Software(name='test', version=1, filename='test.zip')
@@ -222,7 +222,7 @@ class TestNativeWaitOperation(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @mock.patch('dm.use_cases.operations.db')
+    @mock.patch('dimensigon.use_cases.operations.db')
     def test_execute(self, mock_db):
 
         at = ActionTemplate.query.get('00000000-0000-0000-000a-000000000002')

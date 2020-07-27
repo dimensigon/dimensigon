@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from pyfakefs.fake_filesystem_unittest import TestCase
 
-from dm.utils.pygtail import Pygtail
+from dimensigon.utils.pygtail import Pygtail
 
 PY2 = sys.version_info[0] == 2
 
@@ -102,15 +102,15 @@ class PygtailTest(TestCase):
         self.assertEqual([b"5\n"], pygtail.readlines(2))
 
     def test_readlines_max_characters(self):
-        import dm.utils.pygtail as py
+        import dimensigon.utils.pygtail as py
         py.MAX_LINE_SIZE = 1
 
         pygtail = py.Pygtail(self.logfile.name)
         self.assertEqual(['1', '\n'], pygtail.readlines(2))
 
-    @patch('dm.utils.pygtail.Pygtail.logger')
+    @patch('dimensigon.utils.pygtail.Pygtail.logger')
     def test_readlines_max_characters_full_line(self, mocked_logger):
-        import dm.utils.pygtail as py
+        import dimensigon.utils.pygtail as py
         py.MAX_LINE_SIZE = 1
 
         pygtail = py.Pygtail(self.logfile.name, full_lines=True)

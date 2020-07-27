@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from dm.utils.helpers import convert, get_distributed_entities
+from dimensigon.utils.helpers import convert, get_distributed_entities
 
 
 class TestConvert(TestCase):
@@ -15,9 +15,9 @@ class TestConvert(TestCase):
 
 
     def test_get_distributed_entities(self):
-        import dm.domain.entities
+        import dimensigon.domain.entities
         entities = get_distributed_entities()
 
         for name, cls in entities:
             self.assertTrue(hasattr(cls, 'last_modified_at'))
-            self.assertTrue(name in dm.domain.entities.__all__)
+            self.assertTrue(name in dimensigon.domain.entities.__all__)

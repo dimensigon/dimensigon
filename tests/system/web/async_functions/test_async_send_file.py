@@ -6,13 +6,13 @@ from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
 from pyfakefs.fake_filesystem_unittest import TestCase
 
-from dm.domain.entities import Server, Route, Dimension, Transfer, TransferStatus
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.utils.asyncio import run
-from dm.utils.helpers import generate_dimension, md5
-from dm.web import create_app, db
-from dm.web.async_functions import async_send_file
+from dimensigon.domain.entities import Server, Route, Dimension, Transfer, TransferStatus
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.utils.asyncio import run
+from dimensigon.utils.helpers import generate_dimension, md5
+from dimensigon.web import create_app, db
+from dimensigon.web.async_functions import async_send_file
 from tests.helpers import set_callbacks
 
 

@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from dm.utils.var_context import VarContext
+from dimensigon.utils.var_context import VarContext
 
 
 class TestVarContext(TestCase):

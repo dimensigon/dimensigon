@@ -1,7 +1,7 @@
 import argparse
 from unittest import TestCase
 
-from dm.dshell.argparse_raise import create_parser, GuessArgumentParser
+from dimensigon.dshell.argparse_raise import create_parser, GuessArgumentParser
 
 
 class TestArgparseRaise(TestCase):

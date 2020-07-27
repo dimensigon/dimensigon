@@ -4,12 +4,12 @@ from unittest import mock
 import responses
 from flask import g
 
-from dm.domain.entities import Server, ActionTemplate, ActionType, Orchestration, StepExecution, Step, User, \
+from dimensigon.domain.entities import Server, ActionTemplate, ActionType, Orchestration, StepExecution, Step, User, \
     OrchExecution
-from dm.domain.entities.route import Route
-from dm.utils.var_context import VarContext
-from dm.web import create_app, db
-from dm.web.async_functions import deploy_orchestration
+from dimensigon.domain.entities.route import Route
+from dimensigon.utils.var_context import VarContext
+from dimensigon.web import create_app, db
+from dimensigon.web.async_functions import deploy_orchestration
 from tests.helpers import TestCaseLockBypass, set_callbacks
 
 
@@ -93,7 +93,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
                 db.session.remove()
                 db.drop_all()
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -167,7 +167,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertTrue(e.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_stop_on_error(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -232,7 +232,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_stop_on_error_false(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -316,7 +316,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
             self.assertTrue(ue.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_step_stop_on_error_false(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
@@ -404,7 +404,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0008').one()
             self.assertTrue(ue.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_step_stop_on_error_true(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=1, stdout='err', stderr=''),
@@ -449,7 +449,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_undo_on_error_false(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -495,7 +495,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0007').one()
             self.assertFalse(e.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_step_undo_on_error_false(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -575,7 +575,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             ue = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0002').one()
             self.assertTrue(ue.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_stop_undo_on_error_true(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -617,7 +617,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_step_stop_undo_on_error_true(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -660,7 +660,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_undo_step_stop_on_error_false(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),
@@ -711,7 +711,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').one()
             self.assertTrue(e.success)
 
-    @mock.patch('dm.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
     @responses.activate
     def test_deploy_orchestration_stop_undo_on_error_false(self, mock_run):
         mock_run.side_effect = [CompletedProcess(args=(), returncode=0, stdout='', stderr=''),

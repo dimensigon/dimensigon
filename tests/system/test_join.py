@@ -8,15 +8,15 @@ from unittest.mock import patch
 import responses
 from aioresponses import aioresponses, CallbackResult
 
-from dimensigon import join, Gate, token as generate_token, Locker, User
-from dm.domain.entities import Server, Dimension, Catalog
-from dm.utils.helpers import generate_dimension
-from dm.web import create_app, db
+from dimensigon.__main__ import join, Gate, token as generate_token, Locker, User
+from dimensigon.domain.entities import Server, Dimension, Catalog
+from dimensigon.utils.helpers import generate_dimension
+from dimensigon.web import create_app, db
 
 
 class TestApi(TestCase):
 
-    @patch('dm.domain.entities.get_now')
+    @patch('dimensigon.domain.entities.get_now')
     def setUp(self, mock_now):
         """Create and configure a new app instance for each test."""
         mock_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
@@ -69,8 +69,8 @@ class TestApi(TestCase):
             db.session.remove()
             db.drop_all()
 
-    @patch('dm.domain.entities.route.check_host')
-    @patch('dm.domain.entities.get_now')
+    @patch('dimensigon.domain.entities.route.check_host')
+    @patch('dimensigon.domain.entities.get_now')
     # @patch('dimensigon.rsa.newkeys')
     @aioresponses()
     def test_join_command(self, mock_now, mock_check, m):

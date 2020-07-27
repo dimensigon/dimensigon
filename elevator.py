@@ -21,13 +21,13 @@ from datetime import datetime
 from enum import Enum
 
 import click
+import gunicorn_conf as conf
 import netifaces
 import psutil
 import requests
 from pkg_resources import parse_version
 
-import gunicorn_conf as conf
-from dm.utils.subprocess import run
+from dimensigon.utils.subprocess import run
 
 warnings.filterwarnings("ignore")
 
@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore")
 BIN = os.path.dirname(sys.executable)
 HOME = os.path.dirname(os.path.abspath(__file__))
 DM_ROOT = os.path.dirname(HOME)
-DM_HOME = os.path.join(HOME, 'dm')
+DM_HOME = os.path.join(HOME, 'dimensigon')
 SOFTWARE = os.path.join(HOME, 'software')
 TMP = tempfile.gettempdir()
 BACKUP_FILENAME = "dm_" + datetime.now().strftime("%Y%m%d%H%M%S") + ".bkp"
@@ -52,7 +52,7 @@ schema, host = None, None
 # max time elevator will wait for the process to start and ask for the health check response
 
 exc_pattern = re.compile(EXCLUDE_PATTERN)
-config_files = ['.env', 'sqlite.db', 'gunicorn_conf.py', 'ssl']
+config_files = ['.env', 'sqlite.db', '_gunicorn.conf.py', 'ssl']
 
 
 FORMAT = '%(asctime)-15s %(filename)s %(levelname)-8s %(message)s'
@@ -164,17 +164,17 @@ def daemon_running(dm_home=HOME):
 
 def get_func_find_proc():
     if platform.system() == 'Linux':
-        func = functools.partial(find_python_file_executed, 'dimensigon.py')
+        func = functools.partial(find_python_file_executed, '__main__.py')
     elif platform.system() == 'Windows':
         func = functools.partial(find_python_file_executed, 'flask.exe')
     return func
 
-# /home/dimensigon/venv/bin/gunicorn -c /home/dimensigon/dimensigon/gunicorn_conf.py --keyfile /home/dimensigon/dimensigon/ssl/key.pem --certfile /home/dimensigon/dimensigon/ssl/cert.pem --ca_certs /home/dimensigon/dimensigon/ssl/ca.crt --daemon dimensigon:app
-# /home/joan/venv/bin/gunicorn -c /home/joan/dimensigon/gunicorn_conf.py --keyfile /home/joan/dimensigon/ssl/key.pem --certfile /home/joan/dimensigon/ssl/cert.pem --ca_certs /home/joan/dimensigon/ssl/ca.crt --daemon dimensigon:app
+# /home/dimensigon/venv/bin/gunicorn -c /home/dimensigon/dimensigon/_gunicorn.conf.py --keyfile /home/dimensigon/dimensigon/ssl/key.pem --certfile /home/dimensigon/dimensigon/ssl/cert.pem --ca_certs /home/dimensigon/dimensigon/ssl/ca.crt --daemon dimensigon:app
+# /home/joan/venv/bin/gunicorn -c /home/joan/dimensigon/_gunicorn.conf.py --keyfile /home/joan/dimensigon/ssl/key.pem --certfile /home/joan/dimensigon/ssl/cert.pem --ca_certs /home/joan/dimensigon/ssl/ca.crt --daemon dimensigon:app
 def start_daemon(cwd=HOME, silently=True):
-    # cp = subprocess.run(['python', 'dimensigon.py', 'start'], capture_output=True, env=os.environ, timeout=10)
+    # cp = subprocess.run(['python', '__main__.py', 'start'], capture_output=True, env=os.environ, timeout=10)
     cmd = [os.path.join(BIN, 'gunicorn'),
-           '-c', os.path.join(cwd, 'gunicorn_conf.py'),
+           '-c', os.path.join(cwd, '_gunicorn.conf.py'),
            '--keyfile', os.path.join(cwd, 'ssl', 'key.pem'),
            '--certfile', os.path.join(cwd, 'ssl', 'cert.pem'),
            '--daemon',
@@ -216,7 +216,7 @@ def start_and_check(cwd=HOME, tries=MAX_TIME_WAITING // 5):
 
 
 def stop_daemon():
-    # cp = subprocess.run(['python', 'dimensigon.py', 'stop'], capture_output=True, env=os.environ, timeout=10)
+    # cp = subprocess.run(['python', '__main__.py', 'stop'], capture_output=True, env=os.environ, timeout=10)
     def get_procs():
         return [proc for proc in psutil.process_iter() if
                 proc.name() == 'gunicorn' and len(proc.cmdline()) > 1 and 'dimensigon:app' in proc.cmdline()]
@@ -270,7 +270,7 @@ def kill_daemons():
 
 def get_version_from_file(root=''):
     current_version = None
-    with open(os.path.join(root, 'dm/__init__.py'), 'r') as fd:
+    with open(os.path.join(root, 'dimensigon/__init__.py'), 'r') as fd:
         for line in fd.readlines():
             if line.startswith('__version__'):
                 current_version = line.split('=')[1].strip().strip('"')

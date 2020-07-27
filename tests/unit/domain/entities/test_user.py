@@ -2,9 +2,9 @@ from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import User
-from dm.network.auth import HTTPBearerAuth
-from dm.web import create_app, db
+from dimensigon.domain.entities import User
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.web import create_app, db
 
 
 class Test(TestCase):

@@ -1,8 +1,8 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from dm.domain.entities import Server, Route
-from dm.web import create_app, db, errors
+from dimensigon.domain.entities import Server, Route
+from dimensigon.web import create_app, db, errors
 
 
 class TestServer(TestCase):
@@ -37,8 +37,8 @@ class TestServer(TestCase):
 
         db.session.commit()
 
-    @patch('dm.domain.entities.route.check_host')
-    @patch('dm.domain.entities.server.url_for')
+    @patch('dimensigon.domain.entities.route.check_host')
+    @patch('dimensigon.domain.entities.server.url_for')
     def test_url(self, mock_url, mock_check_host):
         self.set_servers_and_routes()
 
@@ -103,7 +103,7 @@ class TestServer(TestCase):
 
         self.assertListEqual([n3, r1], me.get_not_neighbours())
 
-    @patch('dm.domain.entities.base.uuid.uuid4')
+    @patch('dimensigon.domain.entities.base.uuid.uuid4')
     def test_from_to_json_with_gate(self, mock_uuid):
         mock_uuid.return_value = '22cd859d-ee91-4079-a112-000000000002'
         s = Server('server2', gates=[('dns', 6000)], id='22cd859d-ee91-4079-a112-000000000001')

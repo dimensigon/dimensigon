@@ -4,11 +4,11 @@ from unittest import TestCase
 from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, Scope, Locker, State, Dimension, Route
-from dm.domain.entities.bootstrap import set_initial
-from dm.use_cases.lock import lock_scope
-from dm.utils.helpers import generate_dimension
-from dm.web import create_app, db, load_global_data_into_context
+from dimensigon.domain.entities import Server, Scope, Locker, State, Dimension, Route
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.use_cases.lock import lock_scope
+from dimensigon.utils.helpers import generate_dimension
+from dimensigon.web import create_app, db, load_global_data_into_context
 
 
 class TestLockScope(TestCase):

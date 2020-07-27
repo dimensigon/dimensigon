@@ -2,10 +2,10 @@ from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Log, Server
-from dm.domain.entities.log import Mode
-from dm.network.auth import HTTPBearerAuth
-from dm.web import create_app, db
+from dimensigon.domain.entities import Log, Server
+from dimensigon.domain.entities.log import Mode
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.web import create_app, db
 
 
 class TestLog(TestCase):
@@ -27,7 +27,7 @@ class TestLog(TestCase):
         self.app_context.pop()
 
     def test_to_from_json(self):
-        l = Log(source_server=self.src, target='/home/dimensigon/dimensigon/dm.log', destination_server=self.dst,
+        l = Log(source_server=self.src, target='/home/dimensigon/dimensigon/dimensigon.log', destination_server=self.dst,
                 dest_folder='/home/dimensigon/dimensigon-node3', id='11111111-2222-3333-4444-111111110001')
 
         self.src.id = '11111111-2222-3333-4444-555555550001'
@@ -38,7 +38,7 @@ class TestLog(TestCase):
         l_json = l.to_json()
         self.assertDictEqual(
             dict(id='11111111-2222-3333-4444-111111110001',
-                 src_server_id='11111111-2222-3333-4444-555555550001', target='/home/dimensigon/dimensigon/dm.log',
+                 src_server_id='11111111-2222-3333-4444-555555550001', target='/home/dimensigon/dimensigon/dimensigon.log',
                  include=None,
                  exclude=None, dst_server_id='11111111-2222-3333-4444-555555550002',
                  dest_folder='/home/dimensigon/dimensigon-node3',
@@ -53,7 +53,7 @@ class TestLog(TestCase):
         self.assertIsNone(smashed.include)
         self.assertIsNone(smashed.exclude)
         self.assertEqual(smashed.dest_folder, '/home/dimensigon/dimensigon-node3')
-        self.assertEqual(smashed.target, '/home/dimensigon/dimensigon/dm.log')
+        self.assertEqual(smashed.target, '/home/dimensigon/dimensigon/dimensigon.log')
         self.assertFalse(smashed.recursive)
         self.assertFalse(smashed.deleted)
         self.assertEqual(Mode.FOLDER, smashed.mode)
@@ -62,7 +62,7 @@ class TestLog(TestCase):
         l_json = l.to_json(human=True)
         self.assertDictEqual(
             dict(id='11111111-2222-3333-4444-111111110001',
-                 src_server=self.src.name, target='/home/dimensigon/dimensigon/dm.log',
+                 src_server=self.src.name, target='/home/dimensigon/dimensigon/dimensigon.log',
                  include=None,
                  exclude=None, dst_server=self.dst.name,
                  dest_folder='/home/dimensigon/dimensigon-node3',
@@ -74,7 +74,7 @@ class TestLog(TestCase):
         l_json = l.to_json(human=True, delete_data=False)
         self.assertDictEqual(
             dict(id='11111111-2222-3333-4444-111111110001',
-                 src_server=self.src.name, target='/home/dimensigon/dimensigon/dm.log',
+                 src_server=self.src.name, target='/home/dimensigon/dimensigon/dimensigon.log',
                  include=None,
                  exclude=None, dst_server=self.dst.name,
                  dest_folder='/home/dimensigon/dimensigon-node3',
@@ -83,13 +83,13 @@ class TestLog(TestCase):
                  ), l_json)
 
     def test_delete(self):
-        l = Log(source_server=self.src, target='/home/dimensigon/dimensigon/dm.log', destination_server=self.dst,
+        l = Log(source_server=self.src, target='/home/dimensigon/dimensigon/dimensigon.log', destination_server=self.dst,
                 dest_folder='/home/dimensigon/dimensigon-node3', id='11111111-2222-3333-4444-111111110001')
 
         l.delete()
 
-        self.assertEqual('/home/dimensigon/dimensigon/dm.log', l._old_target)
-        self.assertNotEqual('/home/dimensigon/dimensigon/dm.log', l.target)
+        self.assertEqual('/home/dimensigon/dimensigon/dimensigon.log', l._old_target)
+        self.assertNotEqual('/home/dimensigon/dimensigon/dimensigon.log', l.target)
         self.assertTrue(l.deleted)
 
         db.session.add(l)

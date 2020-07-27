@@ -5,12 +5,12 @@ from unittest import mock, TestCase
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, Software, SoftwareServerAssociation
-from dm.domain.entities import User
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.web import create_app, db, errors
-from dm.web.network import Response
+from dimensigon.domain.entities import Server, Software, SoftwareServerAssociation
+from dimensigon.domain.entities import User
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.web import create_app, db, errors
+from dimensigon.web.network import Response
 from tests.helpers import ValidateResponseMixin
 
 
@@ -45,9 +45,9 @@ class Test(TestCase, ValidateResponseMixin):
         db.drop_all()
         self.app_context.pop()
 
-    @mock.patch('dm.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.post', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.post', autospec=True)
     def test_send_software(self, mock_post, mock_send_file, mock_exists):
         mock_post.return_value = Response(msg={'transfer_id': '1'}, code=200)
         mock_exists.return_value = True
@@ -66,9 +66,9 @@ class Test(TestCase, ValidateResponseMixin):
         self.assertEqual(202, resp.status_code)
         self.assertDictEqual({'transfer_id': '1'}, resp.get_json())
 
-    @mock.patch('dm.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.post', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.post', autospec=True)
     def test_send_foreground(self, mock_post, mock_send_file, mock_exists):
         mock_post.return_value = Response(msg={'transfer_id': '1'}, code=200)
         mock_exists.return_value = True
@@ -87,11 +87,11 @@ class Test(TestCase, ValidateResponseMixin):
         self.assertEqual(201, resp.status_code)
         self.assertDictEqual({'transfer_id': '1'}, resp.get_json())
 
-    @mock.patch('dm.web.api_1_0.urls.use_cases.md5', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.os.path.getsize', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.post', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.md5', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.os.path.getsize', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.post', autospec=True)
     def test_send_file(self, mock_post, mock_send_file, mock_exists, mock_getsize, mock_md5):
         mock_post.return_value = Response(msg={'transfer_id': '1'}, code=200)
         mock_exists.return_value = True
@@ -114,9 +114,9 @@ class Test(TestCase, ValidateResponseMixin):
         self.assertEqual(202, resp.status_code)
         self.assertDictEqual({'transfer_id': '1'}, resp.get_json())
 
-    @mock.patch('dm.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.post', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.post', autospec=True)
     def test_send_SoftwareServerNotFound(self, mock_post, mock_send_file, mock_exists):
         mock_post.return_value = Response(msg={'transfer_id': '1'}, code=200)
         mock_exists.return_value = True
@@ -130,9 +130,9 @@ class Test(TestCase, ValidateResponseMixin):
 
         self.validate_error_response(resp, errors.SoftwareServerNotFound(str(self.soft.id), str(self.node2.id)))
 
-    @mock.patch('dm.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.post', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.post', autospec=True)
     def test_send_software_FileNotFound(self, mock_post, mock_send_file, mock_exists):
         mock_post.return_value = Response(msg={'transfer_id': '1'}, code=200)
         mock_exists.return_value = False
@@ -144,11 +144,11 @@ class Test(TestCase, ValidateResponseMixin):
 
         self.validate_error_response(resp, errors.FileNotFound(os.path.join(self.source_path, self.filename)))
 
-    @mock.patch('dm.web.api_1_0.urls.use_cases.md5', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.os.path.getsize', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.post', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.md5', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.os.path.getsize', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.post', autospec=True)
     def test_send_file_FileNotFound(self, mock_post, mock_send_file, mock_exists, mock_getsize, mock_md5):
         mock_post.return_value = Response(msg={'transfer_id': '1'}, code=200)
         mock_exists.return_value = False
@@ -163,10 +163,10 @@ class Test(TestCase, ValidateResponseMixin):
 
         self.validate_error_response(resp, errors.FileNotFound(os.path.join(self.source_path, self.filename)))
 
-    @mock.patch('dm.web.api_1_0.urls.use_cases.get', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
-    @mock.patch('dm.web.api_1_0.urls.use_cases.post', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.get', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.os.path.exists', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.async_send_file', autospec=True)
+    @mock.patch('dimensigon.web.api_1_0.urls.use_cases.post', autospec=True)
     def test_send_software_get_transfer_data(self, mock_post, mock_send_file, mock_exists, mock_get):
         mock_post.return_value = Response(msg={'transfer_id': '1'}, code=200)
         mock_exists.return_value = True

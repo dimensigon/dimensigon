@@ -2,9 +2,9 @@ from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
 
-from dm import defaults
-from dm.domain.entities import ActionTemplate, ActionType
-from dm.web import create_app, db
+from dimensigon import defaults
+from dimensigon.domain.entities import ActionTemplate, ActionType
+from dimensigon.web import create_app, db
 
 
 class TestApi(TestCase):

@@ -4,10 +4,10 @@ from dateutil.tz import tzlocal
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm import defaults
-from dm.domain.entities import ActionTemplate, bypass_datamark_update, Server, User
-from dm.network.auth import HTTPBearerAuth
-from dm.web import create_app, db
+from dimensigon import defaults
+from dimensigon.domain.entities import ActionTemplate, bypass_datamark_update, Server, User
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.web import create_app, db
 
 
 class TestActionTemplate(TestCase):

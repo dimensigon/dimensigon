@@ -5,11 +5,11 @@ from aiohttp import ClientConnectionError
 from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Server, Scope, Locker, State, Route, Catalog
-from dm.domain.entities.bootstrap import set_initial
-from dm.use_cases.lock import lock_unlock, lock
-from dm.web import create_app, db, errors
-from dm.web.network import Response
+from dimensigon.domain.entities import Server, Scope, Locker, State, Route, Catalog
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.use_cases.lock import lock_unlock, lock
+from dimensigon.web import create_app, db, errors
+from dimensigon.web.network import Response
 
 
 class TestLockUnlock(TestCase):

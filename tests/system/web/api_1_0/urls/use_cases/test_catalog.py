@@ -3,16 +3,16 @@ from unittest.mock import patch
 
 from flask import url_for
 
-from dm import defaults
-from dm.domain.entities import Server, ActionTemplate, ActionType
-from dm.web import db
+from dimensigon import defaults
+from dimensigon.domain.entities import Server, ActionTemplate, ActionType
+from dimensigon.web import db
 from tests.helpers import TestDimensigonBase
 
 
 class TestApi(TestDimensigonBase):
 
-    @patch('dm.web.api_1_0.urls.use_cases.get_distributed_entities')
-    @patch('dm.domain.entities.get_now')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.get_distributed_entities')
+    @patch('dimensigon.domain.entities.get_now')
     def test_catalog(self, mock_now, mock_get):
         mock_now.return_value = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
         mock_get.return_value = [('ActionTemplate', ActionTemplate)]

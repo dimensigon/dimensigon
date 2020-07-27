@@ -5,7 +5,7 @@ from unittest.mock import patch
 import rsa
 from cryptography.fernet import Fernet
 
-from dm.network.encryptation import pack_msg, unpack_msg
+from dimensigon.network.encryptation import pack_msg, unpack_msg
 
 
 class TestPack_msg_pickle(TestCase):
@@ -138,7 +138,7 @@ class TestPack_msg_pickle(TestCase):
             pack_msg(self.data, self.dest, self.source, pub_key=self.pub_key, cipher_key=sym_key_encrypted)
 
 
-    @patch('dm.utils.helpers.Fernet.generate_key')
+    @patch('dimensigon.utils.helpers.Fernet.generate_key')
     def test_unpack_with_symmetric_key_as_parameter_and_cipher_in_msg(self, mocked_generate_key):
         mocked_generate_key.return_value = self.sym_key
         packed_msg = pack_msg(self.data, self.dest, self.source, self.pub_key, self.priv_key)
@@ -269,7 +269,7 @@ class TestPack_msg_json(TestCase):
         with self.assertRaises(ValueError) as e:
             pack_msg(self.data, self.dest, self.source, pub_key=self.pub_key, cipher_key=sym_key_encrypted)
 
-    @patch('dm.utils.helpers.Fernet.generate_key')
+    @patch('dimensigon.utils.helpers.Fernet.generate_key')
     def test_unpack_with_symmetric_key_as_parameter_and_cipher_in_msg(self, mocked_generate_key):
         mocked_generate_key.return_value = self.sym_key
         sym_key_encrypted = rsa.encrypt(self.sym_key, self.pub_key)

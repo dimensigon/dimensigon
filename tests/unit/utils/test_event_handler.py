@@ -1,7 +1,7 @@
 from unittest import TestCase
 from unittest.mock import patch, Mock
 
-from dm.utils.event_handler import EventHandler, _RegistryContainer, Event
+from dimensigon.utils.event_handler import EventHandler, _RegistryContainer, Event
 
 
 class TestEventHandler(TestCase):
@@ -9,7 +9,7 @@ class TestEventHandler(TestCase):
     def setUp(self) -> None:
         self.eh = EventHandler()
 
-    @patch('dm.utils.event_handler.time.time')
+    @patch('dimensigon.utils.event_handler.time.time')
     def test_discard(self, mock_time):
         mock_time.return_value = 2
         self.eh.discard_after = 2
@@ -25,7 +25,7 @@ class TestEventHandler(TestCase):
         self.assertIn(1, self.eh._registry)
         self.assertIn(1, self.eh._pending_events)
 
-    @patch('dm.utils.event_handler.time.time')
+    @patch('dimensigon.utils.event_handler.time.time')
     def test_register(self, mock_time):
         func = Mock()
         mock_time.return_value = 0
@@ -45,7 +45,7 @@ class TestEventHandler(TestCase):
         func2.assert_called_once_with(e, 'arg', param='kwarg')
         self.assertEqual(0, len(self.eh._registry))
 
-    @patch('dm.utils.event_handler.time.time')
+    @patch('dimensigon.utils.event_handler.time.time')
     def test_dispatch(self, mock_time):
         func = Mock()
         mock_time.return_value = 0

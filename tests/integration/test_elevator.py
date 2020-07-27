@@ -6,7 +6,7 @@ from subprocess import CompletedProcess
 from unittest import TestCase
 from unittest.mock import patch, mock_open
 
-import dm.defaults as d
+import dimensigon.defaults as d
 from elevator import _upgrade, HOME, DM_ROOT, FAILED_VERSIONS
 
 

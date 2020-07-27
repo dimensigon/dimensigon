@@ -28,3 +28,6 @@ pyfakefs~=4.0.2
 responses~=0.10.14
 aioresponses~=0.6.4
 asynctest~=0.13.0
+prompt_toolkit
+docopt
+gunicorn

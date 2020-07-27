@@ -4,10 +4,10 @@ from unittest.mock import patch
 from flask_jwt_extended import create_access_token
 from pkg_resources import parse_version
 
-from dm.network.auth import HTTPBearerAuth
-from dm.web import create_app, db
-from dm.web.background_tasks import upgrade_version, catalog_logger
-from dm.web.network import Response
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.web import create_app, db
+from dimensigon.web.background_tasks import upgrade_version, catalog_logger
+from dimensigon.web.network import Response
 
 
 class Test(TestCase):
@@ -26,10 +26,10 @@ class Test(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.web.background_tasks.get_auth_root')
-    @patch('dm.web.background_tasks.run_elevator')
-    @patch('dm.web.background_tasks.get_software')
-    @patch('dm.web.background_tasks.dm_version', '1.0')
+    @patch('dimensigon.web.background_tasks.get_auth_root')
+    @patch('dimensigon.web.background_tasks.run_elevator')
+    @patch('dimensigon.web.background_tasks.get_software')
+    @patch('dimensigon.web.background_tasks.dm_version', '1.0')
     def test_upgrade_version(self, mock_get_software, mock_run_elevator, mock_auth):
         ret = upgrade_version({1: Response(msg=dict(version='0.9'), code=200),
                                2: Response(msg=dict(version='1.0'), code=200)})

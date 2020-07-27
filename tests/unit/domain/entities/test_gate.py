@@ -3,8 +3,8 @@ from unittest import TestCase
 from flask_jwt_extended import create_access_token
 from sqlalchemy.orm.exc import NoResultFound
 
-from dm.domain.entities import Gate, Server
-from dm.web import create_app, db
+from dimensigon.domain.entities import Gate, Server
+from dimensigon.web import create_app, db
 
 
 class TestGate(TestCase):

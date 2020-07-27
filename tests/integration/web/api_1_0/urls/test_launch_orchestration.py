@@ -5,10 +5,10 @@ from unittest.mock import patch
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Orchestration, ActionTemplate, ActionType, Server, User
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.web import create_app, db, errors
+from dimensigon.domain.entities import Orchestration, ActionTemplate, ActionType, Server, User
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.web import create_app, db, errors
 from tests.helpers import ValidateResponseMixin
 
 
@@ -76,10 +76,10 @@ class TestLaunchOrchestration(TestCase, ValidateResponseMixin):
 
         self.validate_error_response(resp, errors.TargetUnspecified(['new']))
 
-    @patch('dm.web.api_1_0.urls.use_cases.uuid.uuid4', return_value='a7083c43-34cc-4b26-91f0-ea0928cf5945')
-    @patch('dm.web.api_1_0.urls.use_cases.VarContext')
-    @patch('dm.web.api_1_0.urls.use_cases.deploy_orchestration')
-    @patch('dm.web.api_1_0.urls.use_cases.HTTPBearerAuth', return_value='token')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.uuid.uuid4', return_value='a7083c43-34cc-4b26-91f0-ea0928cf5945')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.VarContext')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.deploy_orchestration')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.HTTPBearerAuth', return_value='token')
     def test_launch_orchestration_ok(self, mock_create, mock_deploy, mock_var_context, mock_uuid4):
         mock_uuid4.return_value = 1
         mock_create.return_value = 'token'

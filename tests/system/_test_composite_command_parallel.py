@@ -1,10 +1,10 @@
 import datetime
 from unittest import TestCase, mock
 
-from dm.utils.async_operator import AsyncOperator
+from dimensigon.utils.async_operator import AsyncOperator
 
-from dm.use_cases.deployment import UndoCommand, StepExecution, Command, CompositeCommand
-from dm.utils.helpers import get_now
+from dimensigon.use_cases.deployment import UndoCommand, StepExecution, Command, CompositeCommand
+from dimensigon.utils.helpers import get_now
 
 
 class PickableMock(mock.Mock):

@@ -7,10 +7,10 @@ from flask import url_for
 from flask_jwt_extended import create_access_token
 from pyfakefs.fake_filesystem_unittest import TestCase
 
-from dm.domain.entities import Software, SoftwareServerAssociation, Server, Transfer, TransferStatus
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.web import create_app, db
+from dimensigon.domain.entities import Software, SoftwareServerAssociation, Server, Transfer, TransferStatus
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.web import create_app, db
 
 
 class TestTransferList(TestCase):
@@ -226,7 +226,7 @@ class TestTransferList(TestCase):
 
         self.fs.create_file(os.path.join(self.dest_path, self.soft.filename))
 
-        with patch('dm.web.api_1_0.resources.transfer.os.remove') as mock_remove:
+        with patch('dimensigon.web.api_1_0.resources.transfer.os.remove') as mock_remove:
             mock_remove.side_effect = PermissionError('Not allowed')
 
             resp = self.client.post(url_for('api_1_0.transferlist'),
@@ -249,7 +249,7 @@ class TestTransferList(TestCase):
         self.assertEqual(409, resp.status_code)
         self.assertDictEqual({"error": f"There is already a transfer sending software {self.soft.id}"}, resp.get_json())
 
-    @patch('dm.web.api_1_0.resources.transfer.os.makedirs', autospec=True)
+    @patch('dimensigon.web.api_1_0.resources.transfer.os.makedirs', autospec=True)
     def test_post_create_software_error_on_create_dest_folder(self, mock_makedirs):
         mock_makedirs.side_effect = PermissionError('Not allowed')
         resp = self.client.post(url_for('api_1_0.transferlist'),

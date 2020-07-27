@@ -20,11 +20,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from flask.testing import FlaskClient
 from flask_jwt_extended import create_access_token
 
-from dm import defaults
-from dm.domain.entities import User, update_datemark
-from dm.network.auth import HTTPBearerAuth
-from dm.utils.helpers import get_entities, get_distributed_entities
-from dm.web import create_app, db, errors
+from dimensigon import defaults
+from dimensigon.domain.entities import User, update_datemark
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.utils.helpers import get_entities, get_distributed_entities
+from dimensigon.web import create_app, db, errors
 
 
 def start_mock_server(port, mock_server_request_handler):
@@ -90,8 +90,8 @@ def authorization_header(identity='test'):
 class TestCaseLockBypass(TestCase):
 
     def run(self, result=None):
-        with mock.patch('dm.use_cases.lock.lock'):
-            with mock.patch('dm.use_cases.lock.unlock'):
+        with mock.patch('dimensigon.use_cases.lock.lock'):
+            with mock.patch('dimensigon.use_cases.lock.unlock'):
                 super().run(result)
 
 

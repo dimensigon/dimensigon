@@ -5,11 +5,11 @@ from unittest.mock import patch
 from aioresponses import aioresponses, CallbackResult
 from asynctest.mock import patch as async_patch
 
-from dm.domain.entities import Server, Route, Log, User
-from dm.use_cases.log_sender import LogSender
-from dm.use_cases.log_sender import _PygtailBuffer, Pygtail
-from dm.utils.asyncio import run
-from dm.web import create_app, db
+from dimensigon.domain.entities import Server, Route, Log, User
+from dimensigon.use_cases.log_sender import LogSender
+from dimensigon.use_cases.log_sender import _PygtailBuffer, Pygtail
+from dimensigon.utils.asyncio import run
+from dimensigon.web import create_app, db
 
 
 class TestServer(TestCase):
@@ -34,15 +34,15 @@ class TestServer(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.use_cases.log_sender.os.walk', autospec=True)
-    @patch('dm.use_cases.log_sender.os.path.isfile', autospec=True)
+    @patch('dimensigon.use_cases.log_sender.os.walk', autospec=True)
+    @patch('dimensigon.use_cases.log_sender.os.path.isfile', autospec=True)
     @patch.object(Pygtail, 'update_offset_file')
     @patch.object(_PygtailBuffer, 'readlines', return_value='content', autospec=True)
     @aioresponses()
     def test_log_sender_file(self, mock_pb_rl, mock_pt_uof, mock_isfile, mock_walk, m):
         def callback(url, **kwargs):
             self.assertDictEqual(
-                {"file": '/dm/logs/dm.log', 'data': base64.b64encode('content'.encode()).decode('ascii')},
+                {"file": '/dimensigon/logs/dimensigon.log', 'data': base64.b64encode('content'.encode()).decode('ascii')},
                 kwargs['json'])
             return CallbackResult('POST', status=200)
 
@@ -50,8 +50,8 @@ class TestServer(TestCase):
 
         mock_isfile.return_value = True
 
-        log = Log(id='aaaaaaaa-1234-5678-1234-56781234aaa1', source_server=self.source, target='/var/log/dm.log',
-                  destination_server=self.dest, dest_folder='/dm/logs/')
+        log = Log(id='aaaaaaaa-1234-5678-1234-56781234aaa1', source_server=self.source, target='/var/log/dimensigon.log',
+                  destination_server=self.dest, dest_folder='/dimensigon/logs/')
         db.session.add(log)
 
         run(self.log_sender.send_new_data())
@@ -61,14 +61,14 @@ class TestServer(TestCase):
         mock_pb_rl.assert_called_once()
         mock_pt_uof.assert_called_once()
 
-    @patch('dm.use_cases.log_sender.os.path.isfile', autospec=True)
+    @patch('dimensigon.use_cases.log_sender.os.path.isfile', autospec=True)
     @patch.object(Pygtail, 'update_offset_file')
     @patch.object(_PygtailBuffer, 'readlines', return_value='content', autospec=True)
     @aioresponses()
     def test_log_sender_file_no_dest_folder(self, mock_pb_rl, mock_pt_uof, mock_isfile, m):
         def callback(url, **kwargs):
             self.assertDictEqual(
-                {"file": '/var/log/dm.log', 'data': base64.b64encode('content'.encode()).decode('ascii')},
+                {"file": '/var/log/dimensigon.log', 'data': base64.b64encode('content'.encode()).decode('ascii')},
                 kwargs['json'])
             return CallbackResult('POST', status=200)
 
@@ -76,7 +76,7 @@ class TestServer(TestCase):
 
         mock_isfile.return_value = True
 
-        log = Log(id='aaaaaaaa-1234-5678-1234-56781234aaa1', source_server=self.source, target='/var/log/dm.log',
+        log = Log(id='aaaaaaaa-1234-5678-1234-56781234aaa1', source_server=self.source, target='/var/log/dimensigon.log',
                   destination_server=self.dest, dest_folder=None)
         db.session.add(log)
 
@@ -86,23 +86,23 @@ class TestServer(TestCase):
         mock_pb_rl.assert_called_once()
         mock_pt_uof.assert_called_once()
 
-    @async_patch('dm.use_cases.log_sender.async_post', autospec=True)
-    @patch('dm.use_cases.log_sender.os.walk', autospec=True)
-    @patch('dm.use_cases.log_sender.os.path.isfile', autospec=True)
+    @async_patch('dimensigon.use_cases.log_sender.async_post', autospec=True)
+    @patch('dimensigon.use_cases.log_sender.os.walk', autospec=True)
+    @patch('dimensigon.use_cases.log_sender.os.path.isfile', autospec=True)
     @patch.object(Pygtail, 'update_offset_file')
     @patch.object(_PygtailBuffer, 'readlines', side_effect=['content1', 'newcontent2'], autospec=True)
     @aioresponses()
     def test_log_sender_folder(self, mock_pb_rl, mock_pt_uof, mock_isfile, mock_walk, mock_post, m):
 
         def callback(url, **kwargs):
-            if kwargs['json']['file'] == '/dm/logs/log1':
+            if kwargs['json']['file'] == '/dimensigon/logs/log1':
                 self.assertDictEqual(
-                    {"file": '/dm/logs/log1', 'data': base64.b64encode('content1'.encode()).decode('ascii')},
+                    {"file": '/dimensigon/logs/log1', 'data': base64.b64encode('content1'.encode()).decode('ascii')},
                     kwargs['json'])
                 return CallbackResult('POST', payload={'offset': 8}, status=200)
-            elif kwargs['json']['file'] == '/dm/logs/dir1/log2':
+            elif kwargs['json']['file'] == '/dimensigon/logs/dir1/log2':
                 self.assertDictEqual(
-                    {"file": '/dm/logs/dir1/log2', 'data': base64.b64encode('newcontent2'.encode()).decode('ascii')},
+                    {"file": '/dimensigon/logs/dir1/log2', 'data': base64.b64encode('newcontent2'.encode()).decode('ascii')},
                     kwargs['json'])
                 return CallbackResult('POST', payload={'offset': 11}, status=200)
             else:
@@ -121,7 +121,7 @@ class TestServer(TestCase):
         ]
 
         log = Log(id='aaaaaaaa-1234-5678-1234-56781234aaa1', source_server=self.source, target='/var/log',
-                  destination_server=self.dest, dest_folder='/dm/logs/', include='^(log|dir)', exclude='^dir2',
+                  destination_server=self.dest, dest_folder='/dimensigon/logs/', include='^(log|dir)', exclude='^dir2',
                   recursive=True)
         db.session.add(log)
 

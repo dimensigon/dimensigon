@@ -7,10 +7,10 @@ import responses
 from pkg_resources import parse_version
 from pyfakefs.fake_filesystem_unittest import TestCase
 
-from dm.domain.entities import Dimension
-from dm.domain.entities.bootstrap import set_initial
-from dm.web import create_app, db
-from dm.web.background_tasks import process_get_new_version_from_gogs, \
+from dimensigon.domain.entities import Dimension
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.web import create_app, db
+from dimensigon.web.background_tasks import process_get_new_version_from_gogs, \
     upgrader_logger
 
 gogs_content = """
@@ -87,10 +87,10 @@ class TestProcessGetNewVersionFromGogs(TestCase):
             db.session.remove()
             db.drop_all()
 
-    @patch('dm.web.background_tasks.run_elevator')
+    @patch('dimensigon.web.background_tasks.run_elevator')
     @responses.activate
     def test_internet_upgrade(self, mock_run_elevator):
-        with mock.patch('dm.web.background_tasks.dm_version', '0.0.1'):
+        with mock.patch('dimensigon.web.background_tasks.dm_version', '0.0.1'):
             responses.add(method='GET',
                           url=self.app.config['GIT_REPO'] + '/dimensigon/dimensigon/releases',
                           body=gogs_content)
@@ -113,10 +113,10 @@ class TestProcessGetNewVersionFromGogs(TestCase):
                  upgrader_logger),
                 mock_run_elevator.call_args[0])
 
-    @patch('dm.web.background_tasks.run_elevator')
+    @patch('dimensigon.web.background_tasks.run_elevator')
     @responses.activate
     def test_internet_not_upgrade(self, mock_run_elevator):
-        with mock.patch('dm.web.background_tasks.dm_version', '0.1'):
+        with mock.patch('dimensigon.web.background_tasks.dm_version', '0.1'):
             responses.add(method='GET',
                           url=self.app.config['GIT_REPO'] + '/dimensigon/dimensigon/releases',
                           body=gogs_content)
@@ -133,10 +133,10 @@ class TestProcessGetNewVersionFromGogs(TestCase):
 
             self.assertFalse(mock_run_elevator.called)
 
-    @patch('dm.web.background_tasks.run_elevator')
+    @patch('dimensigon.web.background_tasks.run_elevator')
     @responses.activate
     def test_no_internet_no_upgrade(self, mock_run_elevator):
-        with mock.patch('dm.web.background_tasks.dm_version', '0.1'):
+        with mock.patch('dimensigon.web.background_tasks.dm_version', '0.1'):
             responses.add(method='GET',
                           url=self.app.config['GIT_REPO'] + '/dimensigon/dimensigon/releases',
                           body=requests.exceptions.ConnectionError('No connection'))

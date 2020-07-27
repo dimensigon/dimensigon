@@ -3,8 +3,8 @@ from unittest import TestCase, mock
 from prompt_toolkit.completion import CompleteEvent, WordCompleter
 from prompt_toolkit.document import Document
 
-from dm.dshell.completer import ResourceCompleter, DshellCompleter
-from dm.web.network import Response
+from dimensigon.dshell.completer import ResourceCompleter, DshellCompleter
+from dimensigon.web.network import Response
 
 
 class TestResourceCompleter(TestCase):
@@ -29,7 +29,7 @@ class TestResourceCompleter(TestCase):
         }
     ], code=200)
 
-    @mock.patch('dm.dshell.completer.request')
+    @mock.patch('dimensigon.dshell.completer.request')
     def test_get_completions(self, mock_request):
         mock_request.return_value = self.default_response
 
@@ -41,7 +41,7 @@ class TestResourceCompleter(TestCase):
         completions = completer.get_completions(Document("d"), CompleteEvent())
         self.assertListEqual(["dev1", "dev2"], [c.text for c in completions])
 
-    @mock.patch('dm.dshell.completer.request')
+    @mock.patch('dimensigon.dshell.completer.request')
     def test_filter(self, mock_request):
         mock_request.return_value = self.default_response
 
@@ -58,7 +58,7 @@ class TestResourceCompleter(TestCase):
 
 class TestDshellCompleter(TestCase):
 
-    @mock.patch('dm.dshell.completer.request')
+    @mock.patch('dimensigon.dshell.completer.request')
     def test_get_completions(self, mock_request):
         mock_request.return_value = Response(msg=[
             {

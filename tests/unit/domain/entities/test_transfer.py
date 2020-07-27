@@ -1,10 +1,10 @@
 import threading
 from unittest import TestCase
 
-from dm import defaults
-from dm.domain.entities import Server, Dimension, Software, Transfer, TransferStatus
-from dm.utils.helpers import get_now
-from dm.web import create_app, db
+from dimensigon import defaults
+from dimensigon.domain.entities import Server, Dimension, Software, Transfer, TransferStatus
+from dimensigon.utils.helpers import get_now
+from dimensigon.web import create_app, db
 
 
 class TestTransfer(TestCase):

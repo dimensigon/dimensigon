@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from dm.utils.dag import DAG, DAGError
+from dimensigon.utils.dag import DAG, DAGError
 
 
 class TestDAG(TestCase):

@@ -1,10 +1,10 @@
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities import Orchestration, ActionTemplate, ActionType
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.web import create_app, db
+from dimensigon.domain.entities import Orchestration, ActionTemplate, ActionType
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.web import create_app, db
 from tests.helpers import TestCaseLockBypass
 
 

@@ -5,9 +5,9 @@ from unittest.mock import patch, mock_open
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dm.domain.entities.bootstrap import set_initial
-from dm.network.auth import HTTPBearerAuth
-from dm.web import create_app, db
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.web import create_app, db
 
 
 class Test(TestCase):
@@ -27,10 +27,10 @@ class Test(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.web.api_1_0.urls.use_cases.open', mock_open(read_data=b'bibble'))
-    @patch('dm.web.api_1_0.urls.use_cases.os.listdir')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.open', mock_open(read_data=b'bibble'))
+    @patch('dimensigon.web.api_1_0.urls.use_cases.os.listdir')
     def test_software_dimensigon(self, mock_os):
-        with patch('dm.web.api_1_0.urls.use_cases.dm.__version__', '1.2.0'):
+        with patch('dimensigon.web.api_1_0.urls.use_cases.dimensigon.__version__', '1.2.0'):
             mock_os.return_value = ['file1', 'dimensigon-v1.0.0.tar.gz', 'dimensigon-v1.2.0.tar.gz',
                                     'dimensigon-v1.1.0.tar.gz']
             resp = self.client.get(url_for('api_1_0.software_dimensigon'), headers=self.auth.header)

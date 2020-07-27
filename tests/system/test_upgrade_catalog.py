@@ -5,14 +5,14 @@ from unittest.mock import patch
 
 import responses
 
-from dm.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate, Route, Locker
-from dm.use_cases.use_cases import upgrade_catalog_from_server
-from dm.web import create_app, db, errors
+from dimensigon.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate, Route, Locker
+from dimensigon.use_cases.use_cases import upgrade_catalog_from_server
+from dimensigon.web import create_app, db, errors
 
 
 class TestUpgradeCatalog(TestCase):
 
-    @patch('dm.domain.entities.get_now')
+    @patch('dimensigon.domain.entities.get_now')
     def setUp(self, mock_now):
         """Create and configure a new app instance for each test."""
         mock_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
@@ -33,10 +33,10 @@ class TestUpgradeCatalog(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dm.utils.typos.tzlocal')
-    @patch('dm.domain.entities.get_now')
-    @patch('dm.use_cases.use_cases.get_distributed_entities')
-    @patch('dm.use_cases.use_cases.lock_scope')
+    @patch('dimensigon.utils.typos.tzlocal')
+    @patch('dimensigon.domain.entities.get_now')
+    @patch('dimensigon.use_cases.use_cases.get_distributed_entities')
+    @patch('dimensigon.use_cases.use_cases.lock_scope')
     @responses.activate
     def test_upgrade_catalog(self, mock_lock, mock_entities, mock_now, mock_tzlocal):
         mock_lock.return_value.__enter__.return_value = 'applicant'
@@ -86,8 +86,8 @@ class TestUpgradeCatalog(TestCase):
         self.assertEqual('mkdir -p {dir}', at1.code)
 
     # no new data
-    @patch('dm.use_cases.use_cases.get_distributed_entities')
-    @patch('dm.use_cases.use_cases.lock_scope')
+    @patch('dimensigon.use_cases.use_cases.get_distributed_entities')
+    @patch('dimensigon.use_cases.use_cases.lock_scope')
     @responses.activate
     def test_upgrade_catalog_no_data(self, mock_lock, mock_entities):
         mock_lock.return_value.__enter__.return_value = 'applicant'
@@ -107,8 +107,8 @@ class TestUpgradeCatalog(TestCase):
 
         self.assertEqual(0, len(atl))
 
-    @patch('dm.use_cases.use_cases.get_distributed_entities')
-    @patch('dm.use_cases.use_cases.lock_scope')
+    @patch('dimensigon.use_cases.use_cases.get_distributed_entities')
+    @patch('dimensigon.use_cases.use_cases.lock_scope')
     @responses.activate
     def test_upgrade_catalog_catalog_mismatch(self, mock_lock, mock_entities):
         mock_lock.return_value.__enter__.return_value = 'applicant'

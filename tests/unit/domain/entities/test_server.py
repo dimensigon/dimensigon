@@ -1,9 +1,9 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from dm import defaults
-from dm.domain.entities import Server
-from dm.web import create_app, db
+from dimensigon import defaults
+from dimensigon.domain.entities import Server
+from dimensigon.web import create_app, db
 
 
 class TestServer(TestCase):
@@ -76,13 +76,13 @@ class TestServer(TestCase):
         self.assertEqual('gdns', s.gates[1].dns)
         self.assertEqual(6000, s.gates[1].port)
 
-    @patch('dm.domain.entities.server.Gate')
+    @patch('dimensigon.domain.entities.server.Gate')
     def test_create_server_dict_gate(self, mock_gate):
         dest = Server('dest', gates=[{'id': 1}])
 
         mock_gate.from_json.called_once_with({'id': 1})
 
-    @patch('dm.domain.entities.base.uuid.uuid4')
+    @patch('dimensigon.domain.entities.base.uuid.uuid4')
     def test_to_from_json(self, mock_uuid):
         mock_uuid.side_effect = ['22cd859d-ee91-4079-a112-000000000001',
                                  '22cd859d-ee91-4079-a112-000000000002',

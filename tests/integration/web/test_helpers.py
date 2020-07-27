@@ -1,8 +1,8 @@
 from unittest import TestCase
 
-from dm.domain.entities import Server
-from dm.web import create_app, db
-from dm.web import errors
+from dimensigon.domain.entities import Server
+from dimensigon.web import create_app, db
+from dimensigon.web import errors
 
 
 class TestBaseQuery(TestCase):

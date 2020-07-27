@@ -1,7 +1,7 @@
 from unittest import TestCase
 
-from dm.domain.entities import Server, Route
-from dm.web import create_app, db
+from dimensigon.domain.entities import Server, Route
+from dimensigon.web import create_app, db
 
 
 class TestServer(TestCase):

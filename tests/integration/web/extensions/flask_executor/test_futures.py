@@ -4,9 +4,9 @@ from unittest import TestCase
 
 from flask import Flask
 
-from dm.web.extensions.flask_executor.executor import Executor
-from dm.web.extensions.flask_executor.futures import FutureCollection, FutureProxy
-from dm.web.extensions.flask_executor.helpers import InstanceProxy
+from dimensigon.web.extensions.flask_executor.executor import Executor
+from dimensigon.web.extensions.flask_executor.futures import FutureCollection, FutureProxy
+from dimensigon.web.extensions.flask_executor.helpers import InstanceProxy
 
 
 def fib(n):
