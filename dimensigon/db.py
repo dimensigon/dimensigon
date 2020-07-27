@@ -24,6 +24,8 @@ def setup_db(dm: Dimensigon):
 
     migrate_schema(dm)
 
+    populate_initial_data(dm)
+
 
 def migrate_schema(dm: Dimensigon):
     progress_path = dm.config.path(PROGRESS_FILE)
@@ -70,15 +72,16 @@ def migrate_schema(dm: Dimensigon):
 
 
 def populate_initial_data(dm: Dimensigon):
-    from dimensigon.domain.entities import ActionTemplate, Locker, Server
+    from dimensigon.domain.entities import ActionTemplate, Locker, Server, User
 
     with session_scope(session=dm.get_session()) as session:
-        gates = dm.config.http_server.get('binds', None)
+        gates = dm.config.http_conf.get('binds', None)
 
         Server.set_initial(session, gates)
 
         Locker.set_initial(session)
         ActionTemplate.set_initial(session)
+        User.set_initial(session)
 
 
 

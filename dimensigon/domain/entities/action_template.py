@@ -85,7 +85,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
             session = db.session
 
         with bypass_datamark_update(session):
-            at = session.query(cls).query.get('00000000-0000-0000-000a-000000000001')
+            at = session.query(cls).get('00000000-0000-0000-000a-000000000001')
             if at is None:
                 at = ActionTemplate(name='send', version=1, action_type=ActionType.REQUEST,
                                     code='{"method": "post",'\

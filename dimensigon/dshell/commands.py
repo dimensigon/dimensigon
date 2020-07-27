@@ -78,7 +78,7 @@ def orch_list(**params):
         view_data.update({'filter[name]': params['name']})
     if params.get('version', None):
         view_data.update({'filter[version]': params['version']})
-    if params.get('details', None):
+    if params.get('detail', None):
         view_data.update({'params': ['steps', 'vars', 'target', 'action', 'human']})
     else:
         view_data.update({'params': ['vars', 'target', 'human']})
@@ -287,7 +287,7 @@ def transfer_cancel(transfer_id):
         resp.exception) else resp.exception.__class__.__name__)
 
 
-def exec_list(orch=None, server=None, last=None, asc=None, detail=None):
+def exec_list(orch=None, server=None, execution_id=None, last=None, asc=None, detail=None):
     kwargs = dict(verify=environ.get('SSL_VERIFY'))
     view_data = dict()
     view = 'api_1_0.orchexecutionlist'
@@ -297,6 +297,9 @@ def exec_list(orch=None, server=None, last=None, asc=None, detail=None):
 
     if server:
         view_data.update({'filter[server_id]': server})
+
+    if execution_id:
+        view_data.update({'filter[id]': execution_id})
 
     # url_parameters
     if detail:
@@ -424,7 +427,7 @@ nested_dict = {
     'orch': {
         'list': [{'argument': '--version', 'action': 'store', 'type': int,
                   'completer': orch_ver_completer},
-                 {'argument': '--details', 'action': 'store_true'},
+                 {'argument': '--detail', 'action': 'store_true'},
                  [{'argument': '--json', 'action': 'store_true'},
                   {'argument': '--table', 'action': 'store_true'}],
                  [{'argument': '--like'},
@@ -434,7 +437,7 @@ nested_dict = {
                  ],
         'create': [{'argument': 'name'},
                    {'argument': '--prompt', 'action': "store_true",
-                    'help': 'does not ask for every orch parameter one by one'},
+                    'help': 'ask for every orch parameter one by one'},
                    orch_create],
         'copy': [{'argument': 'orchestration_id', 'completer': orch_completer},
                  orch_copy],
@@ -443,8 +446,8 @@ nested_dict = {
         'run': [{'argument': 'orchestration_id', 'completer': orch_completer},
                 {'argument': '--target', 'action': DictAction, 'nargs': "+", 'dest': 'hosts',
                  'completer': merge_completers([server_completer, granule_completer])},
-                {'argument': '--param', 'action': ParamAction, 'nargs': "+", 'dest': 'params', 'default': {}},
-                {'argument': '--foreground', 'dest': 'background', 'action': 'store_false'},
+                {'argument': ['--param', '-p'], 'action': ParamAction, 'nargs': "+", 'dest': 'params', 'default': {}},
+                {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
                 orch_run],
     },
     'action': {
@@ -470,8 +473,9 @@ nested_dict = {
     },
     'exec': {
         'list': [{'argument': '--orch', 'completer': orch_completer},
+                 {'argument': '--id', 'dest': 'execution_id'},
                  {'argument': '--server', 'completer': server_completer},
-                 {'argument': '--last', 'type': int},
+                 {'argument': '--last', 'metavar': 'N', 'type': int, 'help': "shows last N orchestrations"},
                  {'argument': '--asc', 'action': 'store_true'},
                  {'argument': '--detail', 'action': 'store_true'},
                  exec_list]
@@ -502,7 +506,7 @@ nested_dict = {
         'cancel': [{'argument': 'transfer_id'},
                    transfer_cancel],
         'list': [
-            {'argument': '--status', 'action': "extend", 'nargs': '+',
+            {'argument': '--status', 'action': "append", 'nargs': '+',
              'choices': ['WAITING_CHUNKS', 'IN_PROGRESS', 'COMPLETED', 'CHECKSUM_ERROR', 'SIZE_ERROR',
                          'CANCELED']},
             [{'argument': '--id'},
@@ -510,7 +514,7 @@ nested_dict = {
             transfer_list
         ]},
     'cmd': [{'argument': 'command', 'nargs': '+'},
-            {'argument': '--target', 'action': 'extend', 'nargs': "+", 'dest': 'hosts',
+            {'argument': '--target', 'action': 'append', 'nargs': "+", 'dest': 'hosts',
              'completer': merge_completers([server_completer, granule_completer])},
             {'argument': '--timeout', 'type': int, 'help': 'timeout in seconds to wait for command to terminate'},
             {'argument': '--input'},

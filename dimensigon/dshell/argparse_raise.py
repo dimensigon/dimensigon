@@ -283,9 +283,21 @@ class DictAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         container = getattr(namespace, self.dest, None)
         if container is None:
-            setattr(namespace, self.dest, {values[0]: values[1:]})
-        else:
-            container.update({values[0]: values[1:]})
+            setattr(namespace, self.dest, {})
+            container = getattr(namespace, self.dest, None)
+
+        for value in values:
+            if '=' in value:
+                target, host = value.split('=')
+                if target in container:
+                    container[target].append(host)
+                else:
+                    container.update({target: [host]})
+            else:
+                if 'all' not in container:
+                    container.update({'all': [value]})
+                else:
+                    container['all'].append(value)
 
 
 class ParamAction(argparse.Action):
@@ -328,13 +340,15 @@ def create_parser(data, parser=None) -> ArgumentParserRaise:
                     if isinstance(arg, list):
                         group = i_parser.add_mutually_exclusive_group()
                         for a in arg:
-                            group.add_argument(a['argument'],
+                            arguments = a['argument'] if isinstance(a['argument'], list) else [a['argument']]
+                            group.add_argument(*arguments,
                                                **{kk: vv for kk, vv in a.items() if
                                                   kk not in pop_keys})
                     elif isinstance(arg, types.FunctionType):
                         i_parser.set_defaults(func=arg)
                     else:
-                        i_parser.add_argument(arg['argument'],
+                        arguments = arg['argument'] if isinstance(arg['argument'], list) else [arg['argument']]
+                        i_parser.add_argument(*arguments,
                                               **{kk: vv for kk, vv in arg.items() if
                                                  kk not in pop_keys})
     else:
@@ -342,11 +356,13 @@ def create_parser(data, parser=None) -> ArgumentParserRaise:
             if isinstance(arg, list):
                 group = parser.add_mutually_exclusive_group()
                 for a in arg:
-                    group.add_argument(a['argument'],
+                    arguments = a['argument'] if isinstance(a['argument'], list) else [a['argument']]
+                    group.add_argument(*arguments,
                                        **{kk: vv for kk, vv in a.items() if kk not in pop_keys})
             elif isinstance(arg, types.FunctionType):
                 parser.set_defaults(func=arg)
             else:
-                parser.add_argument(arg['argument'],
+                arguments = arg['argument'] if isinstance(arg['argument'], list) else [arg['argument']]
+                parser.add_argument(*arguments,
                                     **{kk: vv for kk, vv in arg.items() if kk not in pop_keys})
     return parser

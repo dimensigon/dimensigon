@@ -1,9 +1,9 @@
 """
 Usage: dshell orch list [--id ID|--name NAME|--like LIKE] [--version N] [--last N]
        dshell orch create (- | FILE)
-       dshell orch run ID [[--parameter PARAM=VALUE]... | [--json-parameters JSON]]
+       dshell orch run ID [[--param PARAM=VALUE]... | [--json-parameters JSON]]
                           ((--target NAME=VALUE)... | --json-target JSON)
-                          [--background]
+                          [--no-wait]
 
 Command to interact with orchestration
 
@@ -19,11 +19,11 @@ Options:
     --json-parameters JSON   Json parameters. Ex.: '{"folder":"/tmp",
     --json-target JSON       Target in json format. Ex.: '{"all":["node1", "node2"], "backend": "granule-backend"}'
     --name NAME              Action templates' name to list
-    --parameter PARAM=VALUE  Parameter passed to run orchestration. Examples: --parameter folder=/tmp
-    --target NAME=VALUE      Target to run the orchestrations NAME is the target name and value the granules or hosts
+    -p, --param PARAM=VALUE  Parameter passed to run orchestration. Examples: --parameter folder=/tmp
+    -t, --target NAME=VALUE  Target to run the orchestrations NAME is the target name and value the granules or hosts
                              select. Example: --target all=node1,node2 --target backend=granule-backend
     --version N              Versions to list
-    --background             Runs the orchestration in background
+    --no-wait                Does not wait the orchestration to finish
 """
 import json
 import sys
@@ -81,7 +81,7 @@ def main(args):
 
         if argv['--json-parameters'] is None:
             parameters = {}
-            for param in argv['PARAM=VALUE']:
+            for param in argv['--param']:
                 key, value = param.split('=', 1)
                 if key not in parameters:
                     parameters[key] = value
@@ -95,7 +95,7 @@ def main(args):
 
         if argv['--json-target'] is None:
             target = {}
-            for param in argv['NAME=VALUE']:
+            for param in argv['--target']:
                 key, value = param.split('=', 1)
                 if ',' in value:
                     target[key] = value.split(',')
@@ -104,4 +104,4 @@ def main(args):
         else:
             target = json.loads(argv['--json-target'])
 
-        orch_run(orchestration_id, params=parameters, hosts=target, background=argv['--background'] or False)
+        orch_run(orchestration_id, params=parameters, hosts=target, background=argv['--no-wait'] or False)

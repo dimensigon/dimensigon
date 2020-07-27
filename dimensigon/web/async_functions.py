@@ -121,8 +121,8 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
                         raise ValueError('execution server not found')
                 else:
                     execution_server = Server.query.get(execution_server)
-            exe = OrchExecution(id=execution, orchestration=orchestration, target=hosts, params=dict(var_context),
-                                _executor=executor, server=execution_server)
+            exe = OrchExecution(id=execution, orchestration_id=orchestration.id, target=hosts, params=dict(var_context),
+                                executor_id=executor.id, server_id=execution_server.id)
             db.session.add(exe)
             db.session.commit()
     else:

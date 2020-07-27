@@ -46,7 +46,9 @@ setup(
         "click",
         "pygments",
         "prompt_toolkit",
-        "docopt"
+        "docopt",
+        "gunicorn",
+        "schema"
     ],
     classifiers=[
         "Programming Language :: Python :: 3.6",

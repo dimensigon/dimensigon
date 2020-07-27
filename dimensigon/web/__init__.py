@@ -5,7 +5,7 @@ import threading
 import typing as t
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, g, _app_ctx_stack, _request_ctx_stack
+from flask import Flask, g, _app_ctx_stack
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import MetaData
@@ -19,13 +19,13 @@ from ..utils.helpers import get_now
 
 
 def scopefunc():
+    # try:
+    #     return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident()) + str(id(_request_ctx_stack.top.request))
+    # except:
     try:
-        return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident()) + str(id(_request_ctx_stack.top.request))
+        return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident())
     except:
-        try:
-            return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident())
-        except:
-            return str(threading.get_ident())
+        return str(threading.get_ident())
 
 
 meta = MetaData(naming_convention={

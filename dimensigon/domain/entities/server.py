@@ -203,13 +203,16 @@ class Server(db.Model, UUIDistributedEntityMixin):
         server = session.query(Server).filter_by(_me=True).all()
         if len(server) == 0:
 
-            server_name = current_app.config.get('SERVER_NAME') or defaults.HOSTNAME
+            try:
+                server_name = current_app.config.get('SERVER_NAME') or defaults.HOSTNAME
+            except:
+                server_name = defaults.HOSTNAME
 
             if gates is None:
                 gates = [(ip, defaults.DEFAULT_PORT) for ip in get_ips()]
             server = Server(name=server_name,
                             gates=gates,
                             me=True)
-            db.session.add(server)
+            session.add(server)
         elif len(server) > 1:
             raise ValueError('Multiple servers found as me.')

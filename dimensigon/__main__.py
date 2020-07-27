@@ -377,16 +377,16 @@ def get_arguments() -> argparse.Namespace:
         action='store_true'
     )
 
-    dim_parser = subparser.add_parser("dim", help="Command to create dimension.")
-    subparser_dim_parser = dim_parser.add_subparsers(dest='subcommand')
-    token_subparser = subparser_dim_parser.add_parser('token')
-    token_subparser.add_argument(
+
+    new_parser = subparser.add_parser('new', help="Creates a new dimension")
+    new_parser.add_argument('dimension', help="name of the dimension")
+
+    token_parser = subparser.add_parser('token', help="Generates a join token.")
+    token_parser.add_argument(
         'dimension',
         nargs='?',
         default=None
     )
-    new_subparser = subparser_dim_parser.add_parser('new')
-    new_subparser.add_argument('dimension')
 
     args = parser.parse_args()
 
@@ -429,13 +429,10 @@ def main():
         run(dm)
     elif args.command == 'join':
         join(dm, server=args.SERVER, token=args.TOKEN, port=args.port, ssl=args.ssl, verify=args.verify)
-    elif args.command == 'dim':
-        if args.subcommand == 'token':
-            token(dm, args.dimension)
-        elif args.subcommand == 'new':
+    elif args.subcommand == 'token':
+        token(dm, args.dimension)
+    elif args.subcommand == 'new':
             new(dm, args.dimension)
-        else:
-            exit("Use -h to show help")
     else:
         exit("Use -h to show help")
 

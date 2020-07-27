@@ -48,7 +48,7 @@ preview_parser = subparser.add_parser('preview')
 subpreview_parser = preview_parser.add_subparsers(dest='subcmd')
 subpreview_parser.add_parser('action')
 set_parser = subparser.add_parser('set')
-set_parser.add_argument('parameter', help="Available: " + ', '.join(form.keys()))
+set_parser.add_argument('parameter', help=', '.join(form.keys()))
 save_parser = subparser.add_parser('save')
 exit_parser = subparser.add_parser('exit')
 

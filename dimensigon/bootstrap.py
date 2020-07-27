@@ -57,7 +57,7 @@ logconfig_dict = {
             "qualname": "gunicorn.access"
         },
         "dimensigon": {
-            "level": "DEBUG",
+            "level": "INFO",
             "handlers": ["console"],
             "propagate": False,
             "qualname": "dimensigon"
@@ -217,8 +217,6 @@ def setup_dm(run_config: RuntimeConfig) -> Dimensigon:
     _setup_dimensigon_config(run_config, dm.config)
 
     ensure_config_path(dm.config.config_dir)
-
-
 
     # set http configuration. Before setup_db to get ip binds
     _setup_http_config(run_config, dm.config)

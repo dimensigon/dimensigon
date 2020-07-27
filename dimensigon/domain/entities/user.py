@@ -90,7 +90,6 @@ class User(db.Model, UUIDistributedEntityMixin):
             if not root:
                 root = User(id='00000000-0000-0000-0000-000000000001', user='root', groups=['administrator'],
                             last_modified_at=defaults.INITIAL_DATEMARK)
-                root.set_password('')
                 session.add(root)
             ops = session.query(cls).filter_by(user='ops').one_or_none()
             if not ops:
