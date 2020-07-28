@@ -6,8 +6,10 @@ from dimensigon.dshell.history import FileTagHistory
 from dimensigon.dshell.network import get, get_parameters_from_path
 
 
-def exit_dshell(msg='Goodbye!', rc=0):
-    print(msg)
+def exit_dshell(msg=None, rc=None):
+    print(msg or 'Goodbye!')
+    if rc is None:
+        rc = 0
     sys.exit(rc)
 
 

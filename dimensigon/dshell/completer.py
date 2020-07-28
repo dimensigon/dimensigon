@@ -100,7 +100,10 @@ class ResourceCompleter(Completer):
                         value = ','.join(value)
                     url_filters.update({'filter[{dest}]': value})
 
-        url = ntwrk.generate_url(self.resource, {**url_filters, **self.resource_params})
+        try:
+            url = ntwrk.generate_url(self.resource, {**url_filters, **self.resource_params})
+        except:
+            return
         res = ntwrk.request('get', url)
         if res.code == 200:
             words = []

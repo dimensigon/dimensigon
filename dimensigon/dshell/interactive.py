@@ -41,7 +41,11 @@ def call_func_with_signature(cmd_params):
         arg_sig = []
         kw_sig = {}
     args = args + arg_sig
-    func(*args, **{**kwargs, **kw_sig})
+    try:
+        func(*args, **{**kwargs, **kw_sig})
+    except Exception as e:
+        print(str(e))
+
 
 def interactive():
     session = PromptSession(completer=DshellCompleter.from_nested_dict(nested_dict),

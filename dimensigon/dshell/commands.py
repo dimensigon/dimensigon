@@ -15,7 +15,7 @@ from dimensigon.domain.entities import ActionType
 from dimensigon.dshell import environ
 from dimensigon.dshell.argparse_raise import ParamAction
 from dimensigon.dshell.completer import *
-from dimensigon.dshell.helpers import name2id
+from dimensigon.dshell.helpers import name2id, exit_dshell
 from dimensigon.dshell.prompts.action_template import subprompt as action_prompt
 from dimensigon.dshell.prompts.orchestration import subprompt as orch_prompt
 from dimensigon.dshell.utils import clean_none
@@ -589,6 +589,7 @@ nested_dict = {
                     env_get],
             "set": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
                     {'argument': 'value'},
-                    env_set]}
+                    env_set]},
+    'exit': [exit_dshell]
 
 }

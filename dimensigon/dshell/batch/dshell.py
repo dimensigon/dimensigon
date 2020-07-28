@@ -25,20 +25,19 @@ When no dshell command specified dshell starts in interactive mode
 See 'dshell <command> --help' for more information on a specific command.
 
 """
-import configparser
 import importlib
 import logging
 import os
 import sys
 from argparse import ArgumentParser
-from os.path import expanduser
 
 from docopt import docopt
 
+import dimensigon.dshell.environ as env
 import dimensigon.dshell.network as ntwrk
 from dimensigon.dshell.argparse_raise import create_parser
+from dimensigon.dshell.bootstrap import bootstrap_environ
 from dimensigon.dshell.commands import nested_dict
-from dimensigon.dshell.environ import set_dict_in_environ
 from dimensigon.dshell.interactive import interactive, call_func_with_signature
 
 basename = os.path.dirname(os.path.abspath(__file__))
@@ -47,19 +46,6 @@ commands = 'cmd exec ping logfed server software status transfer'.split()
 batch_commands = 'action orch'.split()  # commands that interact differently from interactive mode
 
 
-def load_config_file(file=None):
-    data = dict(USERNAME=None, TOKEN=None, SERVER=None, PORT=None)
-    config = configparser.ConfigParser()
-    if file and os.path.exists(file):
-        config.read(file)
-        if 'AUTH' in config:
-            data['USERNAME'] = config['AUTH'].get('username', None)
-            data['TOKEN'] = config['AUTH'].get('token', None)
-        if 'REMOTE' in config:
-            data['SERVER'] = config['REMOTE'].get('server', None)
-            data['PORT'] = config['REMOTE'].get('port', None)
-
-    return data
 
 
 def main():
@@ -72,41 +58,29 @@ def main():
                   version=f'dshell version 1.0',
                   options_first=True)
 
-    # load data from config file
-    data = load_config_file(os.path.join(expanduser(args['--config-file'])))
-
-    SERVER = args['--server'] or data['SERVER'] or os.environ.get('DM_SERVER', None)
-    PORT = data['PORT'] or os.environ.get('DM_PORT', None)
-    if '--port' in sys.argv or PORT is None:
-        PORT = args['--port']
-
-    set_dict_in_environ({'SERVER': SERVER, 'PORT': PORT, 'SCHEME': 'https', 'SSL_VERIFY': False,
-                         'FILE_HISTORY': '~/.dshell_history'})
+    bootstrap_environ(args)
 
     # process args
     argv = [args['COMMAND']] + args['ARGS']
-    if args['COMMAND'] in commands:
-        ntwrk.bootstrap_auth(args['--username'] or data['USERNAME'], args['--password'],
-                             args['--token'] or data['TOKEN'])
-        parser = create_parser({args['COMMAND']: nested_dict[args['COMMAND']]}, parser=ArgumentParser(prog="dshell"))
-        namespace = parser.parse_args(argv)
-
-        if hasattr(namespace, 'func'):
-            call_func_with_signature(dict(namespace._get_kwargs()))
-    elif args['COMMAND'] in batch_commands:
-        ntwrk.bootstrap_auth(args['--username'] or data['USERNAME'], args['--password'],
-                             args['--token'] or data['TOKEN'])
-        module = importlib.import_module('.dshell_%s' % args['COMMAND'], 'dimensigon.dshell.batch')
-        module.main(argv)
-    elif args['COMMAND'] is None:
-        try:
-            ntwrk.bootstrap_auth(args['--username'] or data['USERNAME'], args['--password'],
-                                 args['--token'] or data['TOKEN'])
-        except Exception as e:
-            print(str(e))
+    if args['COMMAND'] is None:
         interactive()
     else:
-        exit("%r is not a dshell command. See 'dshell --help'." % args['COMMAND'])
+        if ntwrk._refresh_token is None:
+            exit('No token specified. Unable to run command')
+        if not env.get('SERVER', None):
+            exit('No server specified. Unable to run command')
+        if args['COMMAND'] in commands:
+
+            parser = create_parser({args['COMMAND']: nested_dict[args['COMMAND']]}, parser=ArgumentParser(prog="dshell"))
+            namespace = parser.parse_args(argv)
+
+            if hasattr(namespace, 'func'):
+                call_func_with_signature(dict(namespace._get_kwargs()))
+        elif args['COMMAND'] in batch_commands:
+            module = importlib.import_module('.dshell_%s' % args['COMMAND'], 'dimensigon.dshell.batch')
+            module.main(argv)
+        else:
+            exit("%r is not a dshell command. See 'dshell --help'." % args['COMMAND'])
 
 
 if __name__ == '__main__':

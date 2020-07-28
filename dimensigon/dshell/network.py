@@ -20,6 +20,10 @@ _refresh_token = os.environ.get('DM_REFRESH_TOKEN')
 _username = None
 
 
+def exists_refresh_token():
+    return bool(_refresh_token)
+
+
 def bootstrap_auth(username=None, password=None, refresh_token=None):
     global _username, _refresh_token
 
@@ -61,10 +65,6 @@ def login(username=None, password=None):
     _username = username
     _access_token = resp.json()['access_token']
     _refresh_token = resp.json()['refresh_token']
-
-
-def exists_refresh_token():
-    return bool(_refresh_token)
 
 
 def refresh_access_token():
@@ -178,7 +178,11 @@ def _replace_path_args(path, args):
     for match in match_iterator:
         text = match.groups()[0]
         assert text in args
-        replaced_path = replaced_path[:match.start()] + args.pop(text) + replaced_path[match.end():]
+        value = args.pop(text)
+        if not value:
+            raise ValueError(f"No value specified for '{text}' in URL {path}")
+        replaced_path = replaced_path[:match.start()] + value + replaced_path[match.end():]
+
     params = []
     if args:
         for k, v in args.items():
