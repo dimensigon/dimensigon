@@ -1,4 +1,5 @@
 import argparse
+import functools
 import types
 from typing import Text, Optional, TypeVar, NoReturn
 
@@ -289,36 +290,49 @@ class DictAction(argparse.Action):
         for value in values:
             if '=' in value:
                 target, host = value.split('=')
-                if target in container:
-                    container[target].append(host)
+                if ',' in host:
+                    host = host.split(',')
                 else:
-                    container.update({target: [host]})
+                    host = [host]
+                if target in container:
+                    container[target].extend(host)
+                else:
+                    container.update({target: host})
             else:
                 if 'all' not in container:
                     container.update({'all': [value]})
                 else:
                     container['all'].append(value)
 
+class ExtendAction(argparse._AppendAction):
+    def __call__(self, parser, namespace, values, option_string=None):
+        items = getattr(namespace, self.dest, None)
+        items = argparse._copy_items(items)
+        items.extend(values)
+        setattr(namespace, self.dest, items)
 
 class ParamAction(argparse.Action):
     def __init__(self, option_strings, dest, **kwargs):
         super(ParamAction, self).__init__(option_strings, dest, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
-        if len(values) == 1:
-
+        for value in values:
             if '=' not in values[0]:
-                raise ValueError(f"Not a valid parameter '{values}'")
+                raise ValueError(
+                    f"Not a valid parameter '{value}'. Must be in format PARAM=VALUE or PARAM=VALUE1,VALUE2.")
             else:
-                key, value = values[0].split('=', 1)
-        else:
-            key = values[0]
-            value = ' '.join(values[1:])
-        container = getattr(namespace, self.dest, None)
-        if container is None:
-            setattr(namespace, self.dest, {key: value})
-        else:
-            container.update({key: value})
+                key, str_list = values[0].split('=', 1)
+
+            if ',' in str_list:
+                value = str_list.split(',')
+            else:
+                value = str_list
+
+            container = getattr(namespace, self.dest, None)
+            if container is None:
+                setattr(namespace, self.dest, {key: value})
+            else:
+                container.update({key: value})
 
 
 def create_parser(data, parser=None) -> ArgumentParserRaise:
@@ -344,7 +358,7 @@ def create_parser(data, parser=None) -> ArgumentParserRaise:
                             group.add_argument(*arguments,
                                                **{kk: vv for kk, vv in a.items() if
                                                   kk not in pop_keys})
-                    elif isinstance(arg, types.FunctionType):
+                    elif isinstance(arg, (types.FunctionType, functools.partial)):
                         i_parser.set_defaults(func=arg)
                     else:
                         arguments = arg['argument'] if isinstance(arg['argument'], list) else [arg['argument']]
@@ -359,7 +373,7 @@ def create_parser(data, parser=None) -> ArgumentParserRaise:
                     arguments = a['argument'] if isinstance(a['argument'], list) else [a['argument']]
                     group.add_argument(*arguments,
                                        **{kk: vv for kk, vv in a.items() if kk not in pop_keys})
-            elif isinstance(arg, types.FunctionType):
+            elif isinstance(arg, (types.FunctionType, functools.partial)):
                 parser.set_defaults(func=arg)
             else:
                 arguments = arg['argument'] if isinstance(arg['argument'], list) else [arg['argument']]

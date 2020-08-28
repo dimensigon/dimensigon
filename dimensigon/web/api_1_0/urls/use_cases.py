@@ -4,6 +4,7 @@ import copy
 import datetime as dt
 import functools
 import ipaddress
+import logging
 import math
 import os
 import pickle
@@ -20,28 +21,28 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_tok
 from pkg_resources import parse_version
 
 import dimensigon
+import dimensigon.web.network as ntwrk
 from dimensigon import defaults as d, defaults
 from dimensigon.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
     Orchestration, OrchExecution, User, ActionTemplate, ActionType
 from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.use_cases.routing import update_route_table_cost, update_route_table_from_data, send_new_routes, \
+    check_neighbour, send_cluster_register, set_not_a_neighbour
 from dimensigon.utils import asyncio, subprocess
 from dimensigon.utils.dag import DAG
 from dimensigon.utils.event_handler import Event
 from dimensigon.utils.helpers import get_distributed_entities, is_iterable_not_string, md5, get_now
-from dimensigon.utils.typos import Id
 from dimensigon.utils.var_context import VarContext
 from dimensigon.web import db, executor, errors
 from dimensigon.web.api_1_0 import api_bp
 from dimensigon.web.async_functions import deploy_orchestration, async_send_file
-from dimensigon.web.background_tasks import update_table_routing_cost, _get_neighbour_catalog_data_mark, \
+from dimensigon.web.background_tasks import _get_neighbour_catalog_data_mark, \
     upgrade_version, \
     update_catalog
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dimensigon.web.helpers import check_param_in_uri, normalize_hosts, search
+from dimensigon.web.helpers import check_param_in_uri, normalize_hosts, search, get_auth_from_request
 from dimensigon.web.json_schemas import launch_command_post, routes_post, routes_patch, \
-    launch_orchestration_post, send_post, orchestration_full
-from dimensigon.web.network import async_post
-from dimensigon.web.network import post, get
+    launch_orchestration_post, send_post, orchestration_full, manager_server_ignore_lock_post
 
 if t.TYPE_CHECKING:
     from dimensigon.use_cases.operations import IOperationEncapsulation
@@ -52,11 +53,22 @@ def home():
     return "API v1.0 documentation page"
 
 
+@api_bp.route('/join/token', methods=['GET'])
+@jwt_required
+def join_token():
+    if current_user.user == User.get_by_user('root').user:
+        user_join = User.get_by_user('join')
+        return {'token': create_access_token(str(user_join.id))}, 200
+    else:
+        return {}, 401
+
+
 @api_bp.route('/join/public', methods=['GET'])
 @jwt_required
 def join_public():
     if current_user.user == User.get_by_user('join').user:
         return g.dimension.public.save_pkcs1(), 200, {'content-type': 'application/octet-stream'}
+
     else:
         return {}, 401
 
@@ -69,21 +81,63 @@ def join():
     if current_user.user == User.get_by_user('join').user:
         js = request.get_json()
         current_app.logger.debug(f"New server wanting to join: {js}")
+        if len(db.session.query(Server).filter_by(id=js.get('id', None)).all()) > 0:
+            raise errors.IdAlreadyExists(js.get('id', None))
         s = Server.from_json(js)
+        s.alive = False
         external_ip = ipaddress.ip_address(request.remote_addr)
-        if not external_ip.is_loopback and external_ip not in [g.ip for g in s.gates]:
-            for port in set([g.port for g in s.gates]):
+        if not external_ip.is_loopback and external_ip not in [gate.ip for gate in s.gates]:
+            for port in set([gate.port for gate in s.gates]):
                 s.add_new_gate(external_ip, port, hidden=True)
+
+        certfile = current_app.dm.config.http_conf.get('certfile', None)
+        keyfile = current_app.dm.config.http_conf.get('keyfile', None)
+
+        if keyfile and os.path.exists(keyfile):
+            with open(keyfile, 'rb') as fh:
+                keyfile_content = fh.read()
+        else:
+            raise errors.FileNotFound(keyfile)
+        if certfile and os.path.exists(certfile):
+            with open(certfile, 'rb') as fh:
+                certfile_content = fh.read()
+        else:
+            raise errors.FileNotFound(certfile)
+
+        data = {'keyfile': base64.b64encode(keyfile_content).decode(),
+                'certfile': base64.b64encode(certfile_content).decode()}
+
+        data.update(Dimension=g.dimension.to_json())
+        data.update(me=str(Server.get_current().id))
 
         Route(destination=s, cost=0)
         db.session.add(s)
         db.session.commit()
+
         catalog = fetch_catalog(defaults.INITIAL_DATEMARK)
-        catalog.update(Dimension=g.dimension.to_json())
-        catalog.update(me=str(Server.get_current().id))
-        return catalog, 200
+        data.update(catalog=catalog)
+
+        return data, 200
     else:
-        return '', 401
+        raise errors.GenericError('Invalid token', status_code=400)
+
+
+@api_bp.route('/manager/server_ignore_lock', methods=['POST'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+@validate_schema(manager_server_ignore_lock_post)
+def internal_server():
+    if current_user == User.get_by_user('root'):
+        ignore = request.get_json()['ignore_on_lock']
+        for server_id in request.get_json()['server_ids']:
+            server = Server.query.get_or_404(server_id)
+            server.l_ignore_on_lock = ignore
+            db.session.commit()
+
+        return {}, 204
+    else:
+        raise errors.UserForbiddenError
 
 
 @api_bp.route('/send', methods=['POST'])
@@ -116,7 +170,7 @@ def send():
         ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
         # if current server does not have the software, forward request to the closest server who has it
         if not ssa:
-            resp = get(dest_server, 'api_1_0.routes', auth=auth, timeout=5)
+            resp = ntwrk.get(dest_server, 'api_1_0.routes', auth=auth, timeout=5)
             if resp.code == 200:
                 ssas = copy.copy(software.ssas)
                 ssas.sort(key=functools.partial(search_cost, route_list=resp.msg['route_list']))
@@ -127,7 +181,7 @@ def send():
                 raise errors.NoSoftwareServer(software_id=str(software.id))
             server = ssas[0].server  # closest server from dest_server who has the software
 
-            resp = post(server, 'api_1_0.send', json=json_data, auth=auth)
+            resp = ntwrk.post(server, 'api_1_0.send', json=json_data, auth=auth)
             resp.raise_if_not_ok()
             return resp.msg, resp.code
         else:
@@ -157,7 +211,7 @@ def send():
     if 'force' in json_data:
         json_msg['force'] = json_data['force']
 
-    resp = post(dest_server, 'api_1_0.transferlist', json=json_msg, auth=auth)
+    resp = ntwrk.post(dest_server, 'api_1_0.transferlist', json=json_msg, auth=auth)
     resp.raise_if_not_ok()
 
     transfer_id = resp.msg.get('id')
@@ -173,7 +227,7 @@ def send():
                                     chunk_size=chunk_size, max_senders=max_senders, auth=auth))
 
     if json_data.get('include_transfer_data', False):
-        resp = get(dest_server, "api_1_0.transferresource", view_data=dict(transfer_id=transfer_id), auth=auth)
+        resp = ntwrk.get(dest_server, "api_1_0.transferresource", view_data=dict(transfer_id=transfer_id), auth=auth)
         if resp.code == 200:
             msg = resp.msg
         else:
@@ -189,10 +243,10 @@ def send():
 @securizer
 def software_dimensigon():
     # sends the last software
-    repo = current_app.config['SOFTWARE_REPO']
+    repo = os.path.join(current_app.dm.config.config_dir, defaults.SOFTWARE_REPO, defaults.DIMENSIGON_DIR)
     max_version = None
     max_file = None
-    for file in os.listdir(os.path.join(repo, 'dimensigon')):
+    for file in os.listdir():
         if 'dimensigon-' in file:
             m = re.search(r'v?\d+\.\d+[.-][ab]?\d+', file)
             if m and parse_version(m.group()) >= parse_version(max_version or dimensigon.__version__):
@@ -240,12 +294,98 @@ def fetch_catalog(data_mark):
     data = {}
     for name, obj in get_distributed_entities():
         c = Catalog.query.get(name)
-        repo_data = obj.query.filter(obj.last_modified_at > data_mark).all()
+        # db.session.query to bypass deleted objects to spread deleted changes
+        repo_data = db.session.query(obj).filter(obj.last_modified_at > data_mark).all()
         if name == 'User':
             data.update({name: [e.to_json(password=True) for e in repo_data]})
         else:
             data.update({name: [e.to_json() for e in repo_data]})
     return data
+
+
+_cluster_logger = logging.getLogger('dimensigon.cluster')
+
+
+@api_bp.route('/cluster', methods=['POST'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+def cluster():
+    user = User.get_current()
+    if user and user.user == 'root':
+        data = request.get_json()
+        _cluster_logger.debug(f"Updating cluster. Caller: {g.source}. Data: {data}")
+        changed = current_app.cluster.update_cluster(data)
+        if changed:
+            cluster_data = current_app.cluster.get_cluster()
+            servers = Server.get_neighbours(alive=True, exclude=g.source)
+            if servers:
+                executor.submit(asyncio.run,
+                                ntwrk.parallel_requests(servers, 'post',
+                                                        view_or_url='api_1_0.cluster',
+                                                        json=cluster_data,
+                                                        auth=get_auth_from_request()))
+        return {}, 204
+    else:
+        raise errors.UserForbiddenError
+
+
+
+
+
+@api_bp.route('/cluster/in/<server_id>', methods=['POST'])
+@jwt_required
+@securizer
+def cluster_in(server_id):
+    user = User.get_current()
+    if user and user.user == 'root':
+        cr = current_app.cluster.set_alive(server_id)
+        _cluster_logger.debug(f"{Server.query.get(server_id).name or server_id} is a new alive server")
+
+        if cr:
+            executor.submit(asyncio.run, send_cluster_register(cr, get_auth_from_request()))
+        return current_app.cluster.get_cluster(), 200
+
+    else:
+        raise errors.UserForbiddenError
+
+
+@api_bp.route('/cluster/out/<server_id>', methods=['POST'])
+@jwt_required
+@securizer
+def cluster_out(server_id):
+    user = User.get_current()
+    if user and user.user == 'root':
+        data = request.get_json()
+        if data.get('death', None):
+            try:
+                death = dt.datetime.strptime(data['death'], defaults.DATEMARK_FORMAT)
+            except:
+                death = get_now()
+        else:
+            death = None
+        cr = current_app.cluster.set_death(server_id, death=death)
+        _cluster_logger.debug(f"{Server.query.get(server_id).name or server_id} is a death server")
+        if cr:
+            executor.submit(asyncio.run, send_cluster_register(cr, get_auth_from_request()))
+            executor.submit(asyncio.run, set_not_a_neighbour(server_id, get_auth_from_request(), commit=True))
+        return {}, 204
+    else:
+        raise errors.UserForbiddenError
+
+
+@api_bp.route('/routes/<server_id>', methods=['GET'])
+@forward_or_dispatch
+@jwt_required
+@securizer
+def routes_neighbour(server_id):
+    server = Server.query.get_or_404(server_id)
+    route = check_neighbour(server)
+    # change server
+    if route:
+        return {'neighbour': True}
+    else:
+        return {'neighbour': False}
 
 
 @api_bp.route('/routes', methods=['GET', 'POST', 'PATCH'])
@@ -254,151 +394,62 @@ def fetch_catalog(data_mark):
 @validate_schema(POST=routes_post, PATCH=routes_patch)
 def routes():
     if request.method == 'GET':
-
         route_table = []
         for route in Route.query.join(Server.route).order_by(
-                Server.name).all():
+                Server.name).filter(Server.deleted == False).all():
             route_table.append(route.to_json(human=check_param_in_uri('human')))
         data = {'route_list': route_table}
-        if check_param_in_uri('human'):
-            data.update(server=str(g.server))
-        else:
-            data.update(server_id=str(g.server.id))
+        data.update(server=dict(name=g.server.name, id=str(g.server.id)))
         return data
 
     elif request.method == 'POST':
-        data = request.get_json()
-        new_routes = update_table_routing_cost(**data)
-        db.session.commit()
+        def job(data, auth):
+            new_routes = update_route_table_cost(**data)
+            db.session.commit()
+            if len(new_routes) > 0:
+                asyncio.run(send_new_routes(new_routes, auth))
+            return new_routes
 
-        # if len(new_routes) > 0:
-        #     def func_patch(app, *args, **kwargs):
-        #         with app.app_context():
-        #             patch(*args, **kwargs)
-        #
-        #     msg = {'server_id': str(Server.get_current().id),
-        #            'route_list': [
-        #                dict(destination_id=str(d.id),
-        #                     proxy_server_id=str(getattr(r.proxy_server, 'id')) if getattr(r.proxy_server, 'id',
-        #                                                                                   None) else None,
-        #                     gate_id=str(getattr(r.gate, 'id')) if getattr(r.gate, 'id', None) else None,
-        #                     cost=r.cost)
-        #                for d, r in new_routes.items()
-        #            ]}
-        #
-        #     for s in Server.get_neighbours():
-        #         th = threading.Thread(target=func_patch, args=(current_app._get_current_object(), s, 'api_1_0.routes'),
-        #                               kwargs={'json': msg,
-        #                                       'headers': dict(Authorization=request.headers['Authorization'])})
-        #         th.daemon = True
-        #         th.start()
+        msg = request.get_json()
+        if msg.get('background', False):
+            executor.submit(job, msg, get_auth_from_request())
+        else:
+            job(msg, HTTPBearerAuth(request.headers['Authorization'].split()[1]))
+        return {}, 204
 
-    # elif request.method == 'PATCH':
-    #     data = request.get_json()
-    #     current_app.logger.debug(f"New routes recived: {json.dumps(data, indent=4)}")
-    #     likely_proxy_server = Server.query.get(data.get('server_id'))
-    #     new_routes = []
-    #     if not likely_proxy_server:
-    #         return {"error": f"Server id '{data.get('server_id')}' not found"}, 404
-    #     for new_route in data.get('route_list', []):
-    #         target_server = Server.query.get(new_route.get('destination_id'))
-    #         if target_server is None:
-    #             current_app.logger.debug(f"Destination server unknown {new_route.get('destination_id')}")
-    #             continue
-    #         if target_server == g.server:
-    #             # check if server has detected me as a neighbour
-    #             if new_route.get('cost') == 0:
-    #                 # server may be created without route (backward compatibility)
-    #                 if likely_proxy_server.route is None:
-    #                     likely_proxy_server.route = Route(destination=likely_proxy_server)
-    #                 # check if I do not have it as a neighbour yet
-    #                 if likely_proxy_server.route.cost != 0:
-    #                     for gate in likely_proxy_server.gates:
-    #                         if check_host(gate.dns or str(gate.ip), gate.port, timeout=1, retry=3, delay=0.5):
-    #                             likely_proxy_server.route.proxy_server = None
-    #                             likely_proxy_server.route.gate = gate
-    #                             likely_proxy_server.route.cost = 0
-    #                             new_routes.append(likely_proxy_server.route)
-    #                             break
-    #         else:
-    #             # server may be created without route (backward compatibility)
-    #             if target_server.route is None:
-    #                 target_server.route = Route(destination=target_server)
-    #             # process routes whose proxy_server is not me
-    #             if str(g.server.id) != new_route.get('proxy_server_id'):
-    #                 if target_server.route.proxy_server == likely_proxy_server and new_route.get('cost') is None:
-    #                     cost, time = None, None
-    #                 else:
-    #                     cost, time = ping_server(target_server, g.server)  # check my route
-    #                 if cost is not None:
-    #                     # if new route has less cost than actual route, take it as my new route
-    #                     if ((new_route.get('cost') or 999999) + 1) < cost:
-    #                         target_server.route.proxy_server = likely_proxy_server
-    #                         target_server.route.gate = None
-    #                         target_server.route.cost = new_route.get('cost') + 1
-    #                         new_routes.append(target_server.route)
-    #                 else:
-    #                     # if new route reaches the destination take it as a new one
-    #                     if new_route.get('cost') is not None:
-    #                         target_server.route.proxy_server = likely_proxy_server
-    #                         target_server.route.gate = None
-    #                         target_server.route.cost = new_route.get('cost') + 1
-    #                     else:
-    #                         # neither my route and the new route has access to the destination
-    #                         target_server.route.gate, target_server.route.proxy_server, target_server.route.cost = None, None, None
-    #                     new_routes.append(target_server.route)
-    #
-    #     # # Seek my routes whose gateway is the likely_proxy_server
-    #     # for target_server in Server.query.join(Route.destination).filter(
-    #     #         Route.proxy_server == likely_proxy_server).all():
-    #     #     for new_route in data.get('route_list', []):
-    #     #         if new_route.get('cost'):
-    #     #             target_server.route.cost = new_route.get('cost') + 1
-    #     #         else:
-    #     #             target_server.route.gate, target_server.route.proxy_server, target_server.route.cost = None, None, None
-    #     #         new_routes.append(target_server.route)
-    #     db.session.commit()
-    #
-    #     # send new information in background
-    #     if new_routes:
-    #         def func_patch(app, *args, **kwargs):
-    #             with app.app_context():
-    #                 patch(*args, **kwargs)
-    #
-    #         msg = {'server_id': str(g.server.id),
-    #                'route_list': [
-    #                    r.to_json()
-    #                    for r in new_routes]}
-    #
-    #         for s in Server.get_neighbours():
-    #             if s != likely_proxy_server:
-    #                 th = threading.Thread(target=func_patch,
-    #                                       args=(current_app._get_current_object(), s, 'api_1_0.routes'),
-    #                                       kwargs={'json': msg,
-    #                                               'headers': dict(Authorization=request.headers['Authorization'])})
-    #                 th.daemon = True
-    #                 th.start()
+    elif request.method == 'PATCH':
+        def job(msg, auth):
+            new_routes = update_route_table_from_data(msg, auth)
+            db.session.commit()
+            if len(new_routes) > 0:
+                asyncio.run(send_new_routes(new_routes, auth))
 
-    return {}, 204
+        executor.submit(job, request.get_json(), HTTPBearerAuth(request.headers['Authorization'].split()[1]))
+
+        return {}, 204
 
 
-def run_command_and_callback(operation: 'IOperationEncapsulation', var_context, source: Id, execution: Id, jwt_identity,
+def run_command_and_callback(operation: 'IOperationEncapsulation', var_context, source: Server,
+                             step_execution: StepExecution,
+                             jwt_identity, event_id,
                              timeout=None):
     cp = operation.execute(var_context=var_context, timeout=timeout)
 
-    execution = StepExecution.query.get(execution)
-    source = Server.query.get(source)
+    execution = db.session.merge(step_execution)
+    source = db.session.merge(source)
     execution.load_completed_result(cp)
     try:
         db.session.commit()
     except Exception as e:
         current_app.logger.exception(f"Error on commit for execution {execution.id}")
-    data = dict(**execution.to_json(),
-                                var_context=base64.b64encode(pickle.dumps(var_context)).decode('ascii'))
-    resp, code = post(server=source, view_or_url='api_1_0.events', view_data={'event_id': str(execution.id)},
-                      json=data,
-                      auth=HTTPBearerAuth(
-                          create_access_token(jwt_identity, expires_delta=dt.timedelta(seconds=30))))
+    data = dict(step_execution=execution.to_json(),
+                var_context=base64.b64encode(pickle.dumps(var_context)).decode('ascii'))
+    if execution.child_orch_execution:
+        data['step_execution'].update(orch_execution=execution.child_orch_execution.to_json(add_step_exec=True))
+    resp, code = ntwrk.post(server=source, view_or_url='api_1_0.events', view_data={'event_id': event_id},
+                            json=data,
+                            auth=HTTPBearerAuth(
+                                create_access_token(jwt_identity, expires_delta=dt.timedelta(seconds=30))))
     if code != 202:
         current_app.logger.error(f"Error while sending result for execution {execution.id}: {code}, {resp}")
     return data
@@ -412,20 +463,21 @@ def launch_operation():
     data = request.get_json()
     operation = pickle.loads(base64.b64decode(data['operation'].encode('ascii')))
     var_context = pickle.loads(base64.b64decode(data['var_context'].encode('ascii')))
-    orch_exec_json = data['execution']
+    orch_exec_json = data['orch_execution']
     orch_exec = OrchExecution.from_json(orch_exec_json)
 
-    e = StepExecution(server=g.server, step_id=data.get('step_id'), orch_execution=orch_exec, params=dict(var_context),
-                      start_time=get_now())
-    db.session.add_all([orch_exec, e])
+    se = StepExecution(id=var_context.globals.get('step_execution_id'), server=g.server, step_id=data.get('step_id'),
+                       orch_execution=orch_exec, params=dict(var_context),
+                       start_time=get_now())
+    db.session.add_all([orch_exec, se])
     db.session.commit()
-    future = executor.submit(run_command_and_callback, operation, var_context, g.source.id, e.id,
-                             get_jwt_identity(),
-                             timeout=data.get('timeout'))
+    future = executor.submit(run_command_and_callback, operation, var_context, g.source, se,
+                             get_jwt_identity(), data['event_id'],
+                             timeout=data.get('timeout', None))
     try:
         r = future.result(1)
     except concurrent.futures.TimeoutError:
-        return {'execution_id': str(e.id)}, 202
+        return {}, 204
     except Exception as e:
         current_app.logger.exception(
             f"Exception got when executing step {data.get('step_id')}. See logs for more information")
@@ -477,10 +529,11 @@ def launch_orchestration(orchestration_id):
 
     execution_id = str(uuid.uuid4())
 
-    vc = VarContext(globals=dict(execution_id=execution_id, executor_id=get_jwt_identity()), initials=params)
+    vc = VarContext(globals=dict(orch_execution_id=execution_id, executor_id=get_jwt_identity()), initials=params)
 
     if request.get_json().get('background', True):
-        future = executor.submit(deploy_orchestration, orchestration=orchestration.id, var_context=vc, hosts=hosts)
+        future = executor.submit(deploy_orchestration, orchestration=orchestration.id, var_context=vc, hosts=hosts,
+                                 execution=execution_id, )
         try:
             r = future.result(1)
         except concurrent.futures.TimeoutError:
@@ -492,18 +545,19 @@ def launch_orchestration(orchestration_id):
             return jsonify(r), 200
     else:
         try:
-            orch_exe = deploy_orchestration(orchestration=orchestration.id, var_context=vc, hosts=hosts)
+            orch_exe = deploy_orchestration(orchestration=orchestration, var_context=vc, hosts=hosts,
+                                            execution=execution_id)
         except Exception as e:
             current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
             raise
         else:
-            return orch_exe.to_json(add_step_exec=True, human=check_param_in_uri('human')), 200
+            return orch_exe.to_json(add_step_exec=True, human=check_param_in_uri('human'), split_lines=True), 200
 
 async def parallel_command_run(servers, data, auth):
     server_responses = {}
     for server in servers:
         server_responses[str(server.id)] = asyncio.create_task(
-            async_post(server, 'api_1_0.launch_command', json=data, auth=auth, timeout=data.get('timeout', None)))
+            ntwrk.async_post(server, 'api_1_0.launch_command', json=data, auth=auth, timeout=data.get('timeout', None)))
 
     for server in servers:
         server_responses[str(server.id)] = await server_responses[str(server.id)]
@@ -569,7 +623,7 @@ def launch_command():
         server_list.pop(server_list.index(g.server))
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if data.get('input', None) else None,
                                 stderr=subprocess.PIPE, stdout=subprocess.PIPE,
-                                shell=True, close_fds=True)
+                                shell=True, close_fds=True, encoding='utf-8')
 
     resp_data = {}
     if server_list:
@@ -595,7 +649,7 @@ def launch_command():
     if start:
         timeout = data.get('timeout', defaults.TIMEOUT_COMMAND)
         try:
-            outs, errs = proc.communicate(input=(data.get('input', '') or '').encode(), timeout=timeout - (time.time() - start))
+            outs, errs = proc.communicate(input=(data.get('input', '') or ''), timeout=timeout - (time.time() - start))
         except (TimeoutError, subprocess.TimeoutExpired):
             proc.kill()
             try:
@@ -612,7 +666,7 @@ def launch_command():
             resp_data[str(g.server.id)] = {
                 'error': traceback.format_exc() if current_app.config['DEBUG'] else traceback.format_exception_only()}
         else:
-            resp_data[str(g.server.id)] = {'stdout': outs.decode().split('\n'), 'stderr': errs.decode().split('\n'),
+            resp_data[str(g.server.id)] = {'stdout': outs.split('\n'), 'stderr': errs.split('\n'),
                                            'returncode': proc.returncode}
     if check_param_in_uri("human"):
         convert_human = {}

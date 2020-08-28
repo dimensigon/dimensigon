@@ -80,6 +80,13 @@ class TestServer(TestCase):
 
         self.assertListEqual([n1, n2], me.get_neighbours())
 
+        self.app.cluster.set_alive(n1.id)
+
+        self.assertListEqual([n1], me.get_neighbours(alive=True))
+
+        self.assertListEqual([n2], me.get_neighbours(exclude=n1))
+        self.assertListEqual([n2], me.get_neighbours(exclude=[n1, n3]))
+
     def test_get_neighbours_no_route(self):
         n1 = Server('n1', port=8000)
         me = Server('me', port=8000, me=True)

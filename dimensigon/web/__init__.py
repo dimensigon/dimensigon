@@ -1,11 +1,11 @@
-import atexit
 import datetime
+import logging
 import os
 import threading
 import typing as t
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, g, _app_ctx_stack
+from flask import Flask, g, _app_ctx_stack, _request_ctx_stack
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import MetaData
@@ -15,17 +15,20 @@ from dimensigon.web import errors
 from dimensigon.web.config import config_by_name
 from .extensions.flask_executor.executor import Executor
 from .helpers import BaseQueryJSON, run_in_background
+from .. import defaults
+from ..utils import asyncio
+from ..utils.cluster_manager import ClusterManager
 from ..utils.helpers import get_now
 
 
 def scopefunc():
-    # try:
-    #     return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident()) + str(id(_request_ctx_stack.top.request))
-    # except:
     try:
-        return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident())
+        return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident()) + str(id(_request_ctx_stack.top.request))
     except:
-        return str(threading.get_ident())
+        try:
+            return str(id(_app_ctx_stack.top.app)) + str(threading.get_ident())
+        except:
+            return str(threading.get_ident())
 
 
 meta = MetaData(naming_convention={
@@ -37,12 +40,62 @@ meta = MetaData(naming_convention={
 })
 
 db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta, session_options=dict(scopefunc=scopefunc))
+# db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta)
 # db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
 executor = Executor()
 
 
 class DimensigonFlask(Flask):
+    dm = None
+    cluster = ClusterManager()
+
+    def shutdown(self):
+        with self.app_context():
+            from dimensigon.domain.entities import Server
+            import dimensigon.web.network as ntwrk
+            from dimensigon.use_cases.helpers import get_auth_root
+
+            servers = Server.get_neighbours(alive=True)
+            if servers:
+                responses = asyncio.run(
+                    ntwrk.parallel_requests(servers, 'post',
+                                            view_or_url='api_1_0.cluster_out',
+                                            view_data=dict(server_id=str(Server.get_current().id)),
+                                            json={'death': get_now().strftime(defaults.DATEMARK_FORMAT)},
+                                            timeout=2, auth=get_auth_root()))
+                if self.logger.level <= logging.DEBUG:
+                    for r in responses:
+                        if not r.ok:
+                            self.logger.debug(f"Unable to send data to {r.server.id}: {r}")
+
+    def start(self):
+        self.start_background_tasks()
+        with self.app_context():
+            from dimensigon.domain.entities import Server
+            import dimensigon.web.network as ntwrk
+            from dimensigon.use_cases.helpers import get_auth_root
+            from .background_tasks import process_catalog_route_table
+
+            process_catalog_route_table(cluster_update=False)
+
+            cluster_logger = logging.getLogger('dimensigon.cluster')
+
+            cluster_logger.debug("Checking alive neighbour servers")
+            for s in Server.get_neighbours():
+                resp = ntwrk.post(s, 'api_1_0.cluster_in', view_data=dict(server_id=str(Server.get_current().id)),
+                                  json=dict(alive=False), timeout=2, auth=get_auth_root())
+                if resp.ok:
+                    self.cluster.update_cluster(resp.msg)
+                    break
+                else:
+                    self.logger.debug(f"Unable to set me as alive in {s} . Response: {resp}")
+            else:
+                self.cluster.set_alive(Server.get_current().id)
+            cluster_logger.info(
+                f"Alive servers: {', '.join([(Server.query.get(s_id).name or s_id) for s_id in self.cluster.get_alive()])}")
+
+
 
     def start_background_tasks(self):
         from ..use_cases.log_sender import LogSender
@@ -56,23 +109,22 @@ class DimensigonFlask(Flask):
                 bs.start()
 
                 if self.config.get('AUTOUPGRADE'):
-                    bs.add_job(func=process_get_new_version_from_gogs, args=(self,), trigger="interval", hours=6)
+                    bs.add_job(func=process_get_new_version_from_gogs, args=(self,), trigger="interval",
+                               id='upgrader',
+                               hours=6)
                 bs.add_job(func=process_catalog_route_table, name="catalog & route upgrade", args=(self,),
-                           trigger="interval", minutes=5,
-                           next_run_time=get_now() + datetime.timedelta(seconds=5))
+                           id='routing_cluster_catalog_refresh',
+                           trigger="interval", minutes=2)
                 bs.add_job(func=run_in_background, name="log_sender", args=(ls.send_new_data, self),
+                           id='log_sender',
                            trigger="interval",
                            minutes=2, next_run_time=get_now() + datetime.timedelta(seconds=30))
 
-                # Shut down the scheduler when exiting the app
-                atexit.register(lambda: bs.shutdown())
+
 
     def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
-        from dimensigon.domain.entities.bootstrap import set_initial
-        set_initial(server=False, user=False)
-        db.session.commit()
-        self.start_background_tasks()
         super(DimensigonFlask, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
+        self.logger.info("Shutting down run execution")
 
 
 def _initialize_blueprint(app):

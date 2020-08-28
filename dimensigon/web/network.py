@@ -15,8 +15,8 @@ from dimensigon.domain.entities import Server, Dimension, Gate
 from dimensigon.network.encryptation import pack_msg as _pack_msg, unpack_msg as _unpack_msg
 from dimensigon.network.exceptions import NotValidMessage
 from dimensigon.utils.helpers import get_now
-from dimensigon.utils.typos import Kwargs, tJSON
-from dimensigon.web import errors
+from dimensigon.utils.typos import Kwargs, tJSON, Id
+from dimensigon.web import errors, db
 
 requests.packages.urllib3.disable_warnings()
 
@@ -188,7 +188,6 @@ def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, veri
         try:
             url = dest.url('root.ping')
         except:
-            logger.exception(f"exception while getting url to {dest}")
             return None, None
     while tries < retries:
         try:
@@ -366,35 +365,36 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     else:
         _session = session
 
-    raise_on_error = kwargs.pop('raise_on_error', False)
-
     try:
-        url = prepare_request(server, view_or_url, view_data or {}, kwargs)
-    except Exception as e:
-        if raise_on_error:
-            raise
-        return Response(exception=e, server=server)
+        raise_on_error = kwargs.pop('raise_on_error', False)
 
-    kwargs['ssl'] = current_app.config['SSL_VERIFY']
+        try:
+            url = prepare_request(server, view_or_url, view_data or {}, kwargs)
+        except Exception as e:
+            if raise_on_error:
+                raise
+            return Response(exception=e, server=server)
 
-    if 'timeout' in kwargs and isinstance(kwargs['timeout'], (int, float)):
-        kwargs['timeout'] = aiohttp.ClientTimeout(total=kwargs['timeout'])
+        kwargs['ssl'] = current_app.config['SSL_VERIFY']
 
-    func = getattr(_session, method)
+        if 'timeout' in kwargs and isinstance(kwargs['timeout'], (int, float)):
+            kwargs['timeout'] = aiohttp.ClientTimeout(total=kwargs['timeout'])
 
-    try:
-        async with func(url, **kwargs) as resp:
-            status = resp.status
-            headers = resp.headers
-            try:
-                json_data = await resp.json()
-            except (ContentTypeError, ValueError):
-                content = await resp.text()
-    except (concurrent.futures.TimeoutError, asyncio.TimeoutError) as e:
-        exception = TimeoutError(f"Socket timeout reached while trying to connect to {url} "
-                  f"for {kwargs.get('timeout').total or _session._timeout.total} seconds")
-    except Exception as e:
-        exception = e
+        func = getattr(_session, method)
+
+        try:
+            async with func(url, **kwargs) as resp:
+                status = resp.status
+                headers = resp.headers
+                try:
+                    json_data = await resp.json()
+                except (ContentTypeError, ValueError):
+                    content = await resp.text()
+        except (concurrent.futures.TimeoutError, asyncio.TimeoutError) as e:
+            exception = TimeoutError(f"Socket timeout reached while trying to connect to {url} "
+                      f"for {kwargs.get('timeout').total or _session._timeout.total} seconds")
+        except Exception as e:
+            exception = e
     finally:
         if not session:
             await _session.close()
@@ -457,3 +457,33 @@ async def async_delete(server: Server, view_or_url: str, view_data: Kwargs = Non
                        **kwargs) -> Response:
     r"""Sends a DELETE request."""
     return await async_request('delete', server, view_or_url, view_data=view_data, session=session, **kwargs)
+
+
+async def parallel_requests(servers: t.List[t.Union[Server, Id]], method: str, kw_wrapper=None, **kwargs):
+    if not servers:
+        return []
+
+    if not isinstance(servers[0], Server):
+        servers = [Server.query.get(s) for s in servers]
+    else:
+        servers = [db.session.merge(s) if s not in db.session else s for s in servers]
+
+    if not kwargs.get('session'):
+        _session = aiohttp.ClientSession()
+    else:
+        _session = kwargs.get('session')
+    kwargs['session'] = _session
+
+    try:
+        aw = []
+        for s in servers:
+            if kw_wrapper:
+                kw_wrapper(s, kwargs)
+            aw.append(async_request(method.lower(), s, **kwargs))
+
+        rs = await asyncio.gather(*aw, return_exceptions=True)
+    finally:
+        if kwargs.get('session'):
+            await _session.close()
+
+    return rs

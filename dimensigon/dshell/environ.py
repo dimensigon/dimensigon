@@ -1,9 +1,10 @@
-import dimensigon.dshell.network as ntwrk
-
 _server2id_map = {}
 
 _environ = {}
 
+_access_token = None
+_refresh_token = None
+_username = None
 
 def set_dict_in_environ(data: dict, **kwargs):
     for k, v in data.items():
@@ -19,7 +20,7 @@ def set(key, value):
 
 def get(key, default=None):
     if key == 'ACCESS_TOKEN':
-        return ntwrk._access_token
+        return _access_token
     return _environ.get(key, default)
 
 
@@ -30,3 +31,4 @@ def set_server2id_map(data):
 
 def server2id(server):
     return _server2id_map.get(server, None)
+

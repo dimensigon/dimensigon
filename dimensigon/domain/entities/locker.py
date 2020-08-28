@@ -7,8 +7,8 @@ from dimensigon.web import db
 
 class Scope(Enum):
     CATALOG = 1  # lock catalog for updating information
-    ORCHESTRATION = 2  # execute an orchestration
-    UPGRADE = 3  # upgrading Catalog from another server
+    UPGRADE = 2  # upgrading Catalog from another server
+    ORCHESTRATION = 3  # execute an orchestration
 
     def __lt__(self, other):
         return self.value < other.value

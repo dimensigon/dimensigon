@@ -43,8 +43,8 @@ def check_host(host: str, port: int, retry=3, delay=2, timeout=1.0):
         if is_ssl_open(host, port, timeout):
             ipup = True
             break
-        elif is_open(host, port, timeout):
-            ipup = True
-            break
+        # elif is_open(host, port, timeout):
+        #     ipup = True
+        #     break
         time.sleep(delay)
     return ipup

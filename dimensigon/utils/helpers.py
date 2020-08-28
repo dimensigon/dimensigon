@@ -11,7 +11,6 @@ import re
 import sys
 import traceback
 import typing as t
-import uuid
 from collections import Iterable, ChainMap
 from contextlib import contextmanager
 
@@ -27,6 +26,15 @@ from dimensigon import defaults
 
 _LOGGER = logging.getLogger(__name__)
 
+class Singleton(type):
+    """ Metaclass that creates a Singleton base type when called. """
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton, cls)\
+                .__call__(*args, **kwargs)
+        return cls._instances[cls]
 
 class AttributeDict(dict):
     __getattr__ = dict.__getitem__
@@ -45,13 +53,15 @@ def is_iterable_not_string(var):
     return is_iterable(var) and not is_string_types(var)
 
 
+UUID_PATTERN = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+
+
 def is_valid_uuid(var):
-    try:
-        uuid.UUID(var)
-    except ValueError:
-        return False
-    else:
+    # best performance with regular expression compiled and not using re.IGNORECASE
+    if UUID_PATTERN.match(var):
         return True
+    else:
+        return False
 
 
 def convert(d):

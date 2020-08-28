@@ -40,7 +40,10 @@ def id2name(view, iden, key='name'):
 def name2id(view, name, key='name'):
     view_args = {f'filter[{key}]': name}
     resp = get(view, view_args)
-    if resp.ok:
-        if len(resp.msg) > 1:
-            raise ValueError('multiple ids found')
+    resp.raise_if_not_ok()
+    if len(resp.msg) > 1:
+        raise ValueError(f"multiple ids found for '{name}'")
+    elif len(resp.msg) == 1:
         return resp.msg[0].get('id', None)
+    else:
+        raise LookupError(f"'{name}' not found")

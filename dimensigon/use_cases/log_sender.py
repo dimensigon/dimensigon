@@ -60,6 +60,7 @@ class LogSender:
             self.update_pytail_objects(log, self._mapper[log.id])
 
     def update_pytail_objects(self, log: Log, pytail_list: t.List):
+        # TODO: handle when target does not exist
         if os.path.isfile(log.target):
             if len(pytail_list) == 0:
                 filename = '.' + os.path.basename(log.target) + '.offset'

@@ -17,10 +17,9 @@ login_post = {
 schema_healthcheck = {
     "type": "object",
     "properties": {
-        "action": {"type": "string",
-                   "pattern": "^(reboot|stop|software)"},
+        "alive": {"type": "boolean"},
+        "server_id": {"type": "string", "pattern": UUID_pattern}
     },
-    "required": ["action"],
     "additionalProperties": False
 }
 
@@ -42,12 +41,23 @@ locker_unlock_lock_post = {
         "scope": {"type": "string",
                   "pattern": f"^({'|'.join([s.name for s in Scope])})$"},
         "applicant": {"type": ["object", "array", "string"]},
-        # "force": {"type": "boolean"},
+        "force": {"type": "boolean"},
     },
     "required": ["scope", "applicant"],
     "additionalProperties": False
 }
 
+manager_server_ignore_lock_post = {
+    "type": "object",
+    "properties": {
+        "server_ids": {"type": "array",
+                       "items": {"type": "string", "pattern": UUID_pattern},
+                       },
+        "ignore_on_lock": {"type": "boolean"}
+    },
+    "required": ["ignore_on_lock", "server_ids"],
+    "additionalProperties": False
+}
 
 send_post = {
     "type": "object",
@@ -300,29 +310,32 @@ step_children = {
 routes_patch = {
     "type": "object",
     "properties": {
-        "discover_new_neighbours": {"type": "boolean"},
-        "check_current_neighbours": {"type": "boolean"},
         "server_id": {"type": "string",
                       "pattern": UUID_pattern},
-        "server_list": {"type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string", "pattern": UUID_pattern},
-                                "gateway": {"anyOf": [
-                                    {"type": "string",
-                                     "pattern": UUID_pattern},
-                                    {"type": "null"}
-                                ]},
-                                "cost": {"anyOf": [
-                                    {"type": "integer",
-                                     "minimum": 0},
-                                    {"type": "null"}
-                                ]}
-                            },
-                            "required": ["id", "gateway", "cost"]
-                        }
-                        }
+        "route_list": {"type": "array",
+                       "items": {
+                           "type": "object",
+                           "properties": {
+                               "destination_id": {"type": "string", "pattern": UUID_pattern},
+                               "proxy_server_id": {"anyOf": [
+                                   {"type": "string",
+                                    "pattern": UUID_pattern},
+                                   {"type": "null"}
+                               ]},
+                               "gate_id": {"anyOf": [
+                                   {"type": "string",
+                                    "pattern": UUID_pattern},
+                                   {"type": "null"}
+                               ]},
+                               "cost": {"anyOf": [
+                                   {"type": "integer",
+                                    "minimum": 0},
+                                   {"type": "null"}
+                               ]}
+                           },
+                           "required": ["destination_id", "gate_id", "cost"]
+                       }
+                       }
     },
     "additionalProperties": False
 }
@@ -333,7 +346,8 @@ routes_post = {
         "discover_new_neighbours": {"type": "boolean"},
         "check_current_neighbours": {"type": "boolean"},
         "retries": {"type": "integer", "minimum": 1},
-        "timeout": {"type": "number", "minimum": 0}
+        "timeout": {"type": "number", "minimum": 0},
+        "background": {"type": "boolean"}
     },
     "additionalProperties": False
 }
@@ -354,8 +368,7 @@ orchestration_post = {
 orchestration_step = {
     "type": "object",
     "properties": {
-        "id": {"anyOf": [{"type": "string"},
-                         {"type": "integer", "minimum": 1}]},
+        "id": {"type": "string"},
         "undo": {"type": "boolean"},
         "name": {"type": "string"},
         "stop_on_error": {"type": "boolean"},
@@ -374,9 +387,7 @@ orchestration_step = {
         "pre_process": {"type": "string"},
         "post_process": {"type": "string"},
         "parent_step_ids": {"type": "array",
-                            "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
-                                                {"type": "integer", "minimum": 1}]
-                                      }
+                            "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}
                             },
         "target": {"anyOf": [{"type": "string"},
                              {"type": "array", "items": {"type": "string"}}]}
@@ -391,7 +402,6 @@ orchestration_full = {
     "type": "object",
     "properties": {
         "name": {"type": "string"},
-        # "version": {"type": "integer", "minimum": 1},
         "description": {"type": "string"},
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
@@ -599,12 +609,16 @@ server_patch = {
                                          "minimum": 1,
                                          "maximum": 65535},
                                 "hidden": {"type": "boolean"},
-                                "required": ["dns_or_ip", "port"],
-                                "additionalProperties": False,
-                            }}
+
+                            },
+                            "required": ["dns_or_ip", "port"],
+                            "additionalProperties": False,
+                            }
                   },
         "granules": {"type": "array",
-                     "items": {"type": "string"}}
+                     "items": {"type": "string"}},
+        "ignore_on_lock": {"type": "boolean"},
+        "alive": {"type": "boolean"}
     },
     "additionalProperties": False,
 }

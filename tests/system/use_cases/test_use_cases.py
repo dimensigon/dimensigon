@@ -97,7 +97,7 @@ class TestRoutes(TestDimensigonBase):
     #     self.assertEqual(1, mocked_thread.Thread.call_count)
     #
     # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
-    # @patch('dimensigon.web.api_1_0.urls.use_cases.update_table_routing_cost')
+    # @patch('dimensigon.web.api_1_0.urls.use_cases.update_route_table_cost')
     # @responses.activate
     # def test_routes_post(self, mocked_utr, mocked_threading):
     #     s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='server1', me=True)

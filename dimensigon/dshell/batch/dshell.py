@@ -19,6 +19,7 @@ The available dshell commands are:
    exec      Execution Resource
    software  Software Resource, send software
    logfed    LogFed Resource
+   manager   Commands to manage internal conditions
 
 When no dshell command specified dshell starts in interactive mode
 
@@ -34,7 +35,6 @@ from argparse import ArgumentParser
 from docopt import docopt
 
 import dimensigon.dshell.environ as env
-import dimensigon.dshell.network as ntwrk
 from dimensigon.dshell.argparse_raise import create_parser
 from dimensigon.dshell.bootstrap import bootstrap_environ
 from dimensigon.dshell.commands import nested_dict
@@ -42,10 +42,8 @@ from dimensigon.dshell.interactive import interactive, call_func_with_signature
 
 basename = os.path.dirname(os.path.abspath(__file__))
 
-commands = 'cmd exec ping logfed server software status transfer'.split()
+commands = 'cmd exec ping logfed manager server software status transfer refresh'.split()
 batch_commands = 'action orch'.split()  # commands that interact differently from interactive mode
-
-
 
 
 def main():
@@ -62,26 +60,32 @@ def main():
 
     # process args
     argv = [args['COMMAND']] + args['ARGS']
-    if args['COMMAND'] is None:
-        interactive()
-    else:
-        if ntwrk._refresh_token is None:
-            exit('No token specified. Unable to run command')
-        if not env.get('SERVER', None):
-            exit('No server specified. Unable to run command')
-        if args['COMMAND'] in commands:
 
-            parser = create_parser({args['COMMAND']: nested_dict[args['COMMAND']]}, parser=ArgumentParser(prog="dshell"))
-            namespace = parser.parse_args(argv)
-
-            if hasattr(namespace, 'func'):
-                call_func_with_signature(dict(namespace._get_kwargs()))
-        elif args['COMMAND'] in batch_commands:
-            module = importlib.import_module('.dshell_%s' % args['COMMAND'], 'dimensigon.dshell.batch')
-            module.main(argv)
+    if not ('-h' or '--help') in argv:
+        if args['COMMAND'] is None:
+            import dimensigon.dshell
+            dimensigon.dshell.INTERACTIVE = True
+            interactive()
         else:
-            exit("%r is not a dshell command. See 'dshell --help'." % args['COMMAND'])
-
+            if env._refresh_token is None:
+                exit('No token specified. Unable to run command')
+            if not env.get('SERVER', None):
+                exit('No server specified. Unable to run command')
+            if args['COMMAND'] in commands:
+                parser = create_parser({args['COMMAND']: nested_dict[args['COMMAND']]},
+                                       parser=ArgumentParser(prog="dshell"))
+                namespace = parser.parse_args(argv)
+                if hasattr(namespace, 'func'):
+                    call_func_with_signature(vars(namespace))
+            elif args['COMMAND'] in batch_commands:
+                module = importlib.import_module('.dshell_%s' % args['COMMAND'], 'dimensigon.dshell.batch')
+                module.main(argv)
+            else:
+                exit("%r is not a dshell command. See 'dshell --help'." % args['COMMAND'])
+    else:
+        parser = create_parser({args['COMMAND']: nested_dict[args['COMMAND']]},
+                               parser=ArgumentParser(prog="dshell"))
+        parser.parse_args(argv)
 
 if __name__ == '__main__':
     sys.exit(main())

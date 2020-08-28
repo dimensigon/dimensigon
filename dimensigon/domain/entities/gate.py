@@ -53,6 +53,6 @@ class Gate(db.Model, UUIDistributedEntityMixin):
             kwargs['server'] = server
         kwargs['ip'] = ipaddress.ip_address(kwargs.get('ip')) if isinstance(kwargs.get('ip'), str) else kwargs.get('ip')
         if 'server_id' in kwargs and kwargs['server_id'] is not None:
-            kwargs['server'] = Server.query.filter_by(id=kwargs.get('server_id')).one()
+            kwargs['server'] = db.session.query(Server).filter_by(id=kwargs.get('server_id')).one()
             kwargs.pop('server_id')
         return super().from_json(kwargs)

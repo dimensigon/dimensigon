@@ -12,6 +12,7 @@ from flask_sqlalchemy import BaseQuery
 from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
+from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.utils.asyncio import run
 from dimensigon.utils.helpers import is_iterable_not_string
 from dimensigon.utils.typos import Id
@@ -104,9 +105,8 @@ def filter_query(entity, filters, exclude: t.Container = None):
 
 
 def check_param_in_uri(param):
-    params = request.args.get('params', '')
-    params = params.split(',')
-    return param in params
+    return param in request.args.getlist('params')
+
 
 
 def run_in_background(func: t.Callable, app=None, args=None, kwargs=None):
@@ -213,3 +213,7 @@ def session():
         yield s
     finally:
         s.close()
+
+
+def get_auth_from_request():
+    return HTTPBearerAuth(request.headers['Authorization'].split()[1])

@@ -1,17 +1,19 @@
-import os
-import signal
-from functools import partial
+import logging
 
 from flask import Blueprint, request, current_app, jsonify, g
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_refresh_token_required, get_jwt_identity, \
-    current_user
+    current_user, jwt_optional
 
 import dimensigon
 from dimensigon import defaults
-from dimensigon.domain.entities import Server, Catalog
-from dimensigon.domain.entities.user import User
+from dimensigon.domain.entities import Server, Catalog, Scope, User
+from dimensigon.use_cases.helpers import get_servers_from_scope
+from dimensigon.use_cases.lock import lock_scope
+from dimensigon.use_cases.routing import check_neighbour
 from dimensigon.utils.helpers import get_now
+from dimensigon.web import db, executor, errors
 from dimensigon.web.decorators import forward_or_dispatch, validate_schema
+from dimensigon.web.helpers import check_param_in_uri
 from dimensigon.web.json_schemas import schema_healthcheck, login_post
 
 blueprint_name = 'root'
@@ -23,43 +25,69 @@ def home():
     return {'message': 'Welcome to dimensigon'}
 
 
-def shutdown_server():
-    func = request.environ.get('werkzeug.server.shutdown')
-    if func is None:
-        func = partial(os.kill, os.getppid(), signal.SIGTERM)
-    current_app.logger.info('Shutting down server')
-    current_app.scheduler.shutdown()
-    if func is None:
-        raise RuntimeError('Not running with the Werkzeug Server')
-    func()
+# set node to alive and check if neighbour
+def check_alive_and_neighbour(server: Server, alive=True):
+    logger = logging.getLogger('dimensigon.routing')
+    server = db.session.merge(server)
+    current_app.cluster.set_alive(server.id)
+    if server.route.cost is None:
+        new_route = check_neighbour(server, timeout=2, retries=1)
+        if new_route:
+            logger.debug(f'New neighbour {server} found on healthcheck')
+            server.set_route(new_route)
+            db.session.commit()
 
 
 @root_bp.route('/healthcheck', methods=['GET', 'POST'])
 @forward_or_dispatch
+@jwt_optional
 @validate_schema(POST=schema_healthcheck)
 def healthcheck():
+    if isinstance(g.source, Server):
+        executor.submit(check_alive_and_neighbour, g.source)
     if request.method == 'GET':
         # catalog_ver = current_app.catalog_manager.max_data_mark
         # if catalog_ver:
         #     catalog_ver = current_app.catalog_manager.max_data_mark.strftime(current_app.catalog_manager.format)
         catalog_ver = Catalog.max_catalog()
-        return {"version": dimensigon.__version__,
+        data = {"version": dimensigon.__version__,
                 "catalog_version": catalog_ver.strftime(defaults.DATEMARK_FORMAT) if catalog_ver else None,
                 "scheduler": "running" if getattr(current_app.extensions.get('scheduler'), 'running',
                                                   None) else "stopped",
-                "neighbours": [str(server) for server in Server.get_neighbours()],
-                "services": [],
-                "server": {'id': str(g.server.id),
-                           'name': g.server.name}
-                }
-    elif request.method == 'POST':
-        data = request.json
 
-        if data.get('action') == 'stop':
-            shutdown_server()
-            return jsonify(''), 202
-        elif data.get('action') == 'restart':
-            return jsonify({'message': 'restart is not implemented'}), 500
+                "services": [],
+
+                }
+        if not check_param_in_uri('human'):
+            server = {'id': str(g.server.id), 'name': g.server.name}
+            neighbours = [{'id': str(s.id), 'name': s.name} for s in Server.get_neighbours()]
+            cluster = [current_app.cluster.get(i) for i in current_app.cluster.get_alive()]
+        else:
+            server = g.server.name
+            neighbours = [s.name for s in Server.get_neighbours()]
+            cluster = [Server.query.get(i).name for i in
+                       current_app.cluster.get_alive()]
+            # coordinators = [Server.query.get(i).name for i in current_app.cluster.get_coordinators()]
+
+        data.update(server=server, neighbours=neighbours, cluster=cluster)
+
+        return data
+    elif request.method == 'POST':
+        user = User.get_current()
+        if user and user.user == 'root':
+            data = request.get_json()
+            if 'alive' in data:
+                server = Server.query.get(data.get('server_id', None))
+                if server:
+                    try:
+                        servers = get_servers_from_scope(Scope.CATALOG, bypass=server)
+                        with lock_scope(Scope.CATALOG, servers):
+                            server.alive = data['alive']
+                    except Exception:
+                        server.alive = data['alive']
+
+        else:
+            raise errors.UserForbiddenError
 
 
 @root_bp.route('/ping', methods=['POST'])

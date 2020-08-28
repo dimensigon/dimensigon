@@ -1,28 +1,36 @@
 import copy
 import ipaddress
+import logging
 import socket
 import typing as t
+from collections import namedtuple
 
 from flask import current_app, url_for, g
 from sqlalchemy import or_
 
-from dimensigon.utils.typos import ScalarListType, Gate as TGate
+from dimensigon.utils.typos import ScalarListType, Gate as TGate, UtcDateTime, Id
 from dimensigon.web import db, errors
-from .base import UUIDistributedEntityMixin
+from .base import UUIDistributedEntityMixin, SoftDeleteMixin
 from .gate import Gate
 from .route import Route
 from ... import defaults
-# TODO: handle multiple networks (IP gateways) on a server with netifaces
-from ...utils.helpers import get_ips
+from ...utils.helpers import get_ips, get_now
+from ...web.helpers import QueryWithSoftDelete
+
+RouteContainer = namedtuple('RouteContainer', ['proxy_server', 'gate', 'cost'])
 
 
-class Server(db.Model, UUIDistributedEntityMixin):
+class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     __tablename__ = 'D_server'
     order = 10
 
     name = db.Column(db.String(255), nullable=False, unique=True)
     granules = db.Column(ScalarListType())
     _me = db.Column("me", db.Boolean, default=False)
+    _old_name = db.Column("$$name", db.String(255))
+    l_ignore_on_lock = db.Column("ignore_on_lock", db.Boolean,
+                                 default=False)  # ignore the server for locking when set
+    created_on = db.Column(UtcDateTime(timezone=True))  # new in version 3
 
     route = db.relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
                             back_populates="destination", cascade="all, delete-orphan")
@@ -30,10 +38,15 @@ class Server(db.Model, UUIDistributedEntityMixin):
 
     # software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
 
+    query_class = QueryWithSoftDelete
+
     def __init__(self, name: str, granules: t.List[str] = None,
                  dns_or_ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address] = None, port: int = None,
-                 gates: t.List[t.Union[TGate, t.Dict[str, t.Any]]] = None, me: bool = False, **kwargs):
+                 gates: t.List[t.Union[TGate, t.Dict[str, t.Any]]] = None, me: bool = False, unreachable=False,
+                 **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
+        SoftDeleteMixin.__init__(self, **kwargs)
+
         self.name = name
         if port or dns_or_ip:
             self.add_new_gate(dns_or_ip or self.name, port or defaults.DEFAULT_PORT)
@@ -54,6 +67,7 @@ class Server(db.Model, UUIDistributedEntityMixin):
         assert 'all' not in (granules or [])
         self.granules = granules or []
         self._me = me
+        self.created_on = get_now()
         # create an empty route
         if not me:
             Route(self)
@@ -130,9 +144,8 @@ class Server(db.Model, UUIDistributedEntityMixin):
         ConnectionError:
             if server is unreachable
         """
-        scheme = current_app.config['PREFERRED_URL_SCHEME'] or 'https'
+        scheme = 'http' if current_app.dm and 'keyfile' not in current_app.dm.config.http_conf else 'https'
         gate = None
-        # route = Route.query.filter_by(destination_id=self.id)
         route = self.route
         if self._me and (route is None or route.cost is None):
             try:
@@ -161,15 +174,40 @@ class Server(db.Model, UUIDistributedEntityMixin):
                 return root_path + url_for(view, **values)
 
     @classmethod
-    def get_neighbours(cls) -> t.List['Server']:
-        return db.session.query(cls).join(cls.route).filter(Route.cost == 0).all()
+    def get_neighbours(cls, alive=False,
+                       exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None) -> t.List[
+        'Server']:
+        """returns neighbour servers
+
+        Args:
+            alive: if True, returns neighbour servers inside the cluster
+
+        Returns:
+
+        """
+        query = cls.query.join(cls.route).filter(Route.cost == 0)
+        if exclude:
+            if isinstance(exclude, list):
+                if isinstance(exclude[0], Server):
+                    query = query.filter(Server.id.in_([s.id for s in exclude]))
+                else:
+                    query = query.filter(Server.id.in_(exclude))
+            elif isinstance(exclude, Server):
+                query = query.filter(Server.id != exclude.id)
+            else:
+                query = query.filter(Server.id != exclude)
+
+        if alive:
+            query = query.filter(Server.id.in_([iden for iden in current_app.cluster]))
+
+        return query.all()
 
     @classmethod
     def get_not_neighbours(cls) -> t.List['Server']:
-        return db.session.query(cls).outerjoin(cls.route).filter(
+        return cls.query.outerjoin(cls.route).filter(
             or_(or_(Route.cost > 0, Route.cost == None), cls.route == None)).filter(Server._me == False).all()
 
-    def to_json(self, add_gates=False, human=False):
+    def to_json(self, add_gates=False, human=False, add_ignore=False):
         data = super().to_json()
         data.update(
             {'name': self.name, 'granules': self.granules})
@@ -178,8 +216,10 @@ class Server(db.Model, UUIDistributedEntityMixin):
             for g in self.gates:
                 json_gate = g.to_json(human=human)
                 json_gate.pop('server_id', None)
-                json_gate.pop('server', None) # added to remove when human set
+                json_gate.pop('server', None)  # added to remove when human set
                 data['gates'].append(json_gate)
+        if add_ignore:
+            data.update(ignore_on_lock=self.l_ignore_on_lock)
         return data
 
     @classmethod
@@ -198,11 +238,11 @@ class Server(db.Model, UUIDistributedEntityMixin):
 
     @staticmethod
     def set_initial(session=None, gates=None):
+        logger = logging.getLogger('dimensigon.db')
         if session is None:
             session = db.session
         server = session.query(Server).filter_by(_me=True).all()
         if len(server) == 0:
-
             try:
                 server_name = current_app.config.get('SERVER_NAME') or defaults.HOSTNAME
             except:
@@ -213,6 +253,28 @@ class Server(db.Model, UUIDistributedEntityMixin):
             server = Server(name=server_name,
                             gates=gates,
                             me=True)
+            logger.info(f'Creating Server {server.name} with the following gates: {gates}')
             session.add(server)
         elif len(server) > 1:
             raise ValueError('Multiple servers found as me.')
+
+    def ignore_on_lock(self, value: bool):
+        if value != self.l_ignore_on_lock:
+            from dimensigon.domain.entities import bypass_datamark_update
+            with bypass_datamark_update:
+                self.l_ignore_on_lock = value
+
+    def set_route(self, proxy_route, gate=None, cost=None):
+        if self.route is None:
+            self.route = Route(destionation=self)
+        if isinstance(proxy_route, RouteContainer):
+            self.route.proxy_server = proxy_route.proxy_server
+            self.route.gate = proxy_route.gate
+            self.route.cost = proxy_route.cost
+        elif isinstance(proxy_route, Route):
+            assert proxy_route.destination == self
+            self.route = proxy_route
+        else:
+            self.route.proxy_server = proxy_route
+            self.route.gate = gate
+            self.route.cost = cost

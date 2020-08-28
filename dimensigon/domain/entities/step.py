@@ -1,7 +1,6 @@
 import datetime
 import re
 import typing as t
-import uuid
 from collections import ChainMap
 
 from jinja2schema import infer
@@ -28,7 +27,6 @@ step_step = db.Table('D_step_step',
 class Step(db.Model, UUIDistributedEntityMixin):
     __tablename__ = "D_step"
     order = 30
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'), nullable=False)
     action_template_id = db.Column(UUID, db.ForeignKey('D_action_template.id'))
     undo = db.Column(db.Boolean, nullable=False)
@@ -41,7 +39,7 @@ class Step(db.Model, UUIDistributedEntityMixin):
     step_expected_rc = db.Column("expected_rc", db.Integer)
     step_system_kwargs = db.Column("system_kwargs", db.JSON)
     target = db.Column(ScalarListType(str))
-    created_on = db.Column(UtcDateTime(), nullable=False, default=get_now())
+    created_on = db.Column(UtcDateTime(), nullable=False, default=get_now)
     step_action_type = db.Column("action_type", typos.Enum(ActionType))
     step_code = db.Column("code", db.Text)
     step_post_process = db.Column("post_process", db.Text)
@@ -362,13 +360,13 @@ class Step(db.Model, UUIDistributedEntityMixin):
             if step in self.children_steps:
                 self.children_steps.remove(step)
 
-    def to_json(self, add_action=False):
+    def to_json(self, add_action=False, split_lines=False):
         data = super().to_json()
         if getattr(self.orchestration, 'id', None):
             data.update(orchestration_id=str(self.orchestration.id))
         if getattr(self.action_template, 'id', None):
             if add_action:
-                data.update(action_template=self.action_template.to_json())
+                data.update(action_template=self.action_template.to_json(split_lines=split_lines))
             else:
                 data.update(action_template_id=str(self.action_template.id))
         data.update(undo=self.undo)
@@ -382,10 +380,13 @@ class Step(db.Model, UUIDistributedEntityMixin):
         data.update(expected_rc=self.step_expected_rc) if self.step_expected_rc is not None else None
         data.update(system_kwargs=self.step_system_kwargs) if self.step_system_kwargs is not None else None
         data.update(parent_step_ids=[str(step.id) for step in self.parents])
-        data.update(code=self.step_code) if self.step_code is not None else None
+        data.update(
+            code=self.step_code.split('\n') if split_lines else self.step_code) if self.step_code is not None else None
         data.update(action_type=self.step_action_type.name) if self.step_action_type is not None else None
-        data.update(post_process=self.step_post_process) if self.step_post_process is not None else None
-        data.update(pre_process=self.step_pre_process) if self.step_pre_process is not None else None
+        data.update(post_process=self.step_post_process.split(
+            '\n') if split_lines else self.step_post_process) if self.step_post_process is not None else None
+        data.update(pre_process=self.step_pre_process.split(
+            '\n') if split_lines else self.step_pre_process) if self.step_pre_process is not None else None
         data.update(created_on=self.created_on.strftime(defaults.DATETIME_FORMAT))
 
         return data

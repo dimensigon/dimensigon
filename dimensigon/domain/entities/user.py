@@ -107,7 +107,7 @@ class User(db.Model, UUIDistributedEntityMixin):
                                 last_modified_at=defaults.INITIAL_DATEMARK)
                 session.add(join)
 
-    @classmethod
+
     @staticmethod
     def get_current():
         return db.session.query(User).get(get_jwt_identity())

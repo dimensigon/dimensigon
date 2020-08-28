@@ -2,7 +2,8 @@ __author__ = "Joan Prat"
 __copyright__ = "Copyright 2019, The Dimensigon project"
 __credits__ = ["Joan Prat", "Daniel Moya"]
 __license__ = ""
-__version__ = "0.1-b30"
+__version__ = "0.1-b54"
 __maintainer__ = "Joan Prat"
 __email__ = "joan.prat@dimensigon.com"
 __status__ = "development"
+

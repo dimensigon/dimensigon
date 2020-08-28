@@ -16,7 +16,7 @@ class ActionTemplateList(Resource):
     @securizer
     def get(self):
         query = filter_query(ActionTemplate, request.args)
-        return [at.to_json() for at in query.all()]
+        return [at.to_json(split_lines=True) for at in query.all()]
 
     @forward_or_dispatch
     @jwt_required
@@ -47,7 +47,7 @@ class ActionTemplateResource(Resource):
     @jwt_required
     @securizer
     def get(self, action_template_id):
-        return ActionTemplate.query.get_or_404(action_template_id).to_json()
+        return ActionTemplate.query.get_or_404(action_template_id).to_json(split_lines=True)
 
     @securizer
     @jwt_required

@@ -10,6 +10,7 @@ from prompt_toolkit.document import Document
 
 import dimensigon.dshell.network as ntwrk
 from dimensigon.dshell.argparse_raise import GuessArgumentParser, create_parser, DictAction
+from dimensigon.dshell.output import dprint
 from dimensigon.dshell.utils import get_raw_text
 from dimensigon.utils.helpers import is_iterable_not_string
 
@@ -56,14 +57,6 @@ class DshellWordCompleter(WordCompleter):
                 else:
                     yield Completion(a, -len(word_before_cursor), display_meta=display_meta)
 
-
-class PathCompleter(Completer):
-
-    def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
-        if document.char_before_cursor == ' ':
-            json_data = dict()
-            ntwrk.post('api_1_0.launch_command', )
-        path = document.get_word_before_cursor(WORD=True)
 
 
 class ResourceCompleter(Completer):
@@ -184,167 +177,169 @@ class DshellCompleter(Completer):
     ) -> t.Iterable[Completion]:
 
         # TODO: Problem with completing positionals. Solve argument resolution to know in which positional.
+        try:
+            # Split document.
+            text = document.text_before_cursor.lstrip()
+            stripped_len = len(document.text_before_cursor) - len(text)
 
-        # Split document.
-        text = document.text_before_cursor.lstrip()
-        stripped_len = len(document.text_before_cursor) - len(text)
+            if text.endswith('-h') or text.endswith('--help'):
+                return
+            # If there is a space, check for the first term, and use a
+            # subcompleter.
+            if " " in text:
+                first_term = text.split()[0]
+                completer = self.options.get(first_term)
 
-        if text.endswith('-h') or text.endswith('--help'):
-            return
-        # If there is a space, check for the first term, and use a
-        # subcompleter.
-        if " " in text:
-            first_term = text.split()[0]
-            completer = self.options.get(first_term)
+                # If we have a sub completer, use this for the completions.
+                if isinstance(completer, Completer):
+                    remaining_text = text[len(first_term):].lstrip()
+                    move_cursor = len(text) - len(remaining_text) + stripped_len
 
-            # If we have a sub completer, use this for the completions.
-            if isinstance(completer, Completer):
-                remaining_text = text[len(first_term):].lstrip()
-                move_cursor = len(text) - len(remaining_text) + stripped_len
+                    new_document = Document(
+                        remaining_text,
+                        cursor_position=document.cursor_position - move_cursor,
+                    )
 
-                new_document = Document(
-                    remaining_text,
-                    cursor_position=document.cursor_position - move_cursor,
-                )
-
-                for c in completer.get_completions(new_document, complete_event):
-                    yield c
-
-            # we reached the bottom subcommand. Parse to see if we have to autocomplete an argument or its value
-            else:
-                options = {}
-                params = {}
-                dest_args = {}
-
-                if not completer:
-                    return
-                for arg in completer:
-                    if isinstance(arg, dict):
-                        if arg.get('argument').startswith('-'):
-                            options.update({arg.get('argument'): arg})
-                        else:
-                            params.update({arg.get('argument'): arg})
-
-                        if 'dest' in arg:
-                            dest_args.update({arg.get('dest'): arg})
-                        else:
-                            dest_args.update({arg.get('argument').lstrip('-'): arg})
-                    if isinstance(arg, list):
-                        for a in arg:
-                            if a.get('argument').startswith('-'):
-                                options.update({a.get('argument'): a})
-                            else:
-                                params.update({a.get('argument'): a})
-                            if 'dest' in a:
-                                dest_args.update({a.get('dest'): a})
-                            else:
-                                dest_args.update({a.get('argument').lstrip('-'): a})
-
-                try:
-                    words = shlex.split(text)
-                except:
-                    return
-                if len(words) > 0 and words[-1] in options and text.endswith(words[-1]):
-                    completer = DshellWordCompleter(words=list(options.keys()))
-                    for c in completer.get_completions(document, complete_event):
+                    for c in completer.get_completions(new_document, complete_event):
                         yield c
-                    for p in params:
-                        if 'choices' in params[p]:
-                            completer = DshellWordCompleter(params[p].get("choices"))
-                        elif 'completer' in params[p]:
-                            completer = params[p].get('completer')
+
+                # we reached the bottom subcommand. Parse to see if we have to autocomplete an argument or its value
                 else:
-                    parser = create_parser(completer, GuessArgumentParser(allow_abbrev=False))
-                    finder = "F:I.N:D.E:R"
-                    if document.char_before_cursor == ' ':
-                        text = document.text + finder
-                        current_word = finder
-                    else:
-                        text = document.text
-                        current_word = document.get_word_before_cursor(WORD=True)
+                    options = {}
+                    params = {}
+                    dest_args = {}
 
-                    namespace = parser.parse_args(shlex.split(text)[1:])
-                    values = dict(namespace._get_kwargs())
-
-                    # find key related to current_word
-                    for k, v in values.items():
-                        if is_iterable_not_string(v):
-                            if current_word in v:
-                                break
-                        else:
-                            if v == current_word:
-                                break
-                    else:
-                        k = None
-
-                    # special case for DictAction
-                    for dest, arg_def in dest_args.items():
-                        if 'action' in arg_def and arg_def['action'] == DictAction and values[dest]:
-                                for k, v in values[dest].items():
-                                    # target
-                                    if k == current_word:
-                                        resp = ntwrk.get('api_1_0.orchestrationresource',
-                                                         view_data={'orchestration_id': values['orchestration_id']})
-                                        if resp.ok:
-                                            needed_target = resp.msg['target']
-                                            completer = DshellWordCompleter(
-                                                [target for target in needed_target if target not in values[dest].keys()])
-                                            for c in completer.get_completions(document, complete_event):
-                                                yield c
-                                            return
-
-                                    elif current_word in v:
-                                        completer = arg_def.get('completer', None)
-                                        for c in completer.get_completions(document, complete_event):
-                                            if c.text not in v:
-                                                yield c
-                                        if len(v) == 0 or len(v) == 1 and v[0] == finder:
-                                            return
-                                k = None
-                    # get source     value
-                    if k:
-                        # completing an option argument value
-                        if k in dest_args:
-                            if 'choices' in dest_args[k]:
-                                completer = DshellWordCompleter(dest_args[k].get("choices"))
-                                for c in completer.get_completions(document, complete_event):
-                                    yield c
-                            completer = dest_args[k].get('completer', None)
-                        else:
-                            completer = None
-                        # next argument can be a positional parameter or an optional argument
-                        if k in params and current_word == finder:
-                            # the user may want to add more options
-                            _completer = DshellWordCompleter(words=list(options.keys()))
-                            for c in _completer.get_completions(document, complete_event):
-                                yield c
-                        if completer:
-                            if isinstance(completer, ResourceCompleter):
-                                kwargs = dict(var_filters=values)
+                    if not completer:
+                        return
+                    for arg in completer:
+                        if isinstance(arg, dict):
+                            if arg.get('argument').startswith('-'):
+                                options.update({arg.get('argument'): arg})
                             else:
-                                kwargs = {}
-                            for c in completer.get_completions(document, complete_event, **kwargs):
-                                yield c
-                    else:
+                                params.update({arg.get('argument'): arg})
+
+                            if 'dest' in arg:
+                                dest_args.update({arg.get('dest'): arg})
+                            else:
+                                dest_args.update({arg.get('argument').lstrip('-'): arg})
+                        if isinstance(arg, list):
+                            for a in arg:
+                                if a.get('argument').startswith('-'):
+                                    options.update({a.get('argument'): a})
+                                else:
+                                    params.update({a.get('argument'): a})
+                                if 'dest' in a:
+                                    dest_args.update({a.get('dest'): a})
+                                else:
+                                    dest_args.update({a.get('argument').lstrip('-'): a})
+
+                    try:
+                        words = shlex.split(text)
+                    except:
+                        return
+                    if len(words) > 0 and words[-1] in options and text.endswith(words[-1]):
                         completer = DshellWordCompleter(words=list(options.keys()))
                         for c in completer.get_completions(document, complete_event):
                             yield c
                         for p in params:
-                            if getattr(namespace, p) is None:
-                                if 'choices' in params[p]:
-                                    completer = DshellWordCompleter(params[p].get("choices"))
-                                elif 'completer' in params[p]:
-                                    completer = params[p].get('completer')
-                                for c in completer.get_completions(document, complete_event):
-                                    yield c
+                            if 'choices' in params[p]:
+                                completer = DshellWordCompleter(params[p].get("choices"))
+                            elif 'completer' in params[p]:
+                                completer = params[p].get('completer')
+                    else:
+                        parser = create_parser(completer, GuessArgumentParser(allow_abbrev=False))
+                        finder = "F:I.N:D.E:R"
+                        if document.char_before_cursor == ' ':
+                            text = document.text + finder
+                            current_word = finder
+                        else:
+                            text = document.text
+                            current_word = document.get_word_before_cursor(WORD=True)
 
-        # No space in the input: behave exactly like `WordCompleter`.
-        else:
-            completer = DshellWordCompleter(
-                list(self.options.keys()), ignore_case=self.ignore_case
-            )
-            for c in completer.get_completions(document, complete_event):
-                yield c
+                        namespace = parser.parse_args(shlex.split(text)[1:])
+                        values = dict(namespace._get_kwargs())
+
+                        # find key related to current_word
+                        for k, v in values.items():
+                            if is_iterable_not_string(v):
+                                if current_word in v:
+                                    break
+                            else:
+                                if v == current_word:
+                                    break
+                        else:
+                            k = None
+
+                        # special case for DictAction
+                        for dest, arg_def in dest_args.items():
+                            if 'action' in arg_def and arg_def['action'] == DictAction and values[dest]:
+                                    for k, v in values[dest].items():
+                                        # target
+                                        if k == current_word:
+                                            resp = ntwrk.get('api_1_0.orchestrationresource',
+                                                             view_data={'orchestration_id': values['orchestration_id']})
+                                            if resp.ok:
+                                                needed_target = resp.msg['target']
+                                                completer = DshellWordCompleter(
+                                                    [target for target in needed_target if target not in values[dest].keys()])
+                                                for c in completer.get_completions(document, complete_event):
+                                                    yield c
+                                                return
+
+                                        elif current_word in v:
+                                            completer = arg_def.get('completer', None)
+                                            for c in completer.get_completions(document, complete_event):
+                                                if c.text not in v:
+                                                    yield c
+                                            if len(v) == 0 or len(v) == 1 and v[0] == finder:
+                                                return
+                                    k = None
+                        # get source     value
+                        if k:
+                            # completing an option argument value
+                            if k in dest_args:
+                                if 'choices' in dest_args[k]:
+                                    completer = DshellWordCompleter(dest_args[k].get("choices"))
+                                    for c in completer.get_completions(document, complete_event):
+                                        yield c
+                                completer = dest_args[k].get('completer', None)
+                            else:
+                                completer = None
+                            # next argument can be a positional parameter or an optional argument
+                            if k in params and current_word == finder:
+                                # the user may want to add more options
+                                _completer = DshellWordCompleter(words=list(options.keys()))
+                                for c in _completer.get_completions(document, complete_event):
+                                    yield c
+                            if completer:
+                                if isinstance(completer, ResourceCompleter):
+                                    kwargs = dict(var_filters=values)
+                                else:
+                                    kwargs = {}
+                                for c in completer.get_completions(document, complete_event, **kwargs):
+                                    yield c
+                        else:
+                            completer = DshellWordCompleter(words=list(options.keys()))
+                            for c in completer.get_completions(document, complete_event):
+                                yield c
+                            for p in params:
+                                if getattr(namespace, p) is None:
+                                    if 'choices' in params[p]:
+                                        completer = DshellWordCompleter(params[p].get("choices"))
+                                    elif 'completer' in params[p]:
+                                        completer = params[p].get('completer')
+                                    for c in completer.get_completions(document, complete_event):
+                                        yield c
+
+            # No space in the input: behave exactly like `WordCompleter`.
+            else:
+                completer = DshellWordCompleter(
+                    list(self.options.keys()), ignore_case=self.ignore_case
+                )
+                for c in completer.get_completions(document, complete_event):
+                    yield c
+        except Exception as e:
+            dprint(e)
 
 
 server_name_completer = ResourceCompleter('api_1_0.serverlist', 'name')

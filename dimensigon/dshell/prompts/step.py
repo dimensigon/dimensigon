@@ -28,7 +28,7 @@ form = {
     "undo_on_error": dict(validator=BoolValidator, history=InMemoryHistory()),
     "action_type": dict(validator=ChoiceValidator([at.name for at in ActionType if at.name != 'NATIVE']),
                         history=InMemoryHistory()),
-    "code": dict(multiline=True, lexer=code_lexer, history=InMemoryHistory()),
+    "code": dict(multiline=True, lexer=code_lexer, history=InMemoryHistory(), edit=True),
     "expected_stdout": dict(multiline=True, history=InMemoryHistory()),
     "expected_stderr": dict(multiline=True, history=InMemoryHistory()),
     "expected_rc": dict(validator=IntValidator(), history=InMemoryHistory()),
@@ -36,8 +36,8 @@ form = {
                        history=InMemoryHistory()),
     "system_kwargs": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), validator=JSONValidator(),
                           history=InMemoryHistory()),
-    "pre_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory()),
-    "post_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory()),
+    "pre_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
+    "post_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
     "target": dict(completer=merge_completers([granule_completer, server_name_completer]), history=InMemoryHistory()),
     "parent_step_ids": dict(validator=ListValidator())
 }

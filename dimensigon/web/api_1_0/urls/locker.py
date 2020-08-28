@@ -2,10 +2,10 @@ import threading
 from datetime import datetime
 
 from flask import request, current_app, g, jsonify
-from flask_jwt_extended import jwt_required
+from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Catalog
+from dimensigon.domain.entities import Catalog, User
 from dimensigon.domain.entities.locker import Scope, State, Locker
 from dimensigon.web import db, errors
 from dimensigon.web.api_1_0 import api_bp
@@ -69,7 +69,7 @@ def locker_prevent():
             th.daemon = True
             db.session.commit()
             th.start()
-            return {'message': 'Preventing lock acquired'}, 200
+            return {json_data['scope']: 'PREVENTING'}, 200
         else:
             raise errors.PriorityLocker(l.scope)
     else:
@@ -89,14 +89,14 @@ def locker_lock():
     if Scope[json_data['scope']] == Scope.ORCHESTRATION \
             and l.state == State.LOCKED \
             and l.applicant == json_data.get('applicant'):
-        return {'message': f"{Scope[json_data['scope']]} already in {l.state} state"}, 210
+        return {'message': f"{json_data['scope']} already in {l.state} state"}, 210
 
     if l.state == State.PREVENTING:
         if l.applicant == json_data['applicant']:
             l.state = State.LOCKED
             db.session.commit()
             current_app.logger.debug(f"Lock from {g.source} on {l.scope.name} acquired")
-            return {'message': 'Locked'}, 200
+            return {json_data['scope']: 'LOCKED'}, 200
         else:
             raise errors.ApplicantLockerError(l.scope)
     else:
@@ -113,8 +113,17 @@ def locker_unlock():
     l: Locker = Locker.query.with_for_update().get(Scope[json_data['scope']])
     current_app.logger.debug(f"Unlock requested on {json_data.get('scope')} from {g.source}")
 
+    if 'force' in json_data and json_data['force']:
+        if get_jwt_identity() != User.get_by_user('root').id:
+            raise errors.UserForbiddenError()
+        else:
+            l.state = State.UNLOCKED
+            l.applicant = None
+            db.session.commit()
+            return {json_data['scope']: 'UNLOCKED'}, 200
+
     if Scope[json_data['scope']] == Scope.ORCHESTRATION and l.state == State.UNLOCKED:
-        return {'message': f"{Scope[json_data['scope']]} already in {l.state} state"}, 210
+        return {'message': f"{json_data['scope']} already in {l.state} state"}, 210
 
     if l.state == State.PREVENTING or l.state == State.LOCKED:
         if l.applicant == json_data['applicant']:
@@ -122,7 +131,7 @@ def locker_unlock():
             l.applicant = None
             db.session.commit()
             current_app.logger.debug(f"Lock on {l.scope.name} released")
-            return {'message': 'UnLocked'}, 200
+            return {json_data['scope']: 'UNLOCKED'}, 200
         else:
             raise errors.ApplicantLockerError(l.scope)
     else:

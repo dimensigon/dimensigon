@@ -31,3 +31,4 @@ asynctest~=0.13.0
 prompt_toolkit
 docopt
 gunicorn
+coolname

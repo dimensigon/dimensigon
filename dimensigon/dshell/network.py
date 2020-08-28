@@ -1,3 +1,4 @@
+import configparser
 import logging
 import os
 import re
@@ -7,7 +8,8 @@ import requests
 from prompt_toolkit import prompt
 
 from dimensigon import defaults
-from dimensigon.dshell import environ
+from dimensigon.dshell import environ as env
+from dimensigon.dshell.bootstrap import save_config_file
 from dimensigon.dshell.view_path_mapping import view_path_map
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.utils.helpers import is_iterable_not_string
@@ -15,22 +17,19 @@ from dimensigon.web.network import Response
 
 logger = logging.getLogger('dshell.network')
 
-_access_token = None
-_refresh_token = os.environ.get('DM_REFRESH_TOKEN')
-_username = None
+
 
 
 def exists_refresh_token():
-    return bool(_refresh_token)
+    return bool(env._refresh_token)
 
 
 def bootstrap_auth(username=None, password=None, refresh_token=None):
-    global _username, _refresh_token
 
     if username:
-        _username = username
+        env._username = username
     if refresh_token:
-        _refresh_token = refresh_token
+        env._refresh_token = refresh_token
 
     if not exists_refresh_token():
         login(username=username, password=password)
@@ -41,20 +40,19 @@ def bootstrap_auth(username=None, password=None, refresh_token=None):
             raise
         else:
             if refresh_username:
-                if _username is None:
-                    _username = refresh_username
-                elif _username != refresh_username:
-                    raise ValueError(f"user '{_username}' does not correspond with the user from the token")
+                if env._username is None:
+                    env._username = refresh_username
+                elif env._username != refresh_username:
+                    raise ValueError(f"user '{env._username}' does not correspond with the user from the token")
 
 
 def login(username=None, password=None):
-    global _access_token, _refresh_token, _username
 
     if not username:
-        if not _username:
+        if not env._username:
             username = prompt("Username: ")
         else:
-            username = _username
+            username = env._username
     if not password:
         password = prompt("Password: ", is_password=True)
 
@@ -62,26 +60,33 @@ def login(username=None, password=None):
                          verify=False)
     resp.raise_for_status()
 
-    _username = username
-    _access_token = resp.json()['access_token']
-    _refresh_token = resp.json()['refresh_token']
+    env._username = username
+    env._access_token = resp.json()['access_token']
+    env._refresh_token = resp.json()['refresh_token']
+
+    file = os.path.expanduser(env.get('CONFIG_FILE', None))
+    if file and os.path.exists(file):
+        config = configparser.ConfigParser()
+        config.read(file)
+        if config.has_section('AUTH') and config.has_section('REMOTE'):
+            if config['AUTH'].get('username') == env._username:
+                del config
+                save_config_file(token=env._refresh_token)
 
 
 def refresh_access_token():
-    global _refresh_token, _access_token, _username
-    url = f"{environ.get('SCHEME')}://{environ.get('SERVER')}:{environ.get('PORT')}/refresh"
+    url = f"{env.get('SCHEME')}://{env.get('SERVER')}:{env.get('PORT')}/refresh"
 
-    if _refresh_token is None:
+    if env._refresh_token is None:
         raise ValueError('empty refresh token. Login first')
-    auth = HTTPBearerAuth(_refresh_token)
+    auth = HTTPBearerAuth(env._refresh_token)
     resp = requests.post(url, auth=auth, verify=False, timeout=10)
     resp.raise_for_status()
-    _access_token = resp.json().get('access_token', None)
+    env._access_token = resp.json().get('access_token', None)
     return resp.json().get('username', None)
 
 
 def request(method, url, session=None, token_refreshed=False, **kwargs) -> Response:
-    global _access_token
     exception = None
     content = None
     status = None
@@ -97,16 +102,16 @@ def request(method, url, session=None, token_refreshed=False, **kwargs) -> Respo
 
     func = getattr(_session, method.lower())
 
-    if _access_token is None:
+    if env._access_token is None:
         try:
             refresh_access_token()
         except requests.exceptions.ConnectionError as e:
-            return Response(exception=ValueError(f"Unable to contact with {environ.get('SCHEME')}://"
-                                                 f"{environ.get('SERVER')}:{environ.get('PORT')}/"),
+            return Response(exception=ValueError(f"Unable to contact with {env.get('SCHEME')}://"
+                                                 f"{env.get('SERVER')}:{env.get('PORT')}/"),
                             url=url)
         except Exception as e:
             return Response(exception=e, url=url)
-    kwargs['auth'] = HTTPBearerAuth(_access_token)
+    kwargs['auth'] = HTTPBearerAuth(env._access_token)
 
     if 'headers' not in kwargs:
         kwargs['headers'] = {}
@@ -138,10 +143,10 @@ def request(method, url, session=None, token_refreshed=False, **kwargs) -> Respo
             json_data = resp.json()
             if json_data.get('msg') == 'Token has expired':
                 try:
-                    _access_token = refresh_access_token()
+                    refresh_access_token()
                 except requests.exceptions.ConnectionError as e:
-                    return Response(exception=ValueError(f"Unable to contact with {environ.get('SCHEME')}://"
-                                                         f"{environ.get('SERVER')}:{environ.get('PORT')}/"),
+                    return Response(exception=ValueError(f"Unable to contact with {env.get('SCHEME')}://"
+                                                         f"{env.get('SERVER')}:{env.get('PORT')}/"),
                                     url=url)
                 resp = request(method, url, session=_session, token_refreshed=True, **kwargs)
                 if not session:
@@ -181,7 +186,7 @@ def _replace_path_args(path, args):
         value = args.pop(text)
         if not value:
             raise ValueError(f"No value specified for '{text}' in URL {path}")
-        replaced_path = replaced_path[:match.start()] + value + replaced_path[match.end():]
+        replaced_path = "{}{}{}".format(replaced_path[:match.start()], value, replaced_path[match.end():])
 
     params = []
     if args:
@@ -199,9 +204,9 @@ def _replace_path_args(path, args):
 def generate_url(view, view_data):
     path = view_path_map[view]
     path = _replace_path_args(path, view_data or {})
-    if environ.get('SERVER') is None:
+    if env.get('SERVER') is None:
         raise ValueError('No SERVER specified.')
-    return f"{environ.get('SCHEME', 'https') or 'https'}://{environ.get('SERVER')}:{environ.get('PORT', defaults.DEFAULT_PORT) or defaults.DEFAULT_PORT}{path}"
+    return f"{env.get('SCHEME', 'https') or 'https'}://{env.get('SERVER')}:{env.get('PORT', defaults.DEFAULT_PORT) or defaults.DEFAULT_PORT}{path}"
 
 
 def get(view, view_data=None, **kwargs) -> Response:

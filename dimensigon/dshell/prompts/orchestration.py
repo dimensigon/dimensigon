@@ -66,7 +66,7 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
                 except KeyboardInterrupt:
                     entity[k] = None
                 except EOFError:
-                    exit_dshell()
+                    pass
 
     while True:
         try:
@@ -75,7 +75,7 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
         except KeyboardInterrupt:
             continue
         except EOFError:
-            exit_dshell(rc=1)
+            return
         try:
             namespace = parser.parse_args(shlex.split(text))
         except (ValueError, argparse.ArgumentError) as e:

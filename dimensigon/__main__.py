@@ -1,14 +1,19 @@
 import argparse
+import base64
 import datetime
 import functools
 import os
 import platform
+import random
 import sys
+import time
 from dataclasses import dataclass
 
 import click
+import coolname
 import dotenv
 import flask
+import prompt_toolkit
 import requests
 import rsa
 from flask import Flask
@@ -99,7 +104,7 @@ def dm():
 
 
 def new(dm: Dimensigon, name: str):
-    dm.instantiate_flask_gunicorn()
+    dm.create_flask_instance()
     with dm.flask_app.app_context():
         from cryptography import x509
         from cryptography.hazmat.backends import default_backend
@@ -111,7 +116,9 @@ def new(dm: Dimensigon, name: str):
 
         if count > 0:
             exit("Only one dimension can be created")
-        dim = generate_dimension(name)
+
+        dim_name = name or coolname.generate_slug(2)
+        dim = generate_dimension(dim_name)
 
         private_key = serialization.load_pem_private_key(dim.private.save_pkcs1(), password=None,
                                                          backend=default_backend())
@@ -124,7 +131,7 @@ def new(dm: Dimensigon, name: str):
             x509.NameAttribute(NameOID.COUNTRY_NAME, u"LU"),
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"California"),
             x509.NameAttribute(NameOID.LOCALITY_NAME, u"San Francisco"),
-            x509.NameAttribute(NameOID.COMMON_NAME, name),
+            x509.NameAttribute(NameOID.COMMON_NAME, dim_name),
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"KnowTrade S.L."),
 
         ])
@@ -140,13 +147,13 @@ def new(dm: Dimensigon, name: str):
                   backend=default_backend()
                   )
 
-        ssl_dir = os.path.join(dm.config.config_dir, defaults.DEFAULT_SSL_DIR)
+        ssl_dir = os.path.join(dm.config.config_dir, defaults.SSL_DIR)
         os.makedirs(ssl_dir, exist_ok=True)
 
-        with open(os.path.join(ssl_dir, defaults.DEFAULT_CERT_FILE), "wb") as f:
+        with open(os.path.join(ssl_dir, defaults.CERT_FILE), "wb") as f:
             f.write(cert.public_bytes(serialization.Encoding.PEM))
 
-        with open(os.path.join(ssl_dir, defaults.DEFAULT_KEY_FILE), 'wb') as file:
+        with open(os.path.join(ssl_dir, defaults.KEY_FILE), 'wb') as file:
             file.write(private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.TraditionalOpenSSL,
@@ -154,10 +161,32 @@ def new(dm: Dimensigon, name: str):
 
             ))
 
-        os.chmod(os.path.join(ssl_dir, defaults.DEFAULT_KEY_FILE), 0o600)
+        os.chmod(os.path.join(ssl_dir, defaults.KEY_FILE), 0o600)
 
         db.session.commit()
-        click.echo(f"New dimension created successfully")
+
+        user = User.get_by_user('root')
+        if user is None:
+            User.set_initial()
+            user = User.get_by_user('root')
+
+        p = False
+        p2 = True
+        while p != p2:
+            p = prompt_toolkit.prompt("Password for root user: ", is_password=True)
+            p2 = prompt_toolkit.prompt("Re-type same password: ", is_password=True)
+            if p != p2:
+                print('Password mismatch')
+        user.set_password(p)
+        del p, p2
+
+        db.session.commit()
+
+        print(f"New dimension created successfully")
+        print("")
+        print("----- JOIN TOKEN (valid for {} minutes) -----".format(defaults.JOIN_TOKEN_EXPIRE_TIME))
+        token(dm, dim.id)
+        print("---------------- END TOKEN --------------------")
 
 
 @dm.command(help="""Activates the dimension""")
@@ -201,7 +230,7 @@ def app_context(f):
 
 
 def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = True, verify: bool = False):
-    dm.instantiate_flask_gunicorn()
+    dm.create_flask_instance()
     with dm.flask_app.app_context():
         Server.set_initial()
         db.session.commit()
@@ -221,16 +250,29 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
             pub_key = rsa.PublicKey.load_pkcs1(resp.content)
 
             # Generate Public and Private Temporal Keys
-            tmp_pub, tmp_priv = rsa.newkeys(2048, poolsize=8)
+            tmp_pub, tmp_priv = rsa.newkeys(2048, poolsize=2)
             symmetric_key = generate_symmetric_key()
             s = Server.get_current()
             data = s.to_json(add_gates=True)
             data = pack_msg2(data=data, pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key, add_key=True)
             data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
             click.echo("Joining to dimension")
+
+            def retry_until_ok(times):
+                resp = None
+                for i in range(times):
+                    resp = session.post(f"{protocol}://{server}:{port}/api/v1.0/join", json=data,
+                                        headers={'Authorization': 'Bearer ' + token}, verify=verify, timeout=60)
+
+                    from dimensigon.web import errors
+                    if resp.status_code != errors.LockerError.status_code:
+                        break
+                    else:
+                        time.sleep(int(random.random() * 30))
+                return resp
+
             try:
-                resp = session.post(f"{protocol}://{server}:{port}/api/v1.0/join", json=data,
-                                    headers={'Authorization': 'Bearer ' + token}, verify=verify)
+                resp = retry_until_ok(5)
             except requests.exceptions.ConnectionError as e:
                 print(f"Error while trying to join the dimension: {e}")
                 resp_data = {}
@@ -250,7 +292,14 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 dim.current = True
                 db.session.add(dim)
 
-                dotenv.set_key(dotenv.find_dotenv(), 'SECRET_KEY', str(dim.id))
+                keyfile_content = base64.b64decode(resp_data.pop('keyfile').encode())
+                with open(dm.config.http_conf['keyfile'], 'wb') as fh:
+                    fh.write(keyfile_content)
+                    del keyfile_content
+                certfile_content = base64.b64decode(resp_data.pop('certfile').encode())
+                with open(dm.config.http_conf['certfile'], 'wb') as fh:
+                    fh.write(certfile_content)
+                    del certfile_content
 
                 print('Joined to the dimension')
                 print('Updating Catalog')
@@ -258,20 +307,20 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 # remove catalog
                 for c in Catalog.query.all():
                     db.session.delete(c)
-                upgrade_catalog(resp_data)
+                upgrade_catalog(resp_data['catalog'])
                 # set reference server as a neighbour
                 reference_server = Server.query.get(reference_server_id)
                 if not reference_server:
                     db.session.rollback()
                     exit(f"Server id {reference_server_id} not found in catalog")
                 Route(destination=reference_server, cost=0)
-                # update_table_routing_cost(True)
+                # update_route_table_cost(True)
                 db.session.commit()
                 print('Catalog updated')
 
 
-def token(dm: Dimensigon, dimension_id_or_name: str):
-    dm.instantiate_flask_gunicorn()
+def token(dm: Dimensigon, dimension_id_or_name: str, expire_time=None):
+    dm.create_flask_instance()
     with dm.flask_app.app_context():
         if dimension_id_or_name is not None:
             dim = Dimension.query.get(dimension_id_or_name)
@@ -285,13 +334,18 @@ def token(dm: Dimensigon, dimension_id_or_name: str):
                 dim = Dimension.query.all()[0]
             else:
                 exit("No dimension specified. Please specify a dimension")
-        if dm.flask_app.config['SECRET_KEY'] != dim.id:
-            exit('Secret key mismatch')
+
+        if dimension_id_or_name:
+            dm.flask_app.config['SECRET_KEY'] = dim.id
+        else:
+            if dm.flask_app.config['SECRET_KEY'] != dim.id:
+                exit('Secret key mismatch')
 
         join_user = User.get_by_user('join')
         if not join_user:
             exit("Unable to create join token. Populate database first.")
-        print(create_access_token(join_user.id, expires_delta=datetime.timedelta(minutes=15)))
+        print(create_access_token(join_user.id, expires_delta=datetime.timedelta(
+            minutes=expire_time or defaults.JOIN_TOKEN_EXPIRE_TIME)))
 
 
 def run(dm: Dimensigon):
@@ -307,8 +361,7 @@ def get_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog='dimensigon')
     parser.add_argument(
         "-c",
-        "--config",
-        dest='config_dir',
+        "--config-dir",
         metavar="path_to_config_dir",
         help="Directory that contains the dimensigon configuration",
     )
@@ -326,18 +379,20 @@ def get_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ip",
-        default=['0.0.0.0'],
+        default=None,
         dest='ips',
         action='append',
         help="IP to listen",
     )
     parser.add_argument(
         "--key-file",
+        dest='keyfile',
         default=None,
         help="SSL key file",
     )
     parser.add_argument(
         "--cert-file",
+        dest='certfile',
         default=None,
         help="SSL certificate file",
     )
@@ -345,6 +400,24 @@ def get_arguments() -> argparse.Namespace:
         "--threads",
         default=None,
         help="The number of worker threads for handling requests.",
+    )
+    parser.add_argument(
+        "--debug",
+        default=None,
+        action='store_true',
+        help="Runs the Flask app without gunicorn.",
+    )
+    parser.add_argument(
+        "--access-logfile",
+        dest='accesslog',
+        metavar="FILE",
+        help="The Access log file to write to.",
+    )
+    parser.add_argument(
+        "--error-logfile",
+        dest='errorlog',
+        metavar="FILE",
+        help="The Error log file to write to.",
     )
     if os.name == "posix":
         parser.add_argument(
@@ -364,7 +437,8 @@ def get_arguments() -> argparse.Namespace:
     )
     join_parser.add_argument(
         '--port', '-p',
-        help="port used to contact the server. Defaults to 5000"
+        help="port used to contact the server. Defaults to 5000",
+        default=defaults.DEFAULT_PORT,
     )
     join_parser.add_argument(
         '--no-ssl',
@@ -377,9 +451,8 @@ def get_arguments() -> argparse.Namespace:
         action='store_true'
     )
 
-
     new_parser = subparser.add_parser('new', help="Creates a new dimension")
-    new_parser.add_argument('dimension', help="name of the dimension")
+    new_parser.add_argument('dimension', nargs='?', default=None, help="name of the dimension")
 
     token_parser = subparser.add_parser('token', help="Generates a join token.")
     token_parser.add_argument(
@@ -387,13 +460,17 @@ def get_arguments() -> argparse.Namespace:
         nargs='?',
         default=None
     )
+    token_parser.add_argument("--expire-time",
+                              metavar='MINUTES',
+                              type=int,
+                              help="Join token expire time in minutes")
 
-    args = parser.parse_args()
+    arguments = parser.parse_args()
 
     if os.name != "posix":
-        args.__dict__['daemon'] = False
+        setattr(arguments, "daemon", False)
 
-    return args
+    return arguments
 
 
 @dataclass
@@ -407,32 +484,34 @@ class RuntimeConfig:
     certfile: str = None
     threads: int = None
     daemon: bool = None
+    accesslog: str = None
+    errorlog: str = None
 
 
 def main():
     args = get_arguments()
 
-    run_config = RuntimeConfig(config_dir=args.config_dir,
-                               debug=False,
-                               pid_file=args.pid_file,
-                               port=args.port,
-                               ips=args.ips,
-                               keyfile=args.key_file,
-                               certfile=args.cert_file,
-                               threads=args.threads,
-                               daemon=args.daemon)
-
     from dimensigon import bootstrap
-    dm = bootstrap.setup_dm(run_config)
+    dm = bootstrap.setup_dm(RuntimeConfig(config_dir=args.config_dir,
+                                          debug=args.debug,
+                                          pid_file=args.pid_file,
+                                          port=args.port,
+                                          ips=args.ips,
+                                          keyfile=args.keyfile,
+                                          certfile=args.certfile,
+                                          threads=args.threads,
+                                          daemon=args.daemon,
+                                          accesslog=args.accesslog,
+                                          errorlog=args.errorlog))
 
     if args.command is None:
         run(dm)
     elif args.command == 'join':
         join(dm, server=args.SERVER, token=args.TOKEN, port=args.port, ssl=args.ssl, verify=args.verify)
-    elif args.subcommand == 'token':
+    elif args.command == 'token':
         token(dm, args.dimension)
-    elif args.subcommand == 'new':
-            new(dm, args.dimension)
+    elif args.command == 'new':
+        new(dm, args.dimension)
     else:
         exit("Use -h to show help")
 

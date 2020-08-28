@@ -13,7 +13,7 @@ class ServiceOrchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
     id = db.Column(UUID, primary_key=True)
     service_id = db.Column(UUID, db.ForeignKey('D_service.id'))
     orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'))
-    execution_time = db.Column(UtcDateTime(), default=get_now())
+    execution_time = db.Column(UtcDateTime(), default=get_now)
 
 
 class Service(db.Model, EntityReprMixin, DistributedEntityMixin):

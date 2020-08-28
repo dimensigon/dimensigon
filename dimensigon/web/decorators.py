@@ -1,6 +1,7 @@
 import base64
 import functools
 import ipaddress
+import json
 import socket
 import typing as t
 
@@ -165,12 +166,17 @@ def securizer(func):
                     except (rsa.pkcs1.VerificationError, NotValidMessage) as e:
                         return {'error': str(e),
                                 'message': request.get_json()}, 400
-                    if current_app.config.get('SECURIZER', None) and data:
-                        # fill json request with unpacked data
-                        for key in list(request.json.keys()):
-                            request.json.pop(key)
-                        for key, val in data.items():
-                            request.json[key] = val
+                    if current_app.config.get('SECURIZER', None):
+                        # if data and isinstance(data, dict):
+                        #     # fill json request with unpacked data
+                        #     for key in list(request.json.keys()):
+                        #         request.json.pop(key)
+                        #     for key, val in data.items():
+                        #         request.json[key] = val
+                        # else:
+                        request._cached_data = json.dumps(data)
+                        request._cached_json = (data, data)
+
 
             else:
                 if request.data:
@@ -268,6 +274,9 @@ def run_as(username: str):
                 for a in args:
                     if isinstance(a, Flask):
                         app = a
+                        break
+                else:
+                    app = current_app
             if app:
                 ctx = app.app_context()
                 ctx.push()

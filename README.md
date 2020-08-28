@@ -1,38 +1,23 @@
-# dimensigon
-Dimensigon (Core, AutoUpgrader, DShell)
+**Dimensigon (DM)** is our backend technology at store.dimensigon.com to bootstrap ELASTIC Services.
 
-####Launch Coverage report for tests
-````gitignore
-coverage run --source=dm -m unittest
-coverage report -m
-````
+As main features:
+
+- Polyglot or Heterogeneous orquestrations
+- Mesh Networking
+- Decentralization of IoT or IoT 2.0 as we understand it for our own implementation.
+- Distributed-Decentralized Server Management, High-complex orchestrations
+- Full RESTful and easily embeddable
+- Distributed Vault for Configuration Management or Secrets
+- Log Federation
+- Double Encryption (SSL + Encrypted messaging by default)
+- ACLs for higher granularity and security control on top of OS Security.
 
 
-Query to check routes from database
-```sqlite
-select s1.name "destination", 
-       r.proxy_server_id,
-       r.cost,
-       s2.name "server_gate", 
-       g.dns, 
-       g.ip, 
-       g.port 
-  from l_route r 
- inner join d_gate g on r.gate_id = g.id 
- inner join d_server s1 on r.destination_id = s1.id 
- inner join d_server s2 on g.server_id = s2.id;
-```
+All these functionality makes **Dimensigon (DM)** a good standard for companies serving as Coordination layer for all automation technologies (Polyglot).
+**Dimensigon** (DM) lowers the costs of administration and simplify the management of high-complex environments like Hybrid Multi-Cloud.
+ 
 
-Query server and gates
-```sqlite
-select s.name, g.dns, g.ip, g.port 
-  from d_server s 
- inner join d_gate g on s.id = g.server_id 
- order by s.name;
-```
+**Dimensigon (DM)** is a 100% Python and REAL Open Source project.
 
-# Install locally
-```shell script
-pip wheel --wheel-dir=files dimensigon
-pip install --no-index --find-links=./files dimensigon
-```
+**REAL Open Source** => No Freemium or Enterprise versions would be available in the future
+

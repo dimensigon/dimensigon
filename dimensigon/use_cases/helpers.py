@@ -1,13 +1,15 @@
 import typing as t
 
+from flask import current_app
 from flask_jwt_extended import create_access_token
+from sqlalchemy import not_
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Scope, Server, User
 from dimensigon.network.auth import HTTPBearerAuth
 
 
-def get_servers_from_scope(scope: Scope, *args, **kwargs) -> t.List[Server]:
+def get_servers_from_scope(scope: Scope, bypass: t.Union[t.List[Server], Server] = None) -> t.List[Server]:
     """
     Returns the servers to lock for the related scope
 
@@ -21,7 +23,14 @@ def get_servers_from_scope(scope: Scope, *args, **kwargs) -> t.List[Server]:
     """
     quorum = []
     if scope == scope.CATALOG:
-        servers = Server.query.order_by(Server.last_modified_at).all()
+        q = Server.query.filter_by(l_ignore_on_lock=False).filter(
+            Server.id.in_(current_app.cluster.get_alive())).order_by(
+            Server.created_on)
+        if isinstance(bypass, list):
+            q = q.filter(not_(Server.id.in_([s.id for s in bypass])))
+        elif isinstance(bypass, Server):
+            q = q.filter_by(Server.id != bypass.id)
+        servers = q.all()
         if len(servers) < defaults.MIN_SERVERS_QUORUM:
             return servers
         else:

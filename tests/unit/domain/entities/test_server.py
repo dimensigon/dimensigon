@@ -89,7 +89,11 @@ class TestServer(TestCase):
                                  '22cd859d-ee91-4079-a112-000000000003']
 
         s = Server('server', dns_or_ip='dns', gates=[('gdns', 6000)])
-        self.assertDictEqual({'id': '22cd859d-ee91-4079-a112-000000000001', 'name': 'server', 'granules': []},
+        self.assertDictEqual({'id': '22cd859d-ee91-4079-a112-000000000001',
+                              'name': 'server',
+                              'granules': [],
+                              'unreachable': False,
+                              'deleted': False},
                              s.to_json())
         db.session.add(s)
         db.session.commit()

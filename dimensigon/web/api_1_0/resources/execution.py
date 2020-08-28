@@ -14,7 +14,8 @@ class StepExecutionList(Resource):
     @securizer
     def get(self):
         query = filter_query(StepExecution, request.args)
-        return [at.to_json(human=check_param_in_uri('human')) for at in query.order_by(StepExecution.start_time).all()]
+        return [e.to_json(human=check_param_in_uri('human'), split_lines=True) for e in
+                query.order_by(StepExecution.start_time).all()]
 
 
 class StepExecutionResource(Resource):
@@ -22,7 +23,7 @@ class StepExecutionResource(Resource):
     @jwt_required
     @securizer
     def get(self, execution_id):
-        return StepExecution.query.get_or_404(execution_id).to_json(human=check_param_in_uri('human'))
+        return StepExecution.query.get_or_404(execution_id).to_json(human=check_param_in_uri('human'), split_lines=True)
 
 
 class OrchestrationExecutionRelationship(Resource):
@@ -54,8 +55,10 @@ class OrchExecutionList(Resource):
     @securizer
     def get(self):
         query = filter_query(OrchExecution, request.args)
-        return [oe.to_json(human=check_param_in_uri('human'), add_step_exec=check_param_in_uri('steps')) for oe in
-                query.order_by(OrchExecution.start_time).all()]
+        return [
+            oe.to_json(human=check_param_in_uri('human'), add_step_exec=check_param_in_uri('steps'), split_lines=True)
+            for oe in
+            query.order_by(OrchExecution.start_time).all()]
 
 
 class OrchExecutionResource(Resource):
@@ -64,4 +67,4 @@ class OrchExecutionResource(Resource):
     @securizer
     def get(self, execution_id):
         return OrchExecution.query.get_or_404(execution_id).to_json(add_step_exec=check_param_in_uri('steps'),
-                                                                    human=check_param_in_uri('human'))
+                                                                    human=check_param_in_uri('human'), split_lines=True)

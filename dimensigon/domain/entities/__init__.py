@@ -15,6 +15,7 @@ from .gate import Gate
 from .locker import Locker, State, Scope
 from .log import Log, Mode as LogMode
 from .orchestration import Orchestration
+# from .parameter import Parameter
 from .route import Route
 from .schema_changes import SchemaChanges
 from .server import Server
@@ -24,7 +25,7 @@ from .step import Step
 from .transfer import Transfer, Status as TransferStatus
 from .user import User
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 _LOGGER = logging.getLogger('dimensigon.catalog')
 
@@ -42,6 +43,7 @@ __all__ = [
     "Log",
     "LogMode",
     "Orchestration",
+    # "Parameter",
     "Route",
     "SchemaChanges",
     "Service",

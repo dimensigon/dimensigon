@@ -61,11 +61,11 @@ class ProductionConfig(Config):
         # mail_handler.setLevel(logging.ERROR)
         # app.logger.addHandler(mail_handler)
 
-        import logging
-        from logging import StreamHandler
-        stream_handler = StreamHandler()
-        stream_handler.setLevel(logging.INFO)
-        app.logger.addHandler(stream_handler)
+        # import logging
+        # from logging import StreamHandler
+        # stream_handler = StreamHandler()
+        # stream_handler.setLevel(logging.INFO)
+        # app.logger.addHandler(stream_handler)
 
 
 class GunicornConfig(ProductionConfig):

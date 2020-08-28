@@ -145,12 +145,28 @@ class ServerNormalizationError(BaseError):
         return f"Servers not found in catalog: {', '.join(self.idents)}"
 
 
+class UserForbiddenError(BaseError):
+    status_code = 404
+
+    def _format_error_msg(self) -> str:
+        return "User has no rights to perform the action"
+
+
+class IdAlreadyExists(BaseError):
+    status_code = 404
+
+    def __init__(self, iden):
+        self.id = iden
+
+    def _format_error_msg(self) -> str:
+        return f"Id already exists in database"
+
 class EntityNotFound(BaseError):
     status_code = 404
 
-    def __init__(self, entity: str, ident, columns: t.List[str] = None):
+    def __init__(self, entity: str, iden, columns: t.List[str] = None):
         self.entity = entity
-        self.ident = ident
+        self.id = iden
         if is_iterable_not_string(columns):
             self.columns = columns
         elif is_string_types(columns):
@@ -163,7 +179,7 @@ class EntityNotFound(BaseError):
 
     @property
     def payload(self) -> t.Optional[dict]:
-        return dict(entity=self.entity, id=self.ident)
+        return dict(entity=self.entity, id=self.id)
 
 
 class NoDataFound(BaseError):
@@ -184,6 +200,13 @@ class UnknownServer(BaseError):
 
     def _format_error_msg(self) -> str:
         return f"Unknown Server '{self.server_id}'"
+
+
+class ServerDeleteError(BaseError):
+    status_code = 404
+
+    def _format_error_msg(self) -> str:
+        return f"Server to delete must not be de current server"
 
 
 class ObsoleteCatalog(BaseError):
@@ -269,7 +292,10 @@ class LockError(LockerError):
     def payload(self) -> t.Optional[dict]:
         responses = []
         for r in self.responses:
-            data = dict({'id': str(r.server.id), 'name': r.server.name})
+            try:
+                data = dict({'id': str(r.server.id), 'name': r.server.name})
+            except Exception:
+                data = dict()
             if r.code:
                 data.update(response=r.msg, code=r.code)
             else:
@@ -488,20 +514,21 @@ class UnreachableDestination(BaseError):
     def __init__(self, server: 'Server', proxy: 'Server' = None):
         from dimensigon.domain.entities import Server
         try:
-            self.proxy = proxy or Server.get_current()
+            p = proxy or Server.get_current()
         except NoResultFound:
-            self.proxy = None
+            p = None
 
-        self.server = server
+        self.destination = dict(name=server.name, id=server.id)
+        self.proxy = dict(name=p.name, id=p.id) if p else None
 
     def _format_error_msg(self) -> str:
         return f"Unreachable destination"
 
     @property
     def payload(self) -> t.Optional[dict]:
-        data = dict(destination=dict(name=self.server.name, id=str(self.server.id)))
+        data = dict(destination=self.destination)
         if self.proxy:
-            data.update(proxy=dict(name=self.proxy.name, id=str(self.proxy.id)))
+            data.update(proxy=self.proxy)
         return data
 
 
@@ -574,3 +601,4 @@ class ParameterMustBeSet(BaseError):
 
     def _format_error_msg(self) -> str:
         return self.msg
+

@@ -75,22 +75,46 @@ class TestOrchExecution(TestCase):
     def test_to_from_json(self):
         start = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
         end = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
-        o = Orchestration('orch', 1, id='eeeeeeee-1234-5678-1234-56781234eee1')
-        s = o.add_step(undo=True, action_template=ActionTemplate('action', 1, ActionType.SHELL, code=''))
-        poe = OrchExecution(id='bbbbbbbb-1234-5678-1234-56781234bbb2', orchestration=o)
+        u = User('user', id='cccccccc-1234-5678-1234-56781234ccc1')
+        db.session.add(u)
+        o = Orchestration('run_orch', 1, id='eeeeeeee-1234-5678-1234-56781234eee1')
+        s = o.add_step(undo=False,
+                       action_template=ActionTemplate('orchestration', 1, ActionType.ORCHESTRATION, code=''),
+                       parameters={'orchestration_id': 'eeeeeeee-1234-5678-1234-56781234eee2'})
+
+        co = Orchestration('child', 1, id='eeeeeeee-1234-5678-1234-56781234eee2')
+        cs = o.add_step(undo=False, action_template=ActionTemplate('action', 1, ActionType.SHELL, code=''))
+
+        db.session.add_all([o, s, co, cs])
+
         oe = OrchExecution(id='bbbbbbbb-1234-5678-1234-56781234bbb1', start_time=start,
                            end_time=end,
                            target={'all': [str(self.me.id), str(self.remote.id)], 'backend': self.remote.name},
                            params={'params': 'content'},
-                           _executor=User('user', id='cccccccc-1234-5678-1234-56781234ccc1'),
-                           orchestration=o,
-                           parent_orch_execution=poe
+                           executor=u,
+                           orchestration=o
                            )
-
         se = StepExecution(id='aaaaaaaa-1234-5678-1234-56781234aaa1', start_time=start, end_time=end, step=s,
                            orch_execution_id=oe.id,
-                           params={'param': 'data'}, rc=0, success=True, server=self.remote)
-        db.session.add_all([poe, oe, se, o])
+                           params={'orchestration_id': 'eeeeeeee-1234-5678-1234-56781234eee2'}, rc=None, success=True,
+                           server=self.remote)
+
+        coe = OrchExecution(id='bbbbbbbb-1234-5678-1234-56781234bbb2', start_time=start,
+                            end_time=end,
+                            target={'all': [str(self.me.id), str(self.remote.id)], 'backend': self.remote.name},
+                            params={'params': 'content'},
+                            executor=u,
+                            orchestration=o,
+                            parent_step_execution_id=se.id
+                            )
+        cse = StepExecution(id='aaaaaaaa-1234-5678-1234-56781234aaa2', start_time=start, end_time=end, step=s,
+                            orch_execution_id=coe.id,
+                            params={'param': 'data'}, rc=0, success=True, server=self.remote,
+                            )
+
+        se.child_orch_execution_id = coe.id
+        db.session.add_all([oe, se, coe, cse])
+        db.session.commit()
         self.assertDictEqual(dict(id=str(oe.id),
                                   start_time=start.strftime(defaults.DATETIME_FORMAT),
                                   end_time=end.strftime(defaults.DATETIME_FORMAT),
@@ -100,26 +124,28 @@ class TestOrchExecution(TestCase):
                                   service_id=None,
                                   success=None, undo_success=None,
                                   executor_id='cccccccc-1234-5678-1234-56781234ccc1',
-                                  message=None,
-                                  parent_orch_execution_id='bbbbbbbb-1234-5678-1234-56781234bbb2'),
+                                  message=None),
                              oe.to_json())
 
         self.assertDictEqual(dict(id=str(oe.id),
                                   start_time=start.strftime(defaults.DATETIME_FORMAT),
                                   end_time=end.strftime(defaults.DATETIME_FORMAT),
                                   target={'all': [str(self.me), str(self.remote)], 'backend': self.remote.name},
-                                  params={'params': 'content'}, orchestration='orch.1',
+                                  params={'params': 'content'},
+                                  orchestration={'id': 'eeeeeeee-1234-5678-1234-56781234eee1',
+                                                 'name': 'run_orch',
+                                                 'version': 1},
                                   server=None,
                                   service=None,
                                   success=None, undo_success=None,
                                   executor='user',
-                                  message=None,
-                                  parent_orch_execution_id='bbbbbbbb-1234-5678-1234-56781234bbb2'),
+                                  message=None),
                              oe.to_json(human=True))
 
         dumped = oe.to_json(add_step_exec=True)
         self.assertEqual(1, len(dumped['steps']))
         self.assertEqual('aaaaaaaa-1234-5678-1234-56781234aaa1', dumped['steps'][0]['id'])
+        self.assertIn('orch_execution', dumped['steps'][0])
 
         o_e_json = oe.to_json()
         db.session.commit()

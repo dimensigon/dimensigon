@@ -95,20 +95,20 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
     Raises:
         Exception: if anything goes wrong
     """
-    execution = execution or var_context.globals.get('execution_id')
+    execution = execution or var_context.globals.get('orch_execution_id')
     executor = executor or var_context.globals.get('executor_id')
     hosts = hosts or var_context.globals.get('hosts')
     if not isinstance(orchestration, Orchestration):
-        orchestration = Orchestration.query.get(orchestration)
+        orchestration = db.session.query(Orchestration).get(orchestration)
     if not isinstance(execution, OrchExecution):
 
         if execution is not None:
-            exe = OrchExecution.query.get(execution)
+            exe = db.session.query(OrchExecution).get(execution)
         else:
-            exe = OrchExecution.query.get(var_context.globals.get('execution_id'))
+            exe = db.session.query(OrchExecution).get(var_context.globals.get('execution_id'))
         if exe is None:
             if not isinstance(executor, User):
-                executor = User.query.get(executor)
+                executor = db.session.query(User).get(executor)
             if executor is None:
                 raise ValueError('executor must be set')
             if not isinstance(execution_server, Server):
@@ -120,15 +120,18 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
                     if execution_server is None:
                         raise ValueError('execution server not found')
                 else:
-                    execution_server = Server.query.get(execution_server)
-            exe = OrchExecution(id=execution, orchestration_id=orchestration.id, target=hosts, params=dict(var_context),
+                    execution_server = db.session.query(Server).get(execution_server)
+            exe = OrchExecution(id=execution, orchestration_id=orchestration.id, target=hosts,
+                                params=var_context.initials,
                                 executor_id=executor.id, server_id=execution_server.id)
             db.session.add(exe)
             db.session.commit()
+
     else:
         exe = execution
     current_app.logger.debug(
         f"Execution {exe.id}: Launching orchestration {orchestration} on {hosts} with {var_context}")
+
     return _deploy_orchestration(orchestration, var_context, hosts, exe)
 
 
@@ -153,7 +156,8 @@ def _deploy_orchestration(orchestration: Orchestration,
         dict with all the executions). If undo process not executed, boolean set to None
     """
     rse = RegisterStepExecution(execution)
-    execution.start_time = execution.start_time or get_now()
+    kwargs = dict()
+    kwargs['start_time'] = execution.start_time or get_now()
     cc = create_cmd_from_orchestration(orchestration, var_context, hosts=hosts, register=rse, executor=executor)
 
     # convert UUID into str as in_ filter does not handle UUID type
@@ -162,21 +166,27 @@ def _deploy_orchestration(orchestration: Orchestration,
     try:
         applicant = lock.lock(Scope.ORCHESTRATION, servers, execution.id)
     except errors.LockError as e:
-        execution.end_time = get_now()
-        execution.success = False
-        execution.message = str(e)
-        db.session.commit()
+        kwargs.update(success=False, message=str(e))
+        rse.update_orch_execution(**kwargs)
         raise
     try:
-        execution.success = cc.invoke()
-        if not execution.success and orchestration.undo_on_error:
-            execution.undo_success = cc.undo()
-        execution.end_time = get_now()
-        db.session.commit()
+        kwargs['success'] = cc.invoke()
+        if not kwargs['success'] and orchestration.undo_on_error:
+            kwargs['undo_success'] = cc.undo()
+        kwargs['end_time'] = get_now()
+        rse.update_orch_execution(**kwargs)
     except Exception as e:
         current_app.logger.exception("Exception while executing invocation command")
+        kwargs.update(success=False, message=str(e))
+        rse.update_orch_execution(**kwargs)
+        try:
+            db.session.rollback()
+        except:
+            pass
 
     finally:
+
         lock.unlock(Scope.ORCHESTRATION, applicant=applicant, servers=servers)
+
     db.session.refresh(execution)
     return execution

@@ -4,12 +4,14 @@ import shlex
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.styles import Style
 
-import dimensigon.dshell.network as ntwrk
+from dimensigon.dshell import environ as env
 from dimensigon.dshell.argparse_raise import create_parser, ArgumentParserRaise
 from dimensigon.dshell.commands import nested_dict
 from dimensigon.dshell.completer import DshellCompleter
 from dimensigon.dshell.helpers import exit_dshell, get_history
+from dimensigon.dshell.output import dprint
 
 
 def call_func_with_signature(cmd_params):
@@ -44,7 +46,18 @@ def call_func_with_signature(cmd_params):
     try:
         func(*args, **{**kwargs, **kw_sig})
     except Exception as e:
-        print(str(e))
+        dprint(e)
+
+style = Style.from_dict({
+    # User input (default text).
+    # '':          '#ff0066',
+
+    # Prompt.
+    'username': 'green',
+    'at':       '#884444',
+    'host':     'green bold',
+    'path':     'ansicyan',
+})
 
 
 def interactive():
@@ -55,8 +68,16 @@ def interactive():
     parser = ArgumentParserRaise(allow_abbrev=False, prog='')
     parser = create_parser(nested_dict, parser)
     while True:
+        message = [
+            ('class:username', env._username if env._username else "?"),
+            ('class:at', '@'),
+            ('class:host', env.get("SERVER") if env.get("SERVER") else "?"),
+            ('', ':'),
+            ('class:path', 'dshell'),
+            ('', '> '),
+        ]
         try:
-            text = session.prompt(f'{ntwrk._username if ntwrk._username else "?"}.dshell> ')
+            text = session.prompt(message, style=style)
         except KeyboardInterrupt:
             continue  # Control-C pressed. Try again.
         except EOFError:
@@ -69,9 +90,16 @@ def interactive():
         except SystemExit:
             continue
         else:
-            cmd_params = dict(namespace._get_kwargs())
+            cmd_params = vars(namespace)
 
-        if 'func' not in cmd_params:
-            print(f"No action set for this command: {text}")
+        if not text:
+            continue
+        elif text == 'help':
+            parser.print_usage()
+        elif text and len(cmd_params) == 0:
+            try:
+                parser.parse_args(shlex.split(text) + ['-h'])
+            except SystemExit:
+                continue
         else:
             call_func_with_signature(cmd_params)

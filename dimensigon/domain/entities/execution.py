@@ -1,10 +1,12 @@
 import json
 import typing as t
-import uuid
 from datetime import datetime
 
+from flask import current_app
+from flask_jwt_extended import get_jwt_identity
+
 from dimensigon import defaults
-from dimensigon.domain.entities.base import EntityReprMixin
+from dimensigon.domain.entities.base import EntityReprMixin, UUIDEntityMixin
 from dimensigon.utils.typos import UUID, UtcDateTime
 from dimensigon.web import db
 from .server import Server
@@ -14,22 +16,10 @@ if t.TYPE_CHECKING:
     from dimensigon.use_cases.operations import CompletedProcess
 
 
-# class Status(enum.Enum):
-#     PENDING = enum.auto()
-#     EXECUTING = enum.auto()
-#     FINISHED = enum.auto()
-#     ROLLING_BACK = enum.auto()
-#     ROLLED_BACK = enum.auto()
-#     CANCELLED = enum.auto()
-#     ERROR = enum.auto()
+class StepExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
+    __tablename__ = 'L_step_execution'
 
-
-class StepExecution(db.Model, EntityReprMixin):
-    __tablename__ = 'L_execution'
-
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
-
-    start_time = db.Column(UtcDateTime(timezone=True), nullable=False, default=get_now())
+    start_time = db.Column(UtcDateTime(timezone=True), nullable=False)
     end_time = db.Column(UtcDateTime(timezone=True))
     params = db.Column(db.JSON)
     rc = db.Column(db.Integer)
@@ -38,29 +28,29 @@ class StepExecution(db.Model, EntityReprMixin):
     success = db.Column(db.Boolean)
     step_id = db.Column(UUID, db.ForeignKey('D_step.id'), nullable=False)
     server_id = db.Column(UUID, db.ForeignKey('D_server.id'))
-    orch_execution_id = db.Column(UUID)
+    orch_execution_id = db.Column(UUID, db.ForeignKey('L_orch_execution.id'))
+    pre_process_elapsed_time = db.Column(db.Float)
+    execution_elapsed_time = db.Column(db.Float)
+    post_process_elapsed_time = db.Column(db.Float)
+    child_orch_execution_id = db.Column(UUID)
 
     step = db.relationship("Step")
     server = db.relationship("Server", foreign_keys=[server_id])
     orch_execution = db.relationship("OrchExecution", foreign_keys=[orch_execution_id],
-                                     primaryjoin="OrchExecution.id==StepExecution.orch_execution_id",
-                                     uselist=False, backref="step_executions")
+                                     uselist=False, back_populates="step_executions")
+    child_orch_execution = db.relationship("OrchExecution", uselist=False, foreign_keys=[child_orch_execution_id],
+                                           primaryjoin="StepExecution.child_orch_execution_id==OrchExecution.id")
+
+    # def __init__(self, *args, **kwargs):
+    #     UUIDEntityMixin.__init__(self, **kwargs)
 
     def load_completed_result(self, cp: 'CompletedProcess'):
         self.success = cp.success
         self.stdout = cp.stdout
         self.stderr = cp.stderr
-        if cp.pre_post_error:
-            self.stderr += '\nError on pre/post process: '
-            if str(cp.pre_post_error):
-                self.stderr += str(cp.pre_post_error)
-            else:
-                self.stderr += str(cp.pre_post_error.__class__.__name__)
         self.rc = cp.rc
-        self.start_time = cp.start_time
-        self.end_time = cp.end_time
 
-    def to_json(self, human=False):
+    def to_json(self, human=False, split_lines=False):
         data = {}
         if self.id:
             data.update(id=str(self.id))
@@ -76,25 +66,32 @@ class StepExecution(db.Model, EntityReprMixin):
             try:
                 stdout = json.loads(self.stdout)
             except:
-                stdout = self.stdout
+                stdout = self.stdout.split('\n') if split_lines and self.stdout else self.stdout
             try:
                 stderr = json.loads(self.stderr)
             except:
-                stderr = self.stderr
+                stderr = self.stderr.split('\n') if split_lines and self.stderr else self.stderr
         else:
             data.update(
                 server_id=str(getattr(self.server, 'id', None)) if getattr(self.server, 'id', None) else None)
-            stdout = self.stdout
-            stderr = self.stderr
+            stdout = self.stdout.split('\n') if split_lines and self.stdout else self.stdout
+            stderr = self.stderr.split('\n') if split_lines and self.stderr else self.stderr
         data.update(stdout=stdout)
         data.update(stderr=stderr)
+        if self.child_orch_execution_id:
+            data.update(child_orch_execution_id=str(self.child_orch_execution_id))
+        data.update(
+            pre_process_elapsed_time=self.pre_process_elapsed_time) if self.pre_process_elapsed_time is not None else None
+        data.update(
+            execution_elapsed_time=self.execution_elapsed_time) if self.execution_elapsed_time is not None else None
+        data.update(
+            post_process_elapsed_time=self.post_process_elapsed_time) if self.post_process_elapsed_time is not None else None
         return data
 
 
-class OrchExecution(db.Model, EntityReprMixin):
+class OrchExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
     __tablename__ = 'L_orch_execution'
 
-    id = db.Column(UUID, primary_key=True, default=uuid.uuid4)
     start_time = db.Column(UtcDateTime(timezone=True), nullable=False, default=get_now)
     end_time = db.Column(UtcDateTime(timezone=True))
     orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'), nullable=False)
@@ -105,20 +102,22 @@ class OrchExecution(db.Model, EntityReprMixin):
     success = db.Column(db.Boolean)
     undo_success = db.Column(db.Boolean)
     message = db.Column(db.Text)
-    parent_orch_execution_id = db.Column(UUID, db.ForeignKey('L_orch_execution.id'))
     server_id = db.Column(UUID, db.ForeignKey('D_server.id'))
+    parent_step_execution_id = db.Column(UUID)
 
     orchestration = db.relationship("Orchestration")
-    _executor = db.relationship("User")
+    executor = db.relationship("User")
     service = db.relationship("Service")
-    parent_orch_execution = db.relationship("OrchExecution", uselist=False)
+    step_executions = db.relationship("StepExecution", back_populates="orch_execution", order_by="StepExecution.start_time")
+
     server = db.relationship("Server", foreign_keys=[server_id])
+    parent_step_execution = db.relationship("StepExecution", uselist=False, foreign_keys=[parent_step_execution_id],
+                                            primaryjoin="OrchExecution.parent_step_execution_id==StepExecution.id")
 
-    @property
-    def executor(self):
-        return self._executor if self._executor else self.parent_orch_execution
+    # def __init__(self, *args, **kwargs):
+    #     UUIDEntityMixin.__init__(self, **kwargs)
 
-    def to_json(self, add_step_exec=False, human=False):
+    def to_json(self, add_step_exec=False, human=False, split_lines=False):
         data = {}
         if self.id:
             data.update(id=str(self.id))
@@ -129,13 +128,18 @@ class OrchExecution(db.Model, EntityReprMixin):
         if human:
             # convert target ids to server names
             d = {}
-            for k, v in self.target.items():
-                if is_iterable_not_string(v):
-                    d[k] = [str(Server.query.get(s) or s) for s in v]
-                else:
-                    d[k] = str(Server.query.get(v) or v)
+            if isinstance(self.target, dict):
+                for k, v in self.target.items():
+                    if is_iterable_not_string(v):
+                        d[k] = [str(Server.query.get(s) or s) for s in v]
+                    else:
+                        d[k] = str(Server.query.get(v) or v)
+            elif isinstance(self.target, list):
+                d = [str(Server.query.get(s) or s) for s in self.target]
+            else:
+                d = str(Server.query.get(self.target) or self.target)
             data.update(target=d)
-            data.update(executor=str(self._executor) if self._executor else None)
+            data.update(executor=str(self.executor) if self.executor else None)
             data.update(service=str(self.service) if self.service else None)
             if self.orchestration:
                 data.update(
@@ -154,7 +158,7 @@ class OrchExecution(db.Model, EntityReprMixin):
                 orchestration_id=str(getattr(self.orchestration, 'id', None)) if getattr(self.orchestration, 'id',
                                                                                          None) else None)
             data.update(
-                executor_id=str(getattr(self._executor, 'id', None)) if getattr(self._executor, 'id', None) else None)
+                executor_id=str(getattr(self.executor, 'id', None)) if getattr(self.executor, 'id', None) else None)
             data.update(
                 service_id=str(getattr(self.service, 'id', None)) if getattr(self.service, 'id', None) else None)
             data.update(
@@ -164,10 +168,44 @@ class OrchExecution(db.Model, EntityReprMixin):
         data.update(success=self.success)
         data.update(undo_success=self.undo_success)
         data.update(message=self.message)
-        if self.parent_orch_execution:
-            data.update(parent_orch_execution_id=str(self.parent_orch_execution.id))
+
+        if self.parent_step_execution_id and not add_step_exec:
+            data.update(parent_step_execution_id=str(self.parent_step_execution_id))
         if add_step_exec:
-            data.update(steps=[e.to_json(human) for e in self.step_executions])
+            steps = []
+            for se in self.step_executions:
+                se: StepExecution
+
+                se_json = se.to_json(human, split_lines=split_lines)
+                if se.child_orch_execution:
+                    se_json['orch_execution'] = se.child_orch_execution.to_json(add_step_exec=add_step_exec,
+                                                                                split_lines=split_lines,
+                                                                                human=human)
+                elif se.child_orch_execution_id:
+                    from dimensigon.web.network import get, Response
+                    from dimensigon.network.auth import HTTPBearerAuth
+                    from flask_jwt_extended import create_access_token
+                    params = ['steps']
+                    if human:
+                        params.append('human')
+
+
+                    try:
+                        auth = HTTPBearerAuth(create_access_token(get_jwt_identity()))
+                        resp = get(se.server, 'api_1_0.orchexecutionresource',
+                                   view_data=dict(execution_id=se.child_orch_execution_id, params=params), auth=auth)
+                    except Exception as e:
+                        current_app.logger.exception(f"Exception while trying to acquire orch execution "
+                                                     f"{se.child_orch_execution_id} from {se.server}")
+                        resp = Response(exception=e)
+
+                    if resp.ok:
+                        se_json['orch_execution'] = resp.msg
+                        se_json.pop('child_orch_execution_id', None)
+
+                steps.append(se_json)
+            # steps.sort(key=lambda x: x.start_time)
+            data.update(steps=steps)
         return data
 
     @classmethod

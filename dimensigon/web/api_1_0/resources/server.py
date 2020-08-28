@@ -1,4 +1,4 @@
-from flask import request
+from flask import request, g
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
 
@@ -16,7 +16,10 @@ class ServerList(Resource):
     @securizer
     def get(self):
         query = filter_query(Server, request.args)
-        return [at.to_json(add_gates=check_param_in_uri('gates'), human=check_param_in_uri('human')) for at in
+        return [s.to_json(add_gates=check_param_in_uri('gates'),
+                          human=check_param_in_uri('human'),
+                          no_delete=True,
+                          add_ignore=True) for s in
                 query.all()]
 
 
@@ -26,7 +29,9 @@ class ServerResource(Resource):
     @securizer
     def get(self, server_id):
         return Server.query.get_or_404(server_id).to_json(add_gates=check_param_in_uri('gates'),
-                                                          human=check_param_in_uri('human'))
+                                                          human=check_param_in_uri('human'),
+                                                          no_delete=True,
+                                                          add_ignore=True)
 
     @forward_or_dispatch
     @jwt_required
@@ -46,7 +51,24 @@ class ServerResource(Resource):
         for gate in json_data.get('gates'):
             server.add_new_gate(gate['dns_or_ip'], gate['port'], gate.get('hidden'))
 
+        if 'ignore_on_lock' in json_data:
+            server.l_ignore_on_lock = json_data.get('ignore_on_lock')
+
         db.session.commit()
 
         return {}, 204
 
+    @forward_or_dispatch
+    @jwt_required
+    @securizer
+    @lock_catalog
+    def delete(self, server_id):
+        server = Server.query.get_or_404(server_id)
+
+        if server == g.server:
+            raise errors.ServerDeleteError
+        server.delete()
+
+        db.session.commit()
+
+        return {}, 204

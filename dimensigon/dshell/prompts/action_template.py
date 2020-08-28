@@ -4,7 +4,7 @@ import os
 import shlex
 from pprint import pprint
 
-from click import prompt
+from prompt_toolkit import prompt
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.lexers import PygmentsLexer
@@ -46,7 +46,7 @@ form = {
     "version": dict(history=InMemoryHistory()),
     "action_type": dict(validator=ChoiceValidator([at.name for at in ActionType if at.name != 'NATIVE']),
                         history=InMemoryHistory()),
-    "code": dict(multiline=True, lexer=code_lexer, history=InMemoryHistory()),
+    "code": dict(multiline=True, lexer=code_lexer, history=InMemoryHistory(), edit=True),
     "expected_stdout": dict(multiline=True, history=InMemoryHistory()),
     "expected_stderr": dict(multiline=True, history=InMemoryHistory()),
     "expected_rc": dict(validator=IntValidator(), history=InMemoryHistory()),
@@ -54,8 +54,8 @@ form = {
                        history=InMemoryHistory()),
     "system_kwargs": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), validator=JSONValidator(),
                           history=InMemoryHistory()),
-    "pre_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory()),
-    "post_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory()),
+    "pre_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
+    "post_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
 }
 
 history = None

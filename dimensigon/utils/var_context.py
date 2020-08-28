@@ -1,7 +1,14 @@
+import copy
 import re
 import typing as t
 from collections import ChainMap
 
+
+class VariableNotFoundError(Exception):
+    pass
+
+class empty:
+    pass
 
 class VarContext:
     _exp = re.compile(r'\{\{\s*([\.\w]+)\s*\}\}')
@@ -17,12 +24,19 @@ class VarContext:
         self.__variables = variables if variables is not None else {}
         self.__cm = ChainMap(self.__variables, self.__defaults, self.__initials)
 
+    @property
+    def initials(self):
+        return copy.deepcopy(self.__initials)
+
     def create_new_ctx(self, defaults, initials=None):
         return self.__class__(globals=dict(self.globals), initials=dict(initials or self.__initials), defaults=defaults,
                               variables=self.__variables)
 
     def find_recursive(self, item):
-        value = self.__cm[item]
+        try:
+            value = self.__cm[item]
+        except KeyError:
+            raise VariableNotFoundError(f"variable {item} not found in stack")
         try:
             match = self._exp.search(value)
         except:
@@ -51,11 +65,14 @@ class VarContext:
     def __contains__(self, item):
         return item in self.__cm
 
-    def get(self, k, d=None):
+    def get(self, k, d=empty):
         try:
             return self.find_recursive(k)
-        except KeyError:
-            return d
+        except VariableNotFoundError:
+            if d != empty:
+                return d
+            else:
+                raise
 
     def set(self, k, v):
         if k in self.__reserved_keys:
@@ -68,3 +85,6 @@ class VarContext:
 
     def update_variables(self, variables):
         self.__variables.update(variables)
+
+    def __str__(self):
+        return f"globals: {self.globals}\ninitials: {self.__initials}\ndefaults: {self.__defaults}\nvariables: {self.__variables}"

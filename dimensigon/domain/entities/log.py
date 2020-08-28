@@ -67,15 +67,11 @@ class Log(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
             raise RuntimeError('Set ids for servers before')
         data.update(target=self.target, include=self.include,
                     exclude=self.exclude, dest_folder=self.dest_folder,
-                    recursive=self.recursive, mode=self.mode.name, deleted=self.deleted, _old_target=self._old_target)
+                    recursive=self.recursive, mode=self.mode.name)
         if human:
             data.update(src_server=str(self.source_server.name), dst_server=str(self.destination_server.name))
         else:
             data.update(src_server_id=str(self.source_server.id), dst_server_id=str(self.destination_server.id))
-
-        if not delete_data:
-            data.pop('deleted', None)
-            data = {k: v for k, v in data.items() if not k.startswith(SoftDeleteMixin.__prefix__)}
 
         if include:
             data = {k: v for k, v in data.items() if k in include}

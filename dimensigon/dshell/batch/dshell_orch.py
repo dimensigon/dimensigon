@@ -83,13 +83,10 @@ def main(args):
             parameters = {}
             for param in argv['--param']:
                 key, value = param.split('=', 1)
-                if key not in parameters:
-                    parameters[key] = value
+                if ',' in value:
+                    parameters[key] = value.split(',')
                 else:
-                    if isinstance(parameters[key], list):
-                        parameters[key].append(value)
-                    else:
-                        parameters[key] = [parameters[key], value]
+                    parameters[key] = value
         else:
             parameters = json.loads(argv['--json-parameters'])
 

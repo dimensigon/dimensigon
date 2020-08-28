@@ -17,7 +17,7 @@ from flask import json
 from flask_jwt_extended import create_access_token, get_jwt_identity
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Step, Server, Software, OrchExecution
+from dimensigon.domain.entities import Step, Server, Software, OrchExecution, Orchestration
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.utils import subprocess
 from dimensigon.utils.helpers import get_now
@@ -113,7 +113,7 @@ class IOperationEncapsulation(ABC):
 
 class AnsibleOperation(IOperationEncapsulation):
 
-    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
+    def execute(self, var_context: VarContext, timeout=None, command=None) -> CompletedProcess:
         code = self.code
         if re.match(r'^[^<>:;,?"*|/\\]+$', self.code):
             file = os.path.join('', 'ansible', self.code)
@@ -146,7 +146,7 @@ class AnsibleOperation(IOperationEncapsulation):
 
 class RequestOperation(IOperationEncapsulation):
 
-    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
+    def execute(self, var_context: VarContext, timeout=None, command=None) -> CompletedProcess:
         params_dict = dict(var_context)
         kwargs = json.loads(self.rpl_params(params_dict))
         kwargs.update(self.system_kwargs)
@@ -235,13 +235,13 @@ class RequestOperation(IOperationEncapsulation):
 
 class NativeOperation(IOperationEncapsulation):
 
-    def execute(self, var_context: VarContext, timeout=None):
+    def execute(self, var_context: VarContext, timeout=None, command=None):
         pass
 
 
 class NativeWaitOperation(IOperationEncapsulation):
 
-    def execute(self, var_context: VarContext, timeout=None):
+    def execute(self, var_context: VarContext, timeout=None, command=None):
         start = time.time()
         found = []
         cp = CompletedProcess()
@@ -267,26 +267,79 @@ class NativeWaitOperation(IOperationEncapsulation):
                 else:
                     found.append(sn)
                     break
+            else:
+                break
 
         if var_context.get('list_server_names', []) == found:
             cp.success = True
-            cp.stdout = f"Servers {', '.join(var_context.get('list_server_names', []))} found"
+            cp.stdout = f"Server{'s' if len(var_context.get('list_server_names', [])) > 1 else ''} " \
+                        f"{', '.join(var_context.get('list_server_names', []))} found"
+
         else:
             cp.success = False
-            not_found = set(var_context['list_server_names']) - set(found)
-            cp.stderr = f"Servers {', '.join(not_found)} not created after {min_timeout} seconds"
+            not_found = set(var_context.get('list_server_names', [])) - set(found)
+            cp.stderr = f"Server{'s' if len(not_found) > 1 else ''} {', '.join(not_found)} " \
+                        f"not created after {min_timeout} seconds"
+        cp.set_end_time()
+        return cp
+
+
+class NativeDmRunningOperation(IOperationEncapsulation):
+
+    def execute(self, var_context: VarContext, timeout=None, command=None):
+        start = time.time()
+        running = []
+        cp = CompletedProcess()
+        cp.set_start_time()
+        try:
+            min_timeout = min(timeout, var_context.get('timeout', None))
+        except TypeError:
+            if timeout is not None:
+                min_timeout = timeout
+            elif var_context.get('timeout', None) is not None:
+                min_timeout = var_context.get('timeout')
+            else:
+                min_timeout = defaults.MAX_TIME_WAITING_SERVERS
+        for sn in var_context.get('list_server_names', []):
+            server = db.session.query(Server).filter_by(name=sn).one_or_none()
+            if server:
+                while (time.time() - start) < min_timeout:
+                    db.session.refresh(server)
+                    resp = get(server, 'root.healthcheck')
+                    if not resp.ok:
+                        time.sleep(self.system_kwargs.get('sleep_time', 2))
+                    else:
+                        running.append(sn)
+                        break
+                else:
+                    break
+            else:
+                cp.success = False
+                cp.stderr = f"Server {sn} not found in catalog"
+                cp.set_end_time()
+                return cp
+
+        if var_context.get('list_server_names', []) == running:
+            cp.success = True
+            cp.stdout = f"Server{'s' if len(var_context.get('list_server_names', [])) > 1 else ''} " \
+                        f"{', '.join(var_context.get('list_server_names', []))} with dimensigon running"
+        else:
+            cp.success = False
+            not_running = set(var_context.get('list_server_names', [])) - set(running)
+            cp.stderr = f"Server{'s' if len(not_running) > 1 else ''} {', '.join(not_running)} " \
+                        f"with dimensigon not running after {min_timeout} seconds"
         cp.set_end_time()
         return cp
 
 
 class PythonOperation(IOperationEncapsulation):
-    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
+    def execute(self, var_context: VarContext, timeout=None, command=None) -> CompletedProcess:
         pass
 
 
 class ShellOperation(IOperationEncapsulation):
 
-    def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
+    def execute(self, var_context: VarContext, timeout=None, command=None) -> CompletedProcess:
         tokens = self.rpl_params(dict(var_context))
 
         system_kwargs = self.system_kwargs.copy()
@@ -318,16 +371,33 @@ class OrchestrationOperation(IOperationEncapsulation):
     def execute(self, var_context: VarContext, timeout=None) -> CompletedProcess:
         from dimensigon.web.async_functions import deploy_orchestration
 
-        exe = OrchExecution(orchestration_id=var_context.get('orchestration_id'),
+        cp = CompletedProcess().set_start_time()
+        #validate data
+        orchestration_id = var_context.get('orchestration_id')
+
+
+        orch = Orchestration.query.get(orchestration_id)
+        if orch is None:
+            cp.stderr = str(errors.EntityNotFound('Orchestration', orchestration_id))
+            cp.success = False
+            cp.set_end_time()
+            return cp
+
+        exe = OrchExecution(orchestration_id=orchestration_id,
                             target=var_context.get('hosts'),
                             params=dict(var_context),
-                            parent_orch_execution_id=var_context.globals.get('execution_id'),
                             executor_id=var_context.globals.get('executor_id'),
-                            server=Server.get_current())
+                            server=Server.get_current(),
+                            parent_step_execution_id=var_context.globals.get('step_execution_id'))
         db.session.add(exe)
         db.session.commit()
-        cp = CompletedProcess().set_start_time()
+
+        cp.stdout = f"orch_execution_id={exe.id}"
         hosts = copy.deepcopy(var_context.get('hosts'))
+        if isinstance(hosts, list):
+            hosts = {'all': hosts}
+        elif isinstance(hosts, str):
+            hosts = {'all': [hosts]}
         not_found = normalize_hosts(hosts)
         if not_found:
             cp.stderr = str(errors.ServerNormalizationError(not_found))
@@ -343,8 +413,9 @@ class OrchestrationOperation(IOperationEncapsulation):
             else:
                 db.session.refresh(exe)
                 cp.success = exe.success
+        cp.set_end_time()
 
-        return cp.set_end_time()
+        return cp
 
 
 from dimensigon.domain.entities import ActionType
@@ -369,6 +440,8 @@ def create_operation(step: 'Step') -> IOperationEncapsulation:
     if kls == NativeOperation:
         if step.action_template.name == 'wait':
             kls = NativeWaitOperation
+        elif step.action_template.name == 'dm running':
+            kls = NativeDmRunningOperation
     return kls(code=step.code, expected_stdout=step.expected_stdout, expected_stderr=step.expected_stderr,
                expected_rc=step.expected_rc,
                system_kwargs=step.system_kwargs)

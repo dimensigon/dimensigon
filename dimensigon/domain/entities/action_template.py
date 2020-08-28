@@ -57,18 +57,20 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
         self.parameters = self.parameters or {}
         self.system_kwargs = self.system_kwargs or {}
 
-    def to_json(self):
+    def to_json(self, split_lines=False):
         data = super().to_json()
         data.update(name=self.name, version=self.version,
                     action_type=self.action_type.name,
-                    code=self.code)
+                    code=self.code.split('\n') if split_lines else self.code)
         data.update(parameters=self.parameters)
         data.update(system_kwargs=self.system_kwargs)
         data.update(expected_stdout=self.expected_stdout)
         data.update(expected_stderr=self.expected_stderr)
         data.update(expected_rc=self.expected_rc)
-        data.update(pre_process=self.pre_process)
-        data.update(post_process=self.post_process)
+        data.update(post_process=self.post_process.split(
+            '\n') if split_lines else self.post_process) if self.post_process is not None else None
+        data.update(pre_process=self.pre_process.split(
+            '\n') if split_lines else self.pre_process) if self.pre_process is not None else None
         return data
 
     @classmethod
@@ -113,4 +115,11 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
                                     code='{{orchestration_id}} {{hosts}}',
                                     last_modified_at=defaults.INITIAL_DATEMARK,
                                     id='00000000-0000-0000-000a-000000000003')
+                session.add(at)
+            at = session.query(cls).get('00000000-0000-0000-000a-000000000004')
+            if at is None:
+                at = ActionTemplate(name='dm running', version=1, action_type=ActionType.NATIVE,
+                                    code='{{list_server_names}} {{timeout}}',
+                                    last_modified_at=defaults.INITIAL_DATEMARK,
+                                    id='00000000-0000-0000-000a-000000000004')
                 session.add(at)

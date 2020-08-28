@@ -392,7 +392,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     def subtree(self, steps: t.Union[t.List[Step], t.Iterable[Step]]) -> t.Dict[Step, t.List[Step]]:
         return self._graph.subtree(steps)
 
-    def to_json(self, add_target=False, add_params=False, add_steps=False, add_action=False):
+    def to_json(self, add_target=False, add_params=False, add_steps=False, add_action=False, split_lines=False):
         data = super().to_json()
         data.update(name=self.name, version=self.version, stop_on_error=self.stop_on_error,
                     undo_on_error=self.undo_on_error, stop_undo_on_error=self.stop_undo_on_error)
@@ -403,7 +403,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         if add_steps:
             json_steps = []
             for step in self.steps:
-                json_step = step.to_json(add_action=add_action)
+                json_step = step.to_json(add_action=add_action, split_lines=split_lines)
                 json_step.pop('orchestration_id')
                 json_steps.append(json_step)
             data['steps'] = json_steps

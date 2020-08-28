@@ -20,24 +20,28 @@ HOSTNAME = socket.gethostname()
 GUNICORN_CONF_FILE = '_gunicorn.conf.py'
 PID_FILE = 'dimensigon.pid'
 PROC_NAME = 'dimensigon'
-DEFAULT_SSL_DIR = '.ssl'
-DEFAULT_KEY_FILE = 'key.pem'
-DEFAULT_CERT_FILE = 'cert.pem'
-
+ACCESS_LOGFILE = 'access.log'
+ERROR_LOGFILE = 'dimensigon.log'
+SSL_DIR = '.ssl'
+KEY_FILE = 'key.pem'
+CERT_FILE = 'cert.pem'
 
 # Database
-DEFAULT_DB_URL = "sqlite:///{db_file}"
+DB_PREFIX = 'sqlite:///'
+DEFAULT_DB_URL = f"{DB_PREFIX}{{db_file}}"
 DEFAULT_DB_FILE = "dimensigon.db"
-
 
 # Dimensigon Defaults
 MAX_WAITING_TIME = 300  # time in seconds waiting tasks to finish
 MAX_TIME_WAITING_SERVERS = 600  # max time waiting for servers to be created
+JOIN_TOKEN_EXPIRE_TIME = 15  # join token expire time in minutes
 
 TIMEOUT_REQUEST = 60
 TIMEOUT_PREVENTING_LOCK = 60  # max time in seconds locker will be in PREVENTING_LOCK before returning to UNLOCK
 TIMEOUT_ORCHESTRATION = 1800  # max time waiting for an orchestration to finish
 TIMEOUT_COMMAND = 20  # max time waiting for a command execution
+TIMEOUT_LOCK_REQUEST = 60  # timeout on loc/unlock/prevent_lock HTTP request
+
 
 CHUNK_SIZE = 2*1024  # in MB
 MAX_SENDERS = 4

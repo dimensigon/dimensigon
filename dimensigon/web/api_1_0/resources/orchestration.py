@@ -17,7 +17,8 @@ class OrchestrationList(Resource):
     def get(self):
         query = filter_query(Orchestration, request.args).order_by(Orchestration.created_at)
         return [o.to_json(add_target=check_param_in_uri('target'), add_params=check_param_in_uri('vars'),
-                          add_steps=check_param_in_uri('steps'), add_action=check_param_in_uri('action')) for o in
+                          add_steps=check_param_in_uri('steps'), add_action=check_param_in_uri('action'),
+                          split_lines=True) for o in
                 query.all()]
 
     @forward_or_dispatch
@@ -45,7 +46,8 @@ class OrchestrationResource(Resource):
     @jwt_required
     @securizer
     def get(self, orchestration_id):
-        return Orchestration.query.get_or_404(orchestration_id).to_json(add_target=True, add_params=True)
+        return Orchestration.query.get_or_404(orchestration_id).to_json(add_target=True, add_params=True,
+                                                                        split_lines=True)
 
     @forward_or_dispatch
     @jwt_required

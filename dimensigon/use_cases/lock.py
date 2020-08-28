@@ -7,6 +7,7 @@ from flask import current_app
 from flask_jwt_extended import create_access_token, get_jwt_identity
 from sqlalchemy.orm import sessionmaker
 
+from dimensigon import defaults
 from dimensigon.domain.entities import Server, Catalog
 from dimensigon.domain.entities.locker import Scope
 from dimensigon.network.auth import HTTPBearerAuth
@@ -34,7 +35,8 @@ async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope
         for server in it:
             tasks.append(create_task(async_post(server, 'api_1_0.locker_' + action, session=session,
                                                 json=payload,
-                                                auth=auth)))
+                                                auth=auth,
+                                                timeout=defaults.TIMEOUT_LOCK_REQUEST)))
         for server in it:
             r = await tasks.pop(0)
             server_responses.append(r)
@@ -164,13 +166,14 @@ def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]]
 
 
 @contextmanager
-def lock_scope(scope: Scope, servers: t.Union[t.List[Server], Server] = None):
+def lock_scope(scope: Scope, servers: t.Union[t.List[Server], Server] = None,
+               bypass: t.Union[t.List[Server], Server] = None):
     if servers is not None:
         servers = servers if is_iterable_not_string(servers) else [servers]
         if len(servers) == 0:
             servers = None
 
-    servers = servers or get_servers_from_scope(scope)
+    servers = servers or get_servers_from_scope(scope, bypass)
 
     applicant = lock(scope, servers)
     current_app.logger.debug(f"Lock on {scope.name} acquired on servers : {[s.name for s in servers]}")

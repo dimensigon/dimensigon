@@ -1,46 +1,76 @@
 import argparse as argparse
+import functools
 import json
+import os
 import uuid
-from pprint import pprint
 
-import pygments
 import requests
-from prompt_toolkit import print_formatted_text
 from prompt_toolkit.completion import merge_completers
-from prompt_toolkit.formatted_text import PygmentsTokens
-from pygments.lexers.web import JSONLexer
 
 from dimensigon import defaults
-from dimensigon.domain.entities import ActionType
+from dimensigon.domain.entities import ActionType, Scope
+from dimensigon.domain.entities.transfer import Status
 from dimensigon.dshell import environ
-from dimensigon.dshell.argparse_raise import ParamAction
+from dimensigon.dshell import environ as env
+from dimensigon.dshell.argparse_raise import ParamAction, ExtendAction
+from dimensigon.dshell.bootstrap import save_config_file
 from dimensigon.dshell.completer import *
 from dimensigon.dshell.helpers import name2id, exit_dshell
+from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.action_template import subprompt as action_prompt
 from dimensigon.dshell.prompts.orchestration import subprompt as orch_prompt
 from dimensigon.dshell.utils import clean_none
-from dimensigon.utils.helpers import get_now
+from dimensigon.utils.helpers import get_now, is_valid_uuid
 
 
-def status(node):
-    for node_id in node:
-        try:
-            uuid.UUID(node_id)
-        except Exception:
-            node_id = name2id('api_1_0.serverlist', node_id)
-        resp = ntwrk.get('root.healthcheck', headers={'D-Destination': node_id})
-        pprint(resp.msg if resp.code else str(resp.exception))
+def status(node, detail=False):
+    view_data = {}
+    if not detail:
+        view_data.update(params='human')
+    for n in node:
+        dprint(f"### {n}:") if len(node) > 1 else None
+        if not is_valid_uuid(n):
+            node_id = name2id('api_1_0.serverlist', n)
+        else:
+            node_id = n
+        resp = ntwrk.get('root.healthcheck', view_data=view_data, headers={'D-Destination': node_id})
+        dprint(resp)
 
 
 def ping(node):
-    for node_id in node:
-        try:
-            uuid.UUID(node_id)
-        except Exception:
-            node_id = name2id('api_1_0.serverlist', node_id)
+    for n in node:
+        dprint(f"### {n}:") if len(node) > 1 else None
+        if not is_valid_uuid(n):
+            node_id = name2id('api_1_0.serverlist', n)
+        else:
+            node_id = n
         resp = ntwrk.post('root.ping', headers={'D-Destination': node_id},
                           json={'start_time': get_now().strftime(defaults.DATETIME_FORMAT)})
-        pprint(resp.msg if resp.code else str(resp.exception))
+        dprint(resp)
+
+
+def locker_list(node):
+    for n in node:
+        dprint(f"### {n}:") if len(node) > 1 else None
+        if not is_valid_uuid(n):
+            node_id = name2id('api_1_0.serverlist', n)
+        else:
+            node_id = n
+        resp = ntwrk.get('api_1_0.locker', headers={'D-Destination': node_id})
+        dprint(resp)
+
+
+def locker_unlock(scope, node):
+    for n in node:
+        dprint(f"### {n}:") if len(node) > 1 else None
+        if not is_valid_uuid(n):
+            node_id = name2id('api_1_0.serverlist', n)
+        else:
+            node_id = n
+        resp = ntwrk.post('api_1_0.locker_unlock',
+                          json={'scope': scope, 'applicant': "", 'force': True},
+                          headers={'D-Destination': node_id})
+        dprint(resp)
 
 
 def server_list(name=None, iden=None, detail=None, like=None):
@@ -63,10 +93,35 @@ def server_list(name=None, iden=None, detail=None, like=None):
                     filtered_data.append(server)
         else:
             filtered_data = data
-        pprint(filtered_data)
+        dprint(filtered_data)
     else:
-        pprint(resp.msg if resp.code else str(resp.exception) if str(
-            resp.exception) else resp.exception.__class__.__name__)
+        dprint(resp)
+
+
+def server_delete(server_id):
+    try:
+        uuid.UUID(server_id)
+    except Exception:
+        not_an_uuid = True
+    else:
+        not_an_uuid = False
+    if not_an_uuid:
+        server_id = name2id('api_1_0.serverlist', server_id)
+    resp = ntwrk.delete('api_1_0.serverresource', view_data={'server_id': server_id})
+    if resp.ok:
+        dprint("Server removed succesfully")
+    else:
+        dprint(resp)
+
+
+def server_routes(refresh=False):
+    resp = None
+    if refresh:
+        resp = ntwrk.post('api_1_0.routes', json={"discover_new_neighbours": True,
+                                                  "check_current_neighbours": True})
+    if resp is None or (resp and resp.ok):
+        resp = ntwrk.get('api_1_0.routes', view_data={'params': 'human'})
+    dprint(resp)
 
 
 def orch_list(**params):
@@ -77,7 +132,7 @@ def orch_list(**params):
     if params.get('name'):
         view_data.update({'filter[name]': params['name']})
     if params.get('version', None):
-        view_data.update({'filter[version]': params['version']})
+        view_data.update({'filter[version]': str(params['version'])})
     if params.get('detail', None):
         view_data.update({'params': ['steps', 'vars', 'target', 'action', 'human']})
     else:
@@ -93,10 +148,9 @@ def orch_list(**params):
                     filtered_data.append(server)
         else:
             filtered_data = data
-        pprint(filtered_data)
+        dprint(filtered_data)
     else:
-        pprint(resp.msg if resp.code else str(resp.exception) if str(
-            resp.exception) else resp.exception.__class__.__name__)
+        dprint(resp)
 
 
 def orch_create(**params):
@@ -125,6 +179,7 @@ def orch_copy(**params):
             for s in orch['steps']:
                 s.pop('last_modified_at', None)
                 s.pop('created_on', None)
+                s.pop('orchestration_id', None)
 
             orch_prompt(entity=orch, parent_prompt='Δ ')
 
@@ -144,10 +199,7 @@ def orch_run(orchestration_id, **params):
         return
     resp = ntwrk.post('api_1_0.launch_orchestration',
                       view_data={'orchestration_id': orchestration_id, 'params': 'human'}, json=params)
-    if resp.code is not None:
-        pprint(resp.msg)
-    else:
-        pprint(str(resp.exception))
+    dprint(resp)
 
 
 def action_list(iden=None, name=None, version=None, like: str = None, last: int = None):
@@ -170,11 +222,9 @@ def action_list(iden=None, name=None, version=None, like: str = None, last: int 
                     filtered_data.append(server)
         else:
             filtered_data = data
-        tokens = list(pygments.lex(json.dumps(filtered_data[:last or len(filtered_data)], indent=2), lexer=JSONLexer()))
-        print_formatted_text(PygmentsTokens(tokens))
+        dprint(filtered_data)
     else:
-        pprint(resp.msg if resp.code else str(resp.exception) if str(
-            resp.exception) else resp.exception.__class__.__name__)
+        dprint(resp)
 
 
 def action_create(name, action_type, prompt):
@@ -204,11 +254,7 @@ def software_add(name, version, file, family=None):
     if family is not None:
         json_data.update(family=family)
     resp = ntwrk.post(view='api_1_0.softwarelist', json=json_data, **kwargs)
-    if resp.code == 200:
-        pprint(resp.msg)
-    else:
-        pprint(resp.msg if resp.code is not None else str(resp.exception) if str(
-            resp.exception) else resp.exception.__class__.__name__)
+    dprint(resp)
 
 
 def software_send(dest_server_id, software_id=None, software=None, version=None, file=None, dest_path=None,
@@ -225,8 +271,7 @@ def software_send(dest_server_id, software_id=None, software=None, version=None,
     if not background:
         json_data.update(include_transfer_data=True)
     resp = ntwrk.post('api_1_0.send', json=json_data, **kwargs)
-    pprint(resp.msg if resp.code is not None else str(resp.exception) if str(
-        resp.exception) else resp.exception.__class__.__name__)
+    dprint(resp)
 
 
 def software_list(name=None, version=None, detail=None, like=None):
@@ -249,10 +294,9 @@ def software_list(name=None, version=None, detail=None, like=None):
                     filtered_data.append(server)
         else:
             filtered_data = data
-        pprint(filtered_data)
+        dprint(filtered_data)
     else:
-        pprint(resp.msg if resp.code else str(resp.exception) if str(
-            resp.exception) else resp.exception.__class__.__name__)
+        dprint(resp)
 
 
 def transfer_list(iden=None, status=None, like=None):
@@ -273,18 +317,16 @@ def transfer_list(iden=None, status=None, like=None):
                     filtered_data.append(server)
         else:
             filtered_data = data
-        pprint(filtered_data)
+        dprint(filtered_data)
     else:
-        pprint(resp.msg if resp.code else str(resp.exception) if str(
-            resp.exception) else resp.exception.__class__.__name__)
+        dprint(resp)
 
 
 def transfer_cancel(transfer_id):
     kwargs = dict(verify=environ.get('SSL_VERIFY'))
     data = {'status': 'CANCELED'}
     resp = ntwrk.patch('api_1_0.transferresource', view_data={'transfer_id': transfer_id}, json=data, **kwargs)
-    pprint(resp.msg if resp.code else str(resp.exception) if str(
-        resp.exception) else resp.exception.__class__.__name__)
+    dprint(resp)
 
 
 def exec_list(orch=None, server=None, execution_id=None, last=None, asc=None, detail=None):
@@ -315,11 +357,13 @@ def exec_list(orch=None, server=None, execution_id=None, last=None, asc=None, de
             data.sort(key=lambda x: x.get('start_time'))
         else:
             data.sort(key=lambda x: x.get('start_time'), reverse=True)
-        tokens = list(pygments.lex(json.dumps(data[:last or len(data)], indent=2), lexer=JSONLexer()))
-        print_formatted_text(PygmentsTokens(tokens))
+
+        if last:
+            dprint(data[:last])
+        else:
+            dprint(data)
     else:
-        pprint(resp.msg if resp.code else str(resp.exception) if str(
-            resp.exception) else resp.exception.__class__.__name__)
+        dprint(resp)
 
 
 def cmd(command, hosts, timeout=None, input=None):
@@ -332,17 +376,13 @@ def cmd(command, hosts, timeout=None, input=None):
     if input:
         data.update(input=input.replace('\\n', '\n').replace('\\t', '\t'))
     resp = ntwrk.post('api_1_0.launch_command', view_data={'params': 'human'}, json=data)
-    if resp.code:
-        tokens = list(pygments.lex(json.dumps(resp.msg, indent=2), lexer=JSONLexer()))
-        print_formatted_text(PygmentsTokens(tokens))
-    else:
-        pprint(str(resp.exception))
+    dprint(resp)
 
 
 def logfed_list():
     kwargs = dict(verify=environ.get('SSL_VERIFY'))
     resp = ntwrk.get('api_1_0.loglist', view_data={'params': 'human'}, **kwargs)
-    pprint(resp.msg if resp.code else str(resp.exception) if str(
+    dprint(resp.msg if resp.code else str(resp.exception) if str(
         resp.exception) else resp.exception.__class__.__name__)
 
 
@@ -353,16 +393,24 @@ def logfed_subscribe(src_server_id, target, dest_server_id, include=None, exclud
                      exclude=exclude, dest_folder=dest_folder, recursive=recursive, mode=mode)
     json_data = clean_none(json_data)
     resp = ntwrk.post('api_1_0.loglist', json=json_data, **kwargs)
-    pprint(resp.msg if resp.code else str(resp.exception) if str(
-        resp.exception) else resp.exception.__class__.__name__)
+    dprint(resp)
 
 
 def logfed_unsubscribe(log_id):
     kwargs = dict(verify=environ.get('SSL_VERIFY'))
     resp = ntwrk.delete('api_1_0.logresource', {'log_id': log_id}, **kwargs)
-    if resp.code is not None and resp.msg or resp.exception is not None:
-        pprint(resp.msg if resp.code else str(resp.exception) if str(
-            resp.exception) else resp.exception.__class__.__name__)
+    dprint(resp)
+
+
+def manager_catalog_refresh():
+    resp = ntwrk.post('api_1_0.catalog_update')
+    dprint(resp)
+
+
+def manager_locker_ignore(ignore: bool, server_ids):
+    resp = ntwrk.post('api_1_0.manager_server_ignore_lock', json={'server_ids': server_ids, 'ignore_on_lock': ignore})
+    dprint(resp)
+
 
 
 # def locker_lock(**params):
@@ -379,38 +427,60 @@ def logfed_unsubscribe(log_id):
 #     for server in servers:
 #         resp = post('api_1_0.locker_unlock')
 
-def login(username=None, password=None):
+def token(raw=False):
+    resp = ntwrk.get('api_1_0.join_token')
+    if not raw:
+        dprint(resp)
+    else:
+        if resp.ok:
+            dprint(resp.msg['token'])
+        else:
+            dprint(resp)
+
+
+def manager_login(username=None, password=None):
     try:
         ntwrk.login(username, password)
     except requests.exceptions.ConnectionError as e:
-        print(f"Unable to contact with {environ.get('SCHEME')}://{environ.get('SERVER')}:{environ.get('PORT')}/")
+        dprint(f"Unable to contact with {environ.get('SCHEME')}://{environ.get('SERVER')}:{environ.get('PORT')}/")
     except Exception as e:
-        pprint(e)
+        dprint(str(e))
 
+
+def manager_save_login():
+    save_config_file(os.path.expanduser(env.get('CONFIG_FILE', None)), username=env._username, token=env._refresh_token, server=env.get('SERVER'), port=env.get('PORT'))
 
 def logging_cmd(logger, level):
     logger = logging.getLogger(logger)
     if logger:
         logger.setLevel(level)
     else:
-        print(f"Logger '{logger}' does not exist")
+        dprint(f"Logger '{logger}' does not exist")
 
 
 def env_list():
     for k, v in environ._environ.items():
-        pprint(f"{k}={v}")
+        dprint(f"{k}={v}")
 
 
 def env_get(key):
-    pprint(f"{environ.get(key, None)}")
+    dprint(f"{environ.get(key, None)}")
 
 
 def env_set(key, value):
-    environ.set(key, value)
+    if isinstance(value, list) and len(value) == 0:
+        if '=' in key:
+            key, value = key.split('=')
+            environ.set(key, value)
+        else:
+            dprint('invalid value')
+    else:
+        environ.set(key, ' '.join(value))
 
 
 nested_dict = {
-    'status': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, status],
+    'status': [{'argument': 'node', 'nargs': '+', 'completer': server_completer},
+               {'argument': '--detail', 'action': 'store_true'}, status],
     'ping': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, ping],
     'server': {
         'list': [{'argument': '--detail', 'action': 'store_true'},
@@ -423,6 +493,11 @@ nested_dict = {
                   ],
                  server_list
                  ],
+        'delete': [
+            {'argument': 'server_id', 'metavar': 'NODE', 'completer': server_completer, 'help': 'Node to be deleted'},
+            server_delete],
+        'routes': [{'argument': '--refresh', 'action': 'store_true'},
+                   server_routes],
     },
     'orch': {
         'list': [{'argument': '--version', 'action': 'store', 'type': int,
@@ -444,9 +519,12 @@ nested_dict = {
         'load': [{'argument': 'file', 'type': argparse.FileType('r')},
                  orch_load],
         'run': [{'argument': 'orchestration_id', 'completer': orch_completer},
-                {'argument': '--target', 'action': DictAction, 'nargs': "+", 'dest': 'hosts',
-                 'completer': merge_completers([server_completer, granule_completer])},
-                {'argument': ['--param', '-p'], 'action': ParamAction, 'nargs': "+", 'dest': 'params', 'default': {}},
+                {'argument': '--target', 'metavar': 'TARGET=VALUE', 'action': DictAction, 'nargs': "+", 'dest': 'hosts',
+                 'completer': merge_completers([server_completer, granule_completer]),
+                 'help': "Run the orch agains the specified target. If no target specified, hosts will be added to "
+                         "'all' target. Example: --target node1 node2 backend=node2,node3 "},
+                {'argument': '--param', 'metavar': 'PARAM=VALUE', 'action': ParamAction, 'nargs': "+",
+                 'dest': 'params', 'default': {}, 'help': 'Parameters passed to the orchestration'},
                 {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
                 orch_run],
     },
@@ -461,7 +539,6 @@ nested_dict = {
                  action_list
                  ],
         'create': [{'argument': 'name'},
-                   {'argument': 'version', 'type': int},
                    {'argument': 'action_type', 'choices': [at.name for at in ActionType if at.name != 'NATIVE']},
                    {'argument': '--prompt', 'action': "store_true",
                     'help': 'does not ask for every action parameter one by one'},
@@ -480,6 +557,10 @@ nested_dict = {
                  {'argument': '--detail', 'action': 'store_true'},
                  exec_list]
     },
+    'locker': {'list': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, locker_list],
+               'unlock': [{'argument': 'scope', 'choices': [s.name for s in Scope]},
+                          {'argument': 'node', 'nargs': '+', 'completer': server_completer},
+                          locker_unlock]},
     'software': {
         'add': [{'argument': 'name'},
                 {'argument': 'version'},
@@ -506,15 +587,13 @@ nested_dict = {
         'cancel': [{'argument': 'transfer_id'},
                    transfer_cancel],
         'list': [
-            {'argument': '--status', 'action': "append", 'nargs': '+',
-             'choices': ['WAITING_CHUNKS', 'IN_PROGRESS', 'COMPLETED', 'CHECKSUM_ERROR', 'SIZE_ERROR',
-                         'CANCELED']},
+            {'argument': '--status', 'action': "append", 'nargs': '+', 'choices': [s.name for s in Status]},
             [{'argument': '--id'},
              {'argument': '--last', 'action': 'store', 'type': int}, ],
             transfer_list
         ]},
     'cmd': [{'argument': 'command', 'nargs': '+'},
-            {'argument': '--target', 'action': 'append', 'nargs': "+", 'dest': 'hosts',
+            {'argument': '--target', 'action': ExtendAction, 'nargs': "+", 'dest': 'hosts',
              'completer': merge_completers([server_completer, granule_completer])},
             {'argument': '--timeout', 'type': int, 'help': 'timeout in seconds to wait for command to terminate'},
             {'argument': '--input'},
@@ -573,14 +652,28 @@ nested_dict = {
                                logfed_unsubscribe],
                'list': [logfed_list],
                },
+
+    "manager": {"catalog": {"refresh": [manager_catalog_refresh]},
+                "locker": {"ignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
+                                       'completer': server_completer},
+                                      functools.partial(manager_locker_ignore, True)],
+                           "unignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
+                                         'completer': server_completer},
+                                        functools.partial(manager_locker_ignore, False)]},
+                "token": [{'argument': '--raw', 'action': 'store_true'},
+                          {'argument': '--expire-time', 'metavar': 'MINUTES',
+                           'help': 'Join token expire time in minutes'},
+                          token],
+                "save": {"login": [manager_save_login]},
+                "login": [{'argument': 'username', 'nargs': '?'},
+                          manager_login], }
     # "locker": {"lock": [{'argument': "scope", 'choices': ["CATALOG", "ORCHESTRATION", "UPGRADE"]},
     #                     {'argument': "servers", 'nargs': '*', 'completer': server_completer},
     #                     locker_lock],
     #            "unlock": [{'argument': "scope", 'choices': ["CATALOG", "ORCHESTRATION", "UPGRADE"]},
     #                       {'argument': "servers", 'nargs': '*', 'completer': server_completer},
     #                       locker_unlock]},
-    "login": [{'argument': 'username', 'nargs': '?'},
-              login],
+    ,
     "logging": [{'argument': 'logger', 'completer': logger_completer},
                 {'argument': 'level', 'choices': ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']},
                 logging_cmd],
@@ -588,7 +681,7 @@ nested_dict = {
             "get": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
                     env_get],
             "set": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
-                    {'argument': 'value'},
+                    {'argument': 'value', 'nargs': '*'},
                     env_set]},
     'exit': [exit_dshell]
 

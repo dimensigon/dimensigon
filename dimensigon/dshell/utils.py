@@ -29,3 +29,5 @@ def is_interactive(output=False, error=False, heuristic=False):
         if not homepath and (not home or home == '/'):
             return False
     return True
+
+

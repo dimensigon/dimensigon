@@ -13,7 +13,7 @@ setup(
     license=dm.__license__,
     author=dm.__author__,
     author_email=dm.__email__,
-    description="Dimensigon (DM) is a Distributed Management and Automation RESTful framework to make easier heterogeneous/polyglot orchestrations in a Hybrid Multi-Cloud environment.",
+    description="Distributed Management and orquestration through RESTful, Mesh Networking and with a flair of IoT.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     install_requires=[
@@ -48,7 +48,8 @@ setup(
         "prompt_toolkit",
         "docopt",
         "gunicorn",
-        "schema"
+        "schema",
+        "coolname"
     ],
     classifiers=[
         "Programming Language :: Python :: 3.6",

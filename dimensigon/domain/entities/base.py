@@ -1,4 +1,5 @@
 import abc
+import functools
 import inspect
 import random
 import string
@@ -9,6 +10,7 @@ from sqlalchemy import Column, Boolean
 
 from dimensigon import defaults
 from dimensigon.utils.typos import UUID, UtcDateTime
+from dimensigon.web.helpers import QueryWithSoftDelete
 
 
 class JSONEntity:
@@ -27,10 +29,19 @@ class SoftDeleteMixin:
     __prefix__ = '_old_'
     deleted = Column(Boolean(), default=False)
 
+    def __new__(cls, *args, **kwargs):
+        obj = super(SoftDeleteMixin, cls).__new__(cls)
+        obj.query_class = QueryWithSoftDelete
+        if hasattr(obj, 'to_json') and callable(getattr(obj, 'to_json')):
+            obj.to_json = SoftDeleteMixin.wrapper_to_json(obj, obj.to_json)
+
+        return obj
+
     def __init__(self, deleted=False, **kwargs):
         self.deleted = deleted
-        for attr in [attr for attr, value in inspect.getmembers(self) if attr.startswith(self.__prefix__)]:
-            setattr(self, attr, kwargs.get(attr, None))
+        for attr, value in kwargs.items():
+            if attr.startswith(self.__prefix__):
+                setattr(self, attr, kwargs.get(attr, None))
 
     def delete(self):
         if not self.deleted:
@@ -41,6 +52,20 @@ class SoftDeleteMixin:
                 setattr(self, original_attr,
                         ''.join(random.choices(string.digits + string.ascii_letters + string.punctuation, k=10)))
 
+
+    def wrapper_to_json(self, func):
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            no_delete = kwargs.pop('no_delete', False)
+            dto = func(*args, **kwargs)
+            if not no_delete:
+                dto.update({'deleted': self.deleted})
+                for attr in [attr for attr, value in inspect.getmembers(self) if attr.startswith(self.__prefix__)]:
+                    dto.update({attr: getattr(self, attr)})
+            return dto
+
+        return wrapper
 
 
 class DistributedEntityMixin(JSONEntity):
@@ -65,7 +90,7 @@ class DistributedEntityMixin(JSONEntity):
 
 
 class UUIDEntityMixin:
-    id = Column(UUID, primary_key=True, default=str(uuid.uuid4))
+    id = Column(UUID, primary_key=True, default=lambda: str(uuid.uuid4()))
 
     def __init__(self, **kwargs):
         if 'id' in kwargs:
