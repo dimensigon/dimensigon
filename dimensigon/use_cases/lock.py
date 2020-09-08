@@ -1,3 +1,5 @@
+import logging
+import time
 import typing as t
 from contextlib import contextmanager
 from uuid import UUID
@@ -18,6 +20,7 @@ from dimensigon.utils.typos import Id
 from dimensigon.web import errors, db
 from dimensigon.web.network import async_post, Response
 
+logger = logging.getLogger('dimensigon.lock')
 
 async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope, applicant, auth=None,
                          datemark=None) -> t.List[Response]:
@@ -94,7 +97,7 @@ def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=No
     raise errors.LockError(scope, action, [r for r in pool_responses if r.code not in (200, 210)])
 
 
-def lock(scope: Scope, servers: t.List[Server] = None, applicant=None) -> UUID:
+def lock(scope: Scope, servers: t.List[Server] = None, applicant=None, retries=0, delay=3) -> UUID:
     """
     locks the Locker if allowed
     Parameters
@@ -118,17 +121,27 @@ def lock(scope: Scope, servers: t.List[Server] = None, applicant=None) -> UUID:
     servers = servers or get_servers_from_scope(scope)
 
     if len(servers) == 0:
-        raise RuntimeError('no server to lock')
+        raise errors.NoServerToLock(scope)
 
     applicant = applicant if applicant is not None else [str(s.id) for s in servers]
-    try:
-        lock_unlock(action='L', scope=scope, servers=servers, applicant=applicant)
-    # exception goes here because we need the applicant to unlock already locked servers
-    except errors.LockError as e:
-        error_servers = [r.server for r in e.responses]
-        locked_servers = list(set(server for server in servers) - set(error_servers))
-        lock_unlock('U', scope, servers=locked_servers, applicant=applicant)
-        raise e
+
+    _try = 1
+    while True:
+        try:
+            lock_unlock(action='L', scope=scope, servers=servers, applicant=applicant)
+        except errors.LockError as e:
+            if _try < retries:
+                _try += 1
+                logger.info(f"Retrying to lock on {scope.name} in {delay} seconds")
+                time.sleep(delay)
+            else:
+                error_servers = [r.server for r in e.responses]
+                locked_servers = list(set(server for server in servers) - set(error_servers))
+                lock_unlock('U', scope, servers=locked_servers, applicant=applicant)
+                raise e
+        else:
+            break
+
     return applicant
 
 
@@ -167,7 +180,7 @@ def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]]
 
 @contextmanager
 def lock_scope(scope: Scope, servers: t.Union[t.List[Server], Server] = None,
-               bypass: t.Union[t.List[Server], Server] = None):
+               bypass: t.Union[t.List[Server], Server] = None, retries=0, delay=3):
     if servers is not None:
         servers = servers if is_iterable_not_string(servers) else [servers]
         if len(servers) == 0:
@@ -175,10 +188,22 @@ def lock_scope(scope: Scope, servers: t.Union[t.List[Server], Server] = None,
 
     servers = servers or get_servers_from_scope(scope, bypass)
 
-    applicant = lock(scope, servers)
-    current_app.logger.debug(f"Lock on {scope.name} acquired on servers : {[s.name for s in servers]}")
+    logger.debug(f"Requesting Lock on {scope.name} to the following servers: {[s.name for s in servers]}")
+    _try = 1
+    while True:
+        try:
+            applicant = lock(scope, servers)
+        except errors.LockError:
+            if _try < retries:
+                _try += 1
+                logger.info(f"Retrying to lock on {scope.name} in {delay} seconds")
+                time.sleep(delay)
+            else:
+                raise
+        else:
+            break
+
     try:
         yield applicant
     finally:
         unlock(scope, servers=servers, applicant=applicant)
-        current_app.logger.debug(f"Lock on {scope.name} released")

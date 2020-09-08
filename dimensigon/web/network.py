@@ -7,7 +7,7 @@ import aiohttp
 import requests
 import rsa
 from aiohttp import ContentTypeError
-from flask import current_app as __ca, current_app, url_for
+from flask import current_app as __ca, current_app, url_for, json
 from requests.exceptions import Timeout
 
 from dimensigon import defaults
@@ -63,7 +63,10 @@ class Response:
     def __str__(self):
         if self.exception:
             return f"{self.exception.__class__.__name__}: {self.exception}"
-        return f"{self.code}, {self.msg}"
+        if isinstance(self.msg, dict):
+            return f"{self.code}, {json.dumps(self.msg, indent=2)}"
+        else:
+            return f"{self.code}, {self.msg}"
 
     def to_dict(self):
         dump = dict()
@@ -172,7 +175,6 @@ def unpack_msg2(data, *args, **kwargs):
         else:
             return data
 
-
 def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, verify=False):
     tries = 0
     cost = None
@@ -208,11 +210,6 @@ def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, veri
             cost = resp.json().get('hops', 0)
             elapsed = resp.elapsed
             tries = retries
-    if exc:
-        if isinstance(exc, requests.exceptions.ReadTimeout):
-            logger.warning(f'Timeout reached while trying to access to {url}')
-        elif isinstance(exc, requests.exceptions.ConnectionError):
-            logger.debug(f'Unable to connect with {url}')
     return cost, elapsed
 
 
@@ -229,6 +226,7 @@ def _prepare_headers(server, headers=None):
     headers = headers or {}
     headers.update({'D-Destination': str(server.id)})
     headers.update({'D-Source': str(Server.get_current().id)})
+    headers.update({'D-Session': str(current_app.cluster.session)})
     return headers
 
 

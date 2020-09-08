@@ -1,47 +1,97 @@
 import datetime as dt
+import random
 import threading
 import typing as t
 from dataclasses import dataclass
 
-from dimensigon import defaults
 from dimensigon.utils.helpers import get_now
 from dimensigon.utils.typos import Id
 
-
+date_format = "%m/%d/%Y, %H:%M:%S %z"
 @dataclass
 class _ClusterRegister:
     id: Id
     birth: dt.datetime = None
+    keepalive: dt.datetime = None
     death: dt.datetime = None
     coordinator: bool = False
 
-    def to_dict(self):
-        data = dict(id=self.id, birth=self.birth.strftime(defaults.DATEMARK_FORMAT))
+    def to_dict(self, dateformat=date_format):
+        data = {'id': self.id}
+        if self.birth:
+            data.update(birth=self.birth.strftime(dateformat))
+        if self.keepalive:
+            data.update(keepalive=self.keepalive.strftime(dateformat))
         if self.death:
-            data.update(death=self.death.strftime(defaults.DATEMARK_FORMAT))
+            data.update(death=self.death.strftime(dateformat))
         if self.coordinator:
             data.update(coordinator=True)
         return data
 
     def __eq__(self, other: '_ClusterRegister'):
         if isinstance(other, self.__class__):
-            return self.id == other.id and self.birth == other.birth and self.death == other.death \
+            return self.id == other.id and self.birth == other.birth \
+                   and self.keepalive == other.keepalive \
+                   and self.death == other.death \
                    and self.coordinator == other.coordinator
         else:
             return False
 
     @staticmethod
-    def from_dict(dto):
+    def from_dict(dto, dateformat=date_format):
         iden = dto['id']
-        birth = dt.datetime.strptime(dto['birth'], defaults.DATEMARK_FORMAT)
-        death = dto.get('death', None)
-        if death:
-            death = dt.datetime.strptime(death, defaults.DATEMARK_FORMAT)
-        return _ClusterRegister(iden, birth, death)
+        if dto.get('birth', None):
+            birth = dt.datetime.strptime(dto['birth'], dateformat)
+        else:
+            birth = None
+
+        if dto.get('keepalive', None):
+            keepalive = dt.datetime.strptime(dto['keepalive'], dateformat)
+        else:
+            keepalive = None
+
+        if dto.get('death', None):
+            death = dt.datetime.strptime(dto['death'], dateformat)
+        else:
+            death = None
+
+        return _ClusterRegister(iden, birth=birth, keepalive=keepalive, death=death)
+
+
+@dataclass
+class _ClusterRegisterSession(_ClusterRegister):
+    session: Id = None
+
+    def to_dict(self, dateformat=date_format):
+        data = super().to_dict(dateformat)
+        data['session'] = self.session
+        return data
+
+    def __eq__(self, other: '_ClusterRegisterSession'):
+        return super().__eq__(other) and self.session == other.session
+
+    @classmethod
+    def from_dict(cls, dto, dateformat=date_format):
+        kwargs = dict(id=dto['id'], session=dto['session'])
+        if dto.get('birth', None):
+            kwargs['birth'] = dt.datetime.strptime(dto['birth'], dateformat)
+
+        if dto.get('keepalive', None):
+            kwargs['keepalive'] = dt.datetime.strptime(dto['keepalive'], dateformat)
+
+        if dto.get('death', None):
+            kwargs['death'] = dt.datetime.strptime(dto['death'], dateformat)
+
+        return cls(**kwargs)
+
 
 class ClusterManager(object):
-    _cluster: t.Dict[Id, _ClusterRegister] = {}
-    _lock = threading.Lock()
+    _register_class = _ClusterRegister
+    _cluster: t.Dict[Id, type(_register_class)] = {}
+    _lock = threading.RLock()
+
+    def __getitem__(self, iden):
+        return self._cluster[iden].to_dict()
 
     def __contains__(self, iden):
         try:
@@ -57,16 +107,32 @@ class ClusterManager(object):
                 if cr.death is None:
                     yield cr.id
 
-    def set_alive(self, iden: Id) -> t.Optional[t.Dict]:
+    def set_alive(self, iden: Id, alive=None) -> t.Optional[t.Dict]:
         with self._lock:
+            alive = alive or get_now()
             if iden in self._cluster:
                 if self._cluster[iden].death is not None:
-                    self._cluster[iden].birth = get_now()
+                    if alive < self._cluster[iden].birth:
+                        self._cluster[iden].birth = alive
+                    self._cluster[iden].keepalive = alive
                     self._cluster[iden].death = None
+                elif alive < self._cluster[iden].birth:
+                    self._cluster[iden].birth = alive
                 else:
                     return None
             else:
-                self._cluster[iden] = _ClusterRegister(iden, get_now())
+                self._cluster[iden] = self._register_class(iden, birth=alive, keepalive=alive)
+            return self._cluster[iden].to_dict()
+
+    def set_keepalive(self, iden: Id, keepalive=None) -> t.Optional[t.Dict]:
+        with self._lock:
+            keepalive = keepalive or get_now()
+            if iden in self._cluster:
+                if self._cluster[iden].death is not None:
+                    self.set_alive(iden)
+                self._cluster[iden].keepalive = keepalive
+            else:
+                self._cluster[iden] = self._register_class(iden, birth=keepalive, keepalive=keepalive)
             return self._cluster[iden].to_dict()
 
     def set_death(self, iden: Id, death=None) -> t.Optional[t.Dict]:
@@ -85,14 +151,14 @@ class ClusterManager(object):
                     else:
                         return None
             else:
-                self._cluster[iden] = _ClusterRegister(iden, death, death)
+                self._cluster[iden] = self._register_class(iden, birth=death, death=death)
             return self._cluster[iden].to_dict()
 
     def update_cluster(self, in_cr_list: t.Union[dict, list]):
         if isinstance(in_cr_list, list):
-            return self._update_cluster([_ClusterRegister.from_dict(cr) for cr in in_cr_list])
+            return self._update_cluster([self._register_class.from_dict(cr) for cr in in_cr_list])
         else:
-            return self._update_cluster([_ClusterRegister.from_dict(in_cr_list)])
+            return self._update_cluster([self._register_class.from_dict(in_cr_list)])
 
     def _update_cluster(self, in_cr_list: t.List[_ClusterRegister]):
         with self._lock:
@@ -100,9 +166,12 @@ class ClusterManager(object):
             for in_cr in in_cr_list:
                 if in_cr.id in self._cluster:
                     cr = self._cluster[in_cr.id]
-                    # get older data
                     if in_cr.birth < cr.birth:
                         cr.birth = in_cr.birth
+                        updated = True
+                    if in_cr.keepalive is not None and (cr.keepalive is None or in_cr.keepalive > cr.keepalive):
+                        cr.keepalive = in_cr.keepalive
+                        cr.death = None
                         updated = True
                     if in_cr.death is not None and cr.death is not None and in_cr.death < cr.death:
                         cr.death = in_cr.death
@@ -123,6 +192,12 @@ class ClusterManager(object):
         with self._lock:
             return [cr.id for cr in self._cluster.values() if cr.birth is not None and cr.death is None]
 
+    def get_delta_keepalive(self, delta: dt.timedelta):
+        with self._lock:
+            now = get_now()
+            return [cr.id for cr in self._cluster.values() if
+                    cr.birth is not None and cr.death is None and (now - (cr.keepalive or cr.birth)) < delta]
+
     def get_oldest_alive(self) -> t.Union[Id, None]:
         with self._lock:
             cr_list = [cr for cr in self._cluster.values() if cr.death is None]
@@ -142,9 +217,25 @@ class ClusterManager(object):
         self._cluster = {}
 
 
+class ClusterManagerKeepAlive(ClusterManager):
+
+    def set_alive(self, iden: Id, alive=None) -> t.Optional[t.Dict]:
+        with self._lock:
+            alive = alive or get_now()
+            if iden in self._cluster:
+                if self._cluster[iden].death is not None:
+                    self._cluster[iden].birth = alive
+                    self._cluster[iden].death = None
+                else:
+                    self._cluster[iden].birth = alive
+            else:
+                self._cluster[iden] = self._register_class(iden, birth=alive)
+            return self._cluster[iden].to_dict()
+
+
 class ClusterManagerCoordinator(ClusterManager):
-    _cluster: t.Dict[Id, _ClusterRegister] = {}
-    _lock = threading.RLock()
+    _cluster: t.Dict[Id, _ClusterRegisterSession] = {}
+    _register_class = _ClusterRegister
 
     def set_alive(self, iden: Id) -> t.Dict:
         with self._lock:
@@ -224,3 +315,111 @@ class ClusterManagerCoordinator(ClusterManager):
                 coord_updated = self.set_coordinator(coordinator)
 
             return updated or coord_updated
+
+
+class ClusterManagerSession(ClusterManager):
+    _register_class = _ClusterRegisterSession
+
+    def __init__(self):
+        self._session = int(random.random() * 1000000000000)
+
+    @property
+    def session(self):
+        return self._session
+
+    def set_alive(self, iden: Id, session: Id, alive=None) -> t.Optional[t.Dict]:
+        with self._lock:
+            alive = alive or get_now()
+            if iden in self._cluster:
+                if self._cluster[iden].session == session:
+                    if self._cluster[iden].death is not None:
+                        if alive < self._cluster[iden].birth:
+                            self._cluster[iden].birth = alive
+                        self._cluster[iden].keepalive = alive
+                        self._cluster[iden].death = None
+                    else:
+                        return None
+                else:
+                    self._cluster[iden].session = session
+                    self._cluster[iden].birth = alive
+                    self._cluster[iden].keepalive = alive
+                    self._cluster[iden].death = None
+            else:
+                self._cluster[iden] = self._register_class(iden, session=session, birth=alive, keepalive=alive)
+            return self._cluster[iden].to_dict()
+
+    def set_death(self, iden: Id, session: Id, death=None) -> t.Optional[t.Dict]:
+        with self._lock:
+            death = death or get_now()
+            if iden in self._cluster:
+                cr = self._cluster[iden]
+                if self._cluster[iden].session == session:
+                    if cr.death is None:
+                        if death > cr.birth:
+                            cr.death = death
+                        else:
+                            cr.death = cr.birth
+                    else:
+                        if death and cr.death > death:
+                            cr.death = death
+                        else:
+                            return None
+                else:
+
+                    if cr.death is None:
+                        if cr.birth < death:
+                            self._cluster[iden].death = death
+                            self._cluster[iden].birth = death
+                            self._cluster[iden].session = session
+                    else:
+                        if cr.death < death:
+                            self._cluster[iden].death = death
+                            self._cluster[iden].birth = death
+                            self._cluster[iden].session = session
+            else:
+                self._cluster[iden] = self._register_class(iden, session=session, birth=death, death=death)
+            return self._cluster[iden].to_dict()
+
+    def set_keepalive(self, iden: Id, session: Id = None, keepalive=None) -> t.Optional[t.Dict]:
+        with self._lock:
+            keepalive = keepalive or get_now()
+            if iden in self._cluster:
+                if self._cluster[iden].session == session:
+                    self.set_alive(iden, session, keepalive)
+                self._cluster[iden].keepalive = keepalive
+            else:
+                self._cluster[iden] = self._register_class(iden, session=session, birth=keepalive, keepalive=keepalive)
+            return self._cluster[iden].to_dict()
+
+    def _update_cluster(self, in_cr_list: t.List[_ClusterRegisterSession]):
+        with self._lock:
+            updated = False
+            for in_cr in in_cr_list:
+                if in_cr.id in self._cluster:
+                    cr = self._cluster[in_cr.id]
+                    if cr.session == in_cr.session:
+                        if in_cr.birth < cr.birth:
+                            cr.birth = in_cr.birth
+                            updated = True
+                        if in_cr.keepalive is not None and (cr.keepalive is None or in_cr.keepalive > cr.keepalive):
+                            cr.keepalive = in_cr.keepalive
+                            updated = True
+                        if in_cr.death is not None and cr.death is not None and in_cr.death < cr.death:
+                            cr.death = in_cr.death
+                            updated = True
+                        if cr.death is None and in_cr.death is not None and in_cr.death > cr.birth:
+                            cr.death = in_cr.death
+                            updated = True
+                        elif in_cr.birth is not None and cr.death is not None and in_cr.birth > cr.death:
+                            cr.birth = in_cr.birth
+                            cr.death = in_cr.death
+                            updated = True
+                    else:
+                        # newer session is stored
+                        if cr.birth < in_cr.birth:
+                            self._cluster[in_cr.id] = in_cr
+                            updated = True
+                else:
+                    self._cluster[in_cr.id] = in_cr
+                    updated = True
+            return updated

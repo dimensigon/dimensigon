@@ -10,11 +10,11 @@ from bs4 import BeautifulSoup
 from flask import current_app
 from pkg_resources import parse_version
 
+import dimensigon.use_cases.routing as routing
 import dimensigon.web.network as ntwrk
 from dimensigon import __version__ as dm_version, defaults
 from dimensigon.domain.entities import Server, Catalog
-from dimensigon.use_cases.helpers import get_auth_root
-from dimensigon.use_cases.routing import update_cluster_and_routes
+from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.use_cases.use_cases import run_elevator, get_software, upgrade_catalog_from_server
 from dimensigon.utils import asyncio
 from dimensigon.utils.asyncio import create_task
@@ -93,11 +93,11 @@ def process_get_new_version_from_gogs(app=None):
         upgrader_logger.debug(f"No version to upgrade")
 
 
-async def _get_neighbour_catalog_data_mark() -> t.Dict[Server, ntwrk.Response]:
+async def _async_get_neighbour_catalog_data_mark() -> t.Dict[Server, ntwrk.Response]:
     server_responses = {}
     servers = Server.get_neighbours()
     catalog_logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
-    auth = get_auth_root()
+    auth = get_root_auth()
 
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(
             ssl=current_app.config['SSL_VERIFY'])) as session:
@@ -132,7 +132,7 @@ def upgrade_version(data: t.Dict[Server, ntwrk.Response]):
                     mayor_version, mayor_server = remote_version, server
     if mayor_version:
         catalog_logger.info(f'Found mayor version on server {mayor_server}. Upgrading version first')
-        file, v = get_software(mayor_server, get_auth_root())
+        file, v = get_software(mayor_server, get_root_auth())
         if file:
             run_elevator(file, mayor_version, catalog_logger)
             return True
@@ -169,15 +169,15 @@ def update_catalog(data: t.Dict[Server, ntwrk.Response]):
 
 
 @run_as('root')  # takes the app argument and pushes the context
-def process_catalog_route_table(app=None, cluster_update=True):
+def process_catalog_route_table(app=None, upgrade_catalog=True):
     # app will be used for the run_as decorator
-    update_cluster_and_routes(current_app.cluster if cluster_update else None,
-                              discover_new_neighbours=True,
-                              check_current_neighbours=True)
+    asyncio.run(routing.async_update_routes_send(discover_new_neighbours=True, check_current_neighbours=True))
 
     catalog_logger.debug("Starting check catalog from neighbours")
-    data = asyncio.run(_get_neighbour_catalog_data_mark())
+
     # check version upgrade before catalog upgrade to match database revision
-    if not upgrade_version(data):
-        update_catalog(data)
+    if upgrade_catalog:
+        data = asyncio.run(_async_get_neighbour_catalog_data_mark())
+        if not upgrade_version(data):
+            update_catalog(data)
     db.session.commit()

@@ -36,7 +36,7 @@ class Dimension(db.Model, UUIDEntityMixin, EntityReprMixin):
 
     @classmethod
     def get_current(cls) -> 'Dimension':
-        return db.session.query(cls).filter_by(current=True).one_or_none()
+        return cls.query.filter_by(current=True).one_or_none()
 
     def to_json(self):
         return {'id': str(self.id) if self.id else None, 'name': self.name,

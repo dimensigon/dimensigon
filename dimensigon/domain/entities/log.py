@@ -84,6 +84,6 @@ class Log(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         from dimensigon.domain.entities import Server
         kwargs = copy.deepcopy(kwargs)
         kwargs['mode'] = Mode[kwargs.get('mode')]
-        kwargs['source_server'] = db.session.query(Server).get(kwargs.pop('src_server_id'))
-        kwargs['destination_server'] = db.session.query(Server).get(kwargs.pop('dst_server_id'))
+        kwargs['source_server'] = Server.query.get(kwargs.pop('src_server_id'))
+        kwargs['destination_server'] = Server.query.get(kwargs.pop('dst_server_id'))
         return super().from_json(kwargs)

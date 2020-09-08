@@ -1,4 +1,4 @@
-import logging
+import datetime as dt
 
 from flask import Blueprint, request, current_app, jsonify, g
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_refresh_token_required, get_jwt_identity, \
@@ -9,9 +9,8 @@ from dimensigon import defaults
 from dimensigon.domain.entities import Server, Catalog, Scope, User
 from dimensigon.use_cases.helpers import get_servers_from_scope
 from dimensigon.use_cases.lock import lock_scope
-from dimensigon.use_cases.routing import check_neighbour
 from dimensigon.utils.helpers import get_now
-from dimensigon.web import db, executor, errors
+from dimensigon.web import errors
 from dimensigon.web.decorators import forward_or_dispatch, validate_schema
 from dimensigon.web.helpers import check_param_in_uri
 from dimensigon.web.json_schemas import schema_healthcheck, login_post
@@ -25,26 +24,11 @@ def home():
     return {'message': 'Welcome to dimensigon'}
 
 
-# set node to alive and check if neighbour
-def check_alive_and_neighbour(server: Server, alive=True):
-    logger = logging.getLogger('dimensigon.routing')
-    server = db.session.merge(server)
-    current_app.cluster.set_alive(server.id)
-    if server.route.cost is None:
-        new_route = check_neighbour(server, timeout=2, retries=1)
-        if new_route:
-            logger.debug(f'New neighbour {server} found on healthcheck')
-            server.set_route(new_route)
-            db.session.commit()
-
-
 @root_bp.route('/healthcheck', methods=['GET', 'POST'])
 @forward_or_dispatch
 @jwt_optional
 @validate_schema(POST=schema_healthcheck)
 def healthcheck():
-    if isinstance(g.source, Server):
-        executor.submit(check_alive_and_neighbour, g.source)
     if request.method == 'GET':
         # catalog_ver = current_app.catalog_manager.max_data_mark
         # if catalog_ver:
@@ -61,15 +45,22 @@ def healthcheck():
         if not check_param_in_uri('human'):
             server = {'id': str(g.server.id), 'name': g.server.name}
             neighbours = [{'id': str(s.id), 'name': s.name} for s in Server.get_neighbours()]
-            cluster = [current_app.cluster.get(i) for i in current_app.cluster.get_alive()]
+            cluster = {'alive': [current_app.cluster[i] for i in current_app.cluster],
+                       'in_coma': [current_app.cluster[i] for i in current_app.cluster if i not in
+                                   current_app.cluster.get_delta_keepalive(
+                                       delta=dt.timedelta(
+                                           minutes=defaults.REFRESH_PERIOD * defaults.COMA_NODE_FACTOR)) and i != g.server.id]}
         else:
             server = g.server.name
             neighbours = [s.name for s in Server.get_neighbours()]
-            cluster = [Server.query.get(i).name for i in
-                       current_app.cluster.get_alive()]
-            # coordinators = [Server.query.get(i).name for i in current_app.cluster.get_coordinators()]
+            cluster = {'alive': [getattr(Server.query.get(i), 'name', i) for i in current_app.cluster],
+                       'in_coma': [getattr(Server.query.get(i), 'name', i) for i in current_app.cluster if i not in
+                                   current_app.cluster.get_delta_keepalive(
+                                       delta=dt.timedelta(
+                                           minutes=defaults.REFRESH_PERIOD * defaults.COMA_NODE_FACTOR)) and i != g.server.id]}
 
-        data.update(server=server, neighbours=neighbours, cluster=cluster)
+        data.update(server=server, neighbours=neighbours, cluster=cluster,
+                    now=get_now().strftime(defaults.DATETIME_FORMAT))
 
         return data
     elif request.method == 'POST':

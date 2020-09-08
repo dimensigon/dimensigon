@@ -1,8 +1,9 @@
-from flask import request, g
+from flask import request, g, current_app
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
 
 from dimensigon.domain.entities import Server
+from dimensigon.use_cases import routing
 from dimensigon.web import errors, db
 from dimensigon.web.decorators import securizer, forward_or_dispatch, lock_catalog, validate_schema
 from dimensigon.web.helpers import filter_query, check_param_in_uri
@@ -64,11 +65,22 @@ class ServerResource(Resource):
     @lock_catalog
     def delete(self, server_id):
         server = Server.query.get_or_404(server_id)
-
-        if server == g.server:
-            raise errors.ServerDeleteError
-        server.delete()
-
-        db.session.commit()
+        acquired = routing._lock.acquire(timeout=15)
+        if acquired:
+            current_app.logger.debug(f"Routing Lock acquired for deletion of server {server}")
+        else:
+            current_app.logger.debug(f"Unable to lock Routing Lock. Force deletion of server {server}")
+        try:
+            if server == g.server:
+                raise errors.ServerDeleteError
+            # remove associated routes
+            db.session.delete(server.route)
+            server.delete()
+            db.session.commit()
+        except:
+            raise
+        finally:
+            routing._lock.release()
 
         return {}, 204
+

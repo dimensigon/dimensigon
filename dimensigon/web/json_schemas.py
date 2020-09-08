@@ -618,7 +618,6 @@ server_patch = {
         "granules": {"type": "array",
                      "items": {"type": "string"}},
         "ignore_on_lock": {"type": "boolean"},
-        "alive": {"type": "boolean"}
     },
     "additionalProperties": False,
 }

@@ -9,7 +9,6 @@ from prompt_toolkit import prompt
 
 from dimensigon import defaults
 from dimensigon.dshell import environ as env
-from dimensigon.dshell.bootstrap import save_config_file
 from dimensigon.dshell.view_path_mapping import view_path_map
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.utils.helpers import is_iterable_not_string
@@ -70,6 +69,7 @@ def login(username=None, password=None):
         config.read(file)
         if config.has_section('AUTH') and config.has_section('REMOTE'):
             if config['AUTH'].get('username') == env._username:
+                from dimensigon.dshell.bootstrap import save_config_file
                 del config
                 save_config_file(token=env._refresh_token)
 
@@ -102,16 +102,17 @@ def request(method, url, session=None, token_refreshed=False, **kwargs) -> Respo
 
     func = getattr(_session, method.lower())
 
-    if env._access_token is None:
-        try:
-            refresh_access_token()
-        except requests.exceptions.ConnectionError as e:
-            return Response(exception=ValueError(f"Unable to contact with {env.get('SCHEME')}://"
-                                                 f"{env.get('SERVER')}:{env.get('PORT')}/"),
-                            url=url)
-        except Exception as e:
-            return Response(exception=e, url=url)
-    kwargs['auth'] = HTTPBearerAuth(env._access_token)
+    if 'auth' not in kwargs:
+        if env._access_token is None:
+            try:
+                refresh_access_token()
+            except requests.exceptions.ConnectionError as e:
+                return Response(exception=ValueError(f"Unable to contact with {env.get('SCHEME')}://"
+                                                     f"{env.get('SERVER')}:{env.get('PORT')}/"),
+                                url=url)
+            except Exception as e:
+                return Response(exception=e, url=url)
+        kwargs['auth'] = HTTPBearerAuth(env._access_token)
 
     if 'headers' not in kwargs:
         kwargs['headers'] = {}
@@ -148,6 +149,7 @@ def request(method, url, session=None, token_refreshed=False, **kwargs) -> Respo
                     return Response(exception=ValueError(f"Unable to contact with {env.get('SCHEME')}://"
                                                          f"{env.get('SERVER')}:{env.get('PORT')}/"),
                                     url=url)
+                kwargs['auth'] = HTTPBearerAuth(env._access_token)
                 resp = request(method, url, session=_session, token_refreshed=True, **kwargs)
                 if not session:
                     _session.close()
@@ -178,10 +180,10 @@ def get_parameters_from_path(view):
 
 
 def _replace_path_args(path, args):
-    match_iterator = re.finditer('\<([\w_]+)\>', path)
+    match_iterator = re.finditer(r'\<((\w+:)?([\w_]+))\>', path)
     replaced_path = path
     for match in match_iterator:
-        text = match.groups()[0]
+        text = match.groups()[2]
         assert text in args
         value = args.pop(text)
         if not value:
@@ -201,12 +203,15 @@ def _replace_path_args(path, args):
     return replaced_path + '?' + '&'.join(params)
 
 
-def generate_url(view, view_data):
+def generate_url(view, view_data, ip=None, port=defaults.DEFAULT_PORT, scheme='https'):
     path = view_path_map[view]
     path = _replace_path_args(path, view_data or {})
-    if env.get('SERVER') is None:
+    if (env.get('SERVER', ip) or ip) is None:
         raise ValueError('No SERVER specified.')
-    return f"{env.get('SCHEME', 'https') or 'https'}://{env.get('SERVER')}:{env.get('PORT', defaults.DEFAULT_PORT) or defaults.DEFAULT_PORT}{path}"
+    return f"{env.get('SCHEME', scheme) or scheme}://" \
+           f"{env.get('SERVER', ip) or ip}:" \
+           f"{env.get('PORT', port) or port}" \
+           f"{path}"
 
 
 def get(view, view_data=None, **kwargs) -> Response:

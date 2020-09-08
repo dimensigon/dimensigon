@@ -26,7 +26,7 @@ class Test(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @patch('dimensigon.web.background_tasks.get_auth_root')
+    @patch('dimensigon.web.background_tasks.get_root_auth')
     @patch('dimensigon.web.background_tasks.run_elevator')
     @patch('dimensigon.web.background_tasks.get_software')
     @patch('dimensigon.web.background_tasks.dm_version', '1.0')

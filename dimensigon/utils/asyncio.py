@@ -30,6 +30,8 @@ if _sys.version_info < (3, 7):
         loop.set_debug(debug)
         try:
             return loop.run_until_complete(aw)
+        except Exception:
+            raise
         finally:
             loop.close()
             set_event_loop(None)

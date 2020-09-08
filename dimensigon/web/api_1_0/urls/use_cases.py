@@ -4,6 +4,7 @@ import copy
 import datetime as dt
 import functools
 import ipaddress
+import json
 import logging
 import math
 import os
@@ -21,13 +22,16 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_tok
 from pkg_resources import parse_version
 
 import dimensigon
+import dimensigon.use_cases.clustering
+import dimensigon.use_cases.routing as routing
 import dimensigon.web.network as ntwrk
 from dimensigon import defaults as d, defaults
 from dimensigon.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
     Orchestration, OrchExecution, User, ActionTemplate, ActionType
+from dimensigon.domain.entities.server import RouteContainer
 from dimensigon.network.auth import HTTPBearerAuth
-from dimensigon.use_cases.routing import update_route_table_cost, update_route_table_from_data, send_new_routes, \
-    check_neighbour, send_cluster_register, set_not_a_neighbour
+from dimensigon.use_cases import clustering
+from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.utils import asyncio, subprocess
 from dimensigon.utils.dag import DAG
 from dimensigon.utils.event_handler import Event
@@ -36,7 +40,7 @@ from dimensigon.utils.var_context import VarContext
 from dimensigon.web import db, executor, errors
 from dimensigon.web.api_1_0 import api_bp
 from dimensigon.web.async_functions import deploy_orchestration, async_send_file
-from dimensigon.web.background_tasks import _get_neighbour_catalog_data_mark, \
+from dimensigon.web.background_tasks import _async_get_neighbour_catalog_data_mark, \
     upgrade_version, \
     update_catalog
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
@@ -265,7 +269,7 @@ def software_dimensigon():
 @jwt_required
 @securizer
 def catalog_update():
-    data = asyncio.run(_get_neighbour_catalog_data_mark())
+    data = asyncio.run(_async_get_neighbour_catalog_data_mark())
     # check version upgrade before catalog upgrade to match database revision
     if not upgrade_version(data):
         update_catalog(data)
@@ -314,24 +318,67 @@ def cluster():
     user = User.get_current()
     if user and user.user == 'root':
         data = request.get_json()
-        _cluster_logger.debug(f"Updating cluster. Caller: {g.source}. Data: {data}")
+        if _cluster_logger.level <= logging.DEBUG:
+            if isinstance(data, list):
+                readable_data = []
+                for cr in data:
+                    c_cr = dict(cr)
+                    iden = c_cr.pop('id')
+                    readable_data.append(c_cr)
+                    s = Server.query.get(iden)
+                    if s:
+                        readable_data[-1].update(name=s.name)
+                    else:
+                        readable_data[-1].update(id=id)
+            else:
+                c_cr = dict(data)
+                iden = c_cr.pop('id')
+                readable_data = c_cr
+                s = Server.query.get(iden)
+                if s:
+                    readable_data.update(name=s.name)
+                else:
+                    readable_data.update(id=id)
+            try:
+                dumped = json.dumps(readable_data, indent=4)
+            except:
+                dumped = readable_data
+            _cluster_logger.debug(f"Cluster data received from {g.source}: {dumped}")
+
         changed = current_app.cluster.update_cluster(data)
         if changed:
             cluster_data = current_app.cluster.get_cluster()
-            servers = Server.get_neighbours(alive=True, exclude=g.source)
+            servers = Server.get_neighbours(exclude=g.source)
             if servers:
                 executor.submit(asyncio.run,
                                 ntwrk.parallel_requests(servers, 'post',
                                                         view_or_url='api_1_0.cluster',
                                                         json=cluster_data,
-                                                        auth=get_auth_from_request()))
+                                                        auth=get_auth_from_request(),
+                                                        timeout=6))
         return {}, 204
     else:
         raise errors.UserForbiddenError
 
 
+async def background_cluster_in(server_id, cr, routes, auth):
+    server = Server.query.get(server_id)
+    servers = Server.get_neighbours(exclude=server)
+    tasks = []
+    # cluster information
+    if cr:
+        tasks.append(clustering.send_cluster_register(cr, servers=servers, auth=auth))
 
-
+    # route information
+    changed_routes = {}
+    new_route = await routing.async_check_gates(server)
+    if new_route and isinstance(new_route, RouteContainer):
+        routing.logger.debug(f'New neighbour {server} found through {new_route.gate}')
+        routing.set_route(server, new_route)
+        changed_routes.update({server: new_route})
+    changed_routes.update(routing.update_route_table_from_data({'server_id': server_id, 'route_list': routes}, auth))
+    tasks.append(routing.async_send_routes(changed_routes, auth=auth, servers=servers))
+    await asyncio.gather(*tasks)
 
 @api_bp.route('/cluster/in/<server_id>', methods=['POST'])
 @jwt_required
@@ -339,15 +386,29 @@ def cluster():
 def cluster_in(server_id):
     user = User.get_current()
     if user and user.user == 'root':
-        cr = current_app.cluster.set_alive(server_id)
-        _cluster_logger.debug(f"{Server.query.get(server_id).name or server_id} is a new alive server")
-
-        if cr:
-            executor.submit(asyncio.run, send_cluster_register(cr, get_auth_from_request()))
-        return current_app.cluster.get_cluster(), 200
+        server = Server.query.get_or_404(server_id)
+        cr = current_app.cluster.set_alive(server_id, int(request.headers.get('D-Session')))
+        _cluster_logger.debug(
+            f"{getattr(server, 'name', False) or server_id} is a new alive server")
+        executor.submit(asyncio.run, background_cluster_in(server_id, cr, request.get_json(), get_auth_from_request()))
+        return {'cluster': current_app.cluster.get_cluster(),
+                'neighbours': [s.id for s in Server.get_neighbours()]}, 200
 
     else:
         raise errors.UserForbiddenError
+
+
+async def background_cluster_out(server_id, cr, auth):
+    server = Server.query.get(server_id)
+    servers = Server.get_neighbours(exclude=server)
+    tasks = []
+    # cluster information
+    if cr:
+        tasks.append(clustering.send_cluster_register(cr, servers=servers, auth=auth))
+
+    # route information
+    tasks.append(routing.async_remove_neighbour_send(server_id, auth=auth, servers=servers))
+    await asyncio.gather(*tasks)
 
 
 @api_bp.route('/cluster/out/<server_id>', methods=['POST'])
@@ -356,6 +417,7 @@ def cluster_in(server_id):
 def cluster_out(server_id):
     user = User.get_current()
     if user and user.user == 'root':
+        Server.query.get_or_404(server_id)
         data = request.get_json()
         if data.get('death', None):
             try:
@@ -364,11 +426,9 @@ def cluster_out(server_id):
                 death = get_now()
         else:
             death = None
-        cr = current_app.cluster.set_death(server_id, death=death)
+        cr = current_app.cluster.set_death(server_id, session=int(request.headers.get('D-Session')), death=death)
         _cluster_logger.debug(f"{Server.query.get(server_id).name or server_id} is a death server")
-        if cr:
-            executor.submit(asyncio.run, send_cluster_register(cr, get_auth_from_request()))
-            executor.submit(asyncio.run, set_not_a_neighbour(server_id, get_auth_from_request(), commit=True))
+        executor.submit(asyncio.run, background_cluster_out(server_id, cr, get_auth_from_request()))
         return {}, 204
     else:
         raise errors.UserForbiddenError
@@ -380,7 +440,7 @@ def cluster_out(server_id):
 @securizer
 def routes_neighbour(server_id):
     server = Server.query.get_or_404(server_id)
-    route = check_neighbour(server)
+    route = routing.check_neighbour(server)
     # change server
     if route:
         return {'neighbour': True}
@@ -388,11 +448,29 @@ def routes_neighbour(server_id):
         return {'neighbour': False}
 
 
+# set node to alive and check if neighbour
+async def keepalive_and_check_neighbour(server: Server, session):
+    logger = logging.getLogger('dimensigon.cluster')
+    server = db.session.merge(server)
+    cr = current_app.cluster.set_keepalive(server.id, session)
+    n = Server.get_neighbours()
+    auth = get_root_auth()
+    responses = await ntwrk.parallel_requests(n, 'post',
+                                              view_or_url='api_1_0.cluster', json=cr, auth=auth)
+    for r, s in zip(responses, n):
+        if not r.ok:
+            logger.debug(f"Unable to send new keepalive information to {s}: {r}")
+
+    await routing.async_check_set_neighbour_send(server, auth=auth)
+
+
 @api_bp.route('/routes', methods=['GET', 'POST', 'PATCH'])
 @jwt_required
 @securizer
 @validate_schema(POST=routes_post, PATCH=routes_patch)
 def routes():
+    if isinstance(g.source, Server):
+        executor.submit(asyncio.run(keepalive_and_check_neighbour(g.source, int(request.headers.get('D-Session')))))
     if request.method == 'GET':
         route_table = []
         for route in Route.query.join(Server.route).order_by(
@@ -403,26 +481,24 @@ def routes():
         return data
 
     elif request.method == 'POST':
-        def job(data, auth):
-            new_routes = update_route_table_cost(**data)
-            db.session.commit()
+        async def job(data, auth):
+            new_routes = await routing.async_update_route_table_cost(**data)
             if len(new_routes) > 0:
-                asyncio.run(send_new_routes(new_routes, auth))
+                await routing.async_send_routes(auth=auth)
             return new_routes
 
         msg = request.get_json()
         if msg.get('background', False):
-            executor.submit(job, msg, get_auth_from_request())
+            executor.submit(asyncio.run(job(msg, get_auth_from_request())))
         else:
-            job(msg, HTTPBearerAuth(request.headers['Authorization'].split()[1]))
+            asyncio.run(job(msg, HTTPBearerAuth(request.headers['Authorization'].split()[1])))
         return {}, 204
 
     elif request.method == 'PATCH':
         def job(msg, auth):
-            new_routes = update_route_table_from_data(msg, auth)
-            db.session.commit()
+            new_routes = routing.update_route_table_from_data(msg, auth)
             if len(new_routes) > 0:
-                asyncio.run(send_new_routes(new_routes, auth))
+                asyncio.run(routing.async_send_routes(new_routes, auth, msg.get('server_id')))
 
         executor.submit(job, request.get_json(), HTTPBearerAuth(request.headers['Authorization'].split()[1]))
 

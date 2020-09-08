@@ -39,11 +39,11 @@ class User(db.Model, UUIDistributedEntityMixin):
 
     @classmethod
     def get_by_user(cls, user):
-        return db.session.query(cls).filter_by(user=user).one_or_none()
+        return cls.query.filter_by(user=user).one_or_none()
 
     @classmethod
     def get_by_group(cls, group):
-        return [g for g in db.session.query(cls).all() if group in g.groups]
+        return [g for g in cls.query.all() if group in g.groups]
 
     def _hash_password(self, password):
         if not self._password:
@@ -108,9 +108,9 @@ class User(db.Model, UUIDistributedEntityMixin):
                 session.add(join)
 
 
-    @staticmethod
-    def get_current():
-        return db.session.query(User).get(get_jwt_identity())
+    @classmethod
+    def get_current(cls):
+        return cls.query.get(get_jwt_identity())
 
     def __repr__(self):
         return f"{self.id}.{self.user}"

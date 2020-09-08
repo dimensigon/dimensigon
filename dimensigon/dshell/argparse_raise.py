@@ -316,6 +316,7 @@ class ParamAction(argparse.Action):
         super(ParamAction, self).__init__(option_strings, dest, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
+
         for value in values:
             if '=' not in values[0]:
                 raise ValueError(

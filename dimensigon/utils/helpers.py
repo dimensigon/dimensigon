@@ -381,11 +381,45 @@ def validate_sqlite_database(dbpath: str) -> bool:
     return True
 
 
-def get_ips() -> t.List[t.Tuple[str, int]]:
-    return list(itertools.chain(
-        *[[ip['addr'] for ip in netifaces.ifaddresses(iface).get(netifaces.AF_INET, [])] for iface in
-          netifaces.interfaces()]))
+def get_ips(ipv4=True, ipv6=False) -> t.List[t.Tuple[str, int]]:
+    ips = []
 
+    if ipv4:
+        ips.extend(list(itertools.chain(
+            *[[ip['addr'] for ip in netifaces.ifaddresses(iface).get(netifaces.AF_INET, [])] for iface in
+              netifaces.interfaces()])))
+    if ipv6:
+        iter_ips = itertools.chain(
+            *[[ip['addr'] for ip in netifaces.ifaddresses(iface).get(netifaces.AF_INET6, [])] for iface in
+              netifaces.interfaces()])
+
+        for ip in iter_ips:
+            if ip:
+                if '%' in ip:
+                    ips.append(ip.rsplit('%')[0])
+                else:
+                    ips.append(ip)
+    return ips
+
+def bind2gate(bind: t.List[str]) -> t.List[t.Tuple[str, int]]:
+    specified_gates = set()
+    for b in bind:
+        if ':' in b:
+            gate = b.rsplit(':')
+            gate = (gate[0], int(gate[1]))
+        else:
+            gate = (b, defaults.DEFAULT_PORT)
+        if gate[0] == '0.0.0.0':
+            ips = get_ips(ipv4=True, ipv6=False)
+            for ip in ips:
+                specified_gates.update([(ip, int(gate[1]))])
+        elif gate[0] == '::':
+            ips = get_ips(ipv4=False, ipv6=True)
+            for ip in ips:
+                specified_gates.update([(ip, int(gate[1]))])
+        else:
+            specified_gates.update([gate])
+    return list(specified_gates)
 
 def clean_string(incoming_string):
     replace_char = '_'

@@ -1,4 +1,5 @@
 import copy
+import datetime as dt
 import ipaddress
 import logging
 import socket
@@ -42,7 +43,7 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
     def __init__(self, name: str, granules: t.List[str] = None,
                  dns_or_ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address] = None, port: int = None,
-                 gates: t.List[t.Union[TGate, t.Dict[str, t.Any]]] = None, me: bool = False, unreachable=False,
+                 gates: t.List[t.Union[TGate, t.Dict[str, t.Any]]] = None, me: bool = False, created_on=None,
                  **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         SoftDeleteMixin.__init__(self, **kwargs)
@@ -67,9 +68,9 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         assert 'all' not in (granules or [])
         self.granules = granules or []
         self._me = me
-        self.created_on = get_now()
+        self.created_on = created_on or get_now()
         # create an empty route
-        if not me:
+        if not me and not self.deleted:
             Route(self)
 
     @property
@@ -198,7 +199,8 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
                 query = query.filter(Server.id != exclude)
 
         if alive:
-            query = query.filter(Server.id.in_([iden for iden in current_app.cluster]))
+            query = query.filter(Server.id.in_([iden for iden in current_app.cluster.get_delta_keepalive(
+                dt.timedelta(minutes=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD))]))
 
         return query.all()
 
@@ -210,7 +212,8 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     def to_json(self, add_gates=False, human=False, add_ignore=False):
         data = super().to_json()
         data.update(
-            {'name': self.name, 'granules': self.granules})
+            {'name': self.name, 'granules': self.granules,
+             'created_on': self.created_on.strftime(defaults.DATETIME_FORMAT)})
         if add_gates:
             data.update(gates=[])
             for g in self.gates:
@@ -226,6 +229,8 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     def from_json(cls, kwargs) -> 'Server':
         kwargs = copy.deepcopy(kwargs)
         gates = kwargs.pop('gates', [])
+        if 'created_on' in kwargs:
+            kwargs['created_on'] = dt.datetime.strptime(kwargs['created_on'], defaults.DATETIME_FORMAT)
         server = super().from_json(kwargs)
         for gate in gates:
             gate.update(server=server)
@@ -234,7 +239,7 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
     @classmethod
     def get_current(cls) -> 'Server':
-        return db.session.query(cls).filter_by(_me=True).one()
+        return cls.query.filter_by(_me=True).one()
 
     @staticmethod
     def set_initial(session=None, gates=None):

@@ -60,10 +60,7 @@ class Dimensigon:
     def start(self):
         """starts dimensigon server"""
         self.create_instances()
-        if self.config.debug:
-            self.flask_app.run()
-        else:
-            self.http_server.run()
+        self.http_server.run()
 
 class Config:
 

@@ -1,3 +1,4 @@
+import logging
 import threading
 from datetime import datetime
 
@@ -12,6 +13,7 @@ from dimensigon.web.api_1_0 import api_bp
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema
 from dimensigon.web.json_schemas import locker_prevent_post, locker_unlock_lock_post
 
+logger = logging.getLogger('dimensigon.lock')
 
 @api_bp.route('/locker', methods=['GET'])
 @forward_or_dispatch
@@ -41,7 +43,7 @@ def revert_preventing(app, scope, applicant):
 def locker_prevent():
     json_data = request.get_json()
     l: Locker = Locker.query.with_for_update().get(Scope[json_data['scope']])
-    current_app.logger.debug(f"PreventLock requested on {json_data.get('scope')} from {g.source}")
+    logger.debug(f"PreventLock requested on {json_data.get('scope')} from {g.source}")
 
     # when orchestration scope check if applicant is the same as the current
     if Scope[json_data['scope']] == Scope.ORCHESTRATION \
@@ -84,7 +86,7 @@ def locker_prevent():
 def locker_lock():
     json_data = request.get_json()
     l: Locker = Locker.query.with_for_update().get(Scope[json_data['scope']])
-    current_app.logger.debug(f"Lock requested on {json_data.get('scope')} from {g.source}")
+    logger.debug(f"Lock requested on {json_data.get('scope')} from {g.source}")
 
     if Scope[json_data['scope']] == Scope.ORCHESTRATION \
             and l.state == State.LOCKED \
@@ -95,7 +97,7 @@ def locker_lock():
         if l.applicant == json_data['applicant']:
             l.state = State.LOCKED
             db.session.commit()
-            current_app.logger.debug(f"Lock from {g.source} on {l.scope.name} acquired")
+            logger.debug(f"Lock from {g.source} on {l.scope.name} acquired")
             return {json_data['scope']: 'LOCKED'}, 200
         else:
             raise errors.ApplicantLockerError(l.scope)
@@ -111,7 +113,7 @@ def locker_lock():
 def locker_unlock():
     json_data = request.get_json()
     l: Locker = Locker.query.with_for_update().get(Scope[json_data['scope']])
-    current_app.logger.debug(f"Unlock requested on {json_data.get('scope')} from {g.source}")
+    logger.debug(f"Unlock requested on {json_data.get('scope')} from {g.source}")
 
     if 'force' in json_data and json_data['force']:
         if get_jwt_identity() != User.get_by_user('root').id:
@@ -130,7 +132,7 @@ def locker_unlock():
             l.state = State.UNLOCKED
             l.applicant = None
             db.session.commit()
-            current_app.logger.debug(f"Lock on {l.scope.name} released")
+            logger.debug(f"Lock on {l.scope.name} released")
             return {json_data['scope']: 'UNLOCKED'}, 200
         else:
             raise errors.ApplicantLockerError(l.scope)

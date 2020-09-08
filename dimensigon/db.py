@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 import typing as t
 
 from sqlalchemy import create_engine, text
@@ -13,7 +14,7 @@ from dimensigon.domain.entities import SCHEMA_VERSION, SchemaChanges
 from dimensigon.utils.helpers import session_scope
 from dimensigon.web import db
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger('dimensigon.db')
 
 PROGRESS_FILE = ".migration_progress"
 
@@ -22,12 +23,13 @@ def setup_db(dm: Dimensigon):
     """Ensure database is ready to fly."""
 
     dm.engine = create_engine(dm.config.db_uri)
-
-    dm.get_session = scoped_session(sessionmaker(bind=dm.engine))
     if not os.path.exists(dm.config.db_uri[len(defaults.DB_PREFIX):]):
-        _LOGGER.info(f"Creating database {dm.config.db_uri}")
+        _LOGGER.info(f"Creating database {dm.config.db_uri[len(defaults.DB_PREFIX):]}")
         db.Model.metadata.create_all(dm.engine)
-
+        time.sleep(5)
+    else:
+        _LOGGER.debug(f"Database {dm.config.db_uri[len(defaults.DB_PREFIX):]} already exists")
+    dm.get_session = scoped_session(sessionmaker(bind=dm.engine))
     migrate_schema(dm)
 
     populate_initial_data(dm)
@@ -77,7 +79,7 @@ def migrate_schema(dm: Dimensigon):
 
 
 def populate_initial_data(dm: Dimensigon):
-    from dimensigon.domain.entities import ActionTemplate, Locker, Server, User
+    from dimensigon.domain.entities import ActionTemplate, Locker, Server, User, Parameter
 
     with session_scope(session=dm.get_session()) as session:
         gates = dm.config.http_conf.get('binds', None)
@@ -87,7 +89,7 @@ def populate_initial_data(dm: Dimensigon):
         Locker.set_initial(session)
         ActionTemplate.set_initial(session)
         User.set_initial(session)
-        # Parameter.set_initial(session)
+        Parameter.set_initial(session)
 
 
 def _add_columns(engine, table_name, columns_def):
@@ -140,7 +142,7 @@ def _add_columns(engine, table_name, columns_def):
 def _rename_columns(engine, tablename, column_renames: t.List[t.Tuple[str, str]]):
     temp_tablename = tablename + '_temp'
     table = db.Model.metadata.tables[tablename]
-    tmp_ddl = CreateTable(table).compile(engine).string.replace('D_server', "D_server_temp")
+    tmp_ddl = CreateTable(table).compile(engine).string.replace(tablename, temp_tablename)
 
     map2old = {t[1]: t[0] for t in column_renames}
     new_column_table = table.columns.keys()
@@ -166,7 +168,7 @@ def _rename_columns(engine, tablename, column_renames: t.List[t.Tuple[str, str]]
 def _delete_columns(engine, tablename, column_deletes: t.List[str]):
     temp_tablename = tablename + '_temp'
     table = db.Model.metadata.tables[tablename]
-    tmp_ddl = CreateTable(table).compile(engine).string.replace('D_server', "D_server_temp")
+    tmp_ddl = CreateTable(table).compile(engine).string.replace(tablename, temp_tablename)
 
     new_column_table = [k for k in table.columns.keys() if k not in column_deletes]
 
@@ -190,7 +192,7 @@ def _rename_and_delete_columns(engine, tablename,
                                column_deletes: t.List[str]):
     temp_tablename = tablename + '_temp'
     table = db.Model.metadata.tables[tablename]
-    tmp_ddl = CreateTable(table).compile(engine).string.replace('D_server', "D_server_temp")
+    tmp_ddl = CreateTable(table).compile(engine).string.replace(tablename, temp_tablename)
 
     map2old = {t[1]: t[0] for t in column_renames}
     new_column_table = [k for k in table.columns.keys() if k not in column_deletes]
@@ -213,6 +215,13 @@ def _rename_and_delete_columns(engine, tablename,
             connection.execute(f"ALTER TABLE {temp_tablename} RENAME TO {tablename}")
 
 
+def _create_table(engine, tablename):
+    table = db.Model.metadata.tables[tablename]
+    ddl = CreateTable(table).compile(engine).string
+    with engine.connect() as connection:
+        connection.execute(ddl)
+
+
 def _apply_update(engine, new_version, old_version):
     if new_version == 2:
         _rename_columns(engine, 'D_server', [('unreachable', 'alive')])
@@ -222,4 +231,6 @@ def _apply_update(engine, new_version, old_version):
         with engine.connect() as connection:
             date = defaults.INITIAL_DATEMARK.strftime('%Y-%m-%d %H:%M:%S.%f')
             connection.execute(
-                f"UPDATE D_server SET created_on = '{date}'")
+                f"UPDATE D_server SET created_on = '{date}' WHERE created_on IS NULL")
+    elif new_version == 4:
+        _create_table(engine, 'L_parameter')

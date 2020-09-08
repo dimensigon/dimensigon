@@ -78,7 +78,9 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
                          var_context: 'VarContext' = None,
                          execution: t.Union[Id, OrchExecution] = None,
                          executor: t.Union[Id, User] = None,
-                         execution_server: t.Union[Id, Server] = None) -> OrchExecution:
+                         execution_server: t.Union[Id, Server] = None,
+                         lock_retries=0,
+                         lock_delay=3) -> OrchExecution:
     """deploy the orchestration
 
     Args:
@@ -132,13 +134,15 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
     current_app.logger.debug(
         f"Execution {exe.id}: Launching orchestration {orchestration} on {hosts} with {var_context}")
 
-    return _deploy_orchestration(orchestration, var_context, hosts, exe)
+    return _deploy_orchestration(orchestration, var_context, hosts, exe, lock_retries, lock_delay)
 
 
 def _deploy_orchestration(orchestration: Orchestration,
                           var_context: 'VarContext',
                           hosts: t.Dict[str, t.List[Id]],
-                          execution: OrchExecution
+                          execution: OrchExecution,
+                          lock_retries,
+                          lock_delay
                           ) -> OrchExecution:
     """
     Parameters
@@ -164,7 +168,7 @@ def _deploy_orchestration(orchestration: Orchestration,
     all = [str(s) for s in hosts['all']]
     servers = Server.query.filter(Server.id.in_(all)).all()
     try:
-        applicant = lock.lock(Scope.ORCHESTRATION, servers, execution.id)
+        applicant = lock.lock(Scope.ORCHESTRATION, servers, execution.id, retries=3, delay=15)
     except errors.LockError as e:
         kwargs.update(success=False, message=str(e))
         rse.update_orch_execution(**kwargs)

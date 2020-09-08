@@ -2,6 +2,7 @@ import copy
 import ipaddress
 import typing as t
 
+from dimensigon import defaults
 from dimensigon.domain.entities.base import UUIDistributedEntityMixin
 from dimensigon.utils.typos import UUID, IP as IPType
 from dimensigon.web import db
@@ -24,7 +25,7 @@ class Gate(db.Model, UUIDistributedEntityMixin):
 
     server = db.relationship("Server", back_populates="gates")
 
-    def __init__(self, server: 'Server', port: int, dns: str = None,
+    def __init__(self, server: 'Server', port: int = defaults.DEFAULT_PORT, dns: str = None,
                  ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address] = None, **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         self.server = server
@@ -53,6 +54,7 @@ class Gate(db.Model, UUIDistributedEntityMixin):
             kwargs['server'] = server
         kwargs['ip'] = ipaddress.ip_address(kwargs.get('ip')) if isinstance(kwargs.get('ip'), str) else kwargs.get('ip')
         if 'server_id' in kwargs and kwargs['server_id'] is not None:
+            # through db.session to allow load from removed entities
             kwargs['server'] = db.session.query(Server).filter_by(id=kwargs.get('server_id')).one()
             kwargs.pop('server_id')
         return super().from_json(kwargs)

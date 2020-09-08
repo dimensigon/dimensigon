@@ -1,11 +1,11 @@
 import datetime as dt
 import ipaddress
 import json
-# import dill
 import pickle
 import typing as t
 import uuid
 
+import dill
 import rsa
 from dateutil.tz import tzlocal
 from sqlalchemy import types, DateTime, Enum as _Enum
@@ -212,18 +212,18 @@ class Pickle(TypeDecorator):
             value = pickle.loads(value)
         return value
 
-# class Dill(TypeDecorator):
-#     impl = types.BLOB
-#
-#     def process_bind_param(self, value, dialect):
-#         if value is not None:
-#             value = dill.dumps(value)
-#         return value
-#
-#     def process_result_value(self, value, dialect):
-#         if value is not None:
-#             value = dill.loads(value)
-#         return value
+class Dill(TypeDecorator):
+    impl = types.BLOB
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            value = dill.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            value = dill.loads(value)
+        return value
 
 class Utc(dt.tzinfo):
     __slots__ = ()

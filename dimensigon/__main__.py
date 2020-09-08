@@ -22,6 +22,7 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon import defaults
 from dimensigon.core import Dimensigon
+from dimensigon.use_cases.helpers import get_root_auth
 
 dotenv.load_dotenv(dotenv.find_dotenv())
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -268,7 +269,9 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                     if resp.status_code != errors.LockerError.status_code:
                         break
                     else:
-                        time.sleep(int(random.random() * 30))
+                        d = int(random.random() * 25 * (i + 1))
+                        print(f"Unable to lock. Retrying join in {d} seconds")
+                        time.sleep(d)
                 return resp
 
             try:
@@ -348,6 +351,29 @@ def token(dm: Dimensigon, dimension_id_or_name: str, expire_time=None):
             minutes=expire_time or defaults.JOIN_TOKEN_EXPIRE_TIME)))
 
 
+def catalog(dm: Dimensigon, ip, port, http=False):
+    import dimensigon.dshell.network as dshell_ntwrk
+    dm.create_flask_instance()
+    with dm.flask_app.app_context():
+        print("Updating catalog...")
+        catalog_datamark = Catalog.max_catalog(str)
+
+        resp = dshell_ntwrk.request('get', dshell_ntwrk.generate_url('api_1_0.catalog',
+                                                                     view_data=dict(data_mark=catalog_datamark),
+                                                                     ip=ip,
+                                                                     port=port,
+                                                                     scheme='http' if http else 'https'),
+                                    auth=get_root_auth())
+        if resp.ok:
+
+            try:
+                upgrade_catalog(resp.msg)
+            except Exception as e:
+                exit(f"Unable to upgrade data. Exception: {e}")
+        else:
+            exit(f"Unable to get catalog from {resp.url}: {resp}")
+
+
 def run(dm: Dimensigon):
     # check if there is a dimension
     result = dm.engine.execute(Dimension.__table__.select())
@@ -358,7 +384,10 @@ def run(dm: Dimensigon):
 
 
 def get_arguments() -> argparse.Namespace:
+    from dimensigon import __version__
     parser = argparse.ArgumentParser(prog='dimensigon')
+    parser.add_argument('--version', action='version',
+                        version='%(prog)s {version}'.format(version=__version__))
     parser.add_argument(
         "-c",
         "--config-dir",
@@ -465,6 +494,15 @@ def get_arguments() -> argparse.Namespace:
                               type=int,
                               help="Join token expire time in minutes")
 
+    catalog_parser = subparser.add_parser("catalog", help="Forces updates catalog with specified ip and port.")
+    catalog_parser.add_argument("IP",
+                                help="ip to force catalog update")
+    catalog_parser.add_argument("--port",
+                                type=int,
+                                default=defaults.DEFAULT_PORT)
+    catalog_parser.add_argument("--http",
+                                action='store_true')
+
     arguments = parser.parse_args()
 
     if os.name != "posix":
@@ -512,6 +550,8 @@ def main():
         token(dm, args.dimension)
     elif args.command == 'new':
         new(dm, args.dimension)
+    elif args.command == 'catalog':
+        catalog(dm, ip=args.IP, port=args.port, http=args.http)
     else:
         exit("Use -h to show help")
 

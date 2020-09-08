@@ -2,13 +2,15 @@ import base64
 import functools
 import ipaddress
 import json
+import logging
 import socket
 import typing as t
 
 import requests
 import rsa
-from flask import current_app, url_for, g
+from flask import current_app, url_for, g, request
 from jsonschema import validate
+from pyasn1.debug import scope
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Scope, User
@@ -37,15 +39,15 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
         gate = [gate for gate in server.gates if ip in (gate.ip, get_ip(gate.dns))]
         if not gate:
-            hidden_gates = server.hidden_gates
-            if hidden_gates:
-                for hg in hidden_gates:
-                    hg.ip = remote_addr
-            else:
-                for port in set([gate.port for gate in server.gates]):
-                    gate = server.add_new_gate(dns_or_ip=remote_addr, port=port, hidden=True)
-                    db.session.add(gate)
-            db.session.commit()
+            try:
+                with lock_scope(scope.CATALOG):
+                    for port in set([gate.port for gate in server.gates]):
+                        gate = server.add_new_gate(dns_or_ip=remote_addr, port=port, hidden=True)
+                        db.session.add(gate)
+                    db.session.commit()
+            except errors.LockerError:
+                logger = logging.getLogger('dimensigon')
+                logger.warning(f"unable to save {remote_addr} from {server}")
 
 
 def _proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
@@ -83,6 +85,25 @@ def _proxy_request(request: 'flask.Request', destination: Server, verify=False) 
     return requests.request(request.method, url, verify=verify, **kwargs)
 
 
+def set_source():
+    # not call get_or_404 to allow make requests without D-Source header
+    if not hasattr(g, 'source'):
+        source_id, proxies = (request.headers.get('D-Source', '') + ':').split(':', 1)
+        proxies = proxies.strip(':')
+        source = db.session.query(Server).get(source_id)
+        # check hidden ip on server
+        if proxies:
+            lp = proxies.split(':')
+            neighbour = Server.query.get(lp[-1])
+            if neighbour:
+                save_if_hidden_ip(request.remote_addr, neighbour)
+        if not source:
+            source = request.headers.get('D-Source') or request.remote_addr
+        elif not proxies:
+            save_if_hidden_ip(request.remote_addr, source)
+        g.source = source
+
+
 def forward_or_dispatch(func):
     from flask import request
 
@@ -110,21 +131,6 @@ def forward_or_dispatch(func):
                 return resp.content, resp.status_code, dict(resp.headers)
 
         else:
-            # not call get_or_404 to allow make requests without D-Source header
-            source_id, proxies = (request.headers.get('D-Source', '') + ':').split(':', 1)
-            proxies = proxies.strip(':')
-            source = db.session.query(Server).get(source_id)
-            # check hidden ip on server
-            if proxies:
-                lp = proxies.split(':')
-                neighbour = db.session.query(Server).get(lp[-1])
-                if neighbour:
-                    save_if_hidden_ip(request.remote_addr, neighbour)
-            if not source:
-                source = request.headers.get('D-Source') or request.remote_addr
-            elif not proxies:
-                save_if_hidden_ip(request.remote_addr, source)
-            g.source = source
 
             value = func(*args, **kwargs)
             return value

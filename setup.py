@@ -49,7 +49,8 @@ setup(
         "docopt",
         "gunicorn",
         "schema",
-        "coolname"
+        "coolname",
+        "dill"
     ],
     classifiers=[
         "Programming Language :: Python :: 3.6",

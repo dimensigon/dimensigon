@@ -27,14 +27,18 @@ def status(node, detail=False):
     view_data = {}
     if not detail:
         view_data.update(params='human')
-    for n in node:
-        dprint(f"### {n}:") if len(node) > 1 else None
-        if not is_valid_uuid(n):
-            node_id = name2id('api_1_0.serverlist', n)
-        else:
-            node_id = n
-        resp = ntwrk.get('root.healthcheck', view_data=view_data, headers={'D-Destination': node_id})
+    if not node:
+        resp = ntwrk.get('root.healthcheck', view_data=view_data)
         dprint(resp)
+    else:
+        for n in node:
+            dprint(f"### {n}:") if len(node) > 1 else None
+            if not is_valid_uuid(n):
+                node_id = name2id('api_1_0.serverlist', n)
+            else:
+                node_id = n
+            resp = ntwrk.get('root.healthcheck', view_data=view_data, headers={'D-Destination': node_id})
+            dprint(resp)
 
 
 def ping(node):
@@ -49,7 +53,7 @@ def ping(node):
         dprint(resp)
 
 
-def locker_list(node):
+def locker_show(node):
     for n in node:
         dprint(f"### {n}:") if len(node) > 1 else None
         if not is_valid_uuid(n):
@@ -479,7 +483,7 @@ def env_set(key, value):
 
 
 nested_dict = {
-    'status': [{'argument': 'node', 'nargs': '+', 'completer': server_completer},
+    'status': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
                {'argument': '--detail', 'action': 'store_true'}, status],
     'ping': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, ping],
     'server': {
@@ -524,7 +528,7 @@ nested_dict = {
                  'help': "Run the orch agains the specified target. If no target specified, hosts will be added to "
                          "'all' target. Example: --target node1 node2 backend=node2,node3 "},
                 {'argument': '--param', 'metavar': 'PARAM=VALUE', 'action': ParamAction, 'nargs': "+",
-                 'dest': 'params', 'default': {}, 'help': 'Parameters passed to the orchestration'},
+                 'dest': 'params', 'help': 'Parameters passed to the orchestration'},
                 {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
                 orch_run],
     },
@@ -557,7 +561,7 @@ nested_dict = {
                  {'argument': '--detail', 'action': 'store_true'},
                  exec_list]
     },
-    'locker': {'list': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, locker_list],
+    'locker': {'show': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, locker_show],
                'unlock': [{'argument': 'scope', 'choices': [s.name for s in Scope]},
                           {'argument': 'node', 'nargs': '+', 'completer': server_completer},
                           locker_unlock]},

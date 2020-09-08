@@ -5,7 +5,7 @@ import typing as t
 
 from dimensigon.domain.entities import Log, Server
 from dimensigon.domain.entities.log import Mode
-from dimensigon.use_cases.helpers import get_auth_root
+from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.utils import asyncio
 from dimensigon.utils.pygtail import Pygtail
 from dimensigon.utils.typos import Id
@@ -88,7 +88,7 @@ class LogSender:
     async def send_new_data(self):
         self.update_mapper()
         tasks = []
-        auth = get_auth_root()
+        auth = get_root_auth()
         for log_id, pb in self._mapper.items():
             log = Log.query.get(log_id)
             for pytail in pb:

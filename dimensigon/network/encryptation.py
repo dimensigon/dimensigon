@@ -129,6 +129,8 @@ def unpack_msg(msg, pub_key: rsa.PublicKey = None, priv_key: rsa.PrivateKey = No
     -------
 
     """
+    if not msg:
+        return msg
     if 'enveloped_data' not in msg:
         raise NotValidMessage('msg was not packed')
     if 'signature' in msg:

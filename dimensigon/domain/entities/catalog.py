@@ -18,8 +18,8 @@ class Catalog(db.Model):
     def __repr__(self):
         return f'<{self.__class__.__name__}({self.entity}, {self.last_modified_at})>'
 
-    @staticmethod
-    def max_catalog(out=None) -> t.Union[datetime, str]:
+    @classmethod
+    def max_catalog(cls, out=None) -> t.Union[datetime, str]:
         catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
         if catalog_ver is None:
             catalog_ver = defaults.INITIAL_DATEMARK

@@ -22,7 +22,7 @@ class VarContext:
         self.__initials = initials if initials is not None else {}
         self.__defaults = defaults if defaults is not None else {}
         self.__variables = variables if variables is not None else {}
-        self.__cm = ChainMap(self.__variables, self.__defaults, self.__initials)
+        self.__cm = ChainMap(self.__variables, self.__initials, self.__defaults)
 
     @property
     def initials(self):

@@ -32,10 +32,10 @@ def ensure_config_path(config_dir: str) -> None:
 
         try:
             os.mkdir(config_dir)
-        except OSError:
+        except OSError as e:
             print(
                 "Fatal Error: Unable to create default configuration "
-                f"directory {config_dir}"
+                f"directory {config_dir}. Error: {e}"
             )
             sys.exit(1)
 
@@ -57,28 +57,31 @@ logconfig_dict = {
             "propagate": False,
             "qualname": "gunicorn.access"
         },
-        "dimensigon": {
-            "level": "DEBUG",
-            "qualname": "dimensigon"
-        },
-        # "dimensigon.background": {
-        #     "level": "INFO",
-        #     "handlers": ["console"],
-        #     "propagate": False,
-        #     "qualname": "dimensigon.background"
+        # "dimensigon": {
+        #     "level": "DEBUG",
+        #     "qualname": "dimensigon"
         # },
-        "dimensigon.routing": {
-            "level": "DEBUG",
-            "qualname": "dimensigon.routing"
+        # "dimensigon.db": {
+        #     "level": "DEBUG",
+        #     "qualname": "dimensigon.dm"
+        # },
+        # "dimensigon.routing": {
+        #     "level": "DEBUG",
+        #     "qualname": "dimensigon.routing"
+        # },
+        "dimensigon.cluster": {
+            "level": "ERROR",
+            "qualname": "dimensigon.cluster"
         },
         "dimensigon.catalog": {
-            "level": "ERROR",
+            "level": "INFO",
             "qualname": "dimensigon.catalog"
         },
-        "dimensigon.network": {
-            "level": "INFO",
-            "qualname": "dimensigon.network"
-        },
+        # "dimensigon.network": {
+        #     "level": "INFO",
+        #     "qualname": "dimensigon.network"
+        # },
+        #
         "apscheduler": {
             "level": "ERROR",
             "qualname": "apscheduler"
@@ -91,9 +94,12 @@ logconfig_dict = {
         #     "level": "INFO",
         #     "qualname": "apscheduler.executors.default"
         # },
-        "sqlalchemy.engine": {
-            "level": "ERROR",
-        }
+        # "sqlalchemy.engine": {
+        #     "level": "ERROR",
+        # }
+        "asyncio": {
+            "propagate": False
+        },
     },
     'handlers': {
         "console": {
@@ -172,6 +178,9 @@ def _setup_http_config(run_config: RuntimeConfig, config: Config):
     def on_starting(server):
         server.app.dm.flask_app.start()
 
+    def when_ready(server):
+        server.app.dm.flask_app.notify_cluster()
+
     bind = []
     for ip in run_config.ips or ['0.0.0.0']:
         bind.append(f"{ip}:{run_config.port or defaults.DEFAULT_PORT}")
@@ -180,6 +189,7 @@ def _setup_http_config(run_config: RuntimeConfig, config: Config):
                                                            config.path(defaults.LOG_REPO, defaults.ERROR_LOGFILE)
     logconfig_dict['handlers']['access_file']['filename'] = run_config.accesslog or \
                                                             config.path(defaults.LOG_REPO, defaults.ACCESS_LOGFILE)
+    logconfig_dict['root']['level'] = 'DEBUG' if run_config.debug else 'INFO'
     config.http_conf.update(proc_name=defaults.PROC_NAME,
                             threads=run_config.threads or 3 * multiprocessing.cpu_count(),
                             pidfile=os.path.join(run_config.pid_file or config.config_dir, defaults.PID_FILE),
@@ -191,6 +201,7 @@ def _setup_http_config(run_config: RuntimeConfig, config: Config):
                             bind=bind,
                             daemon=run_config.daemon,
                             on_starting=on_starting,
+                            when_ready=when_ready,
                             on_exit=on_exit,
                             )
 

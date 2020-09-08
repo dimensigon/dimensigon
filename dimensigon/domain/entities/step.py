@@ -397,12 +397,12 @@ class Step(db.Model, UUIDistributedEntityMixin):
         kwargs = dict(kwargs)
         if 'orchestration_id' in kwargs:
             ident = kwargs.pop('orchestration_id')
-            kwargs['orchestration'] = Orchestration.query.get(ident)
+            kwargs['orchestration'] = db.session.query(Orchestration).get(ident)
             if kwargs['orchestration'] is None:
                 raise errors.EntityNotFound('Orchestration', ident=ident)
         if 'action_template_id' in kwargs:
             ident = kwargs.pop('action_template_id')
-            kwargs['action_template'] = ActionTemplate.query.get(ident)
+            kwargs['action_template'] = db.session.query(ActionTemplate).get(ident)
             if kwargs['action_template'] is None:
                 raise errors.EntityNotFound('ActionTemplate', ident=ident)
         if 'action_type' in kwargs:
