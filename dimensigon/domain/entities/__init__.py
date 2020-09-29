@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 from sqlalchemy import event, inspect
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import Pool
 
 from dimensigon.utils.helpers import get_distributed_entities, get_now
 from dimensigon.web import db
@@ -142,3 +143,10 @@ def receive_after_commit(session):
 def receive_refresh(target, context, attrs):
     "listen for the 'refresh' event"
     target.init_on_load()
+
+
+@event.listens_for(Pool, "connect")
+def my_on_connect(dbapi_con, connection_record):
+    # print("New DBAPI connection:", dbapi_con)
+    dbapi_con.execute("PRAGMA journal_mode=WAL")
+    dbapi_con.execute("PRAGMA busy_timeout=10000")

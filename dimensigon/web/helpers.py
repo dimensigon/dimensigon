@@ -1,4 +1,5 @@
 import datetime
+import logging
 import re
 import sys
 import threading
@@ -20,6 +21,8 @@ from dimensigon.web.errors import EntityNotFound, NoDataFound
 
 if t.TYPE_CHECKING:
     from dimensigon.domain.entities import Server
+
+logger = logging.getLogger(__name__)
 
 
 class BaseQueryJSON(BaseQuery):
@@ -46,6 +49,7 @@ class BaseQueryJSON(BaseQuery):
             # abort(format_error_response(NoDataFound(self.column_descriptions[0]['name'])))
             raise NoDataFound(self.column_descriptions[0]['name'])
         return rv
+
 
 class QueryWithSoftDelete(BaseQueryJSON):
     _with_deleted = False
@@ -77,7 +81,7 @@ class QueryWithSoftDelete(BaseQueryJSON):
         return obj if obj is None or self._with_deleted or not obj.deleted else None
 
 
-def filter_query(entity, filters, exclude: t.Container = None):
+def filter_query(entity, req_args: dict, exclude: t.Container = None):
     """Generates a sqlalchemy query object filtered by filters.
 
     entity: entity to filter
@@ -85,8 +89,12 @@ def filter_query(entity, filters, exclude: t.Container = None):
     exclude: columns to exclude on filter
 
     """
-    filters = [(re.search('^filter\[(\w+)\]$', k).group(1), v) for k, v in filters.items() if
-               k.startswith('filter[')]
+    filters = []
+    for k, v in req_args.items():
+        if k.startswith('filter['):
+            m = re.search('^filter\[(\w+)\]$', k)
+            if m:
+                filters.append((m.group(1), v))
     query = entity.query
     for k, v in filters:
         column = getattr(entity, k, None)
@@ -106,7 +114,6 @@ def filter_query(entity, filters, exclude: t.Container = None):
 
 def check_param_in_uri(param):
     return param in request.args.getlist('params')
-
 
 
 def run_in_background(func: t.Callable, app=None, args=None, kwargs=None):
@@ -218,7 +225,6 @@ def session_scope():
         raise
     finally:
         session.close()
-
 
 
 def get_auth_from_request():

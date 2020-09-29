@@ -102,9 +102,9 @@ logconfig_dict = {
         # "sqlalchemy.engine": {
         #     "level": "ERROR",
         # }
-        # "asyncio": {
-        #     "propagate": False
-        # },
+        "asyncio": {
+            "propagate": False
+        },
     },
     'handlers': {
         "console": {

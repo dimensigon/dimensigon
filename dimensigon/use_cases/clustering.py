@@ -151,7 +151,7 @@ class ClusterManager:
                 try:
                     responses = self.loop.run_until_complete(
                         ntwrk.parallel_requests(neighbours, 'POST', view_or_url='api_1_0.cluster',
-                                                json=list(temp_buffer.values()), auth=auth, timeout=10))
+                                                json=list(temp_buffer.values()), auth=auth))
                 except Exception as e:
                     logger.error(f"Unable to send cluster information to neighbours: "
                                  f"{format_exception(e)}")

@@ -152,6 +152,8 @@ def join():
         raise errors.GenericError('Invalid token', status_code=400)
 
 
+_lock_add_node = threading.Lock()
+
 @api_bp.route('/join/acknowledge/<server_id>', methods=['POST'])
 @jwt_required
 @lock_catalog
@@ -160,9 +162,10 @@ def join_acknowledge(server_id):
     if not server_data:
         raise errors.EntityNotFound('Server', server_id)
     s = Server.from_json(server_data)
-    db.session.add(s)
-    db.session.commit()
-    current_app.logger.debug(f"Server join acknowledge {s.name}")
+    with _lock_add_node:
+        db.session.add(s)
+        db.session.commit()
+        current_app.logger.debug(f"Server join acknowledge {s.name}")
     return {}, 204
 
 
@@ -376,20 +379,22 @@ def cluster():
 async def background_cluster_in(server_id, routes, auth):
     server = Server.query.get(server_id)
     servers = Server.get_neighbours(exclude=server)
-    tasks = []
     # cluster information
     # if cr:
     #     tasks.append(clustering.send_cluster_register(cr, servers=servers, auth=auth))
 
     # route information
     changed_routes = {}
-    new_route = await routing.async_check_gates(server, timeout=5, retries=3, delay=2)
-    if new_route and isinstance(new_route, RouteContainer):
-        routing.logger.debug(f'cluster IN: New neighbour {server} found through {new_route.gate}')
-        routing.set_route(server, new_route)
-        changed_routes.update({server: new_route})
-    else:
-        routing.logger.debug(f"cluster IN: {server} is not a neighbour")
+
+    # server might be sent cluster in message but not created in database
+    if server:
+        new_route = await routing.async_check_gates(server, timeout=5, retries=3, delay=2)
+        if new_route and isinstance(new_route, RouteContainer):
+            routing.logger.debug(f'cluster IN: New neighbour {server} found through {new_route.gate}')
+            routing.set_route(server, new_route)
+            changed_routes.update({server: new_route})
+        else:
+            routing.logger.debug(f"cluster IN: {server} is not a neighbour")
     try:
         changed_routes.update(
             routing.update_route_table_from_data({'server_id': server_id, 'route_list': routes}, auth))
@@ -408,8 +413,9 @@ async def background_cluster_in(server_id, routes, auth):
             routing.logger.exception(
                 "Error setting routes from following data: " + json.dumps(debug_new_routes, indent=4))
         raise
-    tasks.append(routing.async_send_routes(changed_routes, auth=auth, servers=servers, exclude=server))
-    await asyncio.gather(*tasks)
+
+    if changed_routes:
+        await routing.async_send_routes(changed_routes, auth=auth, servers=servers, exclude=server)
 
 
 @api_bp.route('/cluster/in/<server_id>', methods=['POST'])
@@ -433,8 +439,7 @@ def cluster_in(server_id):
 
 
 async def background_cluster_out(server_id, auth):
-    server = Server.query.get(server_id)
-    servers = Server.get_neighbours(exclude=server)
+    servers = Server.get_neighbours(exclude=server_id)
     tasks = []
 
     # route information

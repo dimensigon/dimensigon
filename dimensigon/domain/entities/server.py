@@ -30,9 +30,9 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
                                  default=False)  # ignore the server for locking when set
     created_on = db.Column(UtcDateTime(timezone=True))  # new in version 3
 
-    route = db.relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
-                            back_populates="destination", cascade="all, delete-orphan")
-    gates = db.relationship("Gate", back_populates="server", cascade="all, delete-orphan")
+    route: t.Optional[Route] = db.relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
+                                               back_populates="destination", cascade="all, delete-orphan")
+    gates: t.List[Gate] = db.relationship("Gate", back_populates="server", cascade="all, delete-orphan")
 
     # software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
 
@@ -155,11 +155,10 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
                 if len(self.gates) == 0:
                     raise RuntimeError(f"No gate set for server '{self}'")
                 gate = self.gates[0]
-        elif route is not None and route.cost == 0:
+        elif getattr(route, 'cost', None) == 0:
             gate = route.gate
-        else:
-            if route.proxy_server:
-                gate = route.proxy_server.route.gate
+        elif getattr(route, 'proxy_server', None):
+            gate = getattr(getattr(route.proxy_server, 'route', None), 'gate', None)
 
         if not gate:
             raise errors.UnreachableDestination(self, getattr(g, 'server', None))

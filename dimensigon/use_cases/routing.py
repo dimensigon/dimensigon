@@ -103,7 +103,7 @@ def set_route(server: Server, route: RouteContainer):
         db.session.commit()
 
 
-def format_routes_message(routes: t.Dict[Server, RouteContainer] = None) -> t.Tuple[t.List, t.List]:
+def format_routes_message(routes: t.Dict[t.Union[Id, Server], RouteContainer] = None) -> t.Tuple[t.List, t.List]:
     if routes:
         iterator = routes.items()
     else:
@@ -112,13 +112,13 @@ def format_routes_message(routes: t.Dict[Server, RouteContainer] = None) -> t.Tu
     debug_msg = []
     for d, r in iterator:
         msg.append(
-            dict(destination_id=str(d.id),
+            dict(destination_id=getattr(d, 'id', d),
                  proxy_server_id=str(getattr(r.proxy_server, 'id')) if getattr(r.proxy_server, 'id',
                                                                                None) else None,
                  gate_id=str(getattr(r.gate, 'id')) if getattr(r.gate, 'id', None) else None,
                  cost=r.cost))
 
-        debug_msg.append(dict(destination=d.name,
+        debug_msg.append(dict(destination=getattr(d, 'name', d),
                               proxy_server=getattr(r.proxy_server, 'name') if getattr(r.proxy_server, 'name',
                                                                                       None) else None,
                               gate=str(r.gate) if r.gate else None,
@@ -155,7 +155,7 @@ async def async_send_routes(routes=None, auth=None, servers=None, exclude=None):
 
     aw = [ntwrk.async_patch(s, view_or_url='api_1_0.routes',
                             json={'server_id': Server.get_current().id, 'route_list': msg, 'exclude': exclude_ids},
-                            auth=auth or get_root_auth(), timeout=20) for s
+                            auth=auth or get_root_auth()) for s
           in servers]
 
     rs = await asyncio.gather(*aw, return_exceptions=True)
@@ -361,7 +361,7 @@ async def async_update_route_table_cost(discover_new_neighbours=False, check_cur
         if neighbours:
             logger.debug(f"Getting routing tables from {', '.join([str(s) for s in neighbours])}")
             responses = await asyncio.gather(
-                *[ntwrk.async_get(server, 'api_1_0.routes', auth=get_root_auth(), timeout=30) for server in neighbours])
+                *[ntwrk.async_get(server, 'api_1_0.routes', auth=get_root_auth()) for server in neighbours])
 
             cr = _route_table_merge(dict(zip(neighbours, responses)))
             changed_routes.update(cr)
@@ -424,7 +424,7 @@ def update_route_table_from_data(new_routes: t.Dict, auth=None) -> t.Dict[Server
                                     route = RouteContainer(None, None, None)
                                 else:
                                     # check if I still have access through my proxy
-                                    cost, time = ntwrk.ping(target_server, retries=1, timeout=15)
+                                    cost, time = ntwrk.ping(target_server, retries=1, timeout=20)
                                     if cost == target_server.route.cost:
                                         # still a valid route
                                         route = target_server.route
@@ -509,17 +509,20 @@ async def async_update_routes_send(discover_new_neighbours=False, check_current_
 
 async def async_remove_neighbour_send(server: t.Union[Id, Server], auth, servers=None):
     if not isinstance(server, Server):
-        server = Server.query.get(server)
-    with _lock:
-        server.set_route(RouteContainer(None, None, None))
-        lost_routes = Route.query.filter_by(proxy_server=server).count()
+        _server = Server.query.get(server)
+    else:
+        _server = server
 
-        changed_routes = {}
+    changed_routes = {}
 
-        if lost_routes:
-            changed_routes = await async_update_route_table_cost(discover_new_neighbours=False,
-                                                                 check_current_neighbours=False)
-    changed_routes.update({server: RouteContainer(None, None, None)})
+    if _server:
+        with _lock:
+            _server.set_route(RouteContainer(None, None, None))
+            lost_routes = Route.query.filter_by(proxy_server=server).count()
+            if lost_routes:
+                changed_routes = await async_update_route_table_cost(discover_new_neighbours=False,
+                                                                     check_current_neighbours=False)
+    changed_routes.update({_server or server: RouteContainer(None, None, None)})
     await async_send_routes(changed_routes, auth, servers=servers)
 
 
@@ -542,10 +545,7 @@ async def async_check_set_neighbour_send(server: t.Union[Id, Server], auth):
                 await async_send_routes({server: new_route}, exclude=server, auth=auth)
 
 
-
-
 class RouteManager:
-
 
     def __init__(self, app, maxsize=None, retain_time=2, start=True):
         self.app = app
@@ -599,7 +599,7 @@ class RouteManager:
                 try:
                     responses = self.loop.run_until_complete(
                         ntwrk.parallel_requests(neighbours, 'POST', view_or_url='api_1_0.cluster',
-                                                json=list(temp_buffer.values()), auth=auth, timeout=10))
+                                                json=list(temp_buffer.values()), auth=auth))
                 except Exception as e:
                     logger.error(f"Unable to send route information to neighbours: "
                                  f"{format_exception(e)}")
