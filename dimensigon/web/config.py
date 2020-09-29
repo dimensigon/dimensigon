@@ -1,11 +1,8 @@
 import logging
 import os
 
-import dotenv
 
 basedir = os.path.abspath(os.path.dirname(__file__))
-
-dotenv.load_dotenv(dotenv.find_dotenv())
 
 
 class Config(object):
@@ -18,6 +15,11 @@ class Config(object):
     DATETIME_FORMAT = "%d/%m/%Y, %H:%M:%S"
     SSL_REDIRECT = False
     SSL_VERIFY = False
+    PROPAGATE_EXCEPTIONS = False
+
+    # executor
+    EXECUTOR_MAX_WORKERS = min(32, os.cpu_count() + 4)
+    EXECUTOR_PROPAGATE_EXCEPTIONS = True
 
     SOFTWARE_REPO = None
     LOG_REPO = None
@@ -32,11 +34,8 @@ class Config(object):
         pass
 
 
-
-
 class ProductionConfig(Config):
     SQLALCHEMY_DATABASE_URI = None
-
 
     @classmethod
     def init_app(cls, app):

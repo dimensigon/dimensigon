@@ -8,7 +8,7 @@ from dimensigon.domain.entities.bootstrap import set_initial
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.utils.helpers import md5
 from dimensigon.web import create_app, db
-from tests.helpers import TestCaseLockBypass
+from tests.base import TestCaseLockBypass
 
 
 class TestSoftwareList(TestCaseLockBypass):

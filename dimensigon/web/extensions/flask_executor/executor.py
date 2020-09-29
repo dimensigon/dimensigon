@@ -1,5 +1,6 @@
 import concurrent.futures
 import re
+from functools import update_wrapper
 
 from flask import copy_current_request_context, has_request_context
 from flask.globals import _app_ctx_stack
@@ -15,7 +16,7 @@ def copy_current_app_context(fn):
         with app_context:
             return fn(*args, **kwargs)
 
-    return wrapper
+    return update_wrapper(wrapper, fn)
 
 
 def propagate_exceptions_callback(future):

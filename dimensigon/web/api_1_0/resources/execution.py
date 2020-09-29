@@ -9,7 +9,7 @@ from dimensigon.web.helpers import filter_query, check_param_in_uri
 
 class StepExecutionList(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self):
@@ -19,7 +19,7 @@ class StepExecutionList(Resource):
 
 
 class StepExecutionResource(Resource):
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self, execution_id):
@@ -28,7 +28,7 @@ class StepExecutionResource(Resource):
 
 class OrchestrationExecutionRelationship(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self, orchestration_id):
@@ -39,7 +39,7 @@ class OrchestrationExecutionRelationship(Resource):
 
 class OrchExecStepExecRelationship(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self, execution_id):
@@ -50,7 +50,7 @@ class OrchExecStepExecRelationship(Resource):
 
 class OrchExecutionList(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self):
@@ -62,7 +62,7 @@ class OrchExecutionList(Resource):
 
 
 class OrchExecutionResource(Resource):
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self, execution_id):

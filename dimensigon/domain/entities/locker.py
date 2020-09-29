@@ -28,7 +28,7 @@ class Locker(db.Model):
     applicant = db.Column(Pickle)
 
     @classmethod
-    def set_initial(cls, session=None):
+    def set_initial(cls, session=None, unlock=False):
         if session is None:
             session = db.session
 
@@ -37,7 +37,7 @@ class Locker(db.Model):
             if not l:
                 l = cls(scope=scope, state=State.UNLOCKED)
                 session.add(l)
-            else:
+            elif unlock:
                 if l.state != State.UNLOCKED:
                     l.state = State.UNLOCKED
 

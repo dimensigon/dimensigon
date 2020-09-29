@@ -11,7 +11,7 @@ from dimensigon.domain.entities.bootstrap import set_initial
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.web import create_app, db, errors
 from dimensigon.web.network import Response
-from tests.helpers import ValidateResponseMixin
+from tests.base import ValidateResponseMixin
 
 
 class Test(TestCase, ValidateResponseMixin):

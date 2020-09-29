@@ -31,7 +31,7 @@ class TestSecurizer(TestCase):
         db.create_all()
         self.d = generate_dimension('test')
         self.srv1 = Server(id='bbbbbbbb-1234-5678-1234-56781234bbb1', name='server1',
-                           dns_or_ip='192.168.1.9', port=7123, _me=True)
+                           dns_or_ip='192.168.1.9', port=7123, me=True)
         Route(self.srv1, cost=0)
 
         db.session.add_all([self.srv1, self.d])

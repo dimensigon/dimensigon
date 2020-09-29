@@ -14,13 +14,29 @@ login_post = {
     "additionalProperties": False
 }
 
-schema_healthcheck = {
+healthcheck_post = {
     "type": "object",
     "properties": {
-        "alive": {"type": "boolean"},
-        "server_id": {"type": "string", "pattern": UUID_pattern}
+        "exclude": {"type": "array",
+                    "items": {"type": "string", "pattern": UUID_pattern}},
+        "heartbeat": {"type": "string"},
     },
+    "required": ["exclude", "heartbeat"],
     "additionalProperties": False
+}
+
+cluster_post = {
+    "type": "array",
+    "items": {"type": "object",
+              "properties": {
+                  "id": {"type": "string", "pattern": UUID_pattern},
+                  "birth": {"type": "string"},
+                  "keepalive": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                  "death": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+              },
+              "required": ["id", "birth"]
+              }
+
 }
 
 locker_prevent_post = {
@@ -335,9 +351,13 @@ routes_patch = {
                            },
                            "required": ["destination_id", "gate_id", "cost"]
                        }
-                       }
+                       },
+        "exclude": {"type": "array",
+                    "items": {"type": "string",
+                              "pattern": UUID_pattern}}
     },
-    "additionalProperties": False
+    "additionalProperties": False,
+    "required": ["server_id", "route_list"]
 }
 
 routes_post = {
@@ -565,7 +585,7 @@ launch_command_post = {
     "type": "object",
     "properties": {
         "command": {"type": "string"},
-        "hosts": {"anyOf": [{"type": "string"},
+        "target": {"anyOf": [{"type": "string"},
                             {"type": "array",
                              "items": {"type": "string"}},
                             ]
@@ -576,6 +596,16 @@ launch_command_post = {
     },
     "required": ["command"],
     "additionalProperties": False,
+}
+
+servers_delete = {
+    "type": "object",
+    "properties": {"server_ids": {"type": "array",
+                                  "items": {"type": "string",
+                                            "pattern": UUID_pattern}}
+                   },
+    "additionalProperties": False,
+    "required": ["server_ids"]
 }
 
 server_post = {

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server
+from dimensigon.utils.helpers import get_now
 from dimensigon.web import create_app, db
 
 
@@ -84,16 +85,18 @@ class TestServer(TestCase):
 
     @patch('dimensigon.domain.entities.base.uuid.uuid4')
     def test_to_from_json(self, mock_uuid):
+        now = get_now()
         mock_uuid.side_effect = ['22cd859d-ee91-4079-a112-000000000001',
                                  '22cd859d-ee91-4079-a112-000000000002',
                                  '22cd859d-ee91-4079-a112-000000000003']
 
-        s = Server('server', dns_or_ip='dns', gates=[('gdns', 6000)])
+        s = Server('server', dns_or_ip='dns', gates=[('gdns', 6000)], created_on=now)
         self.assertDictEqual({'id': '22cd859d-ee91-4079-a112-000000000001',
                               'name': 'server',
                               'granules': [],
-                              'unreachable': False,
-                              'deleted': False},
+                              'created_on': now.strftime(defaults.DATETIME_FORMAT),
+                              'deleted': False,
+                              '_old_name': None},
                              s.to_json())
         db.session.add(s)
         db.session.commit()

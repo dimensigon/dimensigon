@@ -80,3 +80,10 @@ class Parameter(db.Model):
             p = Parameter('last_graceful_shutdown', dump=lambda x: x.strftime("%m/%d/%Y, %H:%M:%S.%f %z"),
                           load=lambda x: dt.datetime.strptime(x, "%m/%d/%Y, %H:%M:%S.%f %z"))
             session.add(p)
+        if not session.query(cls).get('fetching_catalog'):
+            p = Parameter('fetching_catalog', dump=lambda x: '1' if x else '0',
+                          load=lambda x: True if x == '1' else False)
+            session.add(p)
+        if not session.query(cls).get('join_server'):
+            p = Parameter('join_server')
+            session.add(p)

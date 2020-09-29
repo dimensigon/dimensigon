@@ -18,12 +18,12 @@ class LogList(Resource):
 
     @securizer
     @jwt_required
-    @forward_or_dispatch
+    @forward_or_dispatch()
     def get(self):
         query = filter_query(Log, request.args)
         return [log.to_json(human=check_param_in_uri('human'), delete_data=False) for log in query.all()]
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(logs_post)
@@ -49,13 +49,13 @@ class LogResource(Resource):
 
     @securizer
     @jwt_required
-    @forward_or_dispatch
+    @forward_or_dispatch()
     def get(self, log_id):
         return Log.query.get_or_404(log_id).to_json()
 
     @securizer
     @jwt_required
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @validate_schema(log_post)
     def post(self, log_id):
         log = Log.query.get_or_404(log_id)
@@ -76,7 +76,7 @@ class LogResource(Resource):
 
     @securizer
     @jwt_required
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @validate_schema(log_patch)
     @lock_catalog
     def patch(self, log_id):
@@ -102,7 +102,7 @@ class LogResource(Resource):
 
     @securizer
     @jwt_required
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @lock_catalog
     def delete(self, log_id):
         log = Log.query.get_or_404(log_id)

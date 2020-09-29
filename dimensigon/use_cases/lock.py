@@ -4,8 +4,6 @@ import typing as t
 from contextlib import contextmanager
 from uuid import UUID
 
-import aiohttp
-from flask import current_app
 from flask_jwt_extended import create_access_token, get_jwt_identity
 from sqlalchemy.orm import sessionmaker
 
@@ -33,16 +31,15 @@ async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope
     payload = dict(scope=scope.name, applicant=applicant)
     if datemark:
         payload.update(datemark=datemark)
-    async with aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(ssl=current_app.config['SSL_VERIFY'])) as session:
-        for server in it:
-            tasks.append(create_task(async_post(server, 'api_1_0.locker_' + action, session=session,
-                                                json=payload,
-                                                auth=auth,
-                                                timeout=defaults.TIMEOUT_LOCK_REQUEST)))
-        for server in it:
-            r = await tasks.pop(0)
-            server_responses.append(r)
+
+    for server in it:
+        tasks.append(create_task(async_post(server, 'api_1_0.locker_' + action,
+                                            json=payload,
+                                            auth=auth,
+                                            timeout=defaults.TIMEOUT_LOCK_REQUEST)))
+    for server in it:
+        r = await tasks.pop(0)
+        server_responses.append(r)
 
     return server_responses
 
@@ -173,14 +170,17 @@ def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]]
             s.close()
         raise RuntimeError('no server to unlock')
 
-    lock_unlock(action='U', scope=scope, servers=servers, applicant=applicant)
+    try:
+        lock_unlock(action='U', scope=scope, servers=servers, applicant=applicant)
+    except errors.LockError as e:
+        logger.warning(f"Unable to unlock: {e}")
     if s:
         s.close()
 
 
 @contextmanager
 def lock_scope(scope: Scope, servers: t.Union[t.List[Server], Server] = None,
-               bypass: t.Union[t.List[Server], Server] = None, retries=0, delay=3):
+               bypass: t.Union[t.List[Server], Server] = None, retries=0, delay=3, applicant=None):
     if servers is not None:
         servers = servers if is_iterable_not_string(servers) else [servers]
         if len(servers) == 0:
@@ -190,19 +190,8 @@ def lock_scope(scope: Scope, servers: t.Union[t.List[Server], Server] = None,
 
     logger.debug(f"Requesting Lock on {scope.name} to the following servers: {[s.name for s in servers]}")
     _try = 1
-    while True:
-        try:
-            applicant = lock(scope, servers)
-        except errors.LockError:
-            if _try < retries:
-                _try += 1
-                logger.info(f"Retrying to lock on {scope.name} in {delay} seconds")
-                time.sleep(delay)
-            else:
-                raise
-        else:
-            break
 
+    applicant = lock(scope, servers=servers, applicant=applicant, retries=retries, delay=delay)
     try:
         yield applicant
     finally:

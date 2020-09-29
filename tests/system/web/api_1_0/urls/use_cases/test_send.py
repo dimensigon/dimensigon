@@ -14,7 +14,8 @@ from dimensigon.domain.entities.bootstrap import set_initial
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.utils.helpers import generate_dimension, md5
 from dimensigon.web import create_app, db
-from tests.helpers import set_callbacks, ValidateResponseMixin
+from tests.base import ValidateResponseMixin
+from tests.helpers import set_callbacks
 
 
 class TestSend(TestCase, ValidateResponseMixin):

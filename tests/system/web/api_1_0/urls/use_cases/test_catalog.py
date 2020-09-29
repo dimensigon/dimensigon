@@ -6,7 +6,7 @@ from flask import url_for
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, ActionTemplate, ActionType
 from dimensigon.web import db
-from tests.helpers import TestDimensigonBase
+from tests.base import TestDimensigonBase
 
 
 class TestApi(TestDimensigonBase):

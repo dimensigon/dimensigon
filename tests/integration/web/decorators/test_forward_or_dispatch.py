@@ -8,7 +8,7 @@ from flask import Flask
 from dimensigon.domain.entities import Server, Route
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import forward_or_dispatch
-from tests.helpers import ValidateResponseMixin
+from tests.base import ValidateResponseMixin
 
 
 class TestForwardOrDispatch(TestCase, ValidateResponseMixin):
@@ -25,7 +25,7 @@ class TestForwardOrDispatch(TestCase, ValidateResponseMixin):
         self.app = Flask(__name__)
 
         @self.app.route('/', methods=['GET', 'POST'])
-        @forward_or_dispatch
+        @forward_or_dispatch()
         def hello():
             return {'msg': 'default response'}
         
@@ -40,7 +40,7 @@ class TestForwardOrDispatch(TestCase, ValidateResponseMixin):
         Route(self.srv1, cost=0)
         self.srv2 = Server(id='bbbbbbbb-1234-5678-1234-56781234bbb2', name='server2',
                            dns_or_ip='192.168.1.10', port=7124)
-        Route(self.srv2, proxy_server=self.srv1, cost=1)
+        Route(self.srv2, self.srv1, cost=1)
         db.session.add_all([self.srv1, self.srv2])
         db.session.commit()
 

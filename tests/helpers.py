@@ -1,6 +1,7 @@
 import functools
 import re
 import sys
+import threading
 import time
 import traceback
 import typing as t
@@ -8,10 +9,8 @@ from contextlib import contextmanager
 from http.server import HTTPServer
 from io import StringIO
 from threading import Thread
-from unittest import TestCase, mock
 from unittest.mock import Mock
 
-import flask
 import requests
 from aioresponses import aioresponses, CallbackResult
 from cryptography.hazmat.backends import default_backend
@@ -21,10 +20,9 @@ from flask.testing import FlaskClient
 from flask_jwt_extended import create_access_token
 
 from dimensigon import defaults
-from dimensigon.domain.entities import User, update_datemark
-from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.domain.entities import update_datemark
 from dimensigon.utils.helpers import get_entities, get_distributed_entities
-from dimensigon.web import create_app, db, errors
+from dimensigon.web import db
 
 
 def start_mock_server(port, mock_server_request_handler):
@@ -87,14 +85,6 @@ def authorization_header(identity='test'):
     return {"Authorization": f"Bearer {access_token}"}
 
 
-class TestCaseLockBypass(TestCase):
-
-    def run(self, result=None):
-        with mock.patch('dimensigon.use_cases.lock.lock'):
-            with mock.patch('dimensigon.use_cases.lock.unlock'):
-                super().run(result)
-
-
 def set_callbacks(target: t.List[t.Tuple[str, FlaskClient]], m: aioresponses = None):
     import responses
     method_list = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
@@ -132,33 +122,6 @@ def set_callbacks(target: t.List[t.Tuple[str, FlaskClient]], m: aioresponses = N
                      callback=functools.partial(callback_client, method, client), repeat=True)
 
 
-class ValidateResponseMixin:
-
-    def validate_error_response(self, resp: flask.Response, error: errors.BaseError):
-        self.assertEqual(error.status_code, resp.status_code)
-        self.assertDictEqual(errors.format_error_content(error), resp.get_json())
-
-
-class TestDimensigonBase(TestCase, ValidateResponseMixin):
-
-    def setUp(self) -> None:
-        self.maxDiff = None
-        self.app = create_app('test')
-        self.app.config['SECURIZER'] = False
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        db.create_all()
-        User.set_initial()
-        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
-        db.session.commit()
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
-
-
 def generate_dimension_json_data():
     private_key = rsa.generate_private_key(
         public_exponent=65537,
@@ -191,3 +154,13 @@ def load_data(catalog: t.Dict[str, t.List[t.Dict]]):
             db.session.commit()
             if 'last_modified_at' in dto and name in de:
                 update_datemark(True)
+
+
+from flask import _app_ctx_stack
+
+
+def app_scope():
+    return str(hash(_app_ctx_stack.top.app)) + str(threading.get_ident())
+
+def set_test_scoped_session(db_, func=app_scope):
+    db_.session = db_.create_scoped_session(dict(scopefunc=func))

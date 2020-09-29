@@ -1,3 +1,4 @@
+import datetime as dt
 import logging
 import logging.config
 import multiprocessing
@@ -57,6 +58,10 @@ logconfig_dict = {
             "propagate": False,
             "qualname": "gunicorn.access"
         },
+        "urllib3": {
+            "level": "ERROR",
+            "propagate": False,
+        },
         # "dimensigon": {
         #     "level": "DEBUG",
         #     "qualname": "dimensigon"
@@ -69,14 +74,14 @@ logconfig_dict = {
         #     "level": "DEBUG",
         #     "qualname": "dimensigon.routing"
         # },
-        "dimensigon.cluster": {
-            "level": "ERROR",
-            "qualname": "dimensigon.cluster"
-        },
-        "dimensigon.catalog": {
-            "level": "INFO",
-            "qualname": "dimensigon.catalog"
-        },
+        # "dimensigon.cluster": {
+        #     "level": "DEBUG",
+        #     "qualname": "dimensigon.cluster"
+        # },
+        # "dimensigon.catalog": {
+        #     "level": "DEBUG",
+        #     "qualname": "dimensigon.catalog"
+        # },
         # "dimensigon.network": {
         #     "level": "INFO",
         #     "qualname": "dimensigon.network"
@@ -97,9 +102,9 @@ logconfig_dict = {
         # "sqlalchemy.engine": {
         #     "level": "ERROR",
         # }
-        "asyncio": {
-            "propagate": False
-        },
+        # "asyncio": {
+        #     "propagate": False
+        # },
     },
     'handlers': {
         "console": {
@@ -108,7 +113,7 @@ logconfig_dict = {
             "stream": "ext://sys.stdout"
         },
         "error_file": {
-            "level": "DEBUG",
+            "level": "INFO",
             "class": "logging.handlers.RotatingFileHandler",
             "maxBytes": 20 * 1024 * 1024,
             "backupCount": 5,
@@ -125,12 +130,12 @@ logconfig_dict = {
     },
     'formatters': {
         "generic": {
-            "format": "%(asctime)s [%(process)d] %(levelname)-8s %(name)-24s %(message)s",
+            "format": "%(asctime)s %(levelname)-8s %(name)-24s %(message)s",
             "datefmt": "[%Y-%m-%d %H:%M:%S %z]",
             "class": "logging.Formatter"
         },
         "detailed": {
-            "format": "%(asctime)s [%(process)-d] [%(threadName)-24s] %(levelname)-8s %(name)-30s %(message)s",
+            "format": "%(asctime)s [%(thread)-8s] %(levelname)-8s %(name)-30s %(message)s",
             "datefmt": "[%Y-%m-%d %H:%M:%S %z]",
             "class": "logging.Formatter"
         },
@@ -166,20 +171,20 @@ def _setup_flask_config(run_config: RuntimeConfig, dm: Dimensigon):
 
 
 def _setup_dimensigon_config(run_config: RuntimeConfig, config: Config):
+    # save arguments passed
+    config.args = sys.argv
+
     config.config_dir = run_config.config_dir or get_default_config_dir()
 
     config.debug = run_config.debug
+    config.flask = run_config.flask
+    config.refresh_interval = dt.timedelta(minutes=run_config.refresh_interval)
+    config.force_scan = run_config.force_scan
 
 
 def _setup_http_config(run_config: RuntimeConfig, config: Config):
     def on_exit(server):
         server.app.dm.flask_app.shutdown()
-
-    def on_starting(server):
-        server.app.dm.flask_app.start()
-
-    def when_ready(server):
-        server.app.dm.flask_app.notify_cluster()
 
     bind = []
     for ip in run_config.ips or ['0.0.0.0']:
@@ -190,19 +195,35 @@ def _setup_http_config(run_config: RuntimeConfig, config: Config):
     logconfig_dict['handlers']['access_file']['filename'] = run_config.accesslog or \
                                                             config.path(defaults.LOG_REPO, defaults.ACCESS_LOGFILE)
     logconfig_dict['root']['level'] = 'DEBUG' if run_config.debug else 'INFO'
-    config.http_conf.update(proc_name=defaults.PROC_NAME,
-                            threads=run_config.threads or 3 * multiprocessing.cpu_count(),
-                            pidfile=os.path.join(run_config.pid_file or config.config_dir, defaults.PID_FILE),
-                            timeout=3000,
-                            graceful_timeout=60,
-                            enable_stdio_inheritance=True,
+
+    # in case log gunicorn not called
+    logging.config.dictConfig(logconfig_dict)
+
+    config.http_conf.update(# Logging
+                            access_log_format='%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s %(L)s "%(f)s" "%(a)s"',
                             capture_output=False,
                             logconfig_dict=logconfig_dict,
-                            bind=bind,
-                            daemon=run_config.daemon,
-                            on_starting=on_starting,
-                            when_ready=when_ready,
+                            enable_stdio_inheritance=True,
+                            # Process Naming
+                            proc_name=defaults.PROC_NAME,
+                            # SSL
+                            # do_handshake_on_connect=False,
+                            # Server Hooks
                             on_exit=on_exit,
+                            # Server Mechanics
+                            preload_app=True,
+                            daemon=run_config.daemon,
+                            pidfile=os.path.join(run_config.pid_file or config.config_dir, defaults.PID_FILE),
+                            # Server Socket
+                            bind=bind,
+                            # Worker Processes
+                            workers=1,
+                            worker_class='gthread',
+                            threads=run_config.threads or max(12, 4 * multiprocessing.cpu_count()),
+                            # threads=4,
+                            # max_requests=100,
+                            timeout=300,
+                            graceful_timeout=60,
                             )
 
     if run_config.certfile:

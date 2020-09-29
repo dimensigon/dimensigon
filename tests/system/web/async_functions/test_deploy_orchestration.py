@@ -10,7 +10,8 @@ from dimensigon.domain.entities.route import Route
 from dimensigon.utils.var_context import VarContext
 from dimensigon.web import create_app, db
 from dimensigon.web.async_functions import deploy_orchestration
-from tests.helpers import TestCaseLockBypass, set_callbacks
+from tests.base import TestCaseLockBypass
+from tests.helpers import set_callbacks
 
 
 class TestDeployOrchestration(TestCaseLockBypass):

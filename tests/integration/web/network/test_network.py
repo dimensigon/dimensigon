@@ -30,6 +30,7 @@ class TestNetwork(TestCase):
         """Create and configure a new app instance for each test."""
         # create the app with common test config
         self.app = create_app('test')
+        self.app.config['SCHEME'] = 'http'
 
         @self.app.route('/', methods=['GET', 'POST'])
         def home():
@@ -52,7 +53,7 @@ class TestNetwork(TestCase):
 
         self.token = create_access_token('test')
         self.auth = HTTPBearerAuth(self.token)
-        self.url = 'http://me:5000/'
+        self.url = 'https://me:5000/'
 
     def tearDown(self) -> None:
         db.session.remove()
@@ -208,7 +209,7 @@ class TestNetwork(TestCase):
         self.assertIsNone(resp.code)
         self.assertIsNone(resp.msg)
         self.assertIsInstance(resp.exception, TimeoutError)
-        self.assertEqual(f"Socket timeout reached while trying to connect to http://me:5000/ "
+        self.assertEqual(f"Socket timeout reached while trying to connect to {self.url} "
                          f"for 0.01 seconds", str(resp.exception))
 
         resp = run(async_get(self.server, 'home', timeout=0.01))
@@ -216,7 +217,7 @@ class TestNetwork(TestCase):
         self.assertIsNone(resp.code)
         self.assertIsNone(resp.msg)
         self.assertIsInstance(resp.exception, TimeoutError)
-        self.assertEqual(f"Socket timeout reached while trying to connect to http://me:5000/ "
+        self.assertEqual(f"Socket timeout reached while trying to connect to {self.url} "
                          f"for 0.01 seconds", str(resp.exception))
 
     @aioresponses()
@@ -290,7 +291,7 @@ class TestNetworkSecurizer(TestCase):
 
         self.token = create_access_token('test')
         self.auth = HTTPBearerAuth(self.token)
-        self.url = 'http://me:5000/'
+        self.url = 'https://me:5000/'
 
     def tearDown(self) -> None:
         db.session.remove()

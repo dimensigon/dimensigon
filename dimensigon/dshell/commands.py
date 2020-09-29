@@ -18,6 +18,7 @@ from dimensigon.dshell.completer import *
 from dimensigon.dshell.helpers import name2id, exit_dshell
 from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.action_template import subprompt as action_prompt
+from dimensigon.dshell.prompts.command import subprompt as command_prompt
 from dimensigon.dshell.prompts.orchestration import subprompt as orch_prompt
 from dimensigon.dshell.utils import clean_none
 from dimensigon.utils.helpers import get_now, is_valid_uuid
@@ -53,7 +54,7 @@ def ping(node):
         dprint(resp)
 
 
-def locker_show(node):
+def manager_locker_show(node):
     for n in node:
         dprint(f"### {n}:") if len(node) > 1 else None
         if not is_valid_uuid(n):
@@ -64,7 +65,7 @@ def locker_show(node):
         dprint(resp)
 
 
-def locker_unlock(scope, node):
+def manager_locker_unlock(scope, node):
     for n in node:
         dprint(f"### {n}:") if len(node) > 1 else None
         if not is_valid_uuid(n):
@@ -102,30 +103,52 @@ def server_list(name=None, iden=None, detail=None, like=None):
         dprint(resp)
 
 
-def server_delete(server_id):
-    try:
-        uuid.UUID(server_id)
-    except Exception:
-        not_an_uuid = True
+def server_delete(server_ids):
+    converted_ids = []
+    for server_id in server_ids:
+        try:
+            uuid.UUID(server_id)
+        except Exception:
+            not_an_uuid = True
+        else:
+            not_an_uuid = False
+        if not_an_uuid:
+            server_id = name2id('api_1_0.serverlist', server_id)
+        converted_ids.append(server_id)
+
+    if converted_ids:
+        resp = ntwrk.delete('api_1_0.serverlist', json={'server_ids': converted_ids})
+        if resp.ok:
+            dprint(f"Server{'s' if len(converted_ids) > 1 else ''} removed successfully")
+        else:
+            dprint(resp)
     else:
-        not_an_uuid = False
-    if not_an_uuid:
-        server_id = name2id('api_1_0.serverlist', server_id)
-    resp = ntwrk.delete('api_1_0.serverresource', view_data={'server_id': server_id})
-    if resp.ok:
-        dprint("Server removed succesfully")
-    else:
-        dprint(resp)
+        dprint("No server no delete")
 
 
-def server_routes(refresh=False):
+def server_routes(node, refresh=False):
     resp = None
-    if refresh:
-        resp = ntwrk.post('api_1_0.routes', json={"discover_new_neighbours": True,
-                                                  "check_current_neighbours": True})
-    if resp is None or (resp and resp.ok):
-        resp = ntwrk.get('api_1_0.routes', view_data={'params': 'human'})
-    dprint(resp)
+    if not node:
+        node = ['localhost']
+    for n in node:
+        dprint(f"### {n}:") if len(node) > 1 else None
+        if n == 'localhost':
+            node_id = None
+        elif not is_valid_uuid(n):
+            node_id = name2id('api_1_0.serverlist', n)
+        else:
+            node_id = n
+
+        kwargs = {}
+        if node_id:
+            kwargs.update(headers={'D-Destination': node_id})
+
+        if refresh:
+            resp = ntwrk.post('api_1_0.routes', json={"discover_new_neighbours": True,
+                                                      "check_current_neighbours": True}, **kwargs)
+        if resp is None or (resp and resp.ok):
+            resp = ntwrk.get('api_1_0.routes', view_data={'params': 'human'}, **kwargs)
+        dprint(resp)
 
 
 def orch_list(**params):
@@ -370,17 +393,23 @@ def exec_list(orch=None, server=None, execution_id=None, last=None, asc=None, de
         dprint(resp)
 
 
-def cmd(command, hosts, timeout=None, input=None):
-    if isinstance(command, list):
-        command = ' '.join(command)
-
-    data = {'command': command, 'hosts': hosts}
-    if timeout:
-        data.update(timeout=timeout)
-    if input:
-        data.update(input=input.replace('\\n', '\n').replace('\\t', '\t'))
-    resp = ntwrk.post('api_1_0.launch_command', view_data={'params': 'human'}, json=data)
-    dprint(resp)
+def cmd(command, target, timeout=None, input=None, shell=None):
+    if shell:
+        command_prompt({'target': target}, ask_all=False if target else True, parent_prompt='Δ')
+    else:
+        if isinstance(command, list):
+            command = ' '.join(command)
+        if not command:
+            raise ValueError('a command must be specified')
+        if not target:
+            raise ValueError('target must be specified')
+        data = {'command': command, 'target': target}
+        if timeout:
+            data.update(timeout=timeout)
+        if input:
+            data.update(input=input.replace('\\n', '\n').replace('\\t', '\t'))
+        resp = ntwrk.post('api_1_0.launch_command', view_data={'params': 'human'}, json=data)
+        dprint(resp)
 
 
 def logfed_list():
@@ -431,8 +460,8 @@ def manager_locker_ignore(ignore: bool, server_ids):
 #     for server in servers:
 #         resp = post('api_1_0.locker_unlock')
 
-def token(raw=False):
-    resp = ntwrk.get('api_1_0.join_token')
+def manager_token(raw=False, expires_time=None):
+    resp = ntwrk.get('api_1_0.join_token', view_data=dict(expires_time=expires_time))
     if not raw:
         dprint(resp)
     else:
@@ -440,7 +469,6 @@ def token(raw=False):
             dprint(resp.msg['token'])
         else:
             dprint(resp)
-
 
 def manager_login(username=None, password=None):
     try:
@@ -498,9 +526,11 @@ nested_dict = {
                  server_list
                  ],
         'delete': [
-            {'argument': 'server_id', 'metavar': 'NODE', 'completer': server_completer, 'help': 'Node to be deleted'},
+            {'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+', 'completer': server_completer,
+             'help': 'Node to be deleted'},
             server_delete],
-        'routes': [{'argument': '--refresh', 'action': 'store_true'},
+        'routes': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
+                   {'argument': '--refresh', 'action': 'store_true'},
                    server_routes],
     },
     'orch': {
@@ -561,10 +591,6 @@ nested_dict = {
                  {'argument': '--detail', 'action': 'store_true'},
                  exec_list]
     },
-    'locker': {'show': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, locker_show],
-               'unlock': [{'argument': 'scope', 'choices': [s.name for s in Scope]},
-                          {'argument': 'node', 'nargs': '+', 'completer': server_completer},
-                          locker_unlock]},
     'software': {
         'add': [{'argument': 'name'},
                 {'argument': 'version'},
@@ -596,23 +622,25 @@ nested_dict = {
              {'argument': '--last', 'action': 'store', 'type': int}, ],
             transfer_list
         ]},
-    'cmd': [{'argument': 'command', 'nargs': '+'},
-            {'argument': '--target', 'action': ExtendAction, 'nargs': "+", 'dest': 'hosts',
+    'cmd': [{'argument': 'command', 'nargs': '*'},
+            {'argument': '--shell', 'action': 'store_true'},
+            {'argument': '--target', 'action': ExtendAction, 'nargs': "+",
              'completer': merge_completers([server_completer, granule_completer])},
             {'argument': '--timeout', 'type': int, 'help': 'timeout in seconds to wait for command to terminate'},
             {'argument': '--input'},
             cmd],
-    'logfed': {'subscribe': {'log': [{'argument': 'src_server_id',
-                                      'metavar': 'source_server_id',
-                                      'help': 'source server to get the logs from',
-                                      'completer': server_completer},
-                                     {'argument': 'target',
-                                      'metavar': 'file',
-                                      'help': 'log file to watch out'},
-                                     {'argument': 'dst_server_id',
-                                      'metavar': 'destination_server_id',
-                                      'help': 'source server to get the logs from',
-                                      'completer': server_completer},
+    'logfed': {
+        'subscribe': {'log': [{'argument': 'src_server_id',
+                               'metavar': 'source_server_id',
+                               'help': 'source server to get the logs from',
+                               'completer': server_completer},
+                              {'argument': 'target',
+                               'metavar': 'file',
+                               'help': 'log file to watch out'},
+                              {'argument': 'dst_server_id',
+                               'metavar': 'destination_server_id',
+                               'help': 'source server to get the logs from',
+                               'completer': server_completer},
                                      {'argument': '--mode', 'choices': ['REPO_MIRROR', 'REPO_ROOT', 'MIRROR'],
                                       'help': 'defines where the log will be sent on destination. REPO_MIRROR send the '
                                               'file inside the dest LOG folder and mantains absolute path from origin. '
@@ -651,26 +679,31 @@ nested_dict = {
                                       'help': 'destination folder to send logs. If not specified, '
                                               'default mode REPO_MIRROR is used'},
                                      logfed_subscribe]
-                             },
-               'unsubscribe': [{'argument': 'log_id', 'completer': logfed_completer},
-                               logfed_unsubscribe],
-               'list': [logfed_list],
-               },
-
-    "manager": {"catalog": {"refresh": [manager_catalog_refresh]},
-                "locker": {"ignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
-                                       'completer': server_completer},
-                                      functools.partial(manager_locker_ignore, True)],
-                           "unignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
-                                         'completer': server_completer},
-                                        functools.partial(manager_locker_ignore, False)]},
-                "token": [{'argument': '--raw', 'action': 'store_true'},
-                          {'argument': '--expire-time', 'metavar': 'MINUTES',
-                           'help': 'Join token expire time in minutes'},
-                          token],
-                "save": {"login": [manager_save_login]},
-                "login": [{'argument': 'username', 'nargs': '?'},
-                          manager_login], }
+                      },
+        'unsubscribe': [{'argument': 'log_id', 'completer': logfed_completer},
+                        logfed_unsubscribe],
+        'list': [logfed_list],
+    },
+    "manager": {
+        "catalog": {"refresh": [manager_catalog_refresh]},
+        "locker": {"ignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
+                               'completer': server_completer},
+                              functools.partial(manager_locker_ignore, True)],
+                   "unignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
+                                 'completer': server_completer},
+                                functools.partial(manager_locker_ignore, False)],
+                   'show': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, manager_locker_show],
+                   'unlock': [{'argument': 'scope', 'choices': [s.name for s in Scope]},
+                              {'argument': 'node', 'nargs': '+', 'completer': server_completer},
+                              manager_locker_unlock]
+                   },
+        "token": [{'argument': 'expires_time', 'nargs': '?', 'metavar': 'MINUTES',
+                   'help': 'Join token expire time in minutes'},
+                  {'argument': '--raw', 'action': 'store_true'},
+                  manager_token],
+        "save": {"login": [manager_save_login]},
+        "login": [{'argument': 'username', 'nargs': '?'},
+                  manager_login], }
     # "locker": {"lock": [{'argument': "scope", 'choices': ["CATALOG", "ORCHESTRATION", "UPGRADE"]},
     #                     {'argument': "servers", 'nargs': '*', 'completer': server_completer},
     #                     locker_lock],
@@ -681,12 +714,13 @@ nested_dict = {
     "logging": [{'argument': 'logger', 'completer': logger_completer},
                 {'argument': 'level', 'choices': ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']},
                 logging_cmd],
-    "env": {"list": [env_list],
-            "get": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
-                    env_get],
-            "set": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
-                    {'argument': 'value', 'nargs': '*'},
-                    env_set]},
+    "env": {
+        "list": [env_list],
+        "get": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
+                env_get],
+        "set": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
+                {'argument': 'value', 'nargs': '*'},
+                env_set]},
     'exit': [exit_dshell]
 
 }

@@ -10,7 +10,7 @@ from dimensigon.web.decorators import securizer, forward_or_dispatch
 
 class GranuleList(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self):

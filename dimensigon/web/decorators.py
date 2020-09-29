@@ -4,16 +4,17 @@ import ipaddress
 import json
 import logging
 import socket
+import time
 import typing as t
 
 import requests
 import rsa
 from flask import current_app, url_for, g, request
-from jsonschema import validate
-from pyasn1.debug import scope
+from flask_jwt_extended import get_jwt_claims
+from jsonschema import validate, SchemaError
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Server, Scope, User
+from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate
 from dimensigon.network.exceptions import NotValidMessage
 from dimensigon.use_cases.helpers import get_servers_from_scope
 from dimensigon.use_cases.lock import lock_scope
@@ -40,7 +41,7 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
         gate = [gate for gate in server.gates if ip in (gate.ip, get_ip(gate.dns))]
         if not gate:
             try:
-                with lock_scope(scope.CATALOG):
+                with lock_scope(Scope.CATALOG):
                     for port in set([gate.port for gate in server.gates]):
                         gate = server.add_new_gate(dns_or_ip=remote_addr, port=port, hidden=True)
                         db.session.add(gate)
@@ -51,6 +52,7 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
 
 def _proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
+
     url = destination.url() + request.full_path
     req_data = request.get_json()
 
@@ -101,41 +103,52 @@ def set_source():
             source = request.headers.get('D-Source') or request.remote_addr
         elif not proxies:
             save_if_hidden_ip(request.remote_addr, source)
+
+        if not isinstance(source, Server):
+            servers = db.session.query(Server).filter_by(deleted=False).join(Gate).filter_by(ip=source).all()
+            if len(servers) == 1:
+                source = servers[0]
+
         g.source = source
 
 
-def forward_or_dispatch(func):
-    from flask import request
+def forward_or_dispatch(*methods):
+    def inner(func):
+        from flask import request
+        logger = logging.getLogger('dimensigon.forwarder')
 
-    @functools.wraps(func)
-    def wrapper_decorator(*args, **kwargs):
-        destination_id = None
-        if 'D-Destination' in request.headers:
-            destination_id = request.headers['D-Destination']
-        else:
-            # Get information from content
-            # Code Compatibility. Use D-Destination header instead
-            data = request.get_json()
-            if data is not None and 'destination' in data:
-                destination_id = data.get('destination')
-
-        if destination_id and destination_id != str(g.server.id):
-            destination = Server.query.get(destination_id)
-            if destination is None:
-                return errors.format_error_response(errors.EntityNotFound('Server', destination_id))
-            try:
-                resp = _proxy_request(request=request, destination=destination)
-            except requests.exceptions.RequestException as e:
-                return errors.format_error_response(errors.ProxyForwardingError(destination, e))
+        @functools.wraps(func)
+        def wrapper_decorator(*args, **kwargs):
+            destination_id = None
+            if 'D-Destination' in request.headers:
+                destination_id = request.headers['D-Destination']
             else:
-                return resp.content, resp.status_code, dict(resp.headers)
+                # Get information from content
+                # Code Compatibility. Use D-Destination header instead
+                data = request.get_json()
+                if data is not None and 'destination' in data:
+                    destination_id = data.get('destination')
 
-        else:
+            if destination_id and destination_id != str(g.server.id) and (not methods or request.method in methods):
+                destination: Server = Server.query.get(destination_id)
+                if destination is None:
+                    return errors.format_error_response(errors.EntityNotFound('Server', destination_id))
+                try:
+                    logger.debug(f"Forwarding request {request.method} {request.full_path} to {destination.route}")
+                    resp = _proxy_request(request=request, destination=destination)
+                except requests.exceptions.RequestException as e:
+                    return errors.format_error_response(errors.ProxyForwardingError(destination, e))
+                else:
+                    return resp.content, resp.status_code, dict(resp.headers)
 
-            value = func(*args, **kwargs)
-            return value
+            else:
 
-    return wrapper_decorator
+                value = func(*args, **kwargs)
+                return value
+
+        return wrapper_decorator
+
+    return inner
 
 
 def securizer(func):
@@ -161,7 +174,7 @@ def securizer(func):
                     cipher_key = base64.b64decode(request.json.get('key')) if 'key' in request.json else cipher_key
                     # session['cipher_key'] = cipher_key
                     try:
-                        if request.path == url_for('api_1_0.join'):
+                        if request.path in url_for('api_1_0.join'):
                             temp_pub_key = rsa.PublicKey.load_pkcs1(request.json.pop('my_pub_key').encode('ascii'))
                             data = unpack_msg2(data=request.get_json(),
                                                pub_key=temp_pub_key,
@@ -232,7 +245,11 @@ def validate_schema(schema_name=None, **methods):
         def wrapper(*args, **kw):
             schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
             if schema:
-                validate(request.json, schema)
+                try:
+                    validate(request.json, schema)
+                except SchemaError as e:
+                    current_app.logger.error(f"Error validating: {json.dumps(request.json, indent=2)}")
+                    raise e
             return f(*args, **kw)
 
         return wrapper
@@ -243,6 +260,19 @@ def validate_schema(schema_name=None, **methods):
 def lock_catalog(f):
     @functools.wraps(f)
     def wrapper(*args, **kw):
+        # check if applicant in jwt
+        claims = get_jwt_claims()
+        if claims:
+            if claims.get('applicant'):
+                locker = Locker.query.get(Scope.CATALOG)
+                if locker.state == State.LOCKED and locker.applicant == claims.get('applicant'):
+                    try:
+                        ret = f(*args, **kw)
+                    except Exception as e:
+                        db.session.rollback()
+                        raise
+                    return ret
+
         servers = get_servers_from_scope(Scope.CATALOG)
         with lock_scope(Scope.CATALOG, servers):
             try:
@@ -296,9 +326,27 @@ def run_as(username: str):
                 ctx_stack.top.jwt = jwt
                 return f(*args, **kwargs)
             finally:
+                db.session.close()
                 if app:
                     ctx.pop()
 
+        return wrapper
+
+    return decorator
+
+
+logger = logging.getLogger('dimensigon.time')
+
+def log_time(tag=''):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            start = time.time()
+            r = f(*args, **kwargs)
+            elapsed = time.time() - start
+            logger.debug(
+                f"{getattr(f, '__name__', '')} {f'({tag})' if tag else ''} took {elapsed} seconds to complete")
+            return r
         return wrapper
 
     return decorator

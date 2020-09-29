@@ -123,3 +123,10 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
                                     last_modified_at=defaults.INITIAL_DATEMARK,
                                     id='00000000-0000-0000-000a-000000000004')
                 session.add(at)
+            at = session.query(cls).get('00000000-0000-0000-000a-000000000005')
+            if at is None:
+                at = ActionTemplate(name='delete servers', version=1, action_type=ActionType.NATIVE,
+                                    code='{{list_server_names}}',
+                                    last_modified_at=defaults.INITIAL_DATEMARK,
+                                    id='00000000-0000-0000-000a-000000000005')
+                session.add(at)

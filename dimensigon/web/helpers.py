@@ -204,15 +204,21 @@ def normalize_hosts(hosts: t.Dict[str, t.Union[str, t.List[str]]]) -> t.List[str
 
 
 @contextmanager
-def session():
+def session_scope():
     from dimensigon.web import db
     engine = db.get_engine()
     Session = sessionmaker(bind=engine)
-    s = Session()
+    """Provide a transactional scope around a series of operations."""
+    session = Session()
     try:
-        yield s
+        yield session
+        session.commit()
+    except:
+        session.rollback()
+        raise
     finally:
-        s.close()
+        session.close()
+
 
 
 def get_auth_from_request():

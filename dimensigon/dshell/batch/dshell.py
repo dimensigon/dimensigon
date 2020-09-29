@@ -1,6 +1,6 @@
 """
 usage: dshell [--version] [--username USER] [--password PASSWORD|--token TOKEN] [--server SERVER] [--port PORT]
-              [--config-file CONFIG_FILE] [COMMAND [ARGS...]]
+              [--config-file CONFIG_FILE] [--debug] [COMMAND [ARGS...]]
 
 options:
    -u, --username USER              Login user
@@ -9,6 +9,7 @@ options:
    -s, --server SERVER              Server to communicate with
    -p, --port PORT                  Port to communicate with [default: 5000]
    -c, --config-file CONFIG_FILE    configuration file [default: ~/.dshell]
+   --debug                          Sets trace for debugging
 
 The available dshell commands are:
    status    Status of a node
@@ -43,7 +44,7 @@ from dimensigon.dshell.interactive import interactive, call_func_with_signature
 basename = os.path.dirname(os.path.abspath(__file__))
 
 commands = 'cmd exec ping logfed manager server software status transfer refresh'.split()
-batch_commands = 'action orch'.split()  # commands that interact differently from interactive mode
+batch_commands = 'action orch command'.split()  # commands that interact differently from interactive mode
 
 
 def main():
@@ -53,7 +54,7 @@ def main():
 
     # parse args
     args = docopt(__doc__,
-                  version=f'dshell version 1.0',
+                  version='dshell version 1.0',
                   options_first=True)
 
     bootstrap_environ(args)

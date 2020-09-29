@@ -11,14 +11,14 @@ from dimensigon.web.json_schemas import users_post, user_patch
 
 class UserList(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self):
         query = filter_query(User, request.args, exclude=['_password'])
         return [user.to_json() for user in query.all()]
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(users_post)
@@ -34,13 +34,13 @@ class UserList(Resource):
 
 
 class UserResource(Resource):
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self, user_id):
         return User.query.get_or_404(user_id).to_json()
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(user_patch)
@@ -59,7 +59,7 @@ class UserResource(Resource):
 
     # @securizer
     # @jwt_required
-    # @forward_or_dispatch
+    # @forward_or_dispatch()
     # def delete(self, user_id):
     #     user = User.query.get_or_404(user_id)
     #     db.session.delete(user)

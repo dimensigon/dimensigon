@@ -16,7 +16,7 @@ from dimensigon.web.json_schemas import locker_prevent_post, locker_unlock_lock_
 logger = logging.getLogger('dimensigon.lock')
 
 @api_bp.route('/locker', methods=['GET'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 def locker():
@@ -36,7 +36,7 @@ def revert_preventing(app, scope, applicant):
 
 
 @api_bp.route('/locker/prevent', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 @validate_schema(POST=locker_prevent_post)
@@ -79,7 +79,7 @@ def locker_prevent():
 
 
 @api_bp.route('/locker/lock', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 @validate_schema(POST=locker_unlock_lock_post)
@@ -106,7 +106,7 @@ def locker_lock():
 
 
 @api_bp.route('/locker/unlock', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 @validate_schema(POST=locker_unlock_lock_post)

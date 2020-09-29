@@ -4,7 +4,6 @@ import ipaddress
 import logging
 import socket
 import typing as t
-from collections import namedtuple
 
 from flask import current_app, url_for, g
 from sqlalchemy import or_
@@ -13,12 +12,10 @@ from dimensigon.utils.typos import ScalarListType, Gate as TGate, UtcDateTime, I
 from dimensigon.web import db, errors
 from .base import UUIDistributedEntityMixin, SoftDeleteMixin
 from .gate import Gate
-from .route import Route
+from .route import Route, RouteContainer
 from ... import defaults
-from ...utils.helpers import get_ips, get_now
+from ...utils.helpers import get_ips, get_now, is_iterable_not_string
 from ...web.helpers import QueryWithSoftDelete
-
-RouteContainer = namedtuple('RouteContainer', ['proxy_server', 'gate', 'cost'])
 
 
 class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
@@ -72,6 +69,7 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         # create an empty route
         if not me and not self.deleted:
             Route(self)
+
 
     @property
     def external_gates(self):
@@ -199,15 +197,71 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
                 query = query.filter(Server.id != exclude)
 
         if alive:
-            query = query.filter(Server.id.in_([iden for iden in current_app.cluster.get_delta_keepalive(
+            query = query.filter(Server.id.in_([iden for iden in current_app.cluster_manager.cluster.get_delta_keepalive(
                 dt.timedelta(minutes=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD))]))
 
-        return query.all()
+        return query.order_by(Server.name).all()
 
+    @classmethod
+    def get_neighbours(cls, alive=False,
+                       exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None) -> t.List[
+        'Server']:
+        """returns neighbour servers
+
+        Args:
+            alive: if True, returns neighbour servers inside the cluster
+
+        Returns:
+
+        """
+        query = cls.query.join(cls.route).filter(Route.cost == 0)
+        if exclude:
+            if isinstance(exclude, list):
+                if isinstance(exclude[0], Server):
+                    query = query.filter(Server.id.in_([s.id for s in exclude]))
+                else:
+                    query = query.filter(Server.id.in_(exclude))
+            elif isinstance(exclude, Server):
+                query = query.filter(Server.id != exclude.id)
+            else:
+                query = query.filter(Server.id != exclude)
+
+        if alive:
+            query = query.filter(Server.id.in_([iden for iden in current_app.cluster.cluster_manager.get_delta_keepalive(
+                dt.timedelta(minutes=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD))]))
+
+        return query.order_by(Server.name).all()
     @classmethod
     def get_not_neighbours(cls) -> t.List['Server']:
         return cls.query.outerjoin(cls.route).filter(
-            or_(or_(Route.cost > 0, Route.cost == None), cls.route == None)).filter(Server._me == False).all()
+            or_(or_(Route.cost > 0, Route.cost == None), cls.route == None)).filter(Server._me == False).order_by(
+            Server.name).all()
+
+    @classmethod
+    def get_reachable_servers(cls, alive=False, exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None) -> t.List[
+        'Server']:
+        """returns list of reachable servers
+
+        Args:
+            alive: if True, returns servers inside the cluster
+            exclude: filter to exclude servers
+
+        Returns:
+        list of all reachable servers
+        """
+        query = cls.query.join(cls.route).filter(Route.cost.isnot(None))
+        if exclude:
+            if is_iterable_not_string(exclude):
+                c_exclude = [e.id if isinstance(e, Server) else e for e in exclude]
+            else:
+                c_exclude = [exclude.id if isinstance(exclude, Server) else exclude]
+            query = query.filter(Server.id.notin_(c_exclude))
+
+        if alive:
+            query = query.filter(Server.id.in_([iden for iden in current_app.cluster_manager.cluster.get_delta_keepalive(
+                dt.timedelta(minutes=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD))]))
+
+        return query.order_by(Server.name).all()
 
     def to_json(self, add_gates=False, human=False, add_ignore=False):
         data = super().to_json()
@@ -271,15 +325,11 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
     def set_route(self, proxy_route, gate=None, cost=None):
         if self.route is None:
-            self.route = Route(destionation=self)
+            self.route = Route(destination=self)
         if isinstance(proxy_route, RouteContainer):
-            self.route.proxy_server = proxy_route.proxy_server
-            self.route.gate = proxy_route.gate
-            self.route.cost = proxy_route.cost
+            self.route.set_route(proxy_route)
         elif isinstance(proxy_route, Route):
             assert proxy_route.destination == self
-            self.route = proxy_route
+            self.route.set_route(RouteContainer(proxy_route.proxy_server, proxy_route.gate, proxy_route.cost))
         else:
-            self.route.proxy_server = proxy_route
-            self.route.gate = gate
-            self.route.cost = cost
+            self.route.set_route(RouteContainer(proxy_route, gate, cost))

@@ -5,7 +5,7 @@ from dimensigon.domain.entities import Orchestration, ActionTemplate, ActionType
 from dimensigon.domain.entities.bootstrap import set_initial
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.web import create_app, db
-from tests.helpers import TestCaseLockBypass
+from tests.base import TestCaseLockBypass
 
 
 class Test(TestCaseLockBypass):

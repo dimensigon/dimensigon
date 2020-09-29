@@ -31,12 +31,12 @@ class SoftwareList(Resource):
 
     @securizer
     @jwt_required
-    @forward_or_dispatch
+    @forward_or_dispatch()
     def get(self):
         query = filter_query(Software, request.args)
         return [soft.to_json(servers=check_param_in_uri('servers')) for soft in query.all()]
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(software_post)
@@ -64,7 +64,7 @@ class SoftwareList(Resource):
 class SoftwareResource(Resource):
     @securizer
     @jwt_required
-    @forward_or_dispatch
+    @forward_or_dispatch()
     def get(self, software_id):
         return Software.query.get_or_404(software_id).to_json()
 
@@ -73,12 +73,12 @@ class SoftwareResource(Resource):
 class SoftwareServersResource(Resource):
     @securizer
     @jwt_required
-    @forward_or_dispatch
+    @forward_or_dispatch()
     def get(self, software_id):
         soft = Software.query.get_or_404(software_id)
         return [ssa.server.to_json() for ssa in soft.ssas]
 
-    # @forward_or_dispatch
+    # @forward_or_dispatch()
     # @jwt_required
     # @securizer
     # @validate_schema(software_servers_put)
@@ -99,7 +99,7 @@ class SoftwareServersResource(Resource):
     #     db.session.commit()
     #     return
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(software_patch)

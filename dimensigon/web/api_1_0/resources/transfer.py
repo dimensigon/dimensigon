@@ -19,14 +19,14 @@ from dimensigon.web.json_schemas import transfers_post, transfer_post, transfer_
 
 class TransferList(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self):
         query = filter_query(Transfer, request.args)
         return [t.to_json() for t in query.all()]
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(transfers_post)
@@ -112,13 +112,13 @@ CHUNK_READ_BUFFER = d.CHUNK_SIZE
 
 class TransferResource(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self, transfer_id):
         return Transfer.query.get_or_404(transfer_id).to_json()
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(transfer_patch)
@@ -129,7 +129,7 @@ class TransferResource(Resource):
         db.session.commit()
         return {'transfer_id': transfer_id, 'status': str(trans.status)}, 200
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(transfer_post)
@@ -163,7 +163,7 @@ class TransferResource(Resource):
         current_app.logger.debug(msg)
         return {'message': msg}, 201
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def put(self, transfer_id):

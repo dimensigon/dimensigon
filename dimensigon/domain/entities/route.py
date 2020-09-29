@@ -1,11 +1,45 @@
+import logging
 import typing as t
 
 from dimensigon.network.low_level import check_host
 from dimensigon.utils.typos import UUID
-from dimensigon.web import db
+from dimensigon.web import db, errors
 
 if t.TYPE_CHECKING:
     from dimensigon.domain.entities import Server, Gate
+
+
+logger = logging.getLogger('dimensigon.route')
+
+
+class RouteContainer:
+
+    def __init__(self, proxy_server: t.Optional['Server'], gate: t.Optional['Gate'], cost: t.Optional[int]):
+        self.proxy_server = proxy_server
+        self.gate = gate
+        self.cost = cost
+
+    def __str__(self):
+        return f"proxy_server={getattr(self.proxy_server, 'name', None)}, gate={self.gate}, cost={self.cost}"
+
+    def __repr__(self):
+        return f"RouteContainer(proxy_server={getattr(self.proxy_server, 'id', None)}, " \
+               f"gate={getattr(self.gate, 'id', None)}, cost={self.cost}"
+
+    def __iter__(self):
+        yield self.proxy_server
+        yield self.gate
+        yield self.cost
+
+    def __getitem__(self, item):
+        if item == 0:
+            return self.proxy_server
+        elif item == 1:
+            return self.gate
+        elif item == 2:
+            return self.cost
+        else:
+            IndexError('list index out of range')
 
 
 class Route(db.Model):
@@ -20,8 +54,16 @@ class Route(db.Model):
     proxy_server = db.relationship("Server", foreign_keys=[proxy_server_id])
     gate = db.relationship("Gate", foreign_keys=[gate_id])
 
-    def __init__(self, destination: 'Server', proxy_server: 'Server' = None, gate: 'Gate' = None, cost: int = None):
+    def __init__(self, destination: 'Server', proxy_server_or_gate: t.Union['Server', 'Gate'] = None, cost: int = None):
+        # avoid cycle import
+        from dimensigon.domain.entities import Server
         self.destination = destination
+        if isinstance(proxy_server_or_gate, Server):
+            proxy_server = proxy_server_or_gate
+            gate = None
+        else:
+            proxy_server = None
+            gate = proxy_server_or_gate
         if proxy_server:
             if proxy_server == destination:
                 raise ValueError('You must specify a gate when proxy_server equals destination')
@@ -32,16 +74,16 @@ class Route(db.Model):
                 self.cost = cost
         elif gate:
             # check if gate is from neighbour or from a proxy server
-            if gate and destination == gate.server:
+            if destination == gate.server:
                 if cost is not None and cost > 0:
                     raise ValueError("Cost must be set to 0 when defining route for a neighbour")
                 self.gate = gate
                 self.cost = 0
             else:
                 if cost is None or cost <= 0:
-                    raise ValueError("Cost must be specified and greater than 0 when gate from a proxy_server")
+                    raise ValueError("Cost must be specified and greater than 0 when gate is from a proxy_server")
                 else:
-                    self.gate = gate
+                    self.proxy_server = gate.server
                     self.cost = cost
         elif cost == 0:
             # find a gateway and set that gateway as default
@@ -57,12 +99,25 @@ class Route(db.Model):
         # if not (self.gate or self.proxy_server):
         #     raise ValueError('Not a valid route')
 
+    def validate_route(self, rc: RouteContainer):
+        if rc.proxy_server:
+            if not (rc.gate is None and rc.cost > 0):
+                raise errors.InvalidRoute(self.destination, rc)
+        elif rc.gate:
+            if not rc.cost == 0:
+                raise errors.InvalidRoute(self.destination, rc)
+        else:
+            if rc.cost is not None:
+                raise errors.InvalidRoute(self.destination, rc)
+
+    def set_route(self, rc: RouteContainer):
+        logger.debug(f"Changing route from {self.destination}: {rc}")
+        self.validate_route(rc)
+        self.proxy_server, self.gate, self.cost = rc
+
     def __str__(self):
-        gate = f"{self.gate.server}://{self.gate}" if self.gate else "None"
         return f"{self.destination} -> " \
-               f"proxy_server={self.proxy_server}, " \
-               f"gate={gate}, " \
-               f"cost={self.cost}"
+               f"{self.proxy_server or self.gate}, {self.cost}"
 
     def __repr__(self):
         return f"Route({self.to_json()})"

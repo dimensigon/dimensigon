@@ -14,26 +14,39 @@ def resolve_callables(kwargs, params):
     return prompt_kwargs
 
 
-def prompt_parameter(parameter, entity, form, parent_prompt) -> bool:
-    prompt_kwargs = resolve_callables(form[parameter], entity)
-
-    edit = prompt_kwargs.pop('edit', False)
-    if edit:
-        text = click.edit(str(entity.get(parameter, '')) if entity.get(parameter, '') != '' else '')
-    else:
-        text = prompt(
-            f"{parent_prompt}.{parameter}>{'>' if prompt_kwargs.get('multiline', False) else ''} ",
-            default=str(entity.get(parameter, '')) if entity.get(parameter, '') != '' else '',
-            **prompt_kwargs)
+def set_parameter(parameter, text, entity, load=None):
     if text == '':
         text = None
     elif text == "''" or text == '""':
         text = ""
     else:
-        if 'validator' in prompt_kwargs and hasattr(prompt_kwargs['validator'], 'transform'):
-            text = prompt_kwargs['validator'].transform(text)
+        if callable(load):
+            text = load(text)
     if text != entity.get(parameter, None):
         entity[parameter] = text
         return True
     else:
         return False
+
+
+def prompt_parameter(parameter, entity, form, parent_prompt) -> bool:
+    prompt_kwargs = resolve_callables(form[parameter], entity)
+
+    edit = prompt_kwargs.pop('edit', False)
+    value = entity.get(parameter, '')
+    if 'validator' in prompt_kwargs and hasattr(prompt_kwargs['validator'], 'load'):
+        value = prompt_kwargs['validator'].dump(value)
+    else:
+        value = str(value) if value is not None else ''
+
+    if edit:
+        text = click.edit(str() if value != '' else '')
+    else:
+        text = prompt(
+            f"{parent_prompt}.{parameter}>{'>' if prompt_kwargs.get('multiline', False) else ''} ",
+            default=value,
+            **prompt_kwargs)
+    return set_parameter(parameter, text, entity,
+                         prompt_kwargs['validator'].load if 'validator' in prompt_kwargs and hasattr(
+                             prompt_kwargs['validator'], 'load') else None)
+

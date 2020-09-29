@@ -11,6 +11,7 @@ import os
 import pickle
 import random
 import re
+import shlex
 import time
 import traceback
 import typing as t
@@ -27,26 +28,25 @@ import dimensigon.use_cases.routing as routing
 import dimensigon.web.network as ntwrk
 from dimensigon import defaults as d, defaults
 from dimensigon.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
-    Orchestration, OrchExecution, User, ActionTemplate, ActionType
-from dimensigon.domain.entities.server import RouteContainer
+    Orchestration, OrchExecution, User, ActionTemplate, ActionType, Gate
+from dimensigon.domain.entities.route import RouteContainer
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.use_cases import clustering
-from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.utils import asyncio, subprocess
 from dimensigon.utils.dag import DAG
 from dimensigon.utils.event_handler import Event
-from dimensigon.utils.helpers import get_distributed_entities, is_iterable_not_string, md5, get_now
+from dimensigon.utils.helpers import get_distributed_entities, is_iterable_not_string, md5, get_now, format_exception
 from dimensigon.utils.var_context import VarContext
-from dimensigon.web import db, executor, errors
+from dimensigon.web import db, executor, errors, threading
 from dimensigon.web.api_1_0 import api_bp
 from dimensigon.web.async_functions import deploy_orchestration, async_send_file
 from dimensigon.web.background_tasks import _async_get_neighbour_catalog_data_mark, \
     upgrade_version, \
     update_catalog
-from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
+from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog, log_time
 from dimensigon.web.helpers import check_param_in_uri, normalize_hosts, search, get_auth_from_request
 from dimensigon.web.json_schemas import launch_command_post, routes_post, routes_patch, \
-    launch_orchestration_post, send_post, orchestration_full, manager_server_ignore_lock_post
+    launch_orchestration_post, send_post, orchestration_full, manager_server_ignore_lock_post, cluster_post
 
 if t.TYPE_CHECKING:
     from dimensigon.use_cases.operations import IOperationEncapsulation
@@ -62,7 +62,13 @@ def home():
 def join_token():
     if current_user.user == User.get_by_user('root').user:
         user_join = User.get_by_user('join')
-        return {'token': create_access_token(str(user_join.id))}, 200
+        expire_time = request.args.get('expires_time', type=int, default=None)
+
+        kwargs = {}
+        if expire_time:
+            kwargs['expires_delta'] = dt.timedelta(minutes=expire_time)
+
+        return {'token': create_access_token(str(user_join.id), **kwargs)}, 200
     else:
         return {}, 401
 
@@ -77,18 +83,34 @@ def join_public():
         return {}, 401
 
 
+servers_to_be_created = {}
+
+
+def delete_old_temp_servers():
+    global servers_to_be_created
+    now = get_now()
+    for s_id, data in list(servers_to_be_created.items()):
+        s_created = dt.datetime.strptime(data['created_on'], defaults.DATETIME_FORMAT)
+        if now - s_created > dt.timedelta(hours=1):
+            servers_to_be_created.pop(s_id, None)
+
+
+fetched_catalog = (get_now(), None)
+_lock = threading.Lock()
+
+
 @api_bp.route('/join', methods=['POST'])
 @securizer
 @jwt_required
-@lock_catalog
 def join():
+    global fetched_catalog
     if current_user.user == User.get_by_user('join').user:
         js = request.get_json()
-        current_app.logger.debug(f"New server wanting to join: {js}")
+        current_app.logger.debug(f"New server wanting to join: {json.dumps(js, indent=2)}")
         if len(db.session.query(Server).filter_by(id=js.get('id', None)).all()) > 0:
             raise errors.IdAlreadyExists(js.get('id', None))
         s = Server.from_json(js)
-        s.alive = False
+        s.created_on = get_now()
         external_ip = ipaddress.ip_address(request.remote_addr)
         if not external_ip.is_loopback and external_ip not in [gate.ip for gate in s.gates]:
             for port in set([gate.port for gate in s.gates]):
@@ -114,20 +136,38 @@ def join():
         data.update(Dimension=g.dimension.to_json())
         data.update(me=str(Server.get_current().id))
 
-        Route(destination=s, cost=0)
-        db.session.add(s)
-        db.session.commit()
+        with _lock:
+            if fetched_catalog[1] is None or fetched_catalog[0] < get_now() - dt.timedelta(minutes=1):
+                c = fetch_catalog(defaults.INITIAL_DATEMARK)
+                fetched_catalog = (get_now(), c)
+            else:
+                c = fetched_catalog[1]
+        data.update(catalog=c)
 
-        catalog = fetch_catalog(defaults.INITIAL_DATEMARK)
-        data.update(catalog=catalog)
-
+        server_data = s.to_json(add_gates=True)
+        servers_to_be_created.update({s.id: server_data})
+        del s
         return data, 200
     else:
         raise errors.GenericError('Invalid token', status_code=400)
 
 
+@api_bp.route('/join/acknowledge/<server_id>', methods=['POST'])
+@jwt_required
+@lock_catalog
+def join_acknowledge(server_id):
+    server_data = servers_to_be_created.get(server_id, None)
+    if not server_data:
+        raise errors.EntityNotFound('Server', server_id)
+    s = Server.from_json(server_data)
+    db.session.add(s)
+    db.session.commit()
+    current_app.logger.debug(f"Server join acknowledge {s.name}")
+    return {}, 204
+
+
 @api_bp.route('/manager/server_ignore_lock', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 @validate_schema(manager_server_ignore_lock_post)
@@ -145,7 +185,7 @@ def internal_server():
 
 
 @api_bp.route('/send', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 @validate_schema(send_post)
@@ -242,7 +282,7 @@ def send():
 
 
 @api_bp.route('/software/dimensigon', methods=['GET'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 def software_dimensigon():
@@ -265,7 +305,7 @@ def software_dimensigon():
 
 
 @api_bp.route('/catalog', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 def catalog_update():
@@ -278,7 +318,7 @@ def catalog_update():
 
 
 @api_bp.route('/catalog/<string:data_mark>', methods=['GET', 'POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 def catalog(data_mark):
@@ -294,12 +334,15 @@ def catalog(data_mark):
     return fetch_catalog(data_validated)
 
 
+@log_time()
 def fetch_catalog(data_mark):
     data = {}
+    now = get_now()
     for name, obj in get_distributed_entities():
         c = Catalog.query.get(name)
         # db.session.query to bypass deleted objects to spread deleted changes
-        repo_data = db.session.query(obj).filter(obj.last_modified_at > data_mark).all()
+        repo_data = db.session.query(obj).filter(obj.last_modified_at > data_mark).filter(
+            obj.last_modified_at <= now).all()
         if name == 'User':
             data.update({name: [e.to_json(password=True) for e in repo_data]})
         else:
@@ -311,74 +354,63 @@ _cluster_logger = logging.getLogger('dimensigon.cluster')
 
 
 @api_bp.route('/cluster', methods=['POST'])
-@forward_or_dispatch
+@log_time('full')
+@forward_or_dispatch()
+@log_time('before securizer')
 @jwt_required
 @securizer
+@log_time('after securizer')
+@validate_schema(cluster_post)
+@log_time('after validation')
 def cluster():
     user = User.get_current()
     if user and user.user == 'root':
         data = request.get_json()
-        if _cluster_logger.level <= logging.DEBUG:
-            if isinstance(data, list):
-                readable_data = []
-                for cr in data:
-                    c_cr = dict(cr)
-                    iden = c_cr.pop('id')
-                    readable_data.append(c_cr)
-                    s = Server.query.get(iden)
-                    if s:
-                        readable_data[-1].update(name=s.name)
-                    else:
-                        readable_data[-1].update(id=id)
-            else:
-                c_cr = dict(data)
-                iden = c_cr.pop('id')
-                readable_data = c_cr
-                s = Server.query.get(iden)
-                if s:
-                    readable_data.update(name=s.name)
-                else:
-                    readable_data.update(id=id)
-            try:
-                dumped = json.dumps(readable_data, indent=4)
-            except:
-                dumped = readable_data
-            _cluster_logger.debug(f"Cluster data received from {g.source}: {dumped}")
-
-        changed = current_app.cluster.update_cluster(data)
-        if changed:
-            cluster_data = current_app.cluster.get_cluster()
-            servers = Server.get_neighbours(exclude=g.source)
-            if servers:
-                executor.submit(asyncio.run,
-                                ntwrk.parallel_requests(servers, 'post',
-                                                        view_or_url='api_1_0.cluster',
-                                                        json=cluster_data,
-                                                        auth=get_auth_from_request(),
-                                                        timeout=6))
+        _cluster_logger.debug(f"Data received {clustering.log_data(data)}")
+        current_app.cluster_manager.put(data)
         return {}, 204
     else:
         raise errors.UserForbiddenError
 
 
-async def background_cluster_in(server_id, cr, routes, auth):
+async def background_cluster_in(server_id, routes, auth):
     server = Server.query.get(server_id)
     servers = Server.get_neighbours(exclude=server)
     tasks = []
     # cluster information
-    if cr:
-        tasks.append(clustering.send_cluster_register(cr, servers=servers, auth=auth))
+    # if cr:
+    #     tasks.append(clustering.send_cluster_register(cr, servers=servers, auth=auth))
 
     # route information
     changed_routes = {}
-    new_route = await routing.async_check_gates(server)
+    new_route = await routing.async_check_gates(server, timeout=5, retries=3, delay=2)
     if new_route and isinstance(new_route, RouteContainer):
-        routing.logger.debug(f'New neighbour {server} found through {new_route.gate}')
+        routing.logger.debug(f'cluster IN: New neighbour {server} found through {new_route.gate}')
         routing.set_route(server, new_route)
         changed_routes.update({server: new_route})
-    changed_routes.update(routing.update_route_table_from_data({'server_id': server_id, 'route_list': routes}, auth))
-    tasks.append(routing.async_send_routes(changed_routes, auth=auth, servers=servers))
+    else:
+        routing.logger.debug(f"cluster IN: {server} is not a neighbour")
+    try:
+        changed_routes.update(
+            routing.update_route_table_from_data({'server_id': server_id, 'route_list': routes}, auth))
+    except errors.InvalidRoute as e:
+        debug_new_routes = []
+        routes.sort(key=lambda x: x.get('cost') or routing.MAX_COST, reverse=True)
+        for new_route in routes:
+            target_server = Server.query.get(new_route.get('destination_id'))
+            proxy_server = Server.query.get(new_route.get('proxy_server_id'))
+            gate = Gate.query.get(new_route.get('gate_id'))
+            debug_new_route = dict(destination=getattr(target_server, 'name', new_route.get('destination_id')),
+                                   proxy_server=getattr(proxy_server, 'name', new_route.get('proxy_server_id')),
+                                   gate=str(gate) if gate else new_route.get('gate_id'),
+                                   cost=new_route.get('cost'))
+            debug_new_routes.append(debug_new_route)
+            routing.logger.exception(
+                "Error setting routes from following data: " + json.dumps(debug_new_routes, indent=4))
+        raise
+    tasks.append(routing.async_send_routes(changed_routes, auth=auth, servers=servers, exclude=server))
     await asyncio.gather(*tasks)
+
 
 @api_bp.route('/cluster/in/<server_id>', methods=['POST'])
 @jwt_required
@@ -386,25 +418,24 @@ async def background_cluster_in(server_id, cr, routes, auth):
 def cluster_in(server_id):
     user = User.get_current()
     if user and user.user == 'root':
-        server = Server.query.get_or_404(server_id)
-        cr = current_app.cluster.set_alive(server_id, int(request.headers.get('D-Session')))
+        cr = current_app.cluster_manager.set_alive(server_id)
         _cluster_logger.debug(
-            f"{getattr(server, 'name', False) or server_id} is a new alive server")
-        executor.submit(asyncio.run, background_cluster_in(server_id, cr, request.get_json(), get_auth_from_request()))
-        return {'cluster': current_app.cluster.get_cluster(),
+            f"{getattr(Server.query.get(server_id), 'name', server_id) or server_id} is a new alive server")
+
+        # run background execution to check routes
+        executor.submit(asyncio.run, background_cluster_in(server_id, request.get_json(), get_auth_from_request()))
+
+        return {'cluster': current_app.cluster_manager.cluster.get_cluster(),
                 'neighbours': [s.id for s in Server.get_neighbours()]}, 200
 
     else:
         raise errors.UserForbiddenError
 
 
-async def background_cluster_out(server_id, cr, auth):
+async def background_cluster_out(server_id, auth):
     server = Server.query.get(server_id)
     servers = Server.get_neighbours(exclude=server)
     tasks = []
-    # cluster information
-    if cr:
-        tasks.append(clustering.send_cluster_register(cr, servers=servers, auth=auth))
 
     # route information
     tasks.append(routing.async_remove_neighbour_send(server_id, auth=auth, servers=servers))
@@ -426,51 +457,41 @@ def cluster_out(server_id):
                 death = get_now()
         else:
             death = None
-        cr = current_app.cluster.set_death(server_id, session=int(request.headers.get('D-Session')), death=death)
+        current_app.cluster_manager.set_death(server_id, death=death)
         _cluster_logger.debug(f"{Server.query.get(server_id).name or server_id} is a death server")
-        executor.submit(asyncio.run, background_cluster_out(server_id, cr, get_auth_from_request()))
+
+        # run background route
+        executor.submit(asyncio.run, background_cluster_out(server_id, get_auth_from_request()))
+
         return {}, 204
     else:
         raise errors.UserForbiddenError
 
 
-@api_bp.route('/routes/<server_id>', methods=['GET'])
-@forward_or_dispatch
-@jwt_required
-@securizer
-def routes_neighbour(server_id):
-    server = Server.query.get_or_404(server_id)
-    route = routing.check_neighbour(server)
-    # change server
-    if route:
-        return {'neighbour': True}
-    else:
-        return {'neighbour': False}
+# @api_bp.route('/routes/<server_id>', methods=['GET'])
+# @forward_or_dispatch()
+# @jwt_required
+# @securizer
+# def routes_neighbour(server_id):
+#     server = Server.query.get_or_404(server_id)
+#     route = routing.check_neighbour(server)
+#     # change server
+#     if route:
+#         return {'neighbour': True}
+#     else:
+#         return {'neighbour': False}
 
 
 # set node to alive and check if neighbour
-async def keepalive_and_check_neighbour(server: Server, session):
-    logger = logging.getLogger('dimensigon.cluster')
-    server = db.session.merge(server)
-    cr = current_app.cluster.set_keepalive(server.id, session)
-    n = Server.get_neighbours()
-    auth = get_root_auth()
-    responses = await ntwrk.parallel_requests(n, 'post',
-                                              view_or_url='api_1_0.cluster', json=cr, auth=auth)
-    for r, s in zip(responses, n):
-        if not r.ok:
-            logger.debug(f"Unable to send new keepalive information to {s}: {r}")
-
-    await routing.async_check_set_neighbour_send(server, auth=auth)
-
 
 @api_bp.route('/routes', methods=['GET', 'POST', 'PATCH'])
+@log_time('full')
+@forward_or_dispatch('GET', 'POST')
 @jwt_required
 @securizer
 @validate_schema(POST=routes_post, PATCH=routes_patch)
+@log_time('after validation')
 def routes():
-    if isinstance(g.source, Server):
-        executor.submit(asyncio.run(keepalive_and_check_neighbour(g.source, int(request.headers.get('D-Session')))))
     if request.method == 'GET':
         route_table = []
         for route in Route.query.join(Server.route).order_by(
@@ -481,15 +502,15 @@ def routes():
         return data
 
     elif request.method == 'POST':
-        async def job(data, auth):
-            new_routes = await routing.async_update_route_table_cost(**data)
+        async def job(msg, auth):
+            new_routes = await routing.async_update_route_table_cost(**msg)
             if len(new_routes) > 0:
                 await routing.async_send_routes(auth=auth)
             return new_routes
 
         msg = request.get_json()
         if msg.get('background', False):
-            executor.submit(asyncio.run(job(msg, get_auth_from_request())))
+            executor.submit(asyncio.run, job(msg, get_auth_from_request()))
         else:
             asyncio.run(job(msg, HTTPBearerAuth(request.headers['Authorization'].split()[1])))
         return {}, 204
@@ -498,7 +519,9 @@ def routes():
         def job(msg, auth):
             new_routes = routing.update_route_table_from_data(msg, auth)
             if len(new_routes) > 0:
-                asyncio.run(routing.async_send_routes(new_routes, auth, msg.get('server_id')))
+                exclude = msg.get('exclude', [])
+                exclude.append(msg.get('server_id'))
+                asyncio.run(routing.async_send_routes(new_routes, auth, exclude=exclude))
 
         executor.submit(job, request.get_json(), HTTPBearerAuth(request.headers['Authorization'].split()[1]))
 
@@ -532,7 +555,7 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', var_context, 
 
 
 @api_bp.route('/launch/operation', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 def launch_operation():
@@ -562,11 +585,8 @@ def launch_operation():
         return r, 200
 
 
-
-
-
 @api_bp.route('/launch/orchestration/<orchestration_id>', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 @validate_schema(launch_orchestration_post)
@@ -629,16 +649,6 @@ def launch_orchestration(orchestration_id):
         else:
             return orch_exe.to_json(add_step_exec=True, human=check_param_in_uri('human'), split_lines=True), 200
 
-async def parallel_command_run(servers, data, auth):
-    server_responses = {}
-    for server in servers:
-        server_responses[str(server.id)] = asyncio.create_task(
-            ntwrk.async_post(server, 'api_1_0.launch_command', json=data, auth=auth, timeout=data.get('timeout', None)))
-
-    for server in servers:
-        server_responses[str(server.id)] = await server_responses[str(server.id)]
-    return server_responses
-
 
 def wrap_sudo(user, cmd):
     if isinstance(user, User):
@@ -646,15 +656,14 @@ def wrap_sudo(user, cmd):
     else:
         username = user
     if isinstance(cmd, str):
-        return f"sudo -Siu {username} {cmd}"
+        return f"sudo -Siu {username} -- sh -c {shlex.quote(cmd)}"
     else:
-        args = ["sudo", "-Siu", username]
-        args.extend(cmd)
+        args = ["sudo", "-Siu", username, "--", "bash" "-c",  shlex.quote(cmd)]
         return args
 
 
 @api_bp.route('/launch/command', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 @validate_schema(launch_command_post)
@@ -662,22 +671,22 @@ def launch_command():
     data = request.get_json()
 
     server_list = []
-    if 'hosts' in data:
+    if 'target' in data:
         not_found = []
         servers = Server.query.all()
-        if data['hosts'] == 'all':
+        if data['target'] == 'all':
             server_list = servers
-        elif is_iterable_not_string(data['hosts']):
-            for vv in data['hosts']:
+        elif is_iterable_not_string(data['target']):
+            for vv in data['target']:
                 sl = search(vv, servers)
                 if len(sl) == 0:
                     not_found.append(vv)
                 else:
                     server_list.extend(sl)
         else:
-            sl = search(data['hosts'], servers)
+            sl = search(data['target'], servers)
             if len(sl) == 0:
-                not_found.append(data['hosts'])
+                not_found.append(data['target'])
             else:
                 server_list.extend(sl)
         if not_found:
@@ -687,9 +696,9 @@ def launch_command():
 
     if re.search(r'rm\s+((-\w+|--[-=\w]*)\s+)*(-\w*[rR]\w*|--recursive)', data['command']):
         return {'error': 'rm with recursion is not allowed'}, 403
-    data.pop('hosts', None)
+    data.pop('target', None)
     start = None
-    resp = {}
+
     username = getattr(current_user, 'user', None)
     if not username:
         raise errors.EntityNotFound('User', current_user)
@@ -697,65 +706,65 @@ def launch_command():
     if g.server in server_list:
         start = time.time()
         server_list.pop(server_list.index(g.server))
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if data.get('input', None) else None,
-                                stderr=subprocess.PIPE, stdout=subprocess.PIPE,
-                                shell=True, close_fds=True, encoding='utf-8')
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if data.get('input', None) else None, stderr=subprocess.PIPE,
+                                stdout=subprocess.PIPE, shell=True, close_fds=True, encoding='utf-8')
 
     resp_data = {}
+    if check_param_in_uri("human"):
+        attr = 'name'
+    else:
+        attr = 'id'
     if server_list:
-        resp = asyncio.run(
-            parallel_command_run(server_list, data, auth=HTTPBearerAuth(create_access_token(get_jwt_identity()))))
-        for s, r in resp.items():
-            if r[1] == 200:
-                if s in r[0]:
-                    resp_data[s] = r[0][s]
-                else:
-                    resp_data[s] = r[0]
+        resp: t.List[ntwrk.Response] = asyncio.run(
+            ntwrk.parallel_requests(server_list, method='POST', view_or_url='api_1_0.launch_command', json=data,
+                                    auth=get_auth_from_request()))
+        for s, r in zip(server_list, resp):
+            key = getattr(s, attr, s.id)
+            if r.ok:
+                resp_data[key] = r.msg[s.id]
             else:
-                if r[1]:
-                    resp_data[s] = {
-                        'error': {'status_code': r[1], 'response': r[0] if isinstance(r[0], str) else str(r[0])}}
+                if not r.exception:
+                    resp_data[key] = {
+                        'error': {'status_code': r.code, 'response': r.msg}}
                 else:
-                    if current_app.config['DEBUG']:
-                        f_tb = traceback.format_exception(type(r[0]), r[0], r[0].__traceback__)
+                    if isinstance(r.exception, errors.BaseError):
+                        resp_data[key] = errors.format_error_content(r.exception, current_app.config['DEBUG'])
                     else:
-                        f_tb = traceback.format_exception_only(type(r[0]), r[0], r[0])
-                    resp_data[s] = {'error': ''.join(f_tb)}
+                        resp_data[key] = {
+                            'error': format_exception(r.exception) if current_app.config['DEBUG'] else str(
+                                r.exception) or str(r.exception.__class__.__name__)}
 
     if start:
+        key = getattr(g.server, attr, g.server.id)
         timeout = data.get('timeout', defaults.TIMEOUT_COMMAND)
         try:
-            outs, errs = proc.communicate(input=(data.get('input', '') or ''), timeout=timeout - (time.time() - start))
+            outs, errs = proc.communicate(input=(data.get('input', '') or ''), timeout=timeout)
         except (TimeoutError, subprocess.TimeoutExpired):
             proc.kill()
             try:
                 outs, errs = proc.communicate(timeout=1)
             except:
-                resp_data[str(g.server.id)] = {
-                    'error': f"Command '{cmd}' timed out after {timeout} seconds. Unable to communicate with the process."}
+                resp_data[key] = {
+                    'error': f"Command '{cmd}' timed out after {timeout} seconds. Unable to communicate with the process launched."}
             else:
-                resp_data[str(g.server.id)] = {
+                resp_data[key] = {
                     'error': f"Command '{cmd}' timed out after {timeout} seconds",
                     'stdout': outs.split('\n'), 'stderr': errs.split('\n')}
         except Exception as e:
             current_app.logger.exception("Exception raised while trying to run command")
-            resp_data[str(g.server.id)] = {
-                'error': traceback.format_exc() if current_app.config['DEBUG'] else traceback.format_exception_only()}
+            resp_data[key] = {
+                'error': traceback.format_exc() if current_app.config['DEBUG'] else str(
+                    r.exception) or str(r.exception.__class__.__name__)}
         else:
-            resp_data[str(g.server.id)] = {'stdout': outs.split('\n'), 'stderr': errs.split('\n'),
+            resp_data[key] = {'stdout': outs.split('\n'), 'stderr': errs.split('\n'),
                                            'returncode': proc.returncode}
-    if check_param_in_uri("human"):
-        convert_human = {}
-        for s_id, r in resp_data.items():
-            convert_human[Server.query.get(s_id).name] = r
-        resp_data = convert_human
     resp_data['cmd'] = cmd
     resp_data['input'] = data.get('input', None)
     return resp_data, 200
 
 
 @api_bp.route('/events/<event_id>', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 def events(event_id):
@@ -765,7 +774,7 @@ def events(event_id):
 
 
 @api_bp.route('/orchestrations/full', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_required
 @securizer
 @validate_schema(orchestration_full)

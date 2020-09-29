@@ -81,9 +81,12 @@ def refresh_access_token():
         raise ValueError('empty refresh token. Login first')
     auth = HTTPBearerAuth(env._refresh_token)
     resp = requests.post(url, auth=auth, verify=False, timeout=10)
-    resp.raise_for_status()
-    env._access_token = resp.json().get('access_token', None)
-    return resp.json().get('username', None)
+    if resp.status_code == 401:
+        login()
+    else:
+        resp.raise_for_status()
+        env._access_token = resp.json().get('access_token', None)
+        return resp.json().get('username', None)
 
 
 def request(method, url, session=None, token_refreshed=False, **kwargs) -> Response:
@@ -107,8 +110,8 @@ def request(method, url, session=None, token_refreshed=False, **kwargs) -> Respo
             try:
                 refresh_access_token()
             except requests.exceptions.ConnectionError as e:
-                return Response(exception=ValueError(f"Unable to contact with {env.get('SCHEME')}://"
-                                                     f"{env.get('SERVER')}:{env.get('PORT')}/"),
+                return Response(exception=ConnectionError(f"Unable to contact with {env.get('SCHEME')}://"
+                                                     f"{env.get('SERVER')}:{env.get('PORT')}/refresh"),
                                 url=url)
             except Exception as e:
                 return Response(exception=e, url=url)
@@ -131,6 +134,8 @@ def request(method, url, session=None, token_refreshed=False, **kwargs) -> Respo
             timeout = timeout[0] + timeout[1]
         exception = TimeoutError(f"Socket timeout reached while trying to connect to {url} "
                                  f"for {timeout} seconds")
+    except requests.ConnectionError as e:
+        exception = ConnectionError(f"Unable to contact to {url}")
     except Exception as e:
         exception = e
     finally:
@@ -146,8 +151,8 @@ def request(method, url, session=None, token_refreshed=False, **kwargs) -> Respo
                 try:
                     refresh_access_token()
                 except requests.exceptions.ConnectionError as e:
-                    return Response(exception=ValueError(f"Unable to contact with {env.get('SCHEME')}://"
-                                                         f"{env.get('SERVER')}:{env.get('PORT')}/"),
+                    return Response(exception=ConnectionError(f"Unable to contact with {env.get('SCHEME')}://"
+                                                         f"{env.get('SERVER')}:{env.get('PORT')}/refresh"),
                                     url=url)
                 kwargs['auth'] = HTTPBearerAuth(env._access_token)
                 resp = request(method, url, session=_session, token_refreshed=True, **kwargs)

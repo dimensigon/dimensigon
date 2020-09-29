@@ -77,7 +77,6 @@ def bypass_datamark_update(session=None):
 def update_datemark(set):
     catalog.datemark = set
 
-
 def set_events():
     for name, entity in get_distributed_entities():
         def receive_before_insert(mapper, connection, target):

@@ -1,21 +1,24 @@
 import json
+import traceback
 import typing as t
 from datetime import datetime
 from http.client import HTTPException
 
 import flask
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, current_app
 from jsonschema import ValidationError
 from sqlalchemy.orm.exc import NoResultFound
 from werkzeug.exceptions import InternalServerError
 
 from dimensigon import defaults
-from dimensigon.utils.helpers import is_iterable_not_string, is_string_types
+from dimensigon.utils.decorators import reify
+from dimensigon.utils.helpers import is_iterable_not_string, is_string_types, format_exception
 from dimensigon.utils.typos import Id
 
 if t.TYPE_CHECKING:
     from dimensigon.web.network import Response
     from dimensigon.domain.entities import Scope, State, Server
+    from dimensigon.domain.entities.route import RouteContainer
 
 bp_errors = Blueprint('errors', __name__)
 
@@ -50,7 +53,7 @@ class BaseError(Exception):
             return msg if msg else payload
 
 
-def format_error_content(error):
+def format_error_content(error, debug=False):
     content = {
         'error': {
             'type': error.__class__.__name__,
@@ -60,6 +63,8 @@ def format_error_content(error):
 
     if error.payload:
         content['error'].update(error.payload)
+    if debug:
+        content['error'].update(traceback=format_exception(error))
     return content
 
 
@@ -86,7 +91,7 @@ def validation_error(error: ValidationError):
 
 
 @bp_errors.app_errorhandler(HTTPException)
-def handle_exception(e):
+def handle_HTTP_exception(e):
     """Return JSON instead of HTML for HTTP errors."""
     # start with the correct headers and status code from the error
     response = e.get_response()
@@ -101,20 +106,16 @@ def handle_500(error):
     status_code = 500
     original = getattr(error, "original_exception", None)
 
-    response = {'error': {
-        'type': error.__class__.__name__,
-        'message': error.description,
-    }
-    }
+    response = {'error': {}}
 
-    # if current_app.config['DEBUG']:
-    #
-    #     args = [str(x) for x in error.args]
-    #     if len(args) == 1:
-    #         response['error']['message'] = args[0]
-    #     elif len(args) > 1:
-    #         response['error']['message'] = args
-
+    if current_app.config['DEBUG']:
+        tb = [call_string.splitlines() for call_string in traceback.format_tb(original.__traceback__)]
+        tb = [val for sublist in tb for val in sublist]
+        response['error'].update(type=original.__class__.__name__,
+                                 message=str(original),
+                                 traceback=tb)
+    else:
+        response['error'].update(type=error.__class__.__name__, message=error.description)
     return jsonify(response), status_code
 
 
@@ -606,3 +607,37 @@ class ParameterMustBeSet(BaseError):
     def _format_error_msg(self) -> str:
         return self.msg
 
+
+class InvalidRoute(BaseError):
+    status_code = 500
+
+    def __init__(self, destination: 'Server', rc: 'RouteContainer'):
+        self.destination = destination
+        self.rc = rc
+        # to load data
+        self.payload
+
+    def _format_error_msg(self) -> str:
+        return "trying to set an invalid Route"
+
+    @reify
+    def payload(self) -> t.Optional[dict]:
+        data = {'route': {'destination': {'id': self.destination.id, 'name': self.destination.name},
+                          'proxy_server': None, 'gate': None, 'cost': None}}
+        if self.rc.proxy_server:
+            data['route']['proxy_server'] = {'id': self.rc.proxy_server.id, 'name': self.rc.proxy_server.name}
+        if self.rc.gate:
+            data['route']['gate'] = {'id': self.rc.gate.id, 'gate': str(self.rc.gate)}
+        if self.rc.cost is not None:
+            data['route']['cost'] = self.rc.cost
+
+        return data
+
+class InvalidDateFormat(BaseError):
+
+    def __init__(self, date: str, expected_format: str):
+        self.input_date = date
+        self.expected_format = expected_format
+
+    def _format_error_msg(self) -> str:
+        return "Date is not a valid format"

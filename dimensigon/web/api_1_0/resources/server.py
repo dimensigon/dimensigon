@@ -7,12 +7,12 @@ from dimensigon.use_cases import routing
 from dimensigon.web import errors, db
 from dimensigon.web.decorators import securizer, forward_or_dispatch, lock_catalog, validate_schema
 from dimensigon.web.helpers import filter_query, check_param_in_uri
-from dimensigon.web.json_schemas import server_patch
+from dimensigon.web.json_schemas import server_patch, servers_delete
 
 
 class ServerList(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self):
@@ -23,9 +23,35 @@ class ServerList(Resource):
                           add_ignore=True) for s in
                 query.all()]
 
+    @forward_or_dispatch()
+    @jwt_required
+    @securizer
+    @validate_schema(servers_delete)
+    @lock_catalog
+    def delete(self):
+        servers = [Server.query.get_or_404(s_id) for s_id in request.get_json()['server_ids']]
+        acquired = routing._lock.acquire(timeout=15)
+        if acquired:
+            current_app.logger.debug(f"Routing Lock acquired for deletion of servers {servers}")
+        else:
+            current_app.logger.debug(f"Unable to lock Routing Lock. Force deletion of servers {servers}")
+        try:
+            for server in servers:
+                if server == g.server:
+                    raise errors.ServerDeleteError
+                # remove associated routes
+                db.session.delete(server.route)
+                server.delete()
+            db.session.commit()
+        finally:
+            if acquired:
+                routing._lock.release()
+
+        return {}, 204
+
 
 class ServerResource(Resource):
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self, server_id):
@@ -34,7 +60,7 @@ class ServerResource(Resource):
                                                           no_delete=True,
                                                           add_ignore=True)
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(server_patch)
@@ -59,7 +85,7 @@ class ServerResource(Resource):
 
         return {}, 204
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @lock_catalog
@@ -80,7 +106,8 @@ class ServerResource(Resource):
         except:
             raise
         finally:
-            routing._lock.release()
+            if acquired:
+                routing._lock.release()
 
         return {}, 204
 

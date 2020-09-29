@@ -12,6 +12,7 @@ from prompt_toolkit.history import InMemoryHistory
 import dimensigon.dshell.network as ntwrk
 from dimensigon.dshell.argparse_raise import ArgumentParserRaise
 from dimensigon.dshell.helpers import get_history, exit_dshell
+from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.step import subprompt as step_subprompt
 from dimensigon.dshell.prompts.utils import prompt_parameter
 from dimensigon.dshell.validators import BoolValidator
@@ -29,7 +30,9 @@ subparser = parser.add_subparsers(dest='cmd')
 preview_action = subparser.add_parser('preview')
 preview_action.set_defaults(func=lambda x: pprint(x))
 set_action = subparser.add_parser('set')
-set_action.add_argument('parameter', help=', '.join(form.keys()))
+set_action.add_argument('parameter', choices=form.keys())
+delete_parser = subparser.add_parser('delete')
+delete_parser.add_argument('parameter', choices=form.keys())
 submit_action = subparser.add_parser('submit')
 dump_action = subparser.add_parser('dump')
 dump_action.add_argument('file')
@@ -44,11 +47,8 @@ entity_name = os.path.basename(__file__).rstrip('.py')
 
 def submit(entity):
     resp = ntwrk.post('api_1_0.orchestrationfull', json=entity)
-    if not resp.ok:
-        pprint(resp.msg or resp.exception)
-        return False
-    pprint(resp.msg)
-    return True
+    dprint(resp)
+    return resp.ok
 
 
 def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
@@ -88,19 +88,22 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
             orch = copy.deepcopy(entity)
             for s in orch['steps']:
                 s.pop('orchestration_id', None)
-            pprint(orch)
+            dprint(orch)
         elif namespace.cmd == 'set':
+            try:
+                if prompt_parameter(namespace.parameter, entity, form,
+                                    f"{parent_prompt}{entity_name}('{entity['name']}')"):
+                    changed = True
+            except KeyboardInterrupt:
+                continue  # Control-C pressed. Try again.
+            except EOFError:
+                exit_dshell(rc=1)
+        elif namespace.cmd == 'delete':
             if namespace.parameter not in form.keys():
-                print("Not a valid parameter. Available: " + ', '.join(form.keys()))
+                dprint("Not a valid parameter. Available: " + ', '.join(form.keys()))
             else:
-                try:
-                    if prompt_parameter(namespace.parameter, entity, form,
-                                        f"{parent_prompt}{entity_name}('{entity['name']}')"):
-                        changed = True
-                except KeyboardInterrupt:
-                    continue  # Control-C pressed. Try again.
-                except EOFError:
-                    exit_dshell(rc=1)
+                entity.pop(namespace.parameter)
+                changed = True
         elif namespace.cmd == 'submit':
             created = submit(entity)
             if created:
@@ -123,7 +126,7 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
                         step = s
                         break
                 else:
-                    print('id step does not exists in this orchestration')
+                    dprint('id step does not exists in this orchestration')
                     continue
 
             if not step:

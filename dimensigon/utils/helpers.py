@@ -1,4 +1,3 @@
-import configparser
 import datetime as dt
 import hashlib
 import importlib
@@ -6,25 +5,23 @@ import inspect
 import itertools
 import logging
 import os
-import platform
 import re
 import sys
 import traceback
 import typing as t
-from collections import Iterable, ChainMap
+from collections import Iterable
 from contextlib import contextmanager
 
 import netifaces
 import six
-import yaml
 from cryptography.fernet import Fernet
 from flask import current_app
 from tzlocal import get_localzone
 
-import dimensigon.defaults as d
 from dimensigon import defaults
 
 _LOGGER = logging.getLogger(__name__)
+
 
 class Singleton(type):
     """ Metaclass that creates a Singleton base type when called. """
@@ -35,6 +32,7 @@ class Singleton(type):
             cls._instances[cls] = super(Singleton, cls)\
                 .__call__(*args, **kwargs)
         return cls._instances[cls]
+
 
 class AttributeDict(dict):
     __getattr__ = dict.__getitem__
@@ -210,89 +208,6 @@ def md5(fname):
         for chunk in iter(lambda: f.read(4096), b""):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
-
-
-def load_config_yaml():
-    filename = os.path.join(d.HOME, d.CONFIG_FILE)
-    with open(filename) as fd:
-        config = yaml.load(fd, Loader=yaml.FullLoader)
-    # if 'host' in config and config['host'].strip() == '0.0.0.0':
-    #     config['host'] = '127.0.0.1'
-
-    return config
-
-
-def save_config_yaml(config):
-    filename = os.path.join(d.HOME, d.CONFIG_FILE)
-    with open(filename, 'w') as fd:
-        yaml.dump(config, fd)
-
-
-def update_config_yaml(param, value):
-    filename = os.path.join(d.HOME, d.CONFIG_FILE)
-    yaml_config = load_config_yaml()
-    attributes = param.split('.')
-    selected = yaml_config
-    i = 0
-    while i < (len(attributes) - 1):
-        selected = selected[attributes[i]]
-        i += 1
-    selected.update({attributes[-1]: value})
-    save_config_yaml(yaml_config)
-
-
-def load_config_wsgi():
-    filename = os.path.join(d.HOME, d.WSGI_FILE)
-    config = configparser.ConfigParser()
-    # if not os.path.exists(filename):
-    #     file = os.path.join(os.getcwd(), filename)
-    # else:
-    r = config.read(filename)
-    protocol = None
-    if len(r) == 0:
-        raise FileNotFoundError(f"unable to find file '{filename}'")
-    if 'uwsgi' not in config:
-        raise ValueError("Section 'uwsgi' not found in file")
-    if 'https' in config['uwsgi']:
-        raise NotImplemented('https not supported')
-    else:
-        if 'http' in config['uwsgi']:
-            protocol = 'http'
-            ip, port = config['uwsgi']['http'].split(':')
-
-    if ip is None or ip == '*' or ip == '0.0.0.0':
-        ip = '127.0.0.1'
-    port = int(port) if port else defaults.PORT
-    return {'dimensigon': {'protocol': protocol, 'host': ip, 'port': port, 'venv': config.get('venv', None)}}
-
-
-def collect_initial_config():
-    config = ChainMap(load_config_yaml())
-    # if platform.system() == 'Windows':
-    #     p = find_process_by_name('flask')
-    #     if not p:
-    #         p = find_python_file_executed('__main__.py')
-    #     args = p.cmdline()
-    #     host_op = '-h' if '-h' in args else '--host' if '--host' in args else None
-    #     if host_op:
-    #         ip = args[args.index(host_op) + 1]
-    #     else:
-    #         ip = '127.0.0.1'
-    #     port_op = '-p' if '-p' in args else '--port' if '--port' in args else None
-    #     if port_op:
-    #         port = args[args.index(port_op) + 1]
-    #     else:
-    #         if 'FLASK_RUN_PORT' in p.environ():
-    #             port = p.environ()['FLASK_RUN_PORT']
-    #         else:
-    #             port = 5000
-    #     protocol = 'https' if '--cert' in args else 'http'
-    #
-    #     config = {'protocol': protocol, 'ip': ip, 'port': port, 'venv': p.environ().get('VIRTUAL_ENV', None)}
-    if platform.system() == 'Linux':
-        config = config.new_child(load_config_wsgi())
-
-    return config
 
 
 def get_filename_from_cd(cd):
@@ -475,3 +390,7 @@ def session_scope(session=None):
         raise
     finally:
         session.close()
+
+
+def format_exception(exc: Exception):
+    return ''.join(traceback.format_exception(exc, exc, exc.__traceback__))

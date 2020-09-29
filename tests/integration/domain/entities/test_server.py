@@ -32,8 +32,8 @@ class TestServer(TestCase):
         Route(destination=self.n1, cost=0)
         Route(destination=self.n2, cost=0)
         Route(destination=self.n3, cost=0)
-        Route(destination=self.r1, proxy_server=self.n1, cost=1)
-        Route(destination=self.r2, proxy_server=self.n2, cost=1)
+        Route(destination=self.r1, proxy_server_or_gate=self.n1, cost=1)
+        Route(destination=self.r2, proxy_server_or_gate=self.n2, cost=1)
 
         db.session.commit()
 
@@ -72,8 +72,8 @@ class TestServer(TestCase):
         n3 = Server('n3', port=8000)
         r1 = Server('r1', port=8000)
         Route(destination=n1, cost=0)
-        Route(destination=n2, gate=n2.gates[0])
-        Route(destination=r1, proxy_server=n1, cost=1)
+        Route(destination=n2, proxy_server_or_gate=n2.gates[0])
+        Route(destination=r1, proxy_server_or_gate=n1, cost=1)
 
         me = Server('me', port=8000, me=True)
         db.session.add_all([n1, n2, n3, r1, me])
@@ -102,13 +102,35 @@ class TestServer(TestCase):
         n3.route = None
         r1 = Server('r1', port=8000, id='22cd859d-ee91-4079-a112-000000000011')
         Route(destination=n1, cost=0)
-        Route(destination=n2, gate=n2.gates[0])
-        Route(destination=r1, proxy_server=n1, cost=1)
+        Route(destination=n2, proxy_server_or_gate=n2.gates[0])
+        Route(destination=r1, proxy_server_or_gate=n1, cost=1)
 
         me = Server('me', port=8000, me=True)
         db.session.add_all([n1, n2, n3, r1, me])
 
         self.assertListEqual([n3, r1], me.get_not_neighbours())
+
+    def test_get_reachable_servers(self):
+        n1 = Server('n1', port=8000, id='22cd859d-ee91-4079-a112-000000000001')
+        n2 = Server('n2', port=8000, id='22cd859d-ee91-4079-a112-000000000002')
+        n3 = Server('n3', port=8000, id='22cd859d-ee91-4079-a112-000000000003')
+        n3.route = None
+        n4 = Server('n4', port=8000, id='22cd859d-ee91-4079-a112-000000000004')
+        r1 = Server('r1', port=8000, id='22cd859d-ee91-4079-a112-000000000011')
+        Route(destination=n1, cost=0)
+        Route(destination=n2, proxy_server_or_gate=n2.gates[0])
+        Route(destination=n4)
+        Route(destination=r1, proxy_server_or_gate=n1, cost=1)
+
+        me = Server('me', port=8000, me=True)
+        db.session.add_all([n1, n2, n3, n4, r1, me])
+
+        self.assertListEqual([n1, n2, r1], me.get_reachable_servers())
+
+        self.assertListEqual([n2, r1], me.get_reachable_servers(exclude=n1))
+        self.assertListEqual([n2, r1], me.get_reachable_servers(exclude=n1.id))
+
+        self.assertListEqual([r1], me.get_reachable_servers(exclude=[n1.id, n2]))
 
     @patch('dimensigon.domain.entities.base.uuid.uuid4')
     def test_from_to_json_with_gate(self, mock_uuid):

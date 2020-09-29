@@ -35,8 +35,8 @@ DEFAULT_DB_FILE = "dimensigon.db"
 MAX_WAITING_TIME = 300  # time in seconds waiting tasks to finish
 MAX_TIME_WAITING_SERVERS = 600  # max time waiting for servers to be created
 JOIN_TOKEN_EXPIRE_TIME = 15  # join token expire time in minutes
-REFRESH_PERIOD = 2  # Run route table, catalog and cluster refresh every minutes
-COMA_NODE_FACTOR = 3  # multiply factor to decide if a node is in coma state. In time: COMA_NODE_FACTOR x REFRESH_PERIOD
+REFRESH_PERIOD = 5  # Run route table, catalog and cluster refresh every minutes
+COMA_NODE_FACTOR = 2  # multiply factor to decide if a node is in coma state. In time: COMA_NODE_FACTOR x REFRESH_PERIOD
 
 # quorum algorithm
 ADULT_NODES = dt.timedelta(hours=24)  # age of a node to be selectable for the quorum

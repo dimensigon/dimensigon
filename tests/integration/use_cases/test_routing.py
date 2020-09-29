@@ -6,7 +6,7 @@ from aioresponses import aioresponses
 from flask import url_for
 
 from dimensigon.domain.entities import User, Server, Gate, Route
-from dimensigon.domain.entities.server import RouteContainer
+from dimensigon.domain.entities.route import RouteContainer
 from dimensigon.use_cases.routing import asyncio, async_update_route_table_cost, update_route_table_from_data
 from dimensigon.web import create_app, db
 
@@ -41,7 +41,7 @@ class TestUpdateRouteTableCost(TestCase):
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3', me=True)
         g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
                   dns=s3.name)
-        Route(s1, gate=g1, cost=0)
+        Route(s1, g1, cost=0)
         db.session.add_all([s1, s2, s3])
 
         m.get(re.compile('https?://node1:5001.*'),
@@ -59,13 +59,14 @@ class TestUpdateRouteTableCost(TestCase):
                                 gate_id='00000000-0000-0000-0000-000000000011', proxy_server_id=None, cost=0),
                        ]})
 
-        def async_check_host(host, port, *args, **kwargs):
+        async def async_check_host(host, port, *args, **kwargs):
             if host == 'node1':
                 return True
             elif host == 'node2':
                 return True
             elif host == 'node3':
                 return True
+
 
         mocked_async_check_host.side_effect = async_check_host
 
@@ -98,8 +99,8 @@ class TestUpdateRouteTableCost(TestCase):
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
         g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
                   dns=s3.name)
-        Route(s2, gate=g2, cost=0)
-        Route(s3, gate=g3, cost=0)
+        Route(s2, g2, cost=0)
+        Route(s3, g3, cost=0)
         db.session.add_all([s1, s2, s3])
 
         m.get(re.compile('https?://node2:5002.*'),
@@ -111,7 +112,7 @@ class TestUpdateRouteTableCost(TestCase):
                                 gate_id='00000000-0000-0000-0000-000000000013', proxy_server_id=None, cost=0),
                        ]})
 
-        def async_check_host(host, port, *args, **kwargs):
+        async def async_check_host(host, port, *args, **kwargs):
             if host == 'node1':
                 return True
             elif host == 'node2':
@@ -150,7 +151,7 @@ class TestUpdateRouteTableCost(TestCase):
         g22 = Gate(id='00000000-0000-0000-0000-000000000022', server=s2, port=5022,
                    dns=s2.name)
 
-        Route(s2, gate=g21, cost=0)
+        Route(s2, g21, cost=0)
         db.session.add_all([s1, s2])
 
         m.get(Server.query.get('00000000-0000-0000-0000-000000000002').url('api_1_0.routes').replace(
@@ -161,7 +162,7 @@ class TestUpdateRouteTableCost(TestCase):
                                                cost=0),
                                       ]})
 
-        def async_check_host(host, port, *args, **kwargs):
+        async def async_check_host(host, port, *args, **kwargs):
             if host == 'node1' and port == 5001:
                 return True
             elif host == 'node2' and port == 5012:
@@ -198,8 +199,8 @@ class TestUpdateRouteTableCost(TestCase):
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
         g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
                   dns=s3.name)
-        Route(s2, gate=g2, cost=0)
-        Route(s3, gate=g3, cost=0)
+        Route(s2, g2, cost=0)
+        Route(s3, g3, cost=0)
         db.session.add_all([s1, s2, s3])
 
         m.get(re.compile('https?://node2:5002.*'),
@@ -211,7 +212,7 @@ class TestUpdateRouteTableCost(TestCase):
                                 gate_id=None, proxy_server_id=None, cost=None),
                        ]})
 
-        def async_check_host(host, port, *args, **kwargs):
+        async def async_check_host(host, port, *args, **kwargs):
             if host == 'node1':
                 return True
             elif host == 'node2':
@@ -248,7 +249,7 @@ class TestUpdateRouteTableCost(TestCase):
         g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5012,
                   dns=s2.name)
 
-        Route(s2, gate=g2, cost=0)
+        Route(s2, g2, cost=0)
         db.session.add_all([s1, s2])
 
         m.get(re.compile('https?://node2:5002.*'),
@@ -259,6 +260,16 @@ class TestUpdateRouteTableCost(TestCase):
                            dict(destination_id='00000000-0000-0000-0000-000000000003',
                                 gate_id='00000000-0000-0000-0000-000000000013', proxy_server_id=None, cost=0),
                        ]})
+
+        async def async_check_host(host, port, *args, **kwargs):
+            if host == 'node1':
+                return True
+            elif host == 'node2':
+                return True
+            else:
+                raise
+
+        mocked_async_check_host.side_effect = async_check_host
 
         mocked_async_check_host.assert_not_called()
 
@@ -289,7 +300,7 @@ class TestUpdateRouteTableCost(TestCase):
         g22 = Gate(id='00000000-0000-0000-0000-000000000022', server=s2, port=5000,
                    ip='10.0.0.2')
 
-        Route(s2, gate=g22, cost=0)
+        Route(s2, g22, cost=0)
         db.session.add_all([s1, s2])
         db.session.commit()
 
@@ -300,7 +311,7 @@ class TestUpdateRouteTableCost(TestCase):
                                 gate_id='00000000-0000-0000-0000-000000000022', proxy_server_id=None, cost=0),
                        ]})
 
-        def async_check_host(host, port, *args, **kwargs):
+        async def async_check_host(host, port, *args, **kwargs):
             if host == '127.0.0.1':
                 return True
             elif host == '10.0.0.1':
@@ -340,7 +351,7 @@ class TestUpdateRouteTableCost(TestCase):
         g22 = Gate(id='00000000-0000-0000-0000-000000000022', server=s2, port=5000,
                    ip='10.0.0.2')
 
-        Route(s2, gate=None, cost=None)
+        Route(s2, None, cost=None)
         db.session.add_all([s1, s2])
         db.session.commit()
 
@@ -358,7 +369,7 @@ class TestUpdateRouteTableCost(TestCase):
                                 gate_id='00000000-0000-0000-0000-000000000012', proxy_server_id=None, cost=0),
                        ]})
 
-        def async_check_host(host, port, *args, **kwargs):
+        async def async_check_host(host, port, *args, **kwargs):
             if host == '127.0.0.1':
                 return True
             elif host == '10.0.0.1':
@@ -400,9 +411,9 @@ class TestUpdateRouteTableCost(TestCase):
         s4 = Server(id='00000000-0000-0000-0000-000000000004', name='node4')
         g41 = Gate(id='00000000-0000-0000-0000-000000000041', server=s4)
 
-        Route(s2, gate=g21, cost=0)
-        Route(s3, gate=None, cost=None)
-        Route(s4, gate=None, cost=None)
+        Route(s2, g21, cost=0)
+        Route(s3, None, cost=None)
+        Route(s4, None, cost=None)
         db.session.add_all([s1, s2, s3, s4])
         db.session.commit()
 
@@ -424,7 +435,7 @@ class TestUpdateRouteTableCost(TestCase):
                                 gate_id=None, proxy_server_id='00000000-0000-0000-0000-000000000003', cost=1)
                        ]})
 
-        def async_check_host(host, port, *args, **kwargs):
+        async def async_check_host(host, port, *args, **kwargs):
             if host == 'node1':
                 return True
             elif host == 'node2':
@@ -488,17 +499,17 @@ class TestUpdateRouteTableFromData(TestCase):
         s2 = Server(id='00000000-0000-0000-0000-000000000002', name='server2')
         g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
                   dns=s2.name)
-        Route(s2, gate=g2, cost=0)
+        Route(s2, g2, cost=0)
 
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='server3')
         g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
                   dns=s3.name)
-        Route(s3, gate=g3, cost=0)
+        Route(s3, g3, cost=0)
 
         s4 = Server(id='00000000-0000-0000-0000-000000000004', name='server4')
         g4 = Gate(id='00000000-0000-0000-0000-000000000014', server=s4, port=5001,
                   dns=s4.name)
-        Route(s4, proxy_server=s2, cost=1)
+        Route(s4, s2, cost=1)
         db.session.add_all([s1, s2, s3, s4])
 
         # Server2 loses connectivity to Server4
@@ -530,7 +541,7 @@ class TestUpdateRouteTableFromData(TestCase):
 
     @patch('dimensigon.use_cases.routing.check_host')
     @patch('dimensigon.use_cases.routing.ntwrk.ping')
-    def test_routes_patch_scenario1(self, mocked_ping, mocked_check_host):
+    def test_routes_patch_scenario01(self, mocked_ping, mocked_check_host):
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
         g1 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
                   dns=s1.name)
@@ -541,19 +552,10 @@ class TestUpdateRouteTableFromData(TestCase):
         g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
                   dns=s3.name)
 
-        Route(s2, gate=g2, cost=0)
+        Route(s2, g2, cost=0)
         db.session.add_all([s1, s2, s3])
         db.session.commit()
 
-        def ping(server, *args, **kwargs):
-            if str(server.id) == '00000000-0000-0000-0000-000000000001':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
-                return 0, None
-
-        mocked_ping.side_effect = ping
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':
@@ -579,6 +581,7 @@ class TestUpdateRouteTableFromData(TestCase):
 
         self.assertDictEqual({s3: RouteContainer(None, g3, 0)}, new_routes)
 
+        self.assertEqual(0, mocked_ping.call_count)
         self.assertIsNone(s1.route)
 
         self.assertEqual(g2, s2.route.gate)
@@ -591,32 +594,22 @@ class TestUpdateRouteTableFromData(TestCase):
 
     @patch('dimensigon.use_cases.routing.check_host')
     @patch('dimensigon.use_cases.routing.ntwrk.ping')
-    def test_routes_patch_scenario2(self, mocked_ping, mocked_check_host):
+    def test_routes_patch_scenario02(self,
+                                     mocked_ping,
+                                     mocked_check_host):
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
-        g1 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
-                  dns=s1.name)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
+                   dns=s1.name)
         s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
-        g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
-                  dns=s2.name)
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
+                   dns=s2.name)
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
-        g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
-                  dns=s3.name)
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
+                   dns=s3.name)
 
-        Route(s2, gate=g2, cost=0)
+        Route(s2, g12, cost=0)
         db.session.add_all([s1, s2, s3])
         db.session.commit()
-
-        def ping(server, *args, **kwargs):
-            if str(server.id) == '00000000-0000-0000-0000-000000000001':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
-                return None, None
-            else:
-                raise
-
-        mocked_ping.side_effect = ping
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':
@@ -644,9 +637,10 @@ class TestUpdateRouteTableFromData(TestCase):
 
         self.assertDictEqual({s3: RouteContainer(s2, None, 1)}, new_routes)
 
+        self.assertEqual(0, mocked_ping.call_count)
         self.assertIsNone(s1.route)
 
-        self.assertEqual(g2, s2.route.gate)
+        self.assertEqual(g12, s2.route.gate)
         self.assertEqual(None, s2.route.proxy_server)
         self.assertEqual(0, s2.route.cost)
 
@@ -656,31 +650,21 @@ class TestUpdateRouteTableFromData(TestCase):
 
     @patch('dimensigon.use_cases.routing.check_host')
     @patch('dimensigon.use_cases.routing.ntwrk.ping')
-    def test_routes_patch_scenario3(self, mocked_ping, mocked_check_host):
+    def test_routes_patch_scenario03(self, mocked_ping, mocked_check_host):
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
-        g1 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
-                  dns=s1.name)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
+                   dns=s1.name)
         s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
-        g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
-                  dns=s2.name)
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
+                   dns=s2.name)
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
-        g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
-                  dns=s3.name)
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
+                   dns=s3.name)
 
-        Route(s2, gate=g2, cost=0)
-        Route(s3, proxy_server=s2, cost=1)
+        Route(s2, g12, cost=0)
+        Route(s3, s2, cost=1)
         db.session.add_all([s1, s2, s3])
         db.session.commit()
-
-        def ping(server, *args, **kwargs):
-            if str(server.id) == '00000000-0000-0000-0000-000000000001':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
-                return 1, None
-
-        mocked_ping.side_effect = ping
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':
@@ -700,42 +684,36 @@ class TestUpdateRouteTableFromData(TestCase):
                                                             cost=0)
                                                    ]})
 
-        self.assertDictEqual({s3: RouteContainer(None, g3, 0)}, new_routes)
+        self.assertDictEqual({s3: RouteContainer(None, g13, 0)}, new_routes)
+
+        self.assertEqual(0, mocked_ping.call_count)
         self.assertIsNone(s1.route)
 
-        self.assertEqual(g2, s2.route.gate)
+        self.assertEqual(g12, s2.route.gate)
         self.assertEqual(None, s2.route.proxy_server)
         self.assertEqual(0, s2.route.cost)
 
-        self.assertEqual(g3, s3.route.gate)
+        self.assertEqual(g13, s3.route.gate)
         self.assertEqual(None, s3.route.proxy_server)
         self.assertEqual(0, s3.route.cost)
 
     @patch('dimensigon.use_cases.routing.check_host')
     @patch('dimensigon.use_cases.routing.ntwrk.ping')
-    def test_routes_patch_scenario4(self, mocked_ping, mocked_check_host):
+    def test_routes_patch_scenario04(self,
+                                     mocked_ping,
+                                     mocked_check_host):
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
-        g1 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
-                  dns=s1.name)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
+                   dns=s1.name)
         s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
-        g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
-                  dns=s2.name)
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
+                   dns=s2.name)
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
-        g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
-                  dns=s3.name)
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
+                   dns=s3.name)
 
         db.session.add_all([s1, s2, s3])
         db.session.commit()
-
-        def ping(server, *args, **kwargs):
-            if str(server.id) == '00000000-0000-0000-0000-000000000001':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
-                return None, None
-
-        mocked_ping.side_effect = ping
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':
@@ -758,12 +736,13 @@ class TestUpdateRouteTableFromData(TestCase):
                                                             proxy_server_id=None,
                                                             cost=0)
                                                    ]})
-        self.assertDictEqual({s2: RouteContainer(None, g2, 0),
+        self.assertDictEqual({s2: RouteContainer(None, g12, 0),
                               s3: RouteContainer(s2, None, 1)}, new_routes)
 
+        self.assertEqual(0, mocked_ping.call_count)
         self.assertIsNone(s1.route)
 
-        self.assertEqual(g2, s2.route.gate)
+        self.assertEqual(g12, s2.route.gate)
         self.assertEqual(None, s2.route.proxy_server)
         self.assertEqual(0, s2.route.cost)
 
@@ -773,31 +752,23 @@ class TestUpdateRouteTableFromData(TestCase):
 
     @patch('dimensigon.use_cases.routing.check_host')
     @patch('dimensigon.use_cases.routing.ntwrk.ping')
-    def test_routes_patch_scenario5(self, mocked_ping, mocked_check_host):
+    def test_routes_patch_scenario05(self,
+                                     mocked_ping,
+                                     mocked_check_host):
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
-        g1 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
-                  dns=s1.name)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
+                   dns=s1.name)
         s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
-        g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
-                  dns=s2.name)
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
+                   dns=s2.name)
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
-        g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
-                  dns=s3.name)
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
+                   dns=s3.name)
 
-        Route(s2, gate=g2, cost=0)
-        Route(s3, gate=g3, cost=0)
+        Route(s2, g12, cost=0)
+        Route(s3, g13, cost=0)
         db.session.add_all([s1, s2, s3])
         db.session.commit()
-
-        def ping(server, *args, **kwargs):
-            if str(server.id) == '00000000-0000-0000-0000-000000000001':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
-                return 0, None
-
-        mocked_ping.side_effect = ping
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':
@@ -819,43 +790,34 @@ class TestUpdateRouteTableFromData(TestCase):
 
         self.assertDictEqual({}, new_routes)
 
+        self.assertEqual(0, mocked_ping.call_count)
         self.assertIsNone(s1.route)
 
-        self.assertEqual(g2, s2.route.gate)
+        self.assertEqual(g12, s2.route.gate)
         self.assertEqual(None, s2.route.proxy_server)
         self.assertEqual(0, s2.route.cost)
 
-        self.assertEqual(g3, s3.route.gate)
+        self.assertEqual(g13, s3.route.gate)
         self.assertEqual(None, s3.route.proxy_server)
         self.assertEqual(0, s3.route.cost)
 
     @patch('dimensigon.use_cases.routing.check_host')
     @patch('dimensigon.use_cases.routing.ntwrk.ping')
-    def test_routes_patch_scenario6(self, mocked_ping, mocked_check_host):
+    def test_routes_patch_scenario06(self, mocked_ping, mocked_check_host):
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
-        g1 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
-                  dns=s1.name)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
+                   dns=s1.name)
         s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
-        g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
-                  dns=s2.name)
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
+                   dns=s2.name)
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
-        g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
-                  dns=s3.name)
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
+                   dns=s3.name)
 
-        Route(s2, gate=g2, cost=0)
-        Route(s3, gate=g3, cost=0)
+        Route(s2, g12, cost=0)
+        Route(s3, g13, cost=0)
         db.session.add_all([s1, s2, s3])
         db.session.commit()
-
-        def ping(server, *args, **kwargs):
-            if str(server.id) == '00000000-0000-0000-0000-000000000001':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
-                return None, None
-
-        mocked_ping.side_effect = ping
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':
@@ -877,9 +839,10 @@ class TestUpdateRouteTableFromData(TestCase):
 
         self.assertDictEqual({s3: RouteContainer(None, None, None)}, new_routes)
 
+        self.assertEqual(0, mocked_ping.call_count)
         self.assertIsNone(s1.route)
 
-        self.assertEqual(g2, s2.route.gate)
+        self.assertEqual(g12, s2.route.gate)
         self.assertEqual(None, s2.route.proxy_server)
         self.assertEqual(0, s2.route.cost)
 
@@ -889,31 +852,21 @@ class TestUpdateRouteTableFromData(TestCase):
 
     @patch('dimensigon.use_cases.routing.check_host')
     @patch('dimensigon.use_cases.routing.ntwrk.ping')
-    def test_routes_patch_scenario7(self, mocked_ping, mocked_check_host):
+    def test_routes_patch_scenario07(self, mocked_ping, mocked_check_host):
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
-        g1 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
-                  dns=s1.name)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5001,
+                   dns=s1.name)
         s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
-        g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
-                  dns=s2.name)
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5002,
+                   dns=s2.name)
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
-        g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
-                  dns=s3.name)
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5003,
+                   dns=s3.name)
 
-        Route(s2, proxy_server=None, gate=g2, cost=0)
-        Route(s3, proxy_server=s2, gate=None, cost=1)
+        Route(s2, g12, cost=0)
+        Route(s3, s2, cost=1)
         db.session.add_all([s1, s2, s3])
         db.session.commit()
-
-        def ping(server, *args, **kwargs):
-            if str(server.id) == '00000000-0000-0000-0000-000000000001':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
-                return None, None
-
-        mocked_ping.side_effect = ping
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':
@@ -922,6 +875,8 @@ class TestUpdateRouteTableFromData(TestCase):
                 return True
             elif host == 'node3':
                 return False
+            else:
+                raise
 
         mocked_check_host.side_effect = check_host
 
@@ -935,11 +890,11 @@ class TestUpdateRouteTableFromData(TestCase):
 
         self.assertDictEqual({s3: RouteContainer(None, None, None)}, new_routes)
 
-        self.assertEqual(1, mocked_ping.call_count)
+        self.assertEqual(0, mocked_ping.call_count)
         self.assertEqual(0, mocked_check_host.call_count)
         self.assertIsNone(s1.route)
 
-        self.assertEqual(g2, s2.route.gate)
+        self.assertEqual(g12, s2.route.gate)
         self.assertEqual(None, s2.route.proxy_server)
         self.assertEqual(0, s2.route.cost)
 
@@ -949,39 +904,26 @@ class TestUpdateRouteTableFromData(TestCase):
 
     @patch('dimensigon.use_cases.routing.check_host')
     @patch('dimensigon.use_cases.routing.ntwrk.ping')
-    def test_routes_patch_scenario8(self, mocked_ping, mocked_check_host):
+    def test_routes_patch_scenario08(self, mocked_ping, mocked_check_host):
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
-        g1 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5000,
-                  dns=s1.name)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5000,
+                   dns=s1.name)
         s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
-        g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5000,
-                  dns=s2.name)
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5000,
+                   dns=s2.name)
         s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
-        g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5000,
-                  dns=s3.name)
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5000,
+                   dns=s3.name)
 
         s4 = Server(id='00000000-0000-0000-0000-000000000004', name='node4')
-        g4 = Gate(id='00000000-0000-0000-0000-000000000014', server=s4, port=5000,
-                  dns=s4.name)
+        g14 = Gate(id='00000000-0000-0000-0000-000000000014', server=s4, port=5000,
+                   dns=s4.name)
 
-        Route(s2, proxy_server=None, gate=g2, cost=0)
-        Route(s3, proxy_server=s2, gate=None, cost=1)
+        Route(s2, g12, cost=0)
+        Route(s3, s2, cost=1)
+        Route(s4, s2, cost=1)
         db.session.add_all([s1, s2, s3, s4])
         db.session.commit()
-
-        def ping(server, *args, **kwargs):
-            if str(server.id) == '00000000-0000-0000-0000-000000000001':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
-                return 1, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000004':
-                return None, None
-            else:
-                raise
-
-        mocked_ping.side_effect = ping
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':
@@ -1012,7 +954,7 @@ class TestUpdateRouteTableFromData(TestCase):
         self.assertEqual(0, mocked_check_host.call_count)
         self.assertIsNone(s1.route)
 
-        self.assertEqual(g2, s2.route.gate)
+        self.assertEqual(g12, s2.route.gate)
         self.assertEqual(None, s2.route.proxy_server)
         self.assertEqual(0, s2.route.cost)
 
@@ -1026,35 +968,24 @@ class TestUpdateRouteTableFromData(TestCase):
 
     @patch('dimensigon.use_cases.routing.check_host')
     @patch('dimensigon.use_cases.routing.ntwrk.ping')
-    def test_routes_patch_scenario9(self, mocked_ping, mocked_check_host):
+    def test_routes_patch_scenario09(self, mocked_ping, mocked_check_host):
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
-        g1 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5000, dns=s1.name)
-        s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
-        g2 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5000, dns=s2.name)
-        s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
-        g3 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5000, dns=s3.name)
-        s4 = Server(id='00000000-0000-0000-0000-000000000004', name='node4')
-        g4 = Gate(id='00000000-0000-0000-0000-000000000014', server=s4, port=5000, dns=s4.name)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5000, dns=s1.name)
 
-        Route(s2, proxy_server=None, gate=g2, cost=0)
-        Route(s3, proxy_server=None, gate=None, cost=None)
-        Route(s4, proxy_server=None, gate=None, cost=None)
+        s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5000, dns=s2.name)
+
+        s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5000, dns=s3.name)
+
+        s4 = Server(id='00000000-0000-0000-0000-000000000004', name='node4')
+        g14 = Gate(id='00000000-0000-0000-0000-000000000014', server=s4, port=5000, dns=s4.name)
+
+        Route(s2, g12, cost=0)
+        Route(s3, s2, cost=1)
+        Route(s4, s2, cost=2)
         db.session.add_all([s1, s2, s3, s4])
         db.session.commit()
-
-        def ping(server, *args, **kwargs):
-            if str(server.id) == '00000000-0000-0000-0000-000000000001':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
-                return 0, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
-                return None, None
-            elif str(server.id) == '00000000-0000-0000-0000-000000000004':
-                return None, None
-            else:
-                raise
-
-        mocked_ping.side_effect = ping
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':
@@ -1073,23 +1004,18 @@ class TestUpdateRouteTableFromData(TestCase):
         new_routes = update_route_table_from_data({"server_id": '00000000-0000-0000-0000-000000000002',
                                                    "route_list": [
                                                        dict(destination_id='00000000-0000-0000-0000-000000000004',
-                                                            proxy_server_id=s3.id,
-                                                            gate_id=None,
-                                                            cost=1),
-                                                       dict(destination_id='00000000-0000-0000-0000-000000000003',
                                                             proxy_server_id=None,
-                                                            gate_id=g3.id,
-                                                            cost=0),
+                                                            gate_id=g14.id,
+                                                            cost=0)
                                                    ]})
 
-        self.assertDictEqual({s3: RouteContainer(s2, None, 1),
-                              s4: RouteContainer(s2, None, 2)}, new_routes)
+        self.assertDictEqual({s4: RouteContainer(s2, None, 1)}, new_routes)
 
         self.assertEqual(0, mocked_ping.call_count)
         self.assertEqual(0, mocked_check_host.call_count)
         self.assertIsNone(s1.route)
 
-        self.assertEqual(g2, s2.route.gate)
+        self.assertEqual(g12, s2.route.gate)
         self.assertEqual(None, s2.route.proxy_server)
         self.assertEqual(0, s2.route.cost)
 
@@ -1099,4 +1025,324 @@ class TestUpdateRouteTableFromData(TestCase):
 
         self.assertEqual(None, s4.route.gate)
         self.assertEqual(s2, s4.route.proxy_server)
-        self.assertEqual(2, s4.route.cost)
+        self.assertEqual(1, s4.route.cost)
+
+    @patch('dimensigon.use_cases.routing.check_host')
+    @patch('dimensigon.use_cases.routing.ntwrk.ping')
+    def test_routes_patch_scenario10(self, mocked_ping, mocked_check_host):
+        s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5000, dns=s1.name)
+
+        s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5000, dns=s2.name)
+
+        s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5000, dns=s3.name)
+
+        s4 = Server(id='00000000-0000-0000-0000-000000000004', name='node4')
+        g14 = Gate(id='00000000-0000-0000-0000-000000000014', server=s4, port=5000, dns=s4.name)
+
+        s5 = Server(id='00000000-0000-0000-0000-000000000005', name='node5')
+        g15 = Gate(id='00000000-0000-0000-0000-000000000015', server=s5, port=5000, dns=s5.name)
+
+        Route(s2, g12)
+        Route(s3, g13)
+        Route(s4, s3, 1)
+        Route(s5, s2, 1)
+        db.session.add_all([s1, s2, s3, s4, s5])
+        db.session.commit()
+
+        def check_host(host, port, *args, **kwargs):
+            if host == 'node1':
+                return True
+            elif host == 'node2':
+                return True
+            elif host == 'node3':
+                return True
+            elif host == 'node4':
+                return False
+            elif host == 'node5':
+                return False
+            else:
+                raise
+
+        mocked_check_host.side_effect = check_host
+
+        def ping(server, *args, **kwargs):
+            if str(server.id) == '00000000-0000-0000-0000-000000000001':
+                return 0, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
+                return 0, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
+                return 0, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000004':
+                return 1, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000005':
+                return 1, None
+            else:
+                raise
+
+        mocked_ping.side_effect = ping
+
+        new_routes = update_route_table_from_data({"server_id": '00000000-0000-0000-0000-000000000003',
+                                                   "route_list": [
+                                                       dict(destination_id='00000000-0000-0000-0000-000000000005',
+                                                            proxy_server_id=s4.id,
+                                                            gate_id=None,
+                                                            cost=1)
+                                                   ]})
+
+        self.assertDictEqual({}, new_routes)
+
+        self.assertEqual(0, mocked_ping.call_count)
+        self.assertEqual(0, mocked_check_host.call_count)
+        self.assertIsNone(s1.route)
+
+        self.assertEqual(g12, s2.route.gate)
+        self.assertEqual(None, s2.route.proxy_server)
+        self.assertEqual(0, s2.route.cost)
+
+        self.assertEqual(g13, s3.route.gate)
+        self.assertEqual(None, s3.route.proxy_server)
+        self.assertEqual(0, s3.route.cost)
+
+        self.assertEqual(None, s4.route.gate)
+        self.assertEqual(s3, s4.route.proxy_server)
+        self.assertEqual(1, s4.route.cost)
+
+        self.assertEqual(None, s5.route.gate)
+        self.assertEqual(s2, s5.route.proxy_server)
+        self.assertEqual(1, s5.route.cost)
+
+    @patch('dimensigon.use_cases.routing.check_host')
+    @patch('dimensigon.use_cases.routing.ntwrk.ping')
+    def test_routes_patch_scenario11(self, mocked_ping, mocked_check_host):
+        s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5000,
+                   dns=s1.name)
+        s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5000,
+                   dns=s2.name)
+        s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5000,
+                   dns=s3.name)
+
+        s4 = Server(id='00000000-0000-0000-0000-000000000004', name='node4')
+        g14 = Gate(id='00000000-0000-0000-0000-000000000014', server=s4, port=5000,
+                   dns=s4.name)
+
+        Route(s2, g12)
+        Route(s3, s4, 1)
+        Route(s4, g14)
+        db.session.add_all([s1, s2, s3, s4])
+        db.session.commit()
+
+        def check_host(host, port, *args, **kwargs):
+            if host == 'node1':
+                return True
+            elif host == 'node2':
+                return True
+            elif host == 'node3':
+                return False
+            elif host == 'node4':
+                return True
+            else:
+                raise
+
+        mocked_check_host.side_effect = check_host
+
+        def ping(server, *args, **kwargs):
+            if str(server.id) == '00000000-0000-0000-0000-000000000001':
+                return 0, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
+                return 0, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
+                return 1, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000004':
+                return 0, None
+            else:
+                raise
+
+        mocked_ping.side_effect = ping
+
+        new_routes = update_route_table_from_data({"server_id": '00000000-0000-0000-0000-000000000002',
+                                                   "route_list": [
+                                                       dict(destination_id='00000000-0000-0000-0000-000000000003',
+                                                            gate_id=None,
+                                                            proxy_server_id=None,
+                                                            cost=None),
+
+                                                   ]})
+
+        self.assertDictEqual({}, new_routes)
+
+        self.assertEqual(1, mocked_ping.call_count)
+        self.assertEqual(0, mocked_check_host.call_count)
+        self.assertIsNone(s1.route)
+
+        self.assertEqual(g12, s2.route.gate)
+        self.assertEqual(None, s2.route.proxy_server)
+        self.assertEqual(0, s2.route.cost)
+
+        self.assertEqual(None, s3.route.gate)
+        self.assertEqual(s4, s3.route.proxy_server)
+        self.assertEqual(1, s3.route.cost)
+
+        self.assertEqual(g14, s4.route.gate)
+        self.assertEqual(None, s4.route.proxy_server)
+        self.assertEqual(0, s4.route.cost)
+
+    @patch('dimensigon.use_cases.routing.check_host')
+    @patch('dimensigon.use_cases.routing.ntwrk.ping')
+    def test_routes_patch_scenario12(self, mocked_ping, mocked_check_host):
+        s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5000,
+                   dns=s1.name)
+        s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5000,
+                   dns=s2.name)
+        s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5000,
+                   dns=s3.name)
+
+        s4 = Server(id='00000000-0000-0000-0000-000000000004', name='node4')
+        g14 = Gate(id='00000000-0000-0000-0000-000000000014', server=s4, port=5000,
+                   dns=s4.name)
+
+        Route(s2, g12)
+        Route(s3, s4, 1)
+        Route(s4, g14)
+        db.session.add_all([s1, s2, s3, s4])
+        db.session.commit()
+
+        def check_host(host, port, *args, **kwargs):
+            if host == 'node1':
+                return True
+            elif host == 'node2':
+                return True
+            elif host == 'node3':
+                return False
+            elif host == 'node4':
+                return True
+            else:
+                raise
+
+        mocked_check_host.side_effect = check_host
+
+        def ping(server, *args, **kwargs):
+            if str(server.id) == '00000000-0000-0000-0000-000000000001':
+                return 0, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
+                return 0, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
+                return None, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000004':
+                return 0, None
+            else:
+                raise
+
+        mocked_ping.side_effect = ping
+
+        new_routes = update_route_table_from_data({"server_id": '00000000-0000-0000-0000-000000000002',
+                                                   "route_list": [
+                                                       dict(destination_id='00000000-0000-0000-0000-000000000003',
+                                                            gate_id=None,
+                                                            proxy_server_id=None,
+                                                            cost=None),
+
+                                                   ]})
+
+        self.assertDictEqual({s3: RouteContainer(None, None, None)}, new_routes)
+
+        self.assertEqual(1, mocked_ping.call_count)
+        self.assertEqual(0, mocked_check_host.call_count)
+        self.assertIsNone(s1.route)
+
+        self.assertEqual(g12, s2.route.gate)
+        self.assertEqual(None, s2.route.proxy_server)
+        self.assertEqual(0, s2.route.cost)
+
+        self.assertEqual(None, s3.route.gate)
+        self.assertEqual(None, s3.route.proxy_server)
+        self.assertEqual(None, s3.route.cost)
+
+        self.assertEqual(g14, s4.route.gate)
+        self.assertEqual(None, s4.route.proxy_server)
+        self.assertEqual(0, s4.route.cost)
+
+    @patch('dimensigon.use_cases.routing.check_host')
+    @patch('dimensigon.use_cases.routing.ntwrk.ping')
+    def test_routes_patch_scenario13(self, mocked_ping, mocked_check_host):
+        s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', me=True)
+        g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5000,
+                   dns=s1.name)
+        s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2')
+        g12 = Gate(id='00000000-0000-0000-0000-000000000012', server=s2, port=5000,
+                   dns=s2.name)
+        s3 = Server(id='00000000-0000-0000-0000-000000000003', name='node3')
+        g13 = Gate(id='00000000-0000-0000-0000-000000000013', server=s3, port=5000,
+                   dns=s3.name)
+
+        s4 = Server(id='00000000-0000-0000-0000-000000000004', name='node4')
+        g14 = Gate(id='00000000-0000-0000-0000-000000000014', server=s4, port=5000,
+                   dns=s4.name)
+
+        Route(s2, s3, 1)
+        Route(s3, g13)
+        db.session.add_all([s1, s2, s3, s4])
+        db.session.commit()
+
+        def check_host(host, port, *args, **kwargs):
+            if host == 'node1':
+                return True
+            elif host == 'node2':
+                return False
+            elif host == 'node3':
+                return False
+            elif host == 'node4':
+                return False
+            else:
+                raise
+
+        mocked_check_host.side_effect = check_host
+
+        def ping(server, *args, **kwargs):
+            if str(server.id) == '00000000-0000-0000-0000-000000000001':
+                return 0, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000002':
+                return 1, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000003':
+                return 0, None
+            elif str(server.id) == '00000000-0000-0000-0000-000000000004':
+                return None, None
+            else:
+                raise
+
+        mocked_ping.side_effect = ping
+
+        new_routes = update_route_table_from_data({"server_id": '00000000-0000-0000-0000-000000000004',
+                                                   "route_list": [
+                                                       dict(destination_id='00000000-0000-0000-0000-000000000002',
+                                                            gate_id=None,
+                                                            proxy_server_id=None,
+                                                            cost=None),
+
+                                                   ]})
+
+        self.assertDictEqual({}, new_routes)
+
+        self.assertEqual(1, mocked_ping.call_count)
+        self.assertEqual(0, mocked_check_host.call_count)
+        self.assertIsNone(s1.route)
+
+        self.assertEqual(None, s2.route.gate)
+        self.assertEqual(s3, s2.route.proxy_server)
+        self.assertEqual(1, s2.route.cost)
+
+        self.assertEqual(g13, s3.route.gate)
+        self.assertEqual(None, s3.route.proxy_server)
+        self.assertEqual(0, s3.route.cost)
+
+        self.assertEqual(None, s4.route.gate)
+        self.assertEqual(None, s4.route.proxy_server)
+        self.assertEqual(None, s4.route.cost)

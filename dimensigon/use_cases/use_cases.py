@@ -2,6 +2,7 @@
 import base64
 import datetime
 import json
+import logging
 import os
 import subprocess
 import typing as t
@@ -17,6 +18,7 @@ from dimensigon.utils.helpers import get_distributed_entities
 from dimensigon.web import db, errors
 from dimensigon.web.network import get
 
+catalog_logger = logging.getLogger('dimensigon.catalog')
 
 def run_elevator(file, new_version, logger):
     logger.info(f"Upgrading to version {new_version}")
@@ -45,10 +47,10 @@ def upgrade_catalog(catalog, check_mismatch=True):
 
     if check_mismatch:
         inside = set([name for name, cls in de])
-        current_app.logger.debug(f'Actual entities: {inside}')
+        catalog_logger.debug(f'Actual entities: {inside}')
 
         outside = set(catalog.keys())
-        current_app.logger.debug(f'Remote entities: {outside}')
+        catalog_logger.debug(f'Remote entities: {outside}')
 
         if len(inside ^ outside) > 0:
             raise errors.CatalogMismatch(inside, outside)
@@ -57,7 +59,7 @@ def upgrade_catalog(catalog, check_mismatch=True):
         for name, cls in de:
             if name in catalog:
                 if len(catalog[name]) > 0:
-                    current_app.logger.debug(
+                    catalog_logger.log(1,
                         f"Adding/Modifying new '{name}' entities: \n{json.dumps(catalog[name], indent=2, sort_keys=True)}")
                 for dto in catalog[name]:
                     o = cls.from_json(dict(dto))
@@ -82,4 +84,4 @@ def upgrade_catalog_from_server(server):
                 delta_catalog = resp.msg
                 upgrade_catalog(delta_catalog)
             else:
-                current_app.logger.error(f"Unable to get a valid response from server {server}: {resp}")
+                catalog_logger.error(f"Unable to get a valid response from server {server}: {resp}")

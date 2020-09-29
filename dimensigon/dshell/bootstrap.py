@@ -62,3 +62,5 @@ def bootstrap_environ(run_config):
         env._username = username
         if password:
             ntwrk.login(username, password)
+
+    env.set('DEBUG', run_config.get('--debug', False))

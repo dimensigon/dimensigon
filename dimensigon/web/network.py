@@ -1,6 +1,7 @@
 import asyncio
 import concurrent
 import logging
+import time
 import typing as t
 
 import aiohttp
@@ -22,6 +23,7 @@ requests.packages.urllib3.disable_warnings()
 
 logger = logging.getLogger('dimensigon.network')
 
+log_requests_with_elapsed = 3
 
 class Response:
 
@@ -175,7 +177,12 @@ def unpack_msg2(data, *args, **kwargs):
         else:
             return data
 
-def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, verify=False):
+
+def ping(dest: t.Union[Server, Gate], retries=3, timeout=30, verify=False):
+    return _ping(dest=dest, source=Server.get_current(), retries=retries, timeout=timeout, verify=verify)
+
+
+def _ping(dest: t.Union[Server, Gate], source: Server, retries=None, timeout=None, verify=False):
     tries = 0
     cost = None
     elapsed = None
@@ -207,7 +214,7 @@ def ping(dest: t.Union[Server, Gate], source: Server, retries=3, timeout=3, veri
             resp = None
             exc = e
         if resp is not None and resp.status_code == 200:
-            cost = resp.json().get('hops', 0)
+            cost = len(resp.json().get('servers', {}))
             elapsed = resp.elapsed
             tries = retries
     return cost, elapsed
@@ -226,7 +233,6 @@ def _prepare_headers(server, headers=None):
     headers = headers or {}
     headers.update({'D-Destination': str(server.id)})
     headers.update({'D-Source': str(Server.get_current().id)})
-    headers.update({'D-Session': str(current_app.cluster.session)})
     return headers
 
 
@@ -273,7 +279,7 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
         kwargs['timeout'] = defaults.TIMEOUT_REQUEST
 
     kwargs['verify'] = current_app.config['SSL_VERIFY']
-
+    start = time.time()
     try:
         resp: requests.Response = func(url, **kwargs)
     except (Timeout, ) as e:
@@ -287,7 +293,9 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     finally:
         if not session:
             _session.close()
-
+    elapsed = time.time()-start
+    if elapsed > log_requests_with_elapsed:
+        logger.debug(f"{method.upper()} {url} elapsed time: {elapsed}")
     if exception is None:
         status = resp.status_code
         headers = resp.headers
@@ -358,7 +366,7 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     status = None
     headers = None
 
-    if not session:
+    if session is None:
         _session = aiohttp.ClientSession()
     else:
         _session = session
@@ -380,6 +388,7 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
 
         func = getattr(_session, method)
 
+        # start = time.time()
         try:
             async with func(url, **kwargs) as resp:
                 status = resp.status
@@ -394,9 +403,11 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
         except Exception as e:
             exception = e
     finally:
-        if not session:
+        if session is None:
             await _session.close()
-
+    # elapsed = time.time() - start
+    # if elapsed > log_requests_with_elapsed:
+    #     logger.debug(f"async {method.upper()} {url} elapsed time: {elapsed}")
     if json_data:
         try:
             content = unpack_msg(json_data)
@@ -468,7 +479,9 @@ async def parallel_requests(servers: t.List[t.Union[Server, Id]], method: str, k
 
     if not kwargs.get('session'):
         _session = aiohttp.ClientSession()
+        close = True
     else:
+        close = False
         _session = kwargs.get('session')
     kwargs['session'] = _session
 
@@ -481,7 +494,8 @@ async def parallel_requests(servers: t.List[t.Union[Server, Id]], method: str, k
 
         rs = await asyncio.gather(*aw, return_exceptions=True)
     finally:
-        if kwargs.get('session'):
+        if close:
             await _session.close()
 
+    db.session.close()
     return rs

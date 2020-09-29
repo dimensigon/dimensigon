@@ -4,7 +4,7 @@ from flask_jwt_extended import create_access_token
 from dimensigon.domain.entities import Server, User
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.web import create_app, db
-from tests.helpers import TestCaseLockBypass
+from tests.base import TestCaseLockBypass
 
 
 class TestLogResourceList(TestCaseLockBypass):

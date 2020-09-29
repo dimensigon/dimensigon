@@ -3,22 +3,25 @@ import functools
 import inspect
 import os
 import re
+import sqlite3
 import sys
 import time
 import typing as t
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
 
 import flask
 import jinja2
 import requests
+from dataclasses import dataclass
 from flask import json
 from flask_jwt_extended import create_access_token, get_jwt_identity
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Step, Server, Software, OrchExecution, Orchestration
+from dimensigon.domain.entities import Step, Server, Software, OrchExecution, Orchestration, Scope, Route
 from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.use_cases import routing
+from dimensigon.use_cases.lock import lock_scope
 from dimensigon.utils import subprocess
 from dimensigon.utils.helpers import get_now
 from dimensigon.utils.typos import Kwargs
@@ -121,7 +124,7 @@ class AnsibleOperation(IOperationEncapsulation):
                 with open(file, 'r') as fh:
                     code = fh.read()
 
-        template = self.rpl_params(dict(var_context))
+        template = self.rpl_params({'globals': var_context.globals, **dict(var_context)})
 
         system_kwargs = self.system_kwargs.copy()
 
@@ -148,7 +151,7 @@ class RequestOperation(IOperationEncapsulation):
 
     def execute(self, var_context: VarContext, timeout=None, command=None) -> CompletedProcess:
         params_dict = dict(var_context)
-        kwargs = json.loads(self.rpl_params(params_dict))
+        kwargs = json.loads(self.rpl_params({'globals': var_context.globals, **dict(var_context)}))
         kwargs.update(self.system_kwargs)
         cp = CompletedProcess()
         cp.set_start_time()
@@ -255,31 +258,36 @@ class NativeWaitOperation(IOperationEncapsulation):
                 min_timeout = var_context.get('timeout')
             else:
                 min_timeout = defaults.MAX_TIME_WAITING_SERVERS
-        for sn in var_context.get('list_server_names', []):
-            count = db.session.query(Server).filter_by(name=sn).count()
-            if count == 1:
-                found.append(sn)
-                continue
-            while (time.time() - start) < min_timeout:
-                count = db.session.query(Server).filter_by(name=sn).count()
-                if count == 0:
-                    time.sleep(self.system_kwargs.get('sleep_time', 2))
-                else:
-                    found.append(sn)
-                    break
-            else:
-                break
-
-        if var_context.get('list_server_names', []) == found:
-            cp.success = True
-            cp.stdout = f"Server{'s' if len(var_context.get('list_server_names', [])) > 1 else ''} " \
-                        f"{', '.join(var_context.get('list_server_names', []))} found"
+        try:
+            now = get_now()
+            pending_names = set(var_context.get('list_server_names', []))
+            with lock_scope(Scope.CATALOG, retries=3, delay=4, applicant=var_context.globals.get('orch_execution_id')):
+                while (time.time() - start) < min_timeout and len(pending_names) > 0:
+                    try:
+                        found_names = db.session.query(Server.name).filter(Server.name.in_(pending_names)).filter(
+                            Server.created_on >= now).all()
+                    except sqlite3.OperationalError as e:
+                        if str(e) == 'database is locked':
+                            found_names = []
+                    found_names = set([t[0] for t in found_names])
+                    pending_names = pending_names - found_names
+                    if pending_names:
+                        time.sleep(self.system_kwargs.get('sleep_time', 2))
+                    else:
+                        break
+        except errors.LockError as e:
+            cp.success = False
+            cp.stderr = str(e)
 
         else:
-            cp.success = False
-            not_found = set(var_context.get('list_server_names', [])) - set(found)
-            cp.stderr = f"Server{'s' if len(not_found) > 1 else ''} {', '.join(not_found)} " \
-                        f"not created after {min_timeout} seconds"
+            if not pending_names:
+                cp.success = True
+                cp.stdout = f"Server{'s' if len(var_context.get('list_server_names', [])) > 1 else ''} " \
+                            f"{', '.join(sorted(var_context.get('list_server_names', [])))} found"
+            else:
+                cp.success = False
+                cp.stderr = f"Server{'s' if len(pending_names) > 1 else ''} {', '.join(sorted(pending_names))} " \
+                            f"not created after {min_timeout} seconds"
         cp.set_end_time()
         return cp
 
@@ -300,34 +308,72 @@ class NativeDmRunningOperation(IOperationEncapsulation):
                 min_timeout = var_context.get('timeout')
             else:
                 min_timeout = defaults.MAX_TIME_WAITING_SERVERS
-        for sn in var_context.get('list_server_names', []):
-            server = db.session.query(Server).filter_by(name=sn).one_or_none()
-            if server:
-                while (time.time() - start) < min_timeout:
-                    db.session.refresh(server)
-                    resp = get(server, 'root.healthcheck')
-                    if not resp.ok:
-                        time.sleep(self.system_kwargs.get('sleep_time', 2))
-                    else:
-                        running.append(sn)
-                        break
-                else:
-                    break
-            else:
-                cp.success = False
-                cp.stderr = f"Server {sn} not found in catalog"
-                cp.set_end_time()
-                return cp
 
-        if var_context.get('list_server_names', []) == running:
+        pending_names = set(var_context.get('list_server_names', []))
+
+        while (time.time() - start) < min_timeout and len(pending_names) > 0:
+            try:
+                found_names = db.session.query(Server.name).join(Route, Route.destination_id == Server.id).filter(
+                    Server.name.in_(pending_names)).filter(Route.cost.isnot(None)).order_by(Server.name).all()
+            except sqlite3.OperationalError as e:
+                if str(e) == 'database is locked':
+                    found_names = []
+            found_names = set([t[0] for t in found_names])
+            pending_names = pending_names - found_names
+            if pending_names:
+                time.sleep(self.system_kwargs.get('sleep_time', 2))
+            else:
+                break
+
+
+        if not pending_names:
             cp.success = True
             cp.stdout = f"Server{'s' if len(var_context.get('list_server_names', [])) > 1 else ''} " \
-                        f"{', '.join(var_context.get('list_server_names', []))} with dimensigon running"
+                        f"{', '.join(sorted(var_context.get('list_server_names', [])))} with dimensigon running"
         else:
             cp.success = False
-            not_running = set(var_context.get('list_server_names', [])) - set(running)
-            cp.stderr = f"Server{'s' if len(not_running) > 1 else ''} {', '.join(not_running)} " \
+            cp.stderr = f"Server{'s' if len(pending_names) > 1 else ''} {', '.join(sorted(pending_names))} " \
                         f"with dimensigon not running after {min_timeout} seconds"
+        cp.set_end_time()
+        return cp
+
+
+class NativeDeleteOperation(IOperationEncapsulation):
+
+    def execute(self, var_context: VarContext, timeout=None, command=None):
+        cp = CompletedProcess()
+        cp.set_start_time()
+        try:
+            with lock_scope(Scope.CATALOG, retries=3, delay=4, applicant=var_context.globals.get('orch_execution_id')):
+                to_be_deleted = Server.query.filter(Server.name.in_(var_context.get('list_server_names', []))).all()
+                acquired = routing._lock.acquire(timeout=15)
+                if acquired:
+                    routing.logger.debug(
+                        f"Routing Lock acquired for deletion of servers {[s.name for s in to_be_deleted]}")
+                else:
+                    routing.logger.debug(
+                        f"Unable to lock Routing Lock. Force deletion of servers {[s.name for s in to_be_deleted]}")
+                try:
+                    for s in to_be_deleted:
+                        # remove associated routes
+                        db.session.delete(s.route)
+                        s.delete()
+                        db.session.commit()
+                finally:
+                    if acquired:
+                        routing._lock.release()
+        except errors.LockError as e:
+            cp.success = False
+            cp.stderr = str(e)
+        except Exception as e:
+            cp.success = False
+            cp.stderr = f"Unable to delete server{'s' if len(var_context.get('to_be_deleted', [])) > 1 else ''} " \
+                        f"{', '.join([s.name for s in to_be_deleted])}. Exception: {e}"
+        else:
+            cp.success = True
+            cp.stdout = f"Server{'s' if len(to_be_deleted) > 1 else ''} " \
+                        f"{', '.join([s._old_name for s in to_be_deleted])} deleted"
+
         cp.set_end_time()
         return cp
 
@@ -340,7 +386,7 @@ class PythonOperation(IOperationEncapsulation):
 class ShellOperation(IOperationEncapsulation):
 
     def execute(self, var_context: VarContext, timeout=None, command=None) -> CompletedProcess:
-        tokens = self.rpl_params(dict(var_context))
+        tokens = self.rpl_params({'globals': var_context.globals, **dict(var_context)})
 
         system_kwargs = self.system_kwargs.copy()
 
@@ -438,10 +484,12 @@ def create_operation(step: 'Step') -> IOperationEncapsulation:
     kls = _factories[step.action_type]
 
     if kls == NativeOperation:
-        if step.action_template.name == 'wait':
+        if step.action_template.id == '00000000-0000-0000-000a-000000000002':
             kls = NativeWaitOperation
-        elif step.action_template.name == 'dm running':
+        elif step.action_template.id == '00000000-0000-0000-000a-000000000004':
             kls = NativeDmRunningOperation
+        elif step.action_template.id == '00000000-0000-0000-000a-000000000005':
+            kls = NativeDeleteOperation
     return kls(code=step.code, expected_stdout=step.expected_stdout, expected_stderr=step.expected_stderr,
                expected_rc=step.expected_rc,
                system_kwargs=step.system_kwargs)

@@ -1,40 +1,29 @@
 import argparse
 import base64
-import datetime
+import datetime as dt
 import functools
+import logging
 import os
 import platform
 import random
-import sys
 import time
-from dataclasses import dataclass
 
-import click
 import coolname
-import dotenv
-import flask
 import prompt_toolkit
 import requests
 import rsa
+from dataclasses import dataclass
 from flask import Flask
-from flask.cli import with_appcontext
 from flask_jwt_extended import create_access_token
 
 from dimensigon import defaults
 from dimensigon.core import Dimensigon
 from dimensigon.use_cases.helpers import get_root_auth
 
-dotenv.load_dotenv(dotenv.find_dotenv())
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 PLATFORM = platform.system()
 
-COV = None
-if os.environ.get('FLASK_COVERAGE'):
-    import coverage
-
-    COV = coverage.coverage(branch=True, include='app/*')
-    COV.start()
 
 from dimensigon.domain.entities import *
 from dimensigon.web.network import pack_msg2, unpack_msg2
@@ -44,64 +33,6 @@ from dimensigon.use_cases.use_cases import upgrade_catalog
 from dimensigon.utils.helpers import generate_symmetric_key, generate_dimension, get_now
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
-
-
-@app.shell_context_processor
-def make_shell_context():
-    return dict(db=db, app=app, ActionTemplate=ActionTemplate, ActionType=ActionType, Step=Step,
-                Orchestration=Orchestration, Catalog=Catalog,
-                Dimension=Dimension, StepExecution=StepExecution, Log=Log, Route=Route, Server=Server, Service=Service,
-                Software=Software, SoftwareServerAssociation=SoftwareServerAssociation, User=User,
-                Transfer=Transfer, Locker=Locker, Scope=Scope, State=State, Gate=Gate,
-                create_access_token=create_access_token)
-
-
-@app.cli.command()
-@click.option('--coverage/--no-coverage', default=False,
-              help='Run tests under code coverage.')
-@click.argument('test_names', nargs=-1)
-def test(coverage, test_names):
-    """Run the unit tests."""
-    if coverage and not os.environ.get('FLASK_COVERAGE'):
-        import subprocess
-        os.environ['FLASK_COVERAGE'] = '1'
-        sys.exit(subprocess.call(sys.argv))
-
-    import unittest
-    if test_names:
-        tests = unittest.TestLoader().loadTestsFromNames(test_names)
-    else:
-        tests = unittest.TestLoader().discover('../tests')
-    unittest.TextTestRunner(verbosity=2).run(tests)
-    if COV:
-        COV.stop()
-        COV.save()
-        print('Coverage Summary:')
-        COV.report()
-        basedir = os.path.abspath(os.path.dirname(__file__))
-        covdir = os.path.join(basedir, 'tmp/coverage')
-        COV.html_report(directory=covdir)
-        print('HTML version: file://%s/index.html' % covdir)
-        COV.erase()
-
-
-@app.cli.command()
-@click.option('--length', default=25,
-              help='Number of functions to include in the profiler report.')
-@click.option('--profile-dir', default=None,
-              help='Directory where profiler data files are saved.')
-def profile(length, profile_dir):
-    """Start the application under the code profiler."""
-    from werkzeug.contrib.profiler import ProfilerMiddleware
-    app.wsgi_app = ProfilerMiddleware(app.wsgi_app, restrictions=[length],
-                                      profile_dir=profile_dir)
-    app.run()
-
-
-@app.cli.group()
-def dm():
-    """Perform dimensigon actions."""
-    pass
 
 
 def new(dm: Dimensigon, name: str):
@@ -190,23 +121,6 @@ def new(dm: Dimensigon, name: str):
         print("---------------- END TOKEN --------------------")
 
 
-@dm.command(help="""Activates the dimension""")
-@click.argument('dim', nargs=1)
-@with_appcontext
-@flask.cli.pass_script_info
-def activate(dim):
-    d = Dimension.query.get(dim).one_or_none()
-    if not d:
-        d = Dimension.query.filter_by(name=dim).one_or_none()
-    if not d:
-        click.echo(f"Dimension '{dim}' not found.")
-        sys.exit(1)
-    Dimension.query.update({Dimension.current: False})
-    d.current = True
-    db.session.commit()
-    click.echo(f"dimension '{dim}' activated")
-
-
 def server_port():
     if 'PORT' not in os.environ:
         return '5000'
@@ -231,98 +145,148 @@ def app_context(f):
 
 
 def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = True, verify: bool = False):
+    logger = logging.getLogger('dimensigon.join')
     dm.create_flask_instance()
     with dm.flask_app.app_context():
         Server.set_initial()
         db.session.commit()
         protocol = "https" if ssl else "http"
-        with requests.Session() as session:
-            # TODO: send ca.cert from the dimension
+
+        resp = None
+        times = 5
+        for i in range(times):
             try:
-                resp = session.get(f"{protocol}://{server}:{port}/api/v1.0/join/public",
-                                   headers={'Authorization': 'Bearer ' + token},
-                                   verify=verify, timeout=5)
+                resp = requests.get(f"{protocol}://{server}:{port}/api/v1.0/join/public",
+                                    headers={'Authorization': 'Bearer ' + token},
+                                    verify=verify, timeout=20)
             except requests.exceptions.ConnectionError as e:
-                exit(f"Unable to contact to {server}")
+                logger.error(f"Unable to contact to {server}.")
             except requests.exceptions.Timeout as e:
-                exit(f"Timeout of 5s reached while trying to contact to {server}")
-            if resp.status_code != 200:
-                exit(f"Error trying to get dimensigon public key: {resp.content}")
-            pub_key = rsa.PublicKey.load_pkcs1(resp.content)
-
-            # Generate Public and Private Temporal Keys
-            tmp_pub, tmp_priv = rsa.newkeys(2048, poolsize=2)
-            symmetric_key = generate_symmetric_key()
-            s = Server.get_current()
-            data = s.to_json(add_gates=True)
-            data = pack_msg2(data=data, pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key, add_key=True)
-            data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
-            click.echo("Joining to dimension")
-
-            def retry_until_ok(times):
+                logger.error(f"Timeout of 20s reached while trying to contact to {server}.")
+            except Exception as e:
+                logger.exception(f"Error trying to get dimensigon public key.")
                 resp = None
-                for i in range(times):
-                    resp = session.post(f"{protocol}://{server}:{port}/api/v1.0/join", json=data,
-                                        headers={'Authorization': 'Bearer ' + token}, verify=verify, timeout=60)
+            if resp.status_code != 200:
+                logger.error(f"Error trying to get dimensigon public key: {resp.status_code}, {resp.content}")
+            else:
+                break
+            if i < times - 1:
+                d = int(random.random() * 25 * (i + 1))
+                logger.info(f"Retrying in {d} seconds.")
+                time.sleep(d)
+
+        pub_key = rsa.PublicKey.load_pkcs1(resp.content)
+
+        # Generate Public and Private Temporal Keys
+        tmp_pub, tmp_priv = rsa.newkeys(2048, poolsize=2)
+        symmetric_key = generate_symmetric_key()
+        s = Server.get_current()
+        data = s.to_json(add_gates=True)
+        data = pack_msg2(data=data, pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key, add_key=True)
+        data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
+        logger.info("Joining to dimension.")
+
+        resp = None
+        times = 5
+        for i in range(times):
+            try:
+                resp = requests.post(f"{protocol}://{server}:{port}/api/v1.0/join", json=data,
+                                     headers={'Authorization': 'Bearer ' + token}, verify=verify, timeout=45)
+
+                from dimensigon.web import errors
+                if resp.ok:
+                    break
+                else:
+                    logger.error(f"Error while trying to join. Error: {resp.status_code}, "
+                                 f"{resp.content}")
+            except Exception as e:
+                logger.exception(f"Error while trying to join.")
+                resp = None
+            if i < times - 1:
+                d = int(random.random() * 25 * (i + 1))
+                logger.info(f"Retrying in {d} seconds.")
+                time.sleep(d)
+
+        if resp is None:
+            resp_data = {}
+        elif resp.status_code != 200:
+            db.session.rollback()
+            logger.info(f"Error while trying to join the dimension: {resp.status_code}, {resp.content}")
+            resp_data = {}
+        else:
+            resp_data = unpack_msg2(resp.json(), pub_key=pub_key, priv_key=tmp_priv,
+                                    symmetric_key=symmetric_key)
+            logger.log(1, resp_data)
+        if 'Dimension' in resp_data:
+            dim = Dimension.from_json(resp_data.pop('Dimension'))
+            dim.current = True
+            db.session.add(dim)
+
+            keyfile_content = base64.b64decode(resp_data.pop('keyfile').encode())
+            with open(dm.config.http_conf['keyfile'], 'wb') as fh:
+                fh.write(keyfile_content)
+                del keyfile_content
+            certfile_content = base64.b64decode(resp_data.pop('certfile').encode())
+            with open(dm.config.http_conf['certfile'], 'wb') as fh:
+                fh.write(certfile_content)
+                del certfile_content
+
+            resp = None
+            times = 5
+            for i in range(times):
+                try:
+                    resp = requests.post(f"{protocol}://{server}:{port}/api/v1.0/join/acknowledge/{s.id}",
+                                         headers={'Authorization': 'Bearer ' + token}, verify=verify, timeout=120)
 
                     from dimensigon.web import errors
-                    if resp.status_code != errors.LockerError.status_code:
+                    if resp.ok:
                         break
+                    elif resp.status_code == 404:
+                        if resp.json().get('error', {}).get('type', None) == 'EntityNotFound':
+                            break
                     else:
-                        d = int(random.random() * 25 * (i + 1))
-                        print(f"Unable to lock. Retrying join in {d} seconds")
-                        time.sleep(d)
-                return resp
+                        logger.error(f"Error while trying to join. Error: {resp.status_code}, "
+                                     f"{resp.content}")
+                except Exception as e:
+                    logger.exception(f"Error while trying to join.")
+                    resp = None
+                if i < times - 1:
+                    d = int(random.random() * 25 * (i + 1))
+                    logger.info(f"Retrying in {d} seconds.")
+                    time.sleep(d)
 
-            try:
-                resp = retry_until_ok(5)
-            except requests.exceptions.ConnectionError as e:
-                print(f"Error while trying to join the dimension: {e}")
-                resp_data = {}
-            except requests.exceptions.Timeout as e:
-                print(f"Timeout of 5s reached while trying join the dimension")
-                resp_data = {}
+            if resp.ok:
+                logger.info('Joined to the dimension.')
             else:
-                if resp.status_code != 200:
-                    db.session.rollback()
-                    print(f"Error while trying to join the dimension: {resp.status_code}, {resp.content}")
-                    resp_data = {}
-                else:
-                    resp_data = unpack_msg2(resp.json(), pub_key=pub_key, priv_key=tmp_priv,
-                                            symmetric_key=symmetric_key)
-            if 'Dimension' in resp_data:
-                dim = Dimension.from_json(resp_data.pop('Dimension'))
-                dim.current = True
-                db.session.add(dim)
+                logger.error("Unable to confirm join")
 
-                keyfile_content = base64.b64decode(resp_data.pop('keyfile').encode())
-                with open(dm.config.http_conf['keyfile'], 'wb') as fh:
-                    fh.write(keyfile_content)
-                    del keyfile_content
-                certfile_content = base64.b64decode(resp_data.pop('certfile').encode())
-                with open(dm.config.http_conf['certfile'], 'wb') as fh:
-                    fh.write(certfile_content)
-                    del certfile_content
-
-                print('Joined to the dimension')
-                print('Updating Catalog')
-                reference_server_id = resp_data.pop('me')
-                # remove catalog
-                for c in Catalog.query.all():
-                    db.session.delete(c)
-                upgrade_catalog(resp_data['catalog'])
-                # set reference server as a neighbour
-                reference_server = Server.query.get(reference_server_id)
-                if not reference_server:
-                    db.session.rollback()
-                    exit(f"Server id {reference_server_id} not found in catalog")
-                Route(destination=reference_server, cost=0)
-                # update_route_table_cost(True)
-                db.session.commit()
-                print('Catalog updated')
+            logger.info('Updating Catalog')
+            reference_server_id = resp_data.pop('me')
+            # remove catalog
+            for c in Catalog.query.all():
+                db.session.delete(c)
+            try:
+                upgrade_catalog(resp_data['catalog']) # implicit commit
+            except Exception as e:
+                logger.exception(f"Unable to upgrade catalog.")
+                exit(1)
+            else:
+                logger.info('Catalog updated.')
+            # set reference server as a neighbour
+            reference_server = Server.query.get(reference_server_id)
+            if not reference_server:
+                db.session.rollback()
+                logger.info(f"Server id {reference_server_id} not found in catalog.")
+                exit(1)
+            Route(destination=reference_server, cost=0)
+            # update_route_table_cost(True)
+            Parameter.set("join_server", f'{reference_server.id}')
+            db.session.commit()
+        else:
+            logger.error(f"No dimension in response data.")
 
 
-def token(dm: Dimensigon, dimension_id_or_name: str, expire_time=None):
+def token(dm: Dimensigon, dimension_id_or_name: str, applicant=None, expire_time=None):
     dm.create_flask_instance()
     with dm.flask_app.app_context():
         if dimension_id_or_name is not None:
@@ -347,8 +311,10 @@ def token(dm: Dimensigon, dimension_id_or_name: str, expire_time=None):
         join_user = User.get_by_user('join')
         if not join_user:
             exit("Unable to create join token. Populate database first.")
-        print(create_access_token(join_user.id, expires_delta=datetime.timedelta(
-            minutes=expire_time or defaults.JOIN_TOKEN_EXPIRE_TIME)))
+        print(create_access_token(join_user.id,
+                                  expires_delta=dt.timedelta(
+                                      minutes=expire_time or defaults.JOIN_TOKEN_EXPIRE_TIME),
+                                  user_claims={'applicant': applicant}))
 
 
 def catalog(dm: Dimensigon, ip, port, http=False):
@@ -432,7 +398,6 @@ def get_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--debug",
-        default=None,
         action='store_true',
         help="Runs the Flask app without gunicorn.",
     )
@@ -447,6 +412,22 @@ def get_arguments() -> argparse.Namespace:
         dest='errorlog',
         metavar="FILE",
         help="The Error log file to write to.",
+    )
+    parser.add_argument(
+        "--dm-refresh-interval",
+        help="Period time in minutes to execute the routing and catalog refresh.",
+        default=defaults.REFRESH_PERIOD,
+        type=int
+    )
+    parser.add_argument(
+        "--force-scan",
+        help="forces the process to check current and scan for new neighbours.",
+        action='store_true',
+    )
+    parser.add_argument(
+        "--flask",
+        action='store_true',
+        help="run the process with flask http.",
     )
     if os.name == "posix":
         parser.add_argument(
@@ -480,6 +461,7 @@ def get_arguments() -> argparse.Namespace:
         action='store_true'
     )
 
+
     new_parser = subparser.add_parser('new', help="Creates a new dimension")
     new_parser.add_argument('dimension', nargs='?', default=None, help="name of the dimension")
 
@@ -493,6 +475,11 @@ def get_arguments() -> argparse.Namespace:
                               metavar='MINUTES',
                               type=int,
                               help="Join token expire time in minutes")
+    token_parser.add_argument(
+        '--applicant',
+        help="applicant identifier used for join operations",
+        action='store'
+    )
 
     catalog_parser = subparser.add_parser("catalog", help="Forces updates catalog with specified ip and port.")
     catalog_parser.add_argument("IP",
@@ -524,6 +511,9 @@ class RuntimeConfig:
     daemon: bool = None
     accesslog: str = None
     errorlog: str = None
+    flask: bool = None
+    refresh_interval: int = None
+    force_scan: bool = None
 
 
 def main():
@@ -540,14 +530,17 @@ def main():
                                           threads=args.threads,
                                           daemon=args.daemon,
                                           accesslog=args.accesslog,
-                                          errorlog=args.errorlog))
+                                          errorlog=args.errorlog,
+                                          flask=args.flask,
+                                          refresh_interval=args.dm_refresh_interval,
+                                          force_scan=args.force_scan))
 
     if args.command is None:
         run(dm)
     elif args.command == 'join':
         join(dm, server=args.SERVER, token=args.TOKEN, port=args.port, ssl=args.ssl, verify=args.verify)
     elif args.command == 'token':
-        token(dm, args.dimension)
+        token(dm, dimension_id_or_name=args.dimension, applicant=args.applicant, expire_time=args.expire_time)
     elif args.command == 'new':
         new(dm, args.dimension)
     elif args.command == 'catalog':

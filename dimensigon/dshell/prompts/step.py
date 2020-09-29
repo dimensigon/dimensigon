@@ -2,7 +2,6 @@ import argparse
 import copy
 import os
 import shlex
-from pprint import pprint
 
 from prompt_toolkit import prompt
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -16,6 +15,7 @@ from dimensigon.domain.entities import ActionType
 from dimensigon.dshell.argparse_raise import ArgumentParserRaise
 from dimensigon.dshell.completer import granule_completer, server_name_completer, action_completer
 from dimensigon.dshell.helpers import get_history, exit_dshell
+from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.action_template import code_lexer
 from dimensigon.dshell.prompts.utils import prompt_parameter
 from dimensigon.dshell.validators import ChoiceValidator, IntValidator, JSONValidator, BoolValidator, ListValidator
@@ -49,6 +49,8 @@ subpreview_parser = preview_parser.add_subparsers(dest='subcmd')
 subpreview_parser.add_parser('action')
 set_parser = subparser.add_parser('set')
 set_parser.add_argument('parameter', help=', '.join(form.keys()))
+delete_parser = subparser.add_parser('delete')
+delete_parser.add_argument('parameter', help=', '.join(form.keys()))
 save_parser = subparser.add_parser('save')
 exit_parser = subparser.add_parser('exit')
 
@@ -85,7 +87,7 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
         try:
             namespace = parser.parse_args(shlex.split(text))
         except (ValueError, argparse.ArgumentError) as e:
-            print(e)
+            dprint(e)
             continue
         except SystemExit:
             continue
@@ -94,28 +96,25 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
             if namespace.subcmd == 'action':
                 if entity.get('action_template_id', None):
                     resp = ntwrk.get('api_1_0.actiontemplateresource', view_data={'action_template_id': entity['action_template_id']})
-                    if resp.ok:
-                        pprint(resp.msg)
-                    else:
-                        if resp.code is not None:
-                            pprint(resp.msg)
-                        else:
-                            print(str(resp.exception))
+                    dprint(resp)
                 else:
-                    print('no action_template_id set')
+                    dprint('no action_template_id set')
             elif namespace.subcmd is None:
-                pprint(entity, indent=4)
+                dprint(entity)
         elif namespace.cmd == 'set':
+            try:
+                if prompt_parameter(namespace.parameter, entity, form, f"{parent_prompt}:{entity['id']}"):
+                    changed = True
+            except KeyboardInterrupt:
+                continue  # Control-C pressed. Try again.
+            except EOFError:
+                exit_dshell(rc=1)
+        elif namespace.cmd == 'delete':
             if namespace.parameter not in form.keys():
-                print("Not a valid parameter. Available: " + ', '.join(form.keys()))
+                dprint("Not a valid parameter. Available: " + ', '.join(form.keys()))
             else:
-                try:
-                    if prompt_parameter(namespace.parameter, entity, form, f"{parent_prompt}:{entity['id']}"):
-                        changed = True
-                except KeyboardInterrupt:
-                    continue  # Control-C pressed. Try again.
-                except EOFError:
-                    exit_dshell(rc=1)
+                entity.pop(namespace.parameter)
+                changed = True
         elif namespace.cmd == 'save':
             if changed:
                 return entity

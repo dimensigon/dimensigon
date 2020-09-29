@@ -16,19 +16,9 @@ import dimensigon.dshell.network as ntwrk
 from dimensigon.domain.entities import ActionType
 from dimensigon.dshell.argparse_raise import ArgumentParserRaise
 from dimensigon.dshell.helpers import get_history, exit_dshell
+from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.utils import prompt_parameter
 from dimensigon.dshell.validators import ChoiceValidator, IntValidator, JSONValidator
-
-parser = ArgumentParserRaise(allow_abbrev=False, prog='')
-subparser = parser.add_subparsers(dest='cmd')
-preview_action = subparser.add_parser('preview')
-preview_action.set_defaults(func=lambda x: pprint(x))
-set_action = subparser.add_parser('set')
-set_action.add_argument('parameter')
-submit_action = subparser.add_parser('submit')
-dump_action = subparser.add_parser('dump')
-dump_action.add_argument('file')
-exit_action = subparser.add_parser('exit')
 
 
 def code_lexer(action_type):
@@ -57,6 +47,19 @@ form = {
     "pre_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
     "post_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
 }
+
+parser = ArgumentParserRaise(allow_abbrev=False, prog='')
+subparser = parser.add_subparsers(dest='cmd')
+preview_action = subparser.add_parser('preview')
+preview_action.set_defaults(func=lambda x: pprint(x))
+set_action = subparser.add_parser('set')
+set_action.add_argument('parameter',  choices=form.keys())
+delete_parser = subparser.add_parser('delete')
+delete_parser.add_argument('parameter', choices=form.keys())
+submit_action = subparser.add_parser('submit')
+dump_action = subparser.add_parser('dump')
+dump_action.add_argument('file')
+exit_action = subparser.add_parser('exit')
 
 history = None
 
@@ -96,18 +99,15 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
             continue
 
         if namespace.cmd == 'preview':
-            pprint(entity)
+            dprint(entity)
         elif namespace.cmd == 'set':
-            if namespace.parameter not in form.keys():
-                print("Not a valid parameter. Available: " + ', '.join(form.keys()))
-            else:
-                try:
-                    if prompt_parameter(namespace.parameter, entity, form, f"{parent_prompt}{entity_name}('{entity['name']}')"):
-                        changed = True
-                except KeyboardInterrupt:
-                    continue  # Control-C pressed. Try again.
-                except EOFError:
-                    exit_dshell(rc=1)
+            try:
+                if prompt_parameter(namespace.parameter, entity, form, f"{parent_prompt}{entity_name}('{entity['name']}')"):
+                    changed = True
+            except KeyboardInterrupt:
+                continue  # Control-C pressed. Try again.
+            except EOFError:
+                exit_dshell(rc=1)
         elif namespace.cmd == 'submit':
             if 'id' in entity:
                 resp = ntwrk.patch(f'api_1_0.{entity_name.replace("_", "")}resource', json=entity)

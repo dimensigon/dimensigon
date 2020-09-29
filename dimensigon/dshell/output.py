@@ -1,6 +1,5 @@
 import json
 import logging
-import traceback
 from pprint import pprint
 
 import pygments
@@ -9,6 +8,7 @@ from prompt_toolkit.formatted_text import PygmentsTokens
 from pygments.lexers.web import JSONLexer
 
 from dimensigon.dshell import environ as env
+from dimensigon.utils.helpers import format_exception
 from dimensigon.web.network import Response
 
 logger = logging.getLogger('dshell')
@@ -23,7 +23,7 @@ def dprint(msg):
             dprint(msg.exception)
     elif isinstance(msg, Exception):
         if env.get('DEBUG'):
-            dprint(traceback.format_exc())
+            dprint(format_exception(msg))
         else:
             dprint(str(msg) if str(msg) else msg.__class__.__name__)
     else:

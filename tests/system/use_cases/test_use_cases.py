@@ -3,7 +3,7 @@ from flask import url_for
 from dimensigon.domain.entities import Server, Gate
 from dimensigon.domain.entities.route import Route
 from dimensigon.web import db
-from tests.helpers import TestDimensigonBase
+from tests.base import TestDimensigonBase
 
 
 class TestRoutes(TestDimensigonBase):
@@ -16,15 +16,15 @@ class TestRoutes(TestDimensigonBase):
         s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='server2')
         g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
                   dns=s2.name)
-        Route(s2, gate=g2, cost=0)
+        Route(s2, g2, cost=0)
         s3 = Server(id='123e4567-e89b-12d3-a456-426655440003', name='server3')
         g3 = Gate(id='123e4567-e89b-12d3-a456-426655440013', server=s3, port=5003,
                   dns=s3.name)
-        Route(s3, gate=g3, cost=0)
+        Route(s3, g3, cost=0)
         s4 = Server(id='123e4567-e89b-12d3-a456-426655440004', name='server4')
         g4 = Gate(id='123e4567-e89b-12d3-a456-426655440014', server=s4, port=5001,
                   dns=s4.name)
-        Route(s4, proxy_server=s2, cost=1)
+        Route(s4, s2, cost=1)
         db.session.add_all([s1, s2, s3, s4])
         db.session.commit()
 

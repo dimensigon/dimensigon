@@ -11,7 +11,7 @@ from dimensigon.web.json_schemas import orchestration_post, orchestration_patch
 
 class OrchestrationList(Resource):
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self):
@@ -21,7 +21,7 @@ class OrchestrationList(Resource):
                           split_lines=True) for o in
                 query.all()]
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(orchestration_post)
@@ -42,14 +42,14 @@ class OrchestrationList(Resource):
 
 
 class OrchestrationResource(Resource):
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     def get(self, orchestration_id):
         return Orchestration.query.get_or_404(orchestration_id).to_json(add_target=True, add_params=True,
                                                                         split_lines=True)
 
-    @forward_or_dispatch
+    @forward_or_dispatch()
     @jwt_required
     @securizer
     @validate_schema(orchestration_patch)

@@ -1,8 +1,60 @@
 import argparse
 import functools
+import sys
 import types
 from typing import Text, Optional, TypeVar, NoReturn
 
+if sys.version_info < (3, 7):
+    def _copy_items(items):
+        if items is None:
+            return []
+        # The copy module is used only in the 'append' and 'append_const'
+        # actions, and it is needed only when the default value isn't a list.
+        # Delay its import for speeding up the common case.
+        if type(items) is list:
+            return items[:]
+        import copy
+        return copy.copy(items)
+
+    class _AppendAction(argparse.Action):
+
+        def __init__(self,
+                     option_strings,
+                     dest,
+                     nargs=None,
+                     const=None,
+                     default=None,
+                     type=None,
+                     choices=None,
+                     required=False,
+                     help=None,
+                     metavar=None):
+            if nargs == 0:
+                raise ValueError('nargs for append actions must be != 0; if arg '
+                                 'strings are not supplying the value to append, '
+                                 'the append const action may be more appropriate')
+            if const is not None and nargs != argparse.OPTIONAL:
+                raise ValueError('nargs must be %r to supply const' % argparse.OPTIONAL)
+            super(_AppendAction, self).__init__(
+                option_strings=option_strings,
+                dest=dest,
+                nargs=nargs,
+                const=const,
+                default=default,
+                type=type,
+                choices=choices,
+                required=required,
+                help=help,
+                metavar=metavar)
+
+        def __call__(self, parser, namespace, values, option_string=None):
+            items = getattr(namespace, self.dest, None)
+            items = _copy_items(items)
+            items.append(values)
+            setattr(namespace, self.dest, items)
+else:
+    _copy_items = argparse._copy_items
+    _AppendAction = argparse._AppendAction
 
 class ArgumentParserRaise(argparse.ArgumentParser):
 
@@ -304,10 +356,10 @@ class DictAction(argparse.Action):
                 else:
                     container['all'].append(value)
 
-class ExtendAction(argparse._AppendAction):
+class ExtendAction(_AppendAction):
     def __call__(self, parser, namespace, values, option_string=None):
         items = getattr(namespace, self.dest, None)
-        items = argparse._copy_items(items)
+        items = _copy_items(items)
         items.extend(values)
         setattr(namespace, self.dest, items)
 

@@ -1,11 +1,14 @@
+import datetime as dt
 import logging
 import os
-from typing import Optional
+import sys
+import typing as t
 
 from gunicorn.app.base import Application
 
+from dimensigon import defaults
 from dimensigon.exceptions import DimensigonError
-from dimensigon.web import DimensigonFlask, create_app
+from dimensigon.web import DimensigonFlask, create_app, threading
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,8 +40,8 @@ class GunicornApp(Application):
 
 class Dimensigon:
     def __init__(self):
-        self.flask_app: Optional[DimensigonFlask] = None
-        self.http_server: Optional[GunicornApp] = None
+        self.flask_app: t.Optional[DimensigonFlask] = None
+        self.http_server: t.Optional[GunicornApp] = None
         self.config = Config(self)
         self.engine = None
         self.get_session = None
@@ -60,7 +63,15 @@ class Dimensigon:
     def start(self):
         """starts dimensigon server"""
         self.create_instances()
-        self.http_server.run()
+        self.flask_app.bootstrap_start()
+        th = threading.Timer(interval=4, function=self.flask_app.make_first_request)
+        th.start()
+        if self.config.flask:
+            self.flask_app.run(host='0.0.0.0', port=defaults.DEFAULT_PORT, ssl_context='adhoc')
+            self.flask_app.shutdown()
+            sys.exit(0)
+        else:
+            self.http_server.run()
 
 class Config:
 
@@ -68,7 +79,7 @@ class Config:
         self.dm = dm
 
         # Directory that holds the configuration
-        self.config_dir: Optional[str] = None
+        self.config_dir: t.Optional[str] = None
 
         # If set, process should upgrade as soon as a neighbour has a higher version
         self.auto_upgrade: bool = True
@@ -83,7 +94,7 @@ class Config:
         self.scheduler: bool = True
 
         # database uri
-        self.db_uri = None
+        self.db_uri: t.Optional[str] = None
 
         # http configuration
         self.http_conf = {}
@@ -91,7 +102,18 @@ class Config:
         # flask configuration
         self.flask_conf = {}
 
-        self.debug = False
+        # Run configuration (used for elevator to load same configuration)
+        self.run_config = {}
+
+        self.debug: bool = False
+
+        self.flask: bool = False
+
+        # forces the process to scan on startup
+        self.force_scan: bool = False
+
+        # Run route table, catalog and cluster refresh every minutes
+        self.refresh_interval: dt.timedelta = defaults.REFRESH_PERIOD
 
     def path(self, *path: str) -> str:
         """Generate path to the file within the configuration directory.

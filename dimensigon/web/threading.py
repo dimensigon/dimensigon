@@ -4,10 +4,9 @@ from typing import Optional, Callable, Any, Iterable, Mapping
 
 from flask import current_app
 
-from dimensigon.web import db
-
 
 def merge_iter(arg, c=None):
+    from dimensigon.web import db
     c = c or {}
     if id(arg) in c:
         return c[id(arg)]

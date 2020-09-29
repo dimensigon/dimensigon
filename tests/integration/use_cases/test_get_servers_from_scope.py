@@ -81,7 +81,7 @@ class Test(TestCase):
             if i == 0:
                 r = Route(s, cost=0)
             else:
-                r = Route(s, proxy_server=random.choice(servers), cost=i)
+                r = Route(s, random.choice(servers), cost=i)
 
             db.session.add_all([s, r])
 
@@ -90,7 +90,7 @@ class Test(TestCase):
         mock_get_now.return_value = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
         mock_keepalive.return_value = [s.id for s in servers]
         s62 = Server(f'node72', port=5000)
-        Route(s62, proxy_server=random.choice(servers), cost=6)
+        Route(s62, random.choice(servers), cost=6)
         db.session.add(s62)
 
         quorum = get_servers_from_scope(scope=Scope.CATALOG)

@@ -6,14 +6,12 @@ from flask_jwt_extended import create_access_token, create_refresh_token, jwt_re
 
 import dimensigon
 from dimensigon import defaults
-from dimensigon.domain.entities import Server, Catalog, Scope, User
-from dimensigon.use_cases.helpers import get_servers_from_scope
-from dimensigon.use_cases.lock import lock_scope
+from dimensigon.domain.entities import Server, Catalog, User
 from dimensigon.utils.helpers import get_now
 from dimensigon.web import errors
-from dimensigon.web.decorators import forward_or_dispatch, validate_schema
+from dimensigon.web.decorators import forward_or_dispatch, validate_schema, securizer, log_time
 from dimensigon.web.helpers import check_param_in_uri
-from dimensigon.web.json_schemas import schema_healthcheck, login_post
+from dimensigon.web.json_schemas import login_post, healthcheck_post
 
 blueprint_name = 'root'
 root_bp = Blueprint(blueprint_name, __name__)
@@ -25,64 +23,57 @@ def home():
 
 
 @root_bp.route('/healthcheck', methods=['GET', 'POST'])
-@forward_or_dispatch
+@log_time('full')
+@forward_or_dispatch()
 @jwt_optional
-@validate_schema(POST=schema_healthcheck)
+@securizer
+@validate_schema(POST=healthcheck_post)
+@log_time('after validation')
 def healthcheck():
-    if request.method == 'GET':
-        # catalog_ver = current_app.catalog_manager.max_data_mark
-        # if catalog_ver:
-        #     catalog_ver = current_app.catalog_manager.max_data_mark.strftime(current_app.catalog_manager.format)
-        catalog_ver = Catalog.max_catalog()
-        data = {"version": dimensigon.__version__,
-                "catalog_version": catalog_ver.strftime(defaults.DATEMARK_FORMAT) if catalog_ver else None,
-                "scheduler": "running" if getattr(current_app.extensions.get('scheduler'), 'running',
-                                                  None) else "stopped",
+    if request.method == 'POST' and isinstance(g.source, Server):
+        try:
+            heartbeat = dt.datetime.strptime(request.get_json()['heartbeat'], defaults.DATETIME_FORMAT)
+        except:
+            raise errors.InvalidDateFormat(request.get_json()['heartbeat'], defaults.DATETIME_FORMAT)
+        exclude = request.get_json().get('exclude', [])
+        current_app.cluster_manager.set_keepalive(g.source.id, heartbeat)
 
-                "services": [],
+    catalog_ver = Catalog.max_catalog()
+    data = {"version": dimensigon.__version__,
+            "catalog_version": catalog_ver.strftime(defaults.DATEMARK_FORMAT) if catalog_ver else None,
+            "scheduler": "running" if getattr(current_app.extensions.get('scheduler'), 'running',
+                                              None) else "stopped",
 
-                }
-        if not check_param_in_uri('human'):
-            server = {'id': str(g.server.id), 'name': g.server.name}
-            neighbours = [{'id': str(s.id), 'name': s.name} for s in Server.get_neighbours()]
-            cluster = {'alive': [current_app.cluster[i] for i in current_app.cluster],
-                       'in_coma': [current_app.cluster[i] for i in current_app.cluster if i not in
-                                   current_app.cluster.get_delta_keepalive(
-                                       delta=dt.timedelta(
-                                           minutes=defaults.REFRESH_PERIOD * defaults.COMA_NODE_FACTOR)) and i != g.server.id]}
-        else:
-            server = g.server.name
-            neighbours = [s.name for s in Server.get_neighbours()]
-            cluster = {'alive': [getattr(Server.query.get(i), 'name', i) for i in current_app.cluster],
-                       'in_coma': [getattr(Server.query.get(i), 'name', i) for i in current_app.cluster if i not in
-                                   current_app.cluster.get_delta_keepalive(
-                                       delta=dt.timedelta(
-                                           minutes=defaults.REFRESH_PERIOD * defaults.COMA_NODE_FACTOR)) and i != g.server.id]}
+            "services": [],
 
-        data.update(server=server, neighbours=neighbours, cluster=cluster,
-                    now=get_now().strftime(defaults.DATETIME_FORMAT))
+            }
+    if not check_param_in_uri('human'):
+        server = {'id': str(g.server.id), 'name': g.server.name}
+        neighbours = [{'id': str(s.id), 'name': s.name} for s in Server.get_neighbours()]
+        cluster = {'alive': [current_app.cluster_manager.cluster[i] for i in current_app.cluster_manager.cluster],
+                   'in_coma': [current_app.cluster_manager.cluster[i] for i in current_app.cluster_manager.cluster if
+                               i not in
+                               current_app.cluster_manager.cluster.get_delta_keepalive(
+                                   delta=current_app.dm.config.refresh_interval * defaults.COMA_NODE_FACTOR) and i != g.server.id]}
+    else:
+        server = g.server.name
+        neighbours = sorted([s.name for s in Server.get_neighbours()])
+        cluster = {'alive': sorted([getattr(Server.query.get(i), 'name', i) for i in current_app.cluster_manager.cluster]),
+                   'in_coma': sorted([getattr(Server.query.get(i), 'name', i) for i in current_app.cluster_manager.cluster if
+                               i not in
+                               current_app.cluster_manager.cluster.get_delta_keepalive(
+                                   delta=current_app.dm.config.refresh_interval * defaults.COMA_NODE_FACTOR) and i != g.server.id])}
+    cluster.update(running=current_app.cluster_manager.running)
+    data.update(server=server, neighbours=neighbours, cluster=cluster,
+                now=get_now().strftime(defaults.DATETIME_FORMAT))
 
-        return data
-    elif request.method == 'POST':
-        user = User.get_current()
-        if user and user.user == 'root':
-            data = request.get_json()
-            if 'alive' in data:
-                server = Server.query.get(data.get('server_id', None))
-                if server:
-                    try:
-                        servers = get_servers_from_scope(Scope.CATALOG, bypass=server)
-                        with lock_scope(Scope.CATALOG, servers):
-                            server.alive = data['alive']
-                    except Exception:
-                        server.alive = data['alive']
 
-        else:
-            raise errors.UserForbiddenError
+
+    return data
 
 
 @root_bp.route('/ping', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 def ping():
     req_data = request.json
     if req_data:
@@ -95,7 +86,7 @@ def ping():
 
 
 @root_bp.route('/login', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @validate_schema(login_post)
 def login():
     user = User.get_by_user(user=request.json.get('username', None))
@@ -116,7 +107,7 @@ def login():
 
 
 @root_bp.route('/refresh', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @jwt_refresh_token_required
 def refresh():
     current_user_id = get_jwt_identity()
@@ -126,8 +117,9 @@ def refresh():
     }
     return jsonify(ret), 200
 
+
 @root_bp.route('/fresh-login', methods=['POST'])
-@forward_or_dispatch
+@forward_or_dispatch()
 @validate_schema(login_post)
 def fresh_login():
     username = request.json.get('username', None)
