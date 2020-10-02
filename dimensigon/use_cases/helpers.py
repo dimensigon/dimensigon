@@ -6,7 +6,7 @@ from flask_jwt_extended import create_access_token
 from sqlalchemy import not_
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Scope, Server, User
+from dimensigon.domain.entities import Scope, Server
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.utils.helpers import get_now
 
@@ -78,4 +78,4 @@ def get_servers_from_scope(scope: Scope, bypass: t.Union[t.List[Server], Server]
 
 
 def get_root_auth():
-    return HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+    return HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))

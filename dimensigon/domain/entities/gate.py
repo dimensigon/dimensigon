@@ -3,15 +3,16 @@ import ipaddress
 import typing as t
 
 from dimensigon import defaults
-from dimensigon.domain.entities.base import UUIDistributedEntityMixin
+from dimensigon.domain.entities.base import UUIDistributedEntityMixin, SoftDeleteMixin
 from dimensigon.utils.typos import UUID, IP as IPType
 from dimensigon.web import db
+from dimensigon.web.helpers import QueryWithSoftDelete
 
 if t.TYPE_CHECKING:
     from dimensigon.domain.entities import Server
 
 
-class Gate(db.Model, UUIDistributedEntityMixin):
+class Gate(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     __tablename__ = "D_gate"
     order = 20
 
@@ -24,6 +25,8 @@ class Gate(db.Model, UUIDistributedEntityMixin):
     __table_args__ = (db.UniqueConstraint('server_id', 'ip', 'dns'),)
 
     server = db.relationship("Server", back_populates="gates")
+
+    query_class = QueryWithSoftDelete
 
     def __init__(self, server: 'Server', port: int = defaults.DEFAULT_PORT, dns: str = None,
                  ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address] = None, **kwargs):

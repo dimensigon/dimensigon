@@ -5,8 +5,9 @@ import logging
 import socket
 import typing as t
 
-from flask import current_app, url_for, g
+from flask import current_app, url_for, g, has_app_context
 from sqlalchemy import or_
+from sqlalchemy.orm.exc import NoResultFound
 
 from dimensigon.utils.typos import ScalarListType, Gate as TGate, UtcDateTime, Id
 from dimensigon.web import db, errors
@@ -17,6 +18,7 @@ from ... import defaults
 from ...utils.helpers import get_ips, get_now, is_iterable_not_string
 from ...web.helpers import QueryWithSoftDelete
 
+_me = {}
 
 class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     __tablename__ = 'D_server'
@@ -292,7 +294,18 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
     @classmethod
     def get_current(cls) -> 'Server':
-        return cls.query.filter_by(_me=True).one()
+        global _me
+        if has_app_context():
+            app = current_app._get_current_object()
+            if app not in _me:
+                entity = cls.query.filter_by(_me=True).filter_by(deleted=False).one()
+                if entity:
+                    db.session.expunge(entity)
+                    _me[app] = entity
+                else:
+                    raise NoResultFound('No row was found for one()')
+            return db.session.merge(_me[app], load=False)
+        return cls.query.filter_by(_me=True).filter_by(deleted=False).one()
 
     @staticmethod
     def set_initial(session=None, gates=None):
@@ -332,3 +345,8 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
             self.route.set_route(RouteContainer(proxy_route.proxy_server, proxy_route.gate, proxy_route.cost))
         else:
             self.route.set_route(RouteContainer(proxy_route, gate, cost))
+
+    def delete(self):
+        super().delete()
+        for g in self.gates:
+            g.delete()

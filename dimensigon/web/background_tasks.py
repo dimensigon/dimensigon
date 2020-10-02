@@ -111,7 +111,7 @@ async def _async_get_neighbour_catalog_data_mark(cluster_heartbeat_id: str = Non
                 server_responses[server].msg = None
                 server_responses[server].code = None
 
-        catalog_logger.debug(
+        catalog_logger.log(1,
             f"Response from server {server.name}: {json.dumps(server_responses[server].to_dict(), indent=4)}")
 
     return server_responses

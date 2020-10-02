@@ -17,6 +17,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     install_requires=[
+        "PyYAML",
         "RestrictedPython",
         "aiohttp",
         "apscheduler",
@@ -27,7 +28,7 @@ setup(
         "dataclasses",
         "dill",
         "docopt",
-        "flask",
+        "Flask",
         "flask-JWT-Extended",
         "flask-RESTFul",
         "flask-SQLAlchemy",
@@ -44,7 +45,8 @@ setup(
         "rsa",
         "schema",
         "setuptools",
-        "six"
+        "six",
+        "tzlocal<3.0"
     ],
     classifiers=[
         "Programming Language :: Python :: 3.6",

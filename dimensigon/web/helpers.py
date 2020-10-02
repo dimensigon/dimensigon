@@ -32,6 +32,12 @@ class BaseQueryJSON(BaseQuery):
     Override the query class for an individual model by subclassing this and setting :attr:`~Model.query_class`.
     """
 
+    def get(self, ident):
+        if ident:
+            return super().get(ident)
+        else:
+            return None
+
     def get_or_404(self, ident, description=None):
         """Like :meth:`get` but aborts with 404 if not found instead of returning ``None``."""
 

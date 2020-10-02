@@ -518,7 +518,7 @@ async def async_remove_neighbour_send(server: t.Union[Id, Server], auth, servers
     if _server:
         with _lock:
             _server.set_route(RouteContainer(None, None, None))
-            lost_routes = Route.query.filter_by(proxy_server=server).count()
+            lost_routes = Route.query.filter_by(proxy_server=_server).count()
             if lost_routes:
                 changed_routes = await async_update_route_table_cost(discover_new_neighbours=False,
                                                                      check_current_neighbours=False)

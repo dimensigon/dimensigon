@@ -6,7 +6,7 @@ from flask import request, current_app, g, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Catalog, User
+from dimensigon.domain.entities import Catalog
 from dimensigon.domain.entities.locker import Scope, State, Locker
 from dimensigon.web import db, errors
 from dimensigon.web.api_1_0 import api_bp
@@ -116,7 +116,7 @@ def locker_unlock():
     logger.debug(f"Unlock requested on {json_data.get('scope')} from {g.source}")
 
     if 'force' in json_data and json_data['force']:
-        if get_jwt_identity() != User.get_by_user('root').id:
+        if get_jwt_identity() != '00000000-0000-0000-0000-000000000001':
             raise errors.UserForbiddenError()
         else:
             l.state = State.UNLOCKED

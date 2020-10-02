@@ -19,7 +19,7 @@ import uuid
 from collections import OrderedDict
 
 from flask import request, current_app, jsonify, g
-from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, current_user
+from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
 from pkg_resources import parse_version
 
 import dimensigon
@@ -31,7 +31,6 @@ from dimensigon.domain.entities import Software, Server, SoftwareServerAssociati
     Orchestration, OrchExecution, User, ActionTemplate, ActionType, Gate
 from dimensigon.domain.entities.route import RouteContainer
 from dimensigon.network.auth import HTTPBearerAuth
-from dimensigon.use_cases import clustering
 from dimensigon.utils import asyncio, subprocess
 from dimensigon.utils.dag import DAG
 from dimensigon.utils.event_handler import Event
@@ -60,7 +59,7 @@ def home():
 @api_bp.route('/join/token', methods=['GET'])
 @jwt_required
 def join_token():
-    if current_user.user == User.get_by_user('root').user:
+    if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         user_join = User.get_by_user('join')
         expire_time = request.args.get('expires_time', type=int, default=None)
 
@@ -76,7 +75,7 @@ def join_token():
 @api_bp.route('/join/public', methods=['GET'])
 @jwt_required
 def join_public():
-    if current_user.user == User.get_by_user('join').user:
+    if User.query.get(get_jwt_identity()) == User.get_by_user('join'):
         return g.dimension.public.save_pkcs1(), 200, {'content-type': 'application/octet-stream'}
 
     else:
@@ -104,11 +103,13 @@ _lock = threading.Lock()
 @jwt_required
 def join():
     global fetched_catalog
-    if current_user.user == User.get_by_user('join').user:
+    if get_jwt_identity() == '00000000-0000-0000-0000-000000000004':
         js = request.get_json()
         current_app.logger.debug(f"New server wanting to join: {json.dumps(js, indent=2)}")
-        if len(db.session.query(Server).filter_by(id=js.get('id', None)).all()) > 0:
-            raise errors.IdAlreadyExists(js.get('id', None))
+        if db.session.query(Server).filter_by(id=js.get('id', None)).count() > 0:
+            raise errors.DuplicatedId(js.get('id', None))
+        if db.session.query(Server).filter_by(name=js.get('name', None)).count() > 0:
+            raise errors.AlreadyExists('name', js.get('name', None))
         s = Server.from_json(js)
         s.created_on = get_now()
         external_ip = ipaddress.ip_address(request.remote_addr)
@@ -175,7 +176,7 @@ def join_acknowledge(server_id):
 @securizer
 @validate_schema(manager_server_ignore_lock_post)
 def internal_server():
-    if current_user == User.get_by_user('root'):
+    if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         ignore = request.get_json()['ignore_on_lock']
         for server_id in request.get_json()['server_ids']:
             server = Server.query.get_or_404(server_id)
@@ -344,7 +345,7 @@ def fetch_catalog(data_mark):
     for name, obj in get_distributed_entities():
         c = Catalog.query.get(name)
         # db.session.query to bypass deleted objects to spread deleted changes
-        repo_data = db.session.query(obj).filter(obj.last_modified_at > data_mark).filter(
+        repo_data = obj.query.filter(obj.last_modified_at > data_mark).filter(
             obj.last_modified_at <= now).all()
         if name == 'User':
             data.update({name: [e.to_json(password=True) for e in repo_data]})
@@ -358,23 +359,20 @@ _cluster_logger = logging.getLogger('dimensigon.cluster')
 
 @api_bp.route('/cluster', methods=['POST'])
 @log_time('full')
-@forward_or_dispatch()
-@log_time('before securizer')
+# @forward_or_dispatch()
 @jwt_required
 @securizer
 @log_time('after securizer')
 @validate_schema(cluster_post)
 @log_time('after validation')
 def cluster():
-    user = User.get_current()
-    if user and user.user == 'root':
+    if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         data = request.get_json()
-        _cluster_logger.debug(f"Data received {clustering.log_data(data)}")
+        # _cluster_logger.debug(f"Data received {clustering.log_data(data)}")
         current_app.cluster_manager.put(data)
         return {}, 204
     else:
         raise errors.UserForbiddenError
-
 
 async def background_cluster_in(server_id, routes, auth):
     server = Server.query.get(server_id)
@@ -704,9 +702,9 @@ def launch_command():
     data.pop('target', None)
     start = None
 
-    username = getattr(current_user, 'user', None)
+    username = getattr(User.query.get(get_jwt_identity()), 'user', None)
     if not username:
-        raise errors.EntityNotFound('User', current_user)
+        raise errors.EntityNotFound('User', get_jwt_identity())
     cmd = wrap_sudo(username, data['command'])
     if g.server in server_list:
         start = time.time()

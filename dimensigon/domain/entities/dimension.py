@@ -2,6 +2,8 @@ import typing as t
 from datetime import datetime
 
 import rsa
+from flask import has_app_context, current_app
+from sqlalchemy.orm.exc import NoResultFound
 
 from dimensigon import defaults
 from dimensigon.domain.entities.base import EntityReprMixin, UUIDEntityMixin
@@ -9,6 +11,7 @@ from dimensigon.utils.helpers import get_now
 from dimensigon.utils.typos import PrivateKey, PublicKey, UtcDateTime
 from dimensigon.web import db
 
+current = {}
 
 class Dimension(db.Model, UUIDEntityMixin, EntityReprMixin):
     __tablename__ = 'L_dimension'
@@ -36,7 +39,18 @@ class Dimension(db.Model, UUIDEntityMixin, EntityReprMixin):
 
     @classmethod
     def get_current(cls) -> 'Dimension':
-        return cls.query.filter_by(current=True).one_or_none()
+        global current
+        if has_app_context():
+            app = current_app._get_current_object()
+            if app not in current:
+                entity = cls.query.filter_by(current=True).one()
+                if entity:
+                    db.session.expunge(entity)
+                    current[app] = entity
+                else:
+                    raise NoResultFound('No row was found for one()')
+            return db.session.merge(current[app], load=False)
+        return cls.query.filter_by(current=True).one()
 
     def to_json(self):
         return {'id': str(self.id) if self.id else None, 'name': self.name,

@@ -92,11 +92,15 @@ def set_source():
     if not hasattr(g, 'source'):
         source_id, proxies = (request.headers.get('D-Source', '') + ':').split(':', 1)
         proxies = proxies.strip(':')
-        source = db.session.query(Server).get(source_id)
+        source = None
+        if source_id:
+            source = Server.query.get(source_id)
         # check hidden ip on server
         if proxies:
             lp = proxies.split(':')
-            neighbour = Server.query.get(lp[-1])
+            neighbour = None
+            if lp[-1]:
+                neighbour = Server.query.get(lp[-1])
             if neighbour:
                 save_if_hidden_ip(request.remote_addr, neighbour)
         if not source:

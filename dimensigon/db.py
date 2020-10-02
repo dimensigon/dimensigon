@@ -4,7 +4,7 @@ import time
 import typing as t
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import InternalError, OperationalError
+from sqlalchemy.exc import InternalError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.sql.ddl import CreateTable
 
@@ -139,10 +139,10 @@ def _add_columns(engine, table_name, columns_def):
                 )
 
 
-def _rename_columns(engine, tablename, column_renames: t.List[t.Tuple[str, str]]):
-    temp_tablename = tablename + '_temp'
-    table = db.Model.metadata.tables[tablename]
-    tmp_ddl = CreateTable(table).compile(engine).string.replace(tablename, temp_tablename)
+def _rename_columns(engine, table_name, column_renames: t.List[t.Tuple[str, str]]):
+    temp_table_name = table_name + '_temp'
+    table = db.Model.metadata.tables[table_name]
+    tmp_ddl = CreateTable(table).compile(engine).string.replace(table_name, temp_table_name)
 
     map2old = {t[1]: t[0] for t in column_renames}
     new_column_table = table.columns.keys()
@@ -154,21 +154,21 @@ def _rename_columns(engine, tablename, column_renames: t.List[t.Tuple[str, str]]
         new_c_s = [f'"{c}"' for c in new_column_table]
         connection.execute(tmp_ddl)
         try:
-            connection.execute(f'INSERT INTO {temp_tablename}({", ".join(new_c_s)}) '
-                               f'SELECT {", ".join(old_c_s)} FROM {tablename}')
+            connection.execute(f'INSERT INTO {temp_table_name}({", ".join(new_c_s)}) '
+                               f'SELECT {", ".join(old_c_s)} FROM {table_name}')
 
         except:
-            connection.execute(f"DROP TABLE {temp_tablename}")
+            connection.execute(f"DROP TABLE {temp_table_name}")
             raise
         else:
-            connection.execute(f"DROP TABLE {tablename}")
-            connection.execute(f"ALTER TABLE {temp_tablename} RENAME TO {tablename}")
+            connection.execute(f"DROP TABLE {table_name}")
+            connection.execute(f"ALTER TABLE {temp_table_name} RENAME TO {table_name}")
 
 
-def _delete_columns(engine, tablename, column_deletes: t.List[str]):
-    temp_tablename = tablename + '_temp'
-    table = db.Model.metadata.tables[tablename]
-    tmp_ddl = CreateTable(table).compile(engine).string.replace(tablename, temp_tablename)
+def _delete_columns(engine, table_name, column_deletes: t.List[str]):
+    temp_table_name = table_name + '_temp'
+    table = db.Model.metadata.tables[table_name]
+    tmp_ddl = CreateTable(table).compile(engine).string.replace(table_name, temp_table_name)
 
     new_column_table = [k for k in table.columns.keys() if k not in column_deletes]
 
@@ -176,23 +176,23 @@ def _delete_columns(engine, tablename, column_deletes: t.List[str]):
         new_c_s = [f'"{c}"' for c in new_column_table]
         connection.execute(tmp_ddl)
         try:
-            connection.execute(f'INSERT INTO {temp_tablename}({", ".join(new_c_s)}) '
-                               f'SELECT {", ".join(new_c_s)} FROM {tablename}')
+            connection.execute(f'INSERT INTO {temp_table_name}({", ".join(new_c_s)}) '
+                               f'SELECT {", ".join(new_c_s)} FROM {table_name}')
 
         except:
-            connection.execute(f"DROP TABLE {temp_tablename}")
+            connection.execute(f"DROP TABLE {temp_table_name}")
             raise
         else:
-            connection.execute(f"DROP TABLE {tablename}")
-            connection.execute(f"ALTER TABLE {temp_tablename} RENAME TO {tablename}")
+            connection.execute(f"DROP TABLE {table_name}")
+            connection.execute(f"ALTER TABLE {temp_table_name} RENAME TO {table_name}")
 
 
-def _rename_and_delete_columns(engine, tablename,
+def _rename_and_delete_columns(engine, table_name,
                                column_renames: t.List[t.Tuple[str, str]],
                                column_deletes: t.List[str]):
-    temp_tablename = tablename + '_temp'
-    table = db.Model.metadata.tables[tablename]
-    tmp_ddl = CreateTable(table).compile(engine).string.replace(tablename, temp_tablename)
+    temp_table_name = table_name + '_temp'
+    table = db.Model.metadata.tables[table_name]
+    tmp_ddl = CreateTable(table).compile(engine).string.replace(table_name, temp_table_name)
 
     map2old = {t[1]: t[0] for t in column_renames}
     new_column_table = [k for k in table.columns.keys() if k not in column_deletes]
@@ -204,23 +204,132 @@ def _rename_and_delete_columns(engine, tablename,
         new_c_s = [f'"{c}"' for c in new_column_table]
         connection.execute(tmp_ddl)
         try:
-            connection.execute(f'INSERT INTO {temp_tablename}({", ".join(new_c_s)}) '
-                               f'SELECT {", ".join(old_c_s)} FROM {tablename}')
+            connection.execute(f'INSERT INTO {temp_table_name}({", ".join(new_c_s)}) '
+                               f'SELECT {", ".join(old_c_s)} FROM {table_name}')
 
         except:
-            connection.execute(f"DROP TABLE {temp_tablename}")
+            connection.execute(f"DROP TABLE {temp_table_name}")
             raise
         else:
-            connection.execute(f"DROP TABLE {tablename}")
-            connection.execute(f"ALTER TABLE {temp_tablename} RENAME TO {tablename}")
+            connection.execute(f"DROP TABLE {table_name}")
+            connection.execute(f"ALTER TABLE {temp_table_name} RENAME TO {table_name}")
 
 
-def _create_table(engine, tablename):
-    table = db.Model.metadata.tables[tablename]
+def _create_table(engine, table_name):
+    table = db.Model.metadata.tables[table_name]
     ddl = CreateTable(table).compile(engine).string
     with engine.connect() as connection:
         connection.execute(ddl)
 
+def _create_index(engine, table_name, index_name):
+    """Create an index for the specified table.
+    The index name should match the name given for the index
+    within the table definition described in the models
+    """
+    table = db.Model.metadata.tables[table_name]
+    _LOGGER.debug("Looking up index %s for table %s", index_name, table_name)
+    # Look up the index object by name from the table is the models
+    index_list = [idx for idx in table.indexes if idx.name == index_name]
+    if not index_list:
+        _LOGGER.debug("The index %s no longer exists", index_name)
+        return
+    index = index_list[0]
+    _LOGGER.debug("Creating %s index", index_name)
+    _LOGGER.warning(
+        "Adding index `%s` to database. Note: this can take several "
+        "minutes on large databases and slow computers. Please "
+        "be patient!",
+        index_name,
+    )
+    try:
+        index.create(engine)
+    except OperationalError as err:
+        lower_err_str = str(err).lower()
+
+        if "already exists" not in lower_err_str and "duplicate" not in lower_err_str:
+            raise
+
+        _LOGGER.warning(
+            "Index %s already exists on %s, continuing", index_name, table_name
+        )
+    except InternalError as err:
+        if "duplicate" not in str(err).lower():
+            raise
+
+        _LOGGER.warning(
+            "Index %s already exists on %s, continuing", index_name, table_name
+        )
+
+    _LOGGER.debug("Finished creating %s", index_name)
+
+
+def _drop_index(engine, table_name, index_name):
+    """Drop an index from a specified table.
+    There is no universal way to do something like `DROP INDEX IF EXISTS`
+    so we will simply execute the DROP command and ignore any exceptions
+    WARNING: Due to some engines (MySQL at least) being unable to use bind
+    parameters in a DROP INDEX statement (at least via SQLAlchemy), the query
+    string here is generated from the method parameters without sanitizing.
+    DO NOT USE THIS FUNCTION IN ANY OPERATION THAT TAKES USER INPUT.
+    """
+    _LOGGER.debug("Dropping index %s from table %s", index_name, table_name)
+    success = False
+
+    # Engines like DB2/Oracle
+    try:
+        engine.execute(text(f"DROP INDEX {index_name}"))
+    except SQLAlchemyError:
+        pass
+    else:
+        success = True
+
+    # Engines like SQLite, SQL Server
+    if not success:
+        try:
+            engine.execute(
+                text(
+                    "DROP INDEX {table}.{index}".format(
+                        index=index_name, table=table_name
+                    )
+                )
+            )
+        except SQLAlchemyError:
+            pass
+        else:
+            success = True
+
+    if not success:
+        # Engines like MySQL, MS Access
+        try:
+            engine.execute(
+                text(
+                    "DROP INDEX {index} ON {table}".format(
+                        index=index_name, table=table_name
+                    )
+                )
+            )
+        except SQLAlchemyError:
+            pass
+        else:
+            success = True
+
+    if success:
+        _LOGGER.debug(
+            "Finished dropping index %s from table %s", index_name, table_name
+        )
+    else:
+        if index_name == "ix_states_context_parent_id":
+            # Was only there on nightly so we do not want
+            # to generate log noise or issues about it.
+            return
+
+        _LOGGER.warning(
+            "Failed to drop index %s from table %s. Schema "
+            "Migration will continue; this is not a "
+            "critical operation",
+            index_name,
+            table_name,
+        )
 
 def _apply_update(engine, new_version, old_version):
     if new_version == 2:
@@ -234,3 +343,10 @@ def _apply_update(engine, new_version, old_version):
                 f"UPDATE D_server SET created_on = '{date}' WHERE created_on IS NULL")
     elif new_version == 4:
         _create_table(engine, 'L_parameter')
+    elif new_version == 5:
+        _add_columns(engine, 'D_gate', ['deleted BOOLEAN'])
+        with engine.connect() as connection:
+            connection.execute(
+                f"UPDATE D_gate SET deleted = 0")
+            connection.execute(
+                f"UPDATE D_gate SET deleted = 1 WHERE EXISTS(SELECT * FROM D_server WHERE  D_server.id == D_gate.server_id and D_server.deleted == 1)")

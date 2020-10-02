@@ -1,8 +1,10 @@
 import logging
 import threading
+import time
 from contextlib import contextmanager
 
 from sqlalchemy import event, inspect
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import Pool
 
@@ -26,7 +28,7 @@ from .step import Step
 from .transfer import Transfer, Status as TransferStatus
 from .user import User
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _LOGGER = logging.getLogger('dimensigon.catalog')
 
@@ -149,4 +151,19 @@ def receive_refresh(target, context, attrs):
 def my_on_connect(dbapi_con, connection_record):
     # print("New DBAPI connection:", dbapi_con)
     dbapi_con.execute("PRAGMA journal_mode=WAL")
-    dbapi_con.execute("PRAGMA busy_timeout=10000")
+    # dbapi_con.execute("PRAGMA busy_timeout=10000")
+
+
+_query_logger = logging.getLogger('dimensigon.query')
+
+
+@event.listens_for(Engine, "before_cursor_execute")
+def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    conn.info.setdefault('query_start_time', []).append(time.time())
+
+
+
+@event.listens_for(Engine, "after_cursor_execute")
+def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    total = time.time() - conn.info['query_start_time'].pop(-1)
+    _query_logger.debug("Elapsed Time: %f\n%s\n%s", total, statement, parameters)

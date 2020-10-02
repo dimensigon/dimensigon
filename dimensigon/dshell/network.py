@@ -49,11 +49,17 @@ def login(username=None, password=None):
 
     if not username:
         if not env._username:
-            username = prompt("Username: ")
+            try:
+                username = prompt("Username: ")
+            except KeyboardInterrupt:
+                return
         else:
             username = env._username
     if not password:
-        password = prompt("Password: ", is_password=True)
+        try:
+            password = prompt("Password: ", is_password=True)
+        except KeyboardInterrupt:
+            return
 
     resp = requests.post(generate_url('root.login', {}), json={'username': username, 'password': password},
                          verify=False)
@@ -81,7 +87,7 @@ def refresh_access_token():
         raise ValueError('empty refresh token. Login first')
     auth = HTTPBearerAuth(env._refresh_token)
     resp = requests.post(url, auth=auth, verify=False, timeout=10)
-    if resp.status_code == 401:
+    if resp.status_code in (401, 422):
         login()
     else:
         resp.raise_for_status()

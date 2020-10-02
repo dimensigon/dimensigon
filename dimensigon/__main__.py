@@ -12,6 +12,7 @@ import coolname
 import prompt_toolkit
 import requests
 import rsa
+import yaml
 from dataclasses import dataclass
 from flask import Flask
 from flask_jwt_extended import create_access_token
@@ -414,6 +415,12 @@ def get_arguments() -> argparse.Namespace:
         help="The Error log file to write to.",
     )
     parser.add_argument(
+        "--logconfig-file",
+        metavar="FILE",
+        type=argparse.FileType('r'),
+        help="The log configuration in yaml format to load.",
+    )
+    parser.add_argument(
         "--dm-refresh-interval",
         help="Period time in minutes to execute the routing and catalog refresh.",
         default=defaults.REFRESH_PERIOD,
@@ -438,8 +445,7 @@ def get_arguments() -> argparse.Namespace:
     join_parser = subparser.add_parser("join", help="Joins to the dimension.")
     join_parser.add_argument(
         "SERVER",
-        help="Reference Server which will allow to join the dimension. You must specify server name or IP and "
-             "port separated by colon. Ex: 10.10.10.10:80"
+        help="Reference Server which will allow to join the dimension. You must specify server name or IP"
     )
     join_parser.add_argument(
         "TOKEN",
@@ -511,6 +517,7 @@ class RuntimeConfig:
     daemon: bool = None
     accesslog: str = None
     errorlog: str = None
+    logconfig: dict = None
     flask: bool = None
     refresh_interval: int = None
     force_scan: bool = None
@@ -520,6 +527,7 @@ def main():
     args = get_arguments()
 
     from dimensigon import bootstrap
+
     dm = bootstrap.setup_dm(RuntimeConfig(config_dir=args.config_dir,
                                           debug=args.debug,
                                           pid_file=args.pid_file,
@@ -531,6 +539,8 @@ def main():
                                           daemon=args.daemon,
                                           accesslog=args.accesslog,
                                           errorlog=args.errorlog,
+                                          logconfig=yaml.load(args.logconfig_file,
+                                                              Loader=yaml.FullLoader) if args.logconfig_file else {},
                                           flask=args.flask,
                                           refresh_interval=args.dm_refresh_interval,
                                           force_scan=args.force_scan))

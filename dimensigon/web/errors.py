@@ -153,14 +153,19 @@ class UserForbiddenError(BaseError):
         return "User has no rights to perform the action"
 
 
-class IdAlreadyExists(BaseError):
+class AlreadyExists(BaseError):
     status_code = 404
 
-    def __init__(self, iden):
-        self.id = iden
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
 
     def _format_error_msg(self) -> str:
-        return f"Id already exists in database"
+        return f"already exists in database"
+
+    @property
+    def payload(self) -> t.Optional[dict]:
+        return {self.name: self.value}
 
 class EntityNotFound(BaseError):
     status_code = 404

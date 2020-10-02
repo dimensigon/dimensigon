@@ -2,7 +2,7 @@ import datetime as dt
 
 from flask import Blueprint, request, current_app, jsonify, g
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_refresh_token_required, get_jwt_identity, \
-    current_user, jwt_optional
+    jwt_optional
 
 import dimensigon
 from dimensigon import defaults
@@ -110,10 +110,10 @@ def login():
 @forward_or_dispatch()
 @jwt_refresh_token_required
 def refresh():
-    current_user_id = get_jwt_identity()
+    user = User.query.get(get_jwt_identity())
     ret = {
-        'username': current_user.user,
-        'access_token': create_access_token(identity=current_user_id, fresh=False)
+        'username': getattr(user, 'user', None),
+        'access_token': create_access_token(identity=get_jwt_identity(), fresh=False)
     }
     return jsonify(ret), 200
 

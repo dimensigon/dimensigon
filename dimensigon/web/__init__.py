@@ -328,15 +328,16 @@ def start_cluster_manager():
     current_app.cluster_manager.start()
 
 
-@jwt.user_loader_callback_loader
-def user_loader_callback(identity):
-    from ..domain.entities import User
-    return User.query.get(identity)
+# @jwt.user_loader_callback_loader
+# def user_loader_callback(identity):
+#     from ..domain.entities import User
+#     return User.query.get(identity)
 
 
 def load_global_data_into_context():
     from dimensigon.domain.entities import Server, Dimension
     from dimensigon.web.decorators import set_source
+    global _dimension, _server
     set_source()
     g.server = Server.get_current()
     g.dimension = Dimension.get_current()

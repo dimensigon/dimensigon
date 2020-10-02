@@ -13,6 +13,8 @@ from datetime import datetime
 import flask
 import jinja2
 import requests
+import yaml
+from RestrictedPython import compile_restricted, safe_builtins
 from dataclasses import dataclass
 from flask import json
 from flask_jwt_extended import create_access_token, get_jwt_identity
@@ -23,7 +25,7 @@ from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.use_cases import routing
 from dimensigon.use_cases.lock import lock_scope
 from dimensigon.utils import subprocess
-from dimensigon.utils.helpers import get_now
+from dimensigon.utils.helpers import get_now, format_exception
 from dimensigon.utils.typos import Kwargs
 from dimensigon.utils.var_context import VarContext
 from dimensigon.web import db, errors
@@ -262,7 +264,7 @@ class NativeWaitOperation(IOperationEncapsulation):
             now = get_now()
             pending_names = set(var_context.get('list_server_names', []))
             with lock_scope(Scope.CATALOG, retries=3, delay=4, applicant=var_context.globals.get('orch_execution_id')):
-                while (time.time() - start) < min_timeout and len(pending_names) > 0:
+                while len(pending_names) > 0:
                     try:
                         found_names = db.session.query(Server.name).filter(Server.name.in_(pending_names)).filter(
                             Server.created_on >= now).all()
@@ -271,8 +273,8 @@ class NativeWaitOperation(IOperationEncapsulation):
                             found_names = []
                     found_names = set([t[0] for t in found_names])
                     pending_names = pending_names - found_names
-                    if pending_names:
-                        time.sleep(self.system_kwargs.get('sleep_time', 2))
+                    if pending_names and (time.time() - start) < min_timeout:
+                        time.sleep(self.system_kwargs.get('sleep_time', 15))
                     else:
                         break
         except errors.LockError as e:
@@ -311,7 +313,7 @@ class NativeDmRunningOperation(IOperationEncapsulation):
 
         pending_names = set(var_context.get('list_server_names', []))
 
-        while (time.time() - start) < min_timeout and len(pending_names) > 0:
+        while len(pending_names) > 0:
             try:
                 found_names = db.session.query(Server.name).join(Route, Route.destination_id == Server.id).filter(
                     Server.name.in_(pending_names)).filter(Route.cost.isnot(None)).order_by(Server.name).all()
@@ -320,8 +322,8 @@ class NativeDmRunningOperation(IOperationEncapsulation):
                     found_names = []
             found_names = set([t[0] for t in found_names])
             pending_names = pending_names - found_names
-            if pending_names:
-                time.sleep(self.system_kwargs.get('sleep_time', 2))
+            if pending_names and (time.time() - start) < min_timeout:
+                time.sleep(self.system_kwargs.get('sleep_time', 15))
             else:
                 break
 
@@ -380,7 +382,26 @@ class NativeDeleteOperation(IOperationEncapsulation):
 
 class PythonOperation(IOperationEncapsulation):
     def execute(self, var_context: VarContext, timeout=None, command=None) -> CompletedProcess:
-        pass
+        byte_code = compile_restricted(self.code, '<inline>', 'exec')
+        safe_builtins.update(json=json)
+        safe_builtins.update(json=jinja2)
+        safe_builtins.update(json=yaml)
+
+        cp = CompletedProcess()
+        cp.set_start_time()
+        _locals = dict(vc=var_context)
+
+        try:
+            exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, _locals)
+        except Exception as e:
+            cp.stderr = format_exception(e)
+            cp.success = False
+        else:
+            cp.stdout = ''.join(getattr(_locals.get('_print', None), 'txt', []))
+            cp.success = True
+            cp.set_end_time()
+
+        return cp
 
 
 class ShellOperation(IOperationEncapsulation):
