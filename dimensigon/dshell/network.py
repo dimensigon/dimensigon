@@ -80,14 +80,14 @@ def login(username=None, password=None):
                 save_config_file(token=env._refresh_token)
 
 
-def refresh_access_token():
+def refresh_access_token(login_=True):
     url = f"{env.get('SCHEME')}://{env.get('SERVER')}:{env.get('PORT')}/refresh"
 
     if env._refresh_token is None:
         raise ValueError('empty refresh token. Login first')
     auth = HTTPBearerAuth(env._refresh_token)
     resp = requests.post(url, auth=auth, verify=False, timeout=10)
-    if resp.status_code in (401, 422):
+    if resp.status_code in (401, 422) and login_:
         login()
     else:
         resp.raise_for_status()
@@ -95,7 +95,7 @@ def refresh_access_token():
         return resp.json().get('username', None)
 
 
-def request(method, url, session=None, token_refreshed=False, **kwargs) -> Response:
+def request(method, url, session=None, token_refreshed=False, login=True, **kwargs) -> Response:
     exception = None
     content = None
     status = None
@@ -114,13 +114,16 @@ def request(method, url, session=None, token_refreshed=False, **kwargs) -> Respo
     if 'auth' not in kwargs:
         if env._access_token is None:
             try:
-                refresh_access_token()
+                refresh_access_token(login_=login)
             except requests.exceptions.ConnectionError as e:
                 return Response(exception=ConnectionError(f"Unable to contact with {env.get('SCHEME')}://"
                                                      f"{env.get('SERVER')}:{env.get('PORT')}/refresh"),
                                 url=url)
             except Exception as e:
                 return Response(exception=e, url=url)
+            else:
+                if env._access_token is None:
+                    return Response(exception=ValueError("No authentication set"), url=url)
         kwargs['auth'] = HTTPBearerAuth(env._access_token)
 
     if 'headers' not in kwargs:

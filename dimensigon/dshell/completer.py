@@ -58,7 +58,6 @@ class DshellWordCompleter(WordCompleter):
                     yield Completion(a, -len(word_before_cursor), display_meta=display_meta)
 
 
-
 class ResourceCompleter(Completer):
 
     def __init__(self, resource, key='id', meta_key=None, meta_html_format=None, ignore_case: bool = False,
@@ -97,7 +96,7 @@ class ResourceCompleter(Completer):
             url = ntwrk.generate_url(self.resource, {**url_filters, **self.resource_params})
         except:
             return
-        res = ntwrk.request('get', url)
+        res = ntwrk.request('get', url, login=False, timeout=3)
         if res.code == 200:
             words = []
             meta_words = {}

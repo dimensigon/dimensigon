@@ -5,7 +5,7 @@ from flask_restful import Resource
 from dimensigon.domain.entities import ActionTemplate, ActionType
 from dimensigon.web import db
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dimensigon.web.helpers import filter_query
+from dimensigon.web.helpers import filter_query, check_param_in_uri
 from dimensigon.web.json_schemas import action_template_patch, action_template_post
 
 
@@ -16,7 +16,7 @@ class ActionTemplateList(Resource):
     @securizer
     def get(self):
         query = filter_query(ActionTemplate, request.args)
-        return [at.to_json(split_lines=True) for at in query.all()]
+        return [at.to_json(split_lines=check_param_in_uri('human')) for at in query.all()]
 
     @forward_or_dispatch()
     @jwt_required
@@ -47,7 +47,7 @@ class ActionTemplateResource(Resource):
     @jwt_required
     @securizer
     def get(self, action_template_id):
-        return ActionTemplate.query.get_or_404(action_template_id).to_json(split_lines=True)
+        return ActionTemplate.query.get_or_404(action_template_id).to_json(split_lines=check_param_in_uri('human'))
 
     @securizer
     @jwt_required

@@ -384,7 +384,6 @@ class PythonOperation(IOperationEncapsulation):
     def execute(self, var_context: VarContext, timeout=None, command=None) -> CompletedProcess:
         byte_code = compile_restricted(self.code, '<inline>', 'exec')
         safe_builtins.update(json=json)
-        safe_builtins.update(json=jinja2)
         safe_builtins.update(json=yaml)
 
         cp = CompletedProcess()

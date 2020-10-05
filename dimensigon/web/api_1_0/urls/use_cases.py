@@ -313,7 +313,8 @@ def software_dimensigon():
 @jwt_required
 @securizer
 def catalog_update():
-    data = asyncio.run(_async_get_neighbour_catalog_data_mark())
+
+    data = asyncio.run(_async_get_neighbour_catalog_data_mark(get_now().strftime(defaults.DATETIME_FORMAT)))
     # check version upgrade before catalog upgrade to match database revision
     if not upgrade_version(data):
         update_catalog(data)

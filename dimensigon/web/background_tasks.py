@@ -95,6 +95,8 @@ async def _async_get_neighbour_catalog_data_mark(cluster_heartbeat_id: str = Non
     catalog_logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
     auth = get_root_auth()
 
+    if cluster_heartbeat_id is None:
+        cluster_heartbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
     for server in servers:
         server_responses[server] = create_task(ntwrk.async_post(server, 'root.healthcheck', auth=auth,
                                                                 json={'exclude': [s.id for s in servers],

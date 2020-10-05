@@ -5,6 +5,7 @@ from flask import request, current_app
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
 
+from dimensigon import defaults
 from dimensigon.domain.entities import Log, Server
 from dimensigon.domain.entities.log import Mode
 from dimensigon.utils.helpers import clean_string
@@ -63,7 +64,8 @@ class LogResource(Resource):
         file = data.get('file')
         if log.mode in (Mode.REPO_MIRROR, Mode.REPO_ROOT):
             file = file.format(
-                LOG_REPO=os.path.join(current_app.config['LOG_REPO'], clean_string(log.source_server.name)))
+                LOG_REPO=os.path.join(current_app.dm.config.config_dir, defaults.LOG_REPO,
+                                      clean_string(log.source_server.name)))
         data_log = base64.b64decode(data.get('data').encode('ascii'))
         try:
             if not os.path.exists(os.path.dirname(file)):

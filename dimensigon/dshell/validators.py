@@ -1,3 +1,4 @@
+import ast
 import json
 
 from prompt_toolkit.validation import Validator, ValidationError
@@ -87,8 +88,6 @@ class ChoiceValidator(Validator):
                                   cursor_position=0)
 
 
-import ast
-
 class ListConverter(Validator):
 
     def __init__(self, separator=None) -> None:
@@ -104,7 +103,9 @@ class ListConverter(Validator):
     def validate(self, document):
         return document.text
 
+
 class ListValidator(Validator):
+
 
     @staticmethod
     def load(x: str):

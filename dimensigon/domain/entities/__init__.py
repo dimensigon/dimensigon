@@ -76,9 +76,9 @@ def bypass_datamark_update(session=None):
         update_datemark(True)
 
 
-
 def update_datemark(set):
     catalog.datemark = set
+
 
 def set_events():
     for name, entity in get_distributed_entities():
@@ -162,8 +162,8 @@ def before_cursor_execute(conn, cursor, statement, parameters, context, executem
     conn.info.setdefault('query_start_time', []).append(time.time())
 
 
-
 @event.listens_for(Engine, "after_cursor_execute")
 def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
     total = time.time() - conn.info['query_start_time'].pop(-1)
-    _query_logger.debug("Elapsed Time: %f\n%s\n%s", total, statement, parameters)
+    if total > 1:
+        _query_logger.warning("Elapsed Time: %f\n%s\n%s", total, statement, parameters)

@@ -258,12 +258,21 @@ def action_create(name, action_type, prompt):
     action_prompt({'name': name, 'action_type': action_type}, changed=True, ask_all=prompt, parent_prompt='Δ ')
 
 
-#
-# def action_modify(**params):
-#     resp = ntwrk.get('api_1_0.actiontemplateresource',
-#                      view_data={'action_template_id': params.get('action_template_id')})
-#     if resp.code == 200:
-#         action_prompt(entity=resp.msg, parent_prompt='Δ ')
+def action_copy(**params):
+    resp = ntwrk.get('api_1_0.actiontemplateresource',
+                     view_data={'action_template_id': params.get('action_template_id')})
+
+    if resp.ok:
+        action = resp.msg
+        action.pop('id', None)
+        action.pop('version', None)
+        action.pop('last_modified_at', None)
+        # clean empty fields
+        for k, v in dict(action).items():
+            if v is None:
+                action.pop(k, None)
+
+        action_prompt(entity=action, parent_prompt='Δ ')
 
 
 def action_load(file):
@@ -419,10 +428,18 @@ def logfed_list():
         resp.exception) else resp.exception.__class__.__name__)
 
 
-def logfed_subscribe(src_server_id, target, dest_server_id, include=None, exclude=None, dest_folder=None,
+def logfed_subscribe(src_server_id, target, dst_server_id, include=None, exclude=None, dest_folder=None,
                      recursive=None, mode=None):
+    if not is_valid_uuid(src_server_id):
+        _src_server_id = name2id('api_1_0.serverlist', src_server_id)
+    else:
+        _src_server_id = src_server_id
+    if not is_valid_uuid(dst_server_id):
+        _dst_server_id = name2id('api_1_0.serverlist', dst_server_id)
+    else:
+        _dst_server_id = dst_server_id
     kwargs = dict(verify=environ.get('SSL_VERIFY'))
-    json_data = dict(src_server_id=src_server_id, target=target, dest_server_id=dest_server_id, include=include,
+    json_data = dict(src_server_id=_src_server_id, target=target, dst_server_id=_dst_server_id, include=include,
                      exclude=exclude, dest_folder=dest_folder, recursive=recursive, mode=mode)
     json_data = clean_none(json_data)
     resp = ntwrk.post('api_1_0.loglist', json=json_data, **kwargs)
@@ -577,8 +594,8 @@ nested_dict = {
                    {'argument': '--prompt', 'action': "store_true",
                     'help': 'does not ask for every action parameter one by one'},
                    action_create],
-        # 'modify': [{'argument': 'action_template_id', 'completer': action_completer},
-        #            action_modify],
+        'copy': [{'argument': 'action_template_id', 'completer': action_completer},
+                 action_copy],
         'load': [{'argument': 'file', 'type': argparse.FileType('r')},
                  action_load],
     },
@@ -631,26 +648,26 @@ nested_dict = {
             cmd],
     'logfed': {
         'subscribe': {'log': [{'argument': 'src_server_id',
-                               'metavar': 'source_server_id',
+                               'metavar': 'source_server',
                                'help': 'source server to get the logs from',
-                               'completer': server_completer},
+                               'completer': server_name_completer},
                               {'argument': 'target',
                                'metavar': 'file',
                                'help': 'log file to watch out'},
                               {'argument': 'dst_server_id',
-                               'metavar': 'destination_server_id',
-                               'help': 'source server to get the logs from',
-                               'completer': server_completer},
-                                     {'argument': '--mode', 'choices': ['REPO_MIRROR', 'REPO_ROOT', 'MIRROR'],
+                               'metavar': 'destination_server',
+                               'help': 'destination server to get the logs from',
+                               'completer': server_name_completer},
+                              {'argument': '--mode', 'choices': ['REPO_MIRROR', 'REPO_ROOT', 'MIRROR'],
                                       'help': 'defines where the log will be sent on destination. REPO_MIRROR send the '
                                               'file inside the dest LOG folder and mantains absolute path from origin. '
                                               'REPO_ROOT sends the file inside the dest LOG without mantaining origin'
                                               '\'s path. MIRROR preserves source path and tries to create at dest'},
-                                     {'argument': '--dest_folder',
+                              {'argument': '--dest_folder',
                                       'help': 'destination folder to send logs. If not specified, '
                                               'default mode REPO_MIRROR is used'},
-                                     logfed_subscribe
-                                     ],
+                              logfed_subscribe
+                              ],
                              'dir': [{'argument': 'target',
                                       'metavar': 'folder',
                                       'help': 'folder to watch out for files to send'},

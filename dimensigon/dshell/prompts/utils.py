@@ -34,13 +34,13 @@ def prompt_parameter(parameter, entity, form, parent_prompt) -> bool:
 
     edit = prompt_kwargs.pop('edit', False)
     value = entity.get(parameter, '')
-    if 'validator' in prompt_kwargs and hasattr(prompt_kwargs['validator'], 'load'):
+    if 'validator' in prompt_kwargs and hasattr(prompt_kwargs['validator'], 'dump'):
         value = prompt_kwargs['validator'].dump(value)
     else:
         value = str(value) if value is not None else ''
 
     if edit:
-        text = click.edit(str() if value != '' else '')
+        text = click.edit(str(value) if value != '' else '')
     else:
         text = prompt(
             f"{parent_prompt}.{parameter}>{'>' if prompt_kwargs.get('multiline', False) else ''} ",

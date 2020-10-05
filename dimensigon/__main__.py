@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import random
+import sys
 import time
 
 import coolname
@@ -166,15 +167,21 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 logger.error(f"Timeout of 20s reached while trying to contact to {server}.")
             except Exception as e:
                 logger.exception(f"Error trying to get dimensigon public key.")
-                resp = None
-            if resp.status_code != 200:
-                logger.error(f"Error trying to get dimensigon public key: {resp.status_code}, {resp.content}")
             else:
-                break
+                if resp.status_code != 200:
+                    if resp.status_code in (401, 422):
+                        logger.error(f"Error trying to get dimensigon public key: {resp.status_code}, {resp.content}")
+                        break
+                    else:
+                        logger.error(f"Error trying to get dimensigon public key: {resp.status_code}, {resp.content}")
+                else:
+                    break
             if i < times - 1:
                 d = int(random.random() * 25 * (i + 1))
                 logger.info(f"Retrying in {d} seconds.")
                 time.sleep(d)
+            else:
+                sys.exit(1)
 
         pub_key = rsa.PublicKey.load_pkcs1(resp.content)
 

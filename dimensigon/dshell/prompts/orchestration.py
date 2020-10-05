@@ -90,14 +90,17 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
                 s.pop('orchestration_id', None)
             dprint(orch)
         elif namespace.cmd == 'set':
-            try:
-                if prompt_parameter(namespace.parameter, entity, form,
-                                    f"{parent_prompt}{entity_name}('{entity['name']}')"):
-                    changed = True
-            except KeyboardInterrupt:
-                continue  # Control-C pressed. Try again.
-            except EOFError:
-                exit_dshell(rc=1)
+            if namespace.parameter not in form.keys():
+                dprint("Not a valid parameter. Available: " + ', '.join(form.keys()))
+            else:
+                try:
+                    if prompt_parameter(namespace.parameter, entity, form,
+                                        f"{parent_prompt}{entity_name}('{entity['name']}')"):
+                        changed = True
+                except KeyboardInterrupt:
+                    continue  # Control-C pressed. Try again.
+                except EOFError:
+                    exit_dshell(rc=1)
         elif namespace.cmd == 'delete':
             if namespace.parameter not in form.keys():
                 dprint("Not a valid parameter. Available: " + ', '.join(form.keys()))
