@@ -221,7 +221,7 @@ class DimensigonFlask(Flask):
                 random.shuffle(neighbours)
                 first = [s for s in neighbours if s.id == self.server_id_with_new_gates]
                 if first:
-                    neighbours.pop(neighbours.index(first))
+                    neighbours.pop(neighbours.index(first[0]))
                     neighbours = first + neighbours
                 elif join_server in neighbours:
                         neighbours.pop(neighbours.index(join_server))
@@ -252,7 +252,10 @@ class DimensigonFlask(Flask):
         from dimensigon.web.background_tasks import process_catalog_route_table
         if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
             if self.extensions.get('scheduler') is None and self.config['SCHEDULER']:
-                bs = BackgroundScheduler()
+                try:
+                    bs = BackgroundScheduler()
+                except:
+                    bs = BackgroundScheduler(timezone="UTC")
                 self.extensions['scheduler'] = bs
                 ls = LogSender()
                 self.extensions['log_sender'] = ls
