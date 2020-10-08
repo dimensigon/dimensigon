@@ -40,7 +40,9 @@ def prompt_parameter(parameter, entity, form, parent_prompt) -> bool:
         value = str(value) if value is not None else ''
 
     if edit:
-        text = click.edit(str(value) if value != '' else '')
+        text = click.edit(value)
+        if text is None:
+            text = value
     else:
         text = prompt(
             f"{parent_prompt}.{parameter}>{'>' if prompt_kwargs.get('multiline', False) else ''} ",
