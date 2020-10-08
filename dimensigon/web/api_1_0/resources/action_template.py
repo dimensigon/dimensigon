@@ -47,7 +47,7 @@ class ActionTemplateResource(Resource):
     @jwt_required
     @securizer
     def get(self, action_template_id):
-        return ActionTemplate.query.get_or_404(action_template_id).to_json(split_lines=check_param_in_uri('human'))
+        return ActionTemplate.query.get_or_raise(action_template_id).to_json(split_lines=check_param_in_uri('human'))
 
     @securizer
     @jwt_required
@@ -55,7 +55,7 @@ class ActionTemplateResource(Resource):
     @validate_schema(action_template_patch)
     @lock_catalog
     def patch(self, action_template_id):
-        at = ActionTemplate.query.get_or_404(action_template_id)
+        at = ActionTemplate.query.get_or_raise(action_template_id)
         data = request.get_json()
         if 'action_type' in data and at.action_type != ActionType[data.get('action_type')]:
             at.action_type = ActionType[data.get('action_type')]

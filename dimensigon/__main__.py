@@ -8,13 +8,13 @@ import platform
 import random
 import sys
 import time
+from dataclasses import dataclass
 
 import coolname
 import prompt_toolkit
 import requests
 import rsa
 import yaml
-from dataclasses import dataclass
 from flask import Flask
 from flask_jwt_extended import create_access_token
 
@@ -192,7 +192,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
         data = s.to_json(add_gates=True)
         data = pack_msg2(data=data, pub_key=pub_key, priv_key=tmp_priv, symmetric_key=symmetric_key, add_key=True)
         data.update(my_pub_key=tmp_pub.save_pkcs1().decode('ascii'))
-        logger.info("Joining to dimension.")
+        logger.info("Joining to dimension...")
 
         resp = None
         times = 5
@@ -239,6 +239,28 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 fh.write(certfile_content)
                 del certfile_content
 
+            logger.info('Updating Catalog...')
+            reference_server_id = resp_data.pop('me')
+            # remove catalog
+            for c in Catalog.query.all():
+                db.session.delete(c)
+            try:
+                upgrade_catalog(resp_data['catalog']) # implicit commit
+            except Exception as e:
+                logger.exception(f"Unable to upgrade catalog.")
+                exit(1)
+            else:
+                logger.info('Catalog updated.')
+            # set reference server as a neighbour
+            reference_server = Server.query.get(reference_server_id)
+            if not reference_server:
+                db.session.rollback()
+                logger.info(f"Server id {reference_server_id} not found in catalog.")
+                exit(1)
+            Route(destination=reference_server, cost=0)
+            # update_route_table_cost(True)
+            Parameter.set("join_server", f'{reference_server.id}')
+
             resp = None
             times = 5
             for i in range(times):
@@ -266,29 +288,8 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
             if resp.ok:
                 logger.info('Joined to the dimension.')
             else:
-                logger.error("Unable to confirm join")
+                logger.error("Unable to confirm join.")
 
-            logger.info('Updating Catalog')
-            reference_server_id = resp_data.pop('me')
-            # remove catalog
-            for c in Catalog.query.all():
-                db.session.delete(c)
-            try:
-                upgrade_catalog(resp_data['catalog']) # implicit commit
-            except Exception as e:
-                logger.exception(f"Unable to upgrade catalog.")
-                exit(1)
-            else:
-                logger.info('Catalog updated.')
-            # set reference server as a neighbour
-            reference_server = Server.query.get(reference_server_id)
-            if not reference_server:
-                db.session.rollback()
-                logger.info(f"Server id {reference_server_id} not found in catalog.")
-                exit(1)
-            Route(destination=reference_server, cost=0)
-            # update_route_table_cost(True)
-            Parameter.set("join_server", f'{reference_server.id}')
             db.session.commit()
         else:
             logger.error(f"No dimension in response data.")

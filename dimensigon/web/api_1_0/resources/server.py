@@ -29,7 +29,7 @@ class ServerList(Resource):
     @validate_schema(servers_delete)
     @lock_catalog
     def delete(self):
-        servers = [Server.query.get_or_404(s_id) for s_id in request.get_json()['server_ids']]
+        servers = [Server.query.get_or_raise(s_id) for s_id in request.get_json()['server_ids']]
         acquired = routing._lock.acquire(timeout=15)
         if acquired:
             current_app.logger.debug(f"Routing Lock acquired for deletion of servers {servers}")
@@ -55,7 +55,7 @@ class ServerResource(Resource):
     @jwt_required
     @securizer
     def get(self, server_id):
-        return Server.query.get_or_404(server_id).to_json(add_gates=check_param_in_uri('gates'),
+        return Server.query.get_or_raise(server_id).to_json(add_gates=check_param_in_uri('gates'),
                                                           human=check_param_in_uri('human'),
                                                           no_delete=True,
                                                           add_ignore=True)
@@ -68,7 +68,7 @@ class ServerResource(Resource):
     def patch(self, server_id):
         json_data = request.get_json()
 
-        server = Server.query.get_or_404(server_id)
+        server = Server.query.get_or_raise(server_id)
         new_granules = json_data.get('granules', [])
         if 'all' in new_granules:
             raise errors.KeywordReserved("'all' is a reserved granule")
@@ -90,7 +90,7 @@ class ServerResource(Resource):
     @securizer
     @lock_catalog
     def delete(self, server_id):
-        server = Server.query.get_or_404(server_id)
+        server = Server.query.get_or_raise(server_id)
         acquired = routing._lock.acquire(timeout=15)
         if acquired:
             current_app.logger.debug(f"Routing Lock acquired for deletion of server {server}")

@@ -88,7 +88,7 @@ def _proxy_request(request: 'flask.Request', destination: Server, verify=False) 
 
 
 def set_source():
-    # not call get_or_404 to allow make requests without D-Source header
+    # not call get_or_raise to allow make requests without D-Source header
     if not hasattr(g, 'source'):
         source_id, proxies = (request.headers.get('D-Source', '') + ':').split(':', 1)
         proxies = proxies.strip(':')

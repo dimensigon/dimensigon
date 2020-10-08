@@ -13,7 +13,7 @@ class StepRelationshipChildren(Resource):
     @jwt_required
     @securizer
     def get(self, step_id):
-        s: Step = Step.query.get_or_404(step_id)
+        s: Step = Step.query.get_or_raise(step_id)
         return dict(child_step_ids=[str(cs.id) for cs in s.children]), 200
 
     @forward_or_dispatch()
@@ -22,11 +22,11 @@ class StepRelationshipChildren(Resource):
     @validate_schema(step_children)
     @lock_catalog
     def patch(self, step_id):
-        s: Step = Step.query.get_or_404(step_id)
+        s: Step = Step.query.get_or_raise(step_id)
         child_step_ids = request.get_json()['child_step_ids']
         child_steps = []
         for child_step_id in child_step_ids:
-            child_steps.append(Step.query.get_or_404(child_step_id))
+            child_steps.append(Step.query.get_or_raise(child_step_id))
         s.orchestration.set_children(s, child_steps)
 
         db.session.commit()
@@ -39,11 +39,11 @@ class StepRelationshipChildren(Resource):
     @validate_schema(step_children)
     @lock_catalog
     def post(self, step_id):
-        s = Step.query.get_or_404(step_id)
+        s = Step.query.get_or_raise(step_id)
         child_step_ids = request.get_json()['child_step_ids']
         child_steps = []
         for child_step_id in child_step_ids:
-            child_steps.append(Step.query.get_or_404(child_step_id))
+            child_steps.append(Step.query.get_or_raise(child_step_id))
         s.orchestration.add_children(s, child_steps)
 
         db.session.commit()
@@ -56,11 +56,11 @@ class StepRelationshipChildren(Resource):
     @validate_schema(step_children)
     @lock_catalog
     def delete(self, step_id):
-        s = Step.query.get_or_404(step_id)
+        s = Step.query.get_or_raise(step_id)
         child_step_ids = request.get_json()['child_step_ids']
         child_steps = []
         for child_step_id in child_step_ids:
-            child_steps.append(Step.query.get_or_404(child_step_id))
+            child_steps.append(Step.query.get_or_raise(child_step_id))
 
         s.orchestration.delete_children(s, child_steps)
 
