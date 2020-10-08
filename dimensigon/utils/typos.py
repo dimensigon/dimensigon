@@ -7,7 +7,6 @@ import uuid
 
 import dill
 import rsa
-from dateutil.tz import tzlocal
 from sqlalchemy import types, DateTime, Enum as _Enum
 from sqlalchemy.dialects.postgresql import UUID as pUUID
 
@@ -274,4 +273,4 @@ class UtcDateTime(TypeDecorator):
             return value
         elif value.tzinfo is None:
             value = value.replace(tzinfo=utc)
-        return value.astimezone(tzlocal())
+        return value

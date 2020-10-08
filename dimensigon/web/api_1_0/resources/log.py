@@ -64,7 +64,7 @@ class LogResource(Resource):
         file = data.get('file')
         if log.mode in (Mode.REPO_MIRROR, Mode.REPO_ROOT):
             file = file.format(
-                LOG_REPO=os.path.join(current_app.dm.config.config_dir, defaults.LOG_REPO,
+                LOG_REPO=os.path.join(current_app.dm.config.config_dir, defaults.LOG_SENDER_REPO,
                                       clean_string(log.source_server.name)))
         data_log = base64.b64decode(data.get('data').encode('ascii'))
         try:

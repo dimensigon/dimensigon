@@ -252,10 +252,9 @@ class DimensigonFlask(Flask):
         from dimensigon.web.background_tasks import process_catalog_route_table
         if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
             if self.extensions.get('scheduler') is None and self.config['SCHEDULER']:
-                try:
-                    bs = BackgroundScheduler()
-                except:
-                    bs = BackgroundScheduler(timezone="UTC")
+                # passing timezone="UTC" to solve problems with systems where get_localzone() returns an object with
+                # local zone
+                bs = BackgroundScheduler(timezone="UTC")
                 self.extensions['scheduler'] = bs
                 ls = LogSender()
                 self.extensions['log_sender'] = ls
