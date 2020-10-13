@@ -187,12 +187,12 @@ def _setup_dimensigon_config(run_config: RuntimeConfig, config: Config):
 
     for name, handler in logconfig['handlers'].items():
         if name == 'error_file':
-            handler['filename'] = run_config.errorlog or config.path(defaults.LOG_REPO, defaults.ERROR_LOGFILE)
+            handler['filename'] = run_config.errorlog or config.path(defaults.LOG_FOLDER, defaults.ERROR_LOGFILE)
         elif name == 'access_file':
-            handler['filename'] = run_config.accesslog or config.path(defaults.LOG_REPO, defaults.ACCESS_LOGFILE)
+            handler['filename'] = run_config.accesslog or config.path(defaults.LOG_FOLDER, defaults.ACCESS_LOGFILE)
         else:
             if 'filename' in handler and not os.path.dirname(handler['filename']):
-                handler['filename'] = config.path(defaults.LOG_REPO, handler['filename'])
+                handler['filename'] = config.path(defaults.LOG_FOLDER, handler['filename'])
 
     logconfig['root']['level'] = 'DEBUG' if run_config.debug else 'INFO'
 
@@ -301,12 +301,14 @@ def _write_default_config(config_dir: str) -> bool:
     """Write the default config."""
 
     software_repo_path = os.path.join(config_dir, defaults.SOFTWARE_REPO)
-    log_repo_path = os.path.join(config_dir, defaults.LOG_REPO)
+    log_folder_path = os.path.join(config_dir, defaults.LOG_FOLDER)
+    log_sender_repo_path = os.path.join(config_dir, defaults.LOG_SENDER_REPO)
     ssl_path = os.path.join(config_dir, defaults.SSL_DIR)
 
     try:
         os.makedirs(software_repo_path, exist_ok=True)
-        os.makedirs(log_repo_path, exist_ok=True)
+        os.makedirs(log_folder_path, exist_ok=True)
+        os.makedirs(log_sender_repo_path, exist_ok=True)
         os.makedirs(ssl_path, exist_ok=True)
     except OSError:
         print("Unable to create default configuration", config_dir)

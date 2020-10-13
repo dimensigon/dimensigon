@@ -35,7 +35,7 @@ class TransferList(Resource):
         json_data = request.get_json()
         soft = None
         if 'software_id' in json_data:
-            soft = Software.query.get_or_404(json_data['software_id'])
+            soft = Software.query.get_or_raise(json_data['software_id'])
             pending = Transfer.query.filter_by(software=soft, dest_path=json_data['dest_path']).filter(
                 or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
                     Transfer.status == TransferStatus.IN_PROGRESS)).all()
@@ -116,7 +116,7 @@ class TransferResource(Resource):
     @jwt_required
     @securizer
     def get(self, transfer_id):
-        return Transfer.query.get_or_404(transfer_id).to_json()
+        return Transfer.query.get_or_raise(transfer_id).to_json()
 
     @forward_or_dispatch()
     @jwt_required
@@ -124,7 +124,7 @@ class TransferResource(Resource):
     @validate_schema(transfer_patch)
     def patch(self, transfer_id):
         data = request.get_json()
-        trans: Transfer = Transfer.query.get_or_404(transfer_id)
+        trans: Transfer = Transfer.query.get_or_raise(transfer_id)
         trans.status = Status[data.get('status')]
         db.session.commit()
         return {'transfer_id': transfer_id, 'status': str(trans.status)}, 200
@@ -136,7 +136,7 @@ class TransferResource(Resource):
     def post(self, transfer_id):
         """Generates the chunk into disk"""
         data = request.get_json()
-        trans: Transfer = Transfer.query.get_or_404(transfer_id)
+        trans: Transfer = Transfer.query.get_or_raise(transfer_id)
         if trans.status == TransferStatus.WAITING_CHUNKS:
             trans.started_on = get_now()
             trans.status = TransferStatus.IN_PROGRESS
@@ -168,7 +168,7 @@ class TransferResource(Resource):
     @securizer
     def put(self, transfer_id):
         """ends the transfer creating the file"""
-        trans: Transfer = Transfer.query.get_or_404(transfer_id)
+        trans: Transfer = Transfer.query.get_or_raise(transfer_id)
         if trans.status == TransferStatus.COMPLETED:
             return {'error': 'Transfer has already completed'}, 410
         elif trans.status == TransferStatus.WAITING_CHUNKS:

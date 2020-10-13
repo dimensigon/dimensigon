@@ -179,7 +179,7 @@ def internal_server():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         ignore = request.get_json()['ignore_on_lock']
         for server_id in request.get_json()['server_ids']:
-            server = Server.query.get_or_404(server_id)
+            server = Server.query.get_or_raise(server_id)
             server.l_ignore_on_lock = ignore
             db.session.commit()
 
@@ -210,10 +210,10 @@ def send():
     # Validate Data
     json_data = request.get_json()
 
-    dest_server = Server.query.get_or_404(json_data['dest_server_id'])
+    dest_server = Server.query.get_or_raise(json_data['dest_server_id'])
 
     if 'software_id' in json_data:
-        software = Software.query.get_or_404(json_data['software_id'])
+        software = Software.query.get_or_raise(json_data['software_id'])
 
         ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
         # if current server does not have the software, forward request to the closest server who has it
@@ -452,7 +452,7 @@ async def background_cluster_out(server_id, auth):
 def cluster_out(server_id):
     user = User.get_current()
     if user and user.user == 'root':
-        Server.query.get_or_404(server_id)
+        Server.query.get_or_raise(server_id)
         data = request.get_json()
         if data.get('death', None):
             try:
@@ -477,7 +477,7 @@ def cluster_out(server_id):
 # @jwt_required
 # @securizer
 # def routes_neighbour(server_id):
-#     server = Server.query.get_or_404(server_id)
+#     server = Server.query.get_or_raise(server_id)
 #     route = routing.check_neighbour(server)
 #     # change server
 #     if route:
@@ -595,7 +595,7 @@ def launch_operation():
 @securizer
 @validate_schema(launch_orchestration_post)
 def launch_orchestration(orchestration_id):
-    orchestration = Orchestration.query.get_or_404(orchestration_id)
+    orchestration = Orchestration.query.get_or_raise(orchestration_id)
     params = request.get_json().get('params', {})
     hosts = request.get_json().get('hosts')
 
@@ -824,7 +824,7 @@ def orchestrations_full():
         if rid is not None and rid in rid2step.keys():
             raise errors.DuplicatedId(rid)
         if 'action_template_id' in json_step:
-            json_step['action_template'] = ActionTemplate.query.get_or_404(json_step.pop('action_template_id'))
+            json_step['action_template'] = ActionTemplate.query.get_or_raise(json_step.pop('action_template_id'))
         elif 'action_type' in json_step:
             json_step['action_type'] = ActionType[json_step.pop('action_type')]
         dependencies[rid] = {'parent_step_ids': [str(p_id) for p_id in json_step.pop('parent_step_ids', [])]}

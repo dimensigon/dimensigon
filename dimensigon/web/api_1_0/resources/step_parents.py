@@ -13,7 +13,7 @@ class StepRelationshipParents(Resource):
     @jwt_required
     @securizer
     def get(self, step_id):
-        s: Step = Step.query.get_or_404(step_id)
+        s: Step = Step.query.get_or_raise(step_id)
         return dict(parent_step_ids=[str(ps.id) for ps in s.parents]), 200
 
     @forward_or_dispatch()
@@ -22,11 +22,11 @@ class StepRelationshipParents(Resource):
     @validate_schema(step_parents)
     @lock_catalog
     def patch(self, step_id):
-        s: Step = Step.query.get_or_404(step_id)
+        s: Step = Step.query.get_or_raise(step_id)
         parent_step_ids = request.get_json()['parent_step_ids']
         parent_steps = []
         for parent_step_id in parent_step_ids:
-            parent_steps.append(Step.query.get_or_404(parent_step_id))
+            parent_steps.append(Step.query.get_or_raise(parent_step_id))
         s.orchestration.set_parents(s, parent_steps)
 
         db.session.commit()
@@ -40,11 +40,11 @@ class StepRelationshipParents(Resource):
     @validate_schema(step_parents)
     @lock_catalog
     def post(self, step_id):
-        s = Step.query.get_or_404(step_id)
+        s = Step.query.get_or_raise(step_id)
         parent_step_ids = request.get_json()['parent_step_ids']
         parent_steps = []
         for parent_step_id in parent_step_ids:
-            parent_steps.append(Step.query.get_or_404(parent_step_id))
+            parent_steps.append(Step.query.get_or_raise(parent_step_id))
         s.orchestration.add_parents(s, parent_steps)
 
         db.session.commit()
@@ -57,11 +57,11 @@ class StepRelationshipParents(Resource):
     @validate_schema(step_parents)
     @lock_catalog
     def delete(self, step_id):
-        s = Step.query.get_or_404(step_id)
+        s = Step.query.get_or_raise(step_id)
         parent_step_ids = request.get_json()['parent_step_ids']
         parent_steps = []
         for parent_step_id in parent_step_ids:
-            parent_steps.append(Step.query.get_or_404(parent_step_id))
+            parent_steps.append(Step.query.get_or_raise(parent_step_id))
 
         s.orchestration.delete_parents(s, parent_steps)
 

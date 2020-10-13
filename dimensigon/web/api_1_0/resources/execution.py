@@ -23,7 +23,7 @@ class StepExecutionResource(Resource):
     @jwt_required
     @securizer
     def get(self, execution_id):
-        return StepExecution.query.get_or_404(execution_id).to_json(human=check_param_in_uri('human'), split_lines=True)
+        return StepExecution.query.get_or_raise(execution_id).to_json(human=check_param_in_uri('human'), split_lines=True)
 
 
 class OrchestrationExecutionRelationship(Resource):
@@ -66,5 +66,5 @@ class OrchExecutionResource(Resource):
     @jwt_required
     @securizer
     def get(self, execution_id):
-        return OrchExecution.query.get_or_404(execution_id).to_json(add_step_exec=check_param_in_uri('steps'),
+        return OrchExecution.query.get_or_raise(execution_id).to_json(add_step_exec=check_param_in_uri('steps'),
                                                                     human=check_param_in_uri('human'), split_lines=True)

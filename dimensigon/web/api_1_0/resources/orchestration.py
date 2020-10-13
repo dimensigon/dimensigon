@@ -46,7 +46,7 @@ class OrchestrationResource(Resource):
     @jwt_required
     @securizer
     def get(self, orchestration_id):
-        return Orchestration.query.get_or_404(orchestration_id).to_json(add_target=True, add_params=True,
+        return Orchestration.query.get_or_raise(orchestration_id).to_json(add_target=True, add_params=True,
                                                                         split_lines=True)
 
     @forward_or_dispatch()
@@ -55,7 +55,7 @@ class OrchestrationResource(Resource):
     @validate_schema(orchestration_patch)
     @lock_catalog
     def patch(self, orchestration_id):
-        o = Orchestration.query.get_or_404(orchestration_id)
+        o = Orchestration.query.get_or_raise(orchestration_id)
         for k, v in request.get_json().items():
             setattr(o, k, v)
         db.session.commit()

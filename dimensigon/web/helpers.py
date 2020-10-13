@@ -38,7 +38,7 @@ class BaseQueryJSON(BaseQuery):
         else:
             return None
 
-    def get_or_404(self, ident, description=None):
+    def get_or_raise(self, ident, description=None):
         """Like :meth:`get` but aborts with 404 if not found instead of returning ``None``."""
 
         rv = self.get(ident)
@@ -47,7 +47,7 @@ class BaseQueryJSON(BaseQuery):
             raise EntityNotFound(self.column_descriptions[0]['name'], ident)
         return rv
 
-    def first_or_404(self, description=None):
+    def first_or_raise(self, description=None):
         """Like :meth:`first` but aborts with 404 if not found instead of returning ``None``."""
 
         rv = self.first()

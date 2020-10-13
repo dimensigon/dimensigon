@@ -21,8 +21,6 @@ class Config(object):
     EXECUTOR_MAX_WORKERS = min(32, os.cpu_count() + 4)
     EXECUTOR_PROPAGATE_EXCEPTIONS = True
 
-    SOFTWARE_REPO = None
-    LOG_REPO = None
     AUTOUPGRADE = True
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True

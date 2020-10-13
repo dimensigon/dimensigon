@@ -16,7 +16,6 @@ import netifaces
 import six
 from cryptography.fernet import Fernet
 from flask import current_app
-from tzlocal import get_localzone
 
 from dimensigon import defaults
 
@@ -71,7 +70,7 @@ def convert(d):
 
 # function to mock datetime.now
 def get_now() -> dt.datetime:
-    return dt.datetime.now(get_localzone())
+    return dt.datetime.now(dt.timezone.utc)
 
 
 def str_to_key(id_: str):

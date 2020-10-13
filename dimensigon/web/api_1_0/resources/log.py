@@ -31,8 +31,8 @@ class LogList(Resource):
     @lock_catalog
     def post(self):
         data = request.get_json()
-        source_server = Server.query.get_or_404(data.pop('src_server_id'))
-        destination_server = Server.query.get_or_404(data.pop('dst_server_id'))
+        source_server = Server.query.get_or_raise(data.pop('src_server_id'))
+        destination_server = Server.query.get_or_raise(data.pop('dst_server_id'))
         if source_server == destination_server:
             return {'error': 'source and destination must be different'}, 400
         if 'mode' in data:
@@ -52,19 +52,19 @@ class LogResource(Resource):
     @jwt_required
     @forward_or_dispatch()
     def get(self, log_id):
-        return Log.query.get_or_404(log_id).to_json()
+        return Log.query.get_or_raise(log_id).to_json()
 
     @securizer
     @jwt_required
     @forward_or_dispatch()
     @validate_schema(log_post)
     def post(self, log_id):
-        log = Log.query.get_or_404(log_id)
+        log = Log.query.get_or_raise(log_id)
         data = request.get_json()
         file = data.get('file')
         if log.mode in (Mode.REPO_MIRROR, Mode.REPO_ROOT):
             file = file.format(
-                LOG_REPO=os.path.join(current_app.dm.config.config_dir, defaults.LOG_REPO,
+                LOG_REPO=os.path.join(current_app.dm.config.config_dir, defaults.LOG_SENDER_REPO,
                                       clean_string(log.source_server.name)))
         data_log = base64.b64decode(data.get('data').encode('ascii'))
         try:
@@ -82,7 +82,7 @@ class LogResource(Resource):
     @validate_schema(log_patch)
     @lock_catalog
     def patch(self, log_id):
-        log = Log.query.get_or_404(log_id)
+        log = Log.query.get_or_raise(log_id)
         data = request.get_json()
         if 'include' in data and log.include != data.get('include'):
             log.include = data.get('include')
@@ -107,7 +107,7 @@ class LogResource(Resource):
     @forward_or_dispatch()
     @lock_catalog
     def delete(self, log_id):
-        log = Log.query.get_or_404(log_id)
+        log = Log.query.get_or_raise(log_id)
         log.delete()
         db.session.commit()
         return {}, 204

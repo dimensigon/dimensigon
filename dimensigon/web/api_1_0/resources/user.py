@@ -38,7 +38,7 @@ class UserResource(Resource):
     @jwt_required
     @securizer
     def get(self, user_id):
-        return User.query.get_or_404(user_id).to_json()
+        return User.query.get_or_raise(user_id).to_json()
 
     @forward_or_dispatch()
     @jwt_required
@@ -46,7 +46,7 @@ class UserResource(Resource):
     @validate_schema(user_patch)
     @lock_catalog
     def patch(self, user_id):
-        user = User.query.get_or_404(user_id)
+        user = User.query.get_or_raise(user_id)
         data = request.get_json()
         if 'email' in data and user.email != data.get('email'):
             user.email = data.get('email')
@@ -61,7 +61,7 @@ class UserResource(Resource):
     # @jwt_required
     # @forward_or_dispatch()
     # def delete(self, user_id):
-    #     user = User.query.get_or_404(user_id)
+    #     user = User.query.get_or_raise(user_id)
     #     db.session.delete(user)
     #     db.session.commit()
     #     return {}, 204

@@ -533,8 +533,6 @@ nested_dict = {
     'ping': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, ping],
     'server': {
         'list': [{'argument': '--detail', 'action': 'store_true'},
-                 [{'argument': '--json', 'action': 'store_true'},
-                  {'argument': '--table', 'action': 'store_true'}],
                  [{'argument': '--like'},
                   {'argument': '--name', 'completer': server_name_completer},
                   {'argument': '--id', 'dest': 'iden', 'completer': server_completer},
@@ -554,8 +552,6 @@ nested_dict = {
         'list': [{'argument': '--version', 'action': 'store', 'type': int,
                   'completer': orch_ver_completer},
                  {'argument': '--detail', 'action': 'store_true'},
-                 [{'argument': '--json', 'action': 'store_true'},
-                  {'argument': '--table', 'action': 'store_true'}],
                  [{'argument': '--like'},
                   {'argument': '--id', 'completer': orch_completer},
                   {'argument': '--name', 'completer': orch_name_completer}],
