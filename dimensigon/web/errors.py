@@ -256,7 +256,7 @@ class LockerError(BaseError):
     def payload(self) -> t.Optional[dict]:
         return {'scope': self.scope.name}
 
-class NoServerToLock(BaseError):
+class NoServerToLock(LockerError):
 
     def _format_error_msg(self) -> str:
         return 'No server was found for locking'
