@@ -16,11 +16,10 @@ from jsonschema import validate, SchemaError
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate
 from dimensigon.network.exceptions import NotValidMessage
-from dimensigon.use_cases.helpers import get_servers_from_scope
+from dimensigon.use_cases.helpers import get_servers_from_scope, get_root_auth
 from dimensigon.use_cases.lock import lock_scope
 from dimensigon.utils.helpers import get_now
-from dimensigon.web import db, errors
-from dimensigon.web.network import unpack_msg, pack_msg, unpack_msg2, pack_msg2
+from dimensigon.web import db, errors, network as ntwrk, executor
 
 if t.TYPE_CHECKING:
     import flask
@@ -40,15 +39,36 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
         gate = [gate for gate in server.gates if ip in (gate.ip, get_ip(gate.dns))]
         if not gate:
+            logger = logging.getLogger('dimensigon')
             try:
+
                 with lock_scope(Scope.CATALOG):
                     for port in set([gate.port for gate in server.gates]):
                         gate = server.add_new_gate(dns_or_ip=remote_addr, port=port, hidden=True)
                         db.session.add(gate)
                     db.session.commit()
-            except errors.LockerError:
+            except errors.NoServerToLock as e:
+                def background_new_gate():
+                    resp = None
+                    for port in set([gate.port for gate in server.gates]):
+                        resp = ntwrk.patch(f"{remote_addr}:{port}", 'api_1_0.serverresource', json=dict(gates=gates),
+                                           auth=get_root_auth(), timeout=30)
+                        if resp.ok:
+                            break
+                    else:
+                        logger.error(f"Unable to lock catalog for saving {remote_addr} from {server}." 
+                                     f" Reason: {resp}" if resp else "")
+                gates = [dict(dns_or_ip=remote_addr, port=port, hidden=True) for port in
+                         set([gate.port for gate in server.gates])]
+
+                executor.submit(background_new_gate)
+
+            except errors.LockerError as e:
+
+                logger.error(f"Unable to lock catalog for saving {remote_addr} from {server}. Reason: {e}")
+            except Exception:
                 logger = logging.getLogger('dimensigon')
-                logger.warning(f"unable to save {remote_addr} from {server}")
+                logger.exception(f"Unable to save {remote_addr} from {server}")
 
 
 def _proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
@@ -180,12 +200,12 @@ def securizer(func):
                     try:
                         if request.path in url_for('api_1_0.join'):
                             temp_pub_key = rsa.PublicKey.load_pkcs1(request.json.pop('my_pub_key').encode('ascii'))
-                            data = unpack_msg2(data=request.get_json(),
-                                               pub_key=temp_pub_key,
-                                               priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
-                                               cipher_key=cipher_key)
+                            data = ntwrk.unpack_msg2(data=request.get_json(),
+                                                     pub_key=temp_pub_key,
+                                                     priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
+                                                     cipher_key=cipher_key)
                         else:
-                            data = unpack_msg(data=request.get_json())
+                            data = ntwrk.unpack_msg(data=request.get_json())
                     except (rsa.pkcs1.VerificationError, NotValidMessage) as e:
                         return {'error': str(e),
                                 'message': request.get_json()}, 400
@@ -220,20 +240,20 @@ def securizer(func):
         if isinstance(rv, dict):
 
             if request.path == url_for('api_1_0.join'):
-                rv = pack_msg2(data=rv, pub_key=temp_pub_key,
-                               priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
-                               cipher_key=cipher_key)
+                rv = ntwrk.pack_msg2(data=rv, pub_key=temp_pub_key,
+                                     priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
+                                     cipher_key=cipher_key)
             else:
                 if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
                     pass
                 else:
-                    rv = pack_msg(data=rv)
+                    rv = ntwrk.pack_msg(data=rv)
 
         if isinstance(rv, list):
             if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
                 pass
             else:
-                rv = pack_msg(data=rv)
+                rv = ntwrk.pack_msg(data=rv)
 
         if rest:
             rv = (rv,) + rest

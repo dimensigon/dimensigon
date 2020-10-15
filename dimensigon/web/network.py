@@ -220,23 +220,33 @@ def _ping(dest: t.Union[Server, Gate], source: Server, retries=None, timeout=Non
     return cost, elapsed
 
 
-def _prepare_url(server: Server, view_or_url: str, view_data=None):
-    if view_or_url.startswith('\\'):
-        url = server.url() + 'view_or_url'
+def _prepare_url(server: t.Union[Server, str], view_or_url: str, view_data=None):
+    if isinstance(server, Server):
+        if view_or_url.startswith('/'):
+            url = server.url() + view_or_url
+        else:
+            view_data = view_data or {}
+            url = server.url(view_or_url, **view_data)
     else:
-        view_data = view_data or {}
-        url = server.url(view_or_url, **view_data)
+        scheme = 'http' if current_app.dm and 'keyfile' not in current_app.dm.config.http_conf else 'https'
+        root_path = f"{scheme}://{server}"
+        if view_or_url.startswith('/'):
+            url = root_path + view_or_url
+        else:
+            view_data = view_data or {}
+            url = root_path + url_for(view_or_url, **view_data)
     return url
 
 
-def _prepare_headers(server, headers=None):
+def _prepare_headers(server: t.Union[Server, str], headers=None):
     headers = headers or {}
-    headers.update({'D-Destination': str(server.id)})
+    if isinstance(server, Server):
+        headers.update({'D-Destination': str(server.id)})
     headers.update({'D-Source': str(Server.get_current().id)})
     return headers
 
 
-def prepare_request(server, view_or_url, view_data, kwargs):
+def prepare_request(server: t.Union[Server, str], view_or_url, view_data, kwargs):
     params = kwargs.pop('params', {}) or {}
 
     url = _prepare_url(server, view_or_url, dict(**view_data, **params))
@@ -252,7 +262,8 @@ def prepare_request(server, view_or_url, view_data, kwargs):
     return url
 
 
-def request(method, server, view_or_url, view_data=None, session=None, **kwargs) -> Response:
+def request(method: str, server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None,
+            session=None, **kwargs) -> Response:
     exception = None
     content = None
     status = None
@@ -316,50 +327,51 @@ def request(method, server, view_or_url, view_data=None, session=None, **kwargs)
     return Response(msg=content, code=status, exception=exception, server=server, url=url, headers=headers)
 
 
-def get(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+def get(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
         params: Kwargs = None, **kwargs) -> Response:
     """Sends a GET request."""
     return request('get', server, view_or_url, view_data=view_data, session=session, params=params, **kwargs)
 
 
-def options(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+def options(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
             **kwargs) -> Response:
     r"""Sends an OPTIONS request."""
 
     return request('options', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-def head(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+def head(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
          **kwargs) -> Response:
     r"""Sends a HEAD request."""
     return request('head', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-def post(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
+def post(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
          json=None, **kwargs) -> Response:
     r"""Sends a POST request."""
     return request('post', server, view_or_url, view_data=view_data, session=session, json=json or {}, **kwargs)
 
 
-def put(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
+def put(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
         **kwargs) -> Response:
     r"""Sends a PUT request."""
     return request('put', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-def patch(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None, data=None,
+def patch(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
           **kwargs) -> Response:
     r"""Sends a PATCH request."""
     return request('patch', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-def delete(server: Server, view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
+def delete(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None, session: requests.Session = None,
            **kwargs) -> Response:
     r"""Sends a DELETE request."""
     return request('delete', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-async def async_request(method, server, view_or_url, view_data=None, session=None, **kwargs) -> Response:
+async def async_request(method: str, server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None,
+                        session=None, **kwargs) -> Response:
     exception = None
     content = None
     json_data = None
@@ -422,13 +434,15 @@ async def async_request(method, server, view_or_url, view_data=None, session=Non
     return Response(msg=content, code=status, exception=exception, server=server, url=url, headers=headers)
 
 
-async def async_get(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+async def async_get(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None,
+                    session: aiohttp.ClientSession = None,
                     params: Kwargs = None, **kwargs) -> Response:
     """Sends a GET request."""
-    return await async_request('get', server, view_or_url, view_data=view_data, session=session, params=params, **kwargs)
+    return await async_request('get', server, view_or_url, view_data=view_data, session=session, params=params,
+                               **kwargs)
 
 
-async def async_options(server: Server, view_or_url: str, view_data: Kwargs = None,
+async def async_options(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None,
                         session: aiohttp.ClientSession = None,
                         **kwargs) -> Response:
     r"""Sends an OPTIONS request."""
@@ -436,32 +450,36 @@ async def async_options(server: Server, view_or_url: str, view_data: Kwargs = No
     return await async_request('options', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-async def async_head(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+async def async_head(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None,
+                     session: aiohttp.ClientSession = None,
                      **kwargs) -> Response:
     r"""Sends a HEAD request."""
     return await async_request('head', server, view_or_url, view_data=view_data, session=session, **kwargs)
 
 
-async def async_post(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+async def async_post(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None,
+                     session: aiohttp.ClientSession = None,
                      json=None, **kwargs) -> Response:
     r"""Sends a POST request."""
     return await async_request('post', server, view_or_url, view_data=view_data, session=session, json=json,
                                **kwargs)
 
 
-async def async_put(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+async def async_put(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None,
+                    session: aiohttp.ClientSession = None,
                     json=None, **kwargs) -> Response:
     r"""Sends a PUT request."""
     return await async_request('put', server, view_or_url, view_data=view_data, session=session, json=json, **kwargs)
 
 
-async def async_patch(server: Server, view_or_url: str, view_data: Kwargs = None, session: aiohttp.ClientSession = None,
+async def async_patch(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None,
+                      session: aiohttp.ClientSession = None,
                       json=None, **kwargs) -> Response:
     r"""Sends a PATCH request."""
     return await async_request('patch', server, view_or_url, view_data=view_data, session=session, json=json, **kwargs)
 
 
-async def async_delete(server: Server, view_or_url: str, view_data: Kwargs = None,
+async def async_delete(server: t.Union[Server, str], view_or_url: str, view_data: Kwargs = None,
                        session: aiohttp.ClientSession = None,
                        **kwargs) -> Response:
     r"""Sends a DELETE request."""
