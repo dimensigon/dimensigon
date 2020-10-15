@@ -399,7 +399,10 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         if add_target:
             data.update(target=list(self.target))
         if add_params:
-            data.update(params=list(self.user_parameters))
+            try:
+                data.update(params=list(self.user_parameters))
+            except:
+                pass
         if add_steps:
             json_steps = []
             for step in self.steps:
