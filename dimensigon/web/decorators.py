@@ -50,6 +50,8 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
             except errors.NoServerToLock as e:
                 def background_new_gate():
                     resp = None
+                    gates = [dict(dns_or_ip=remote_addr, port=port, hidden=True) for port in
+                             set([gate.port for gate in server.gates])]
                     for port in set([gate.port for gate in server.gates]):
                         resp = ntwrk.patch(f"{remote_addr}:{port}", 'api_1_0.serverresource', json=dict(gates=gates),
                                            auth=get_root_auth(), timeout=30)
@@ -58,8 +60,7 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
                     else:
                         logger.error(f"Unable to lock catalog for saving {remote_addr} from {server}." 
                                      f" Reason: {resp}" if resp else "")
-                gates = [dict(dns_or_ip=remote_addr, port=port, hidden=True) for port in
-                         set([gate.port for gate in server.gates])]
+
 
                 executor.submit(background_new_gate)
 
