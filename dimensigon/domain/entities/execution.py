@@ -66,16 +66,16 @@ class StepExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
             try:
                 stdout = json.loads(self.stdout)
             except:
-                stdout = self.stdout.split('\n') if split_lines and self.stdout else self.stdout
+                stdout = self.stdout.split('\n') if split_lines and self.stdout and '\n' in self.stdout else self.stdout
             try:
                 stderr = json.loads(self.stderr)
             except:
-                stderr = self.stderr.split('\n') if split_lines and self.stderr else self.stderr
+                stderr = self.stderr.split('\n') if split_lines and self.stderr and '\n' in self.stderr else self.stderr
         else:
             data.update(
                 server_id=str(getattr(self.server, 'id', None)) if getattr(self.server, 'id', None) else None)
-            stdout = self.stdout.split('\n') if split_lines and self.stdout else self.stdout
-            stderr = self.stderr.split('\n') if split_lines and self.stderr else self.stderr
+            stdout = self.stdout.split('\n') if split_lines and self.stdout and '\n' in self.stdout else self.stdout
+            stderr = self.stderr.split('\n') if split_lines and self.stderr and '\n' in self.stderr else self.stderr
         data.update(stdout=stdout)
         data.update(stderr=stderr)
         if self.child_orch_execution_id:

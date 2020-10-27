@@ -17,7 +17,7 @@ from dimensigon.utils.typos import Id
 
 if t.TYPE_CHECKING:
     from dimensigon.web.network import Response
-    from dimensigon.domain.entities import Scope, State, Server
+    from dimensigon.domain.entities import Scope, State, Server, Step
     from dimensigon.domain.entities.route import RouteContainer
 
 bp_errors = Blueprint('errors', __name__)
@@ -85,7 +85,7 @@ def handle_error(error):
 def validation_error(error: ValidationError):
     response = {"error": {'type': error.__class__.__name__,
                           'message': error.message,
-                          'path': list(error.absolute_path),
+                          'path': list(error.relative_schema_path)[:-1],
                           'schema': error.schema}}
     return response, 400
 
@@ -256,7 +256,7 @@ class LockerError(BaseError):
     def payload(self) -> t.Optional[dict]:
         return {'scope': self.scope.name}
 
-class NoServerToLock(BaseError):
+class NoServerToLock(LockerError):
 
     def _format_error_msg(self) -> str:
         return 'No server was found for locking'
@@ -432,6 +432,53 @@ class RemoteServerTimeout(BaseError):
 
     def _format_error_msg(self) -> str:
         return "Timeout reached waiting remote server operation completion"
+
+
+class MissingSourceMapping(BaseError):
+    status_code = 404
+
+    def __init__(self, parameter):
+        self.parameter = parameter
+
+    def _format_error_msg(self) -> str:
+        return "Missing mapping parameter"
+
+
+class MappingError(BaseError):
+    status_code = 404
+
+    def __init__(self, parameter, step: 'Step' = None, ):
+        self.parameter = parameter
+        if step:
+            self.step = {'id': step.id}
+            if step.name:
+                self.step.update(name=step.name)
+            self.orchestration = {'id': step.orchestration.id, 'name': step.orchestration.name,
+                                  'version': step.orchestration.version}
+
+    def _format_error_msg(self) -> str:
+        return "Mapping source parameter not found in input"
+
+
+class MissingParameters(BaseError):
+    status_code = 404
+
+    def __init__(self, parameters, step: 'Step' = None, server: 'Server' = None):
+        self.parameters = parameters
+        if step:
+            self.step = {'id': step.id}
+            if step.name:
+                self.step.update(name=step.name)
+            self.orchestration = {'id': step.orchestration.id, 'name': step.orchestration.name,
+                                  'version': step.orchestration.version}
+        if server:
+            self.server = {'id': server.name, 'name': server.name}
+
+    def _format_error_msg(self) -> str:
+        if hasattr(self, 'server'):
+            return "Missing parameters in step on runtime"
+        else:
+            return "Missing parameters in step"
 
 
 #############

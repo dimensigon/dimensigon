@@ -5,7 +5,7 @@ from flask_restful import Resource
 from dimensigon.domain.entities import Step, Orchestration, ActionTemplate, ActionType
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dimensigon.web.helpers import filter_query
+from dimensigon.web.helpers import filter_query, check_param_in_uri
 from dimensigon.web.json_schemas import step_post, step_put, step_patch
 
 
@@ -16,7 +16,7 @@ class StepList(Resource):
     @securizer
     def get(self):
         query = filter_query(Step, request.args)
-        return [s.to_json() for s in query.all()]
+        return [s.to_json(split_lines=check_param_in_uri('split_lines')) for s in query.all()]
 
     @forward_or_dispatch()
     @jwt_required
@@ -82,7 +82,7 @@ class StepResource(Resource):
     @jwt_required
     @securizer
     def get(self, step_id):
-        return Step.query.get_or_raise(step_id).to_json()
+        return Step.query.get_or_raise(step_id).to_json(split_lines=check_param_in_uri('split_lines'))
 
     @forward_or_dispatch()
     @jwt_required
@@ -115,12 +115,26 @@ class StepResource(Resource):
         s.stop_on_error = json_data.pop('stop_on_error', None)
         s.stop_undo_on_error = json_data.pop('stop_undo_on_error', None)
         s.undo_on_error = json_data.pop('undo_on_error', None)
-        s.expected_stdout = json_data.pop('expected_stdout', None)
-        s.expected_stderr = json_data.pop('expected_stderr', None)
+        aux = json_data.get('expected_stdout', None)
+        s.expected_stdout = aux if isinstance(aux, str) else '\n'.join(aux)
+
+        aux = json_data.get('expected_stderr', None)
+        s.expected_stderr = aux if isinstance(aux, str) else '\n'.join(aux)
+
         s.expected_rc = json_data.pop('expected_rc', None)
         s.parameters = json_data.pop('parameters', None)
         s.system_kwargs = json_data.pop('system_kwargs', None)
         s.target = json_data.pop('target', None)
+        s.name = json_data.pop('name', None)
+
+        aux = json_data.get('pre_process', None)
+        s.pre_process = aux if isinstance(aux, str) else '\n'.join(aux)
+
+        aux = json_data.get('post_process', None)
+        s.post_process = aux if isinstance(aux, str) else '\n'.join(aux)
+
+        aux = json_data.get('description', None)
+        s.description = aux if isinstance(aux, str) else '\n'.join(aux)
 
         db.session.commit()
 
@@ -155,6 +169,26 @@ class StepResource(Resource):
 
         for k, v in json_data.items():
             setattr(s, k, v)
+
+        if 'expected_stdout' in json_data and s.expected_stdout != json_data.get('expected_stdout'):
+            aux = json_data.get('expected_stdout')
+            s.expected_stdout = aux if isinstance(aux, str) else '\n'.join(aux)
+
+        if 'expected_stderr' in json_data and s.expected_stderr != json_data.get('expected_stderr'):
+            aux = json_data.get('expected_stderr')
+            s.expected_stderr = aux if isinstance(aux, str) else '\n'.join(aux)
+
+        if 'pre_process' in json_data and s.pre_process != json_data.get('pre_process'):
+            aux = json_data.get('pre_process')
+            s.pre_process = aux if isinstance(aux, str) else '\n'.join(aux)
+
+        if 'post_process' in json_data and s.post_process != json_data.get('post_process'):
+            aux = json_data.get('post_process')
+            s.post_process = aux if isinstance(aux, str) else '\n'.join(aux)
+
+        if 'description' in json_data and s.description != json_data.get('description'):
+            aux = json_data.get('description')
+            s.description = aux if isinstance(aux, str) else '\n'.join(aux)
 
         db.session.commit()
 

@@ -12,34 +12,38 @@ from pygments.lexers.python import PythonLexer
 
 import dimensigon.dshell.network as ntwrk
 from dimensigon.domain.entities import ActionType
+from dimensigon.dshell import validators as v, converters as c
 from dimensigon.dshell.argparse_raise import ArgumentParserRaise
 from dimensigon.dshell.completer import granule_completer, server_name_completer, action_completer
 from dimensigon.dshell.helpers import get_history, exit_dshell
 from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.action_template import code_lexer
-from dimensigon.dshell.prompts.utils import prompt_parameter
-from dimensigon.dshell.validators import ChoiceValidator, IntValidator, JSONValidator, BoolValidator, ListConverter
+from dimensigon.dshell.prompts.utils import prompt_parameter, code_extension
 
 form = {
     "undo": dict(history=InMemoryHistory()),
     "action_template_id": dict(history=InMemoryHistory(), completer=action_completer),
-    "stop_on_error": dict(validator=BoolValidator, history=InMemoryHistory()),
-    "stop_undo_on_error": dict(validator=BoolValidator, history=InMemoryHistory()),
-    "undo_on_error": dict(validator=BoolValidator, history=InMemoryHistory()),
-    "action_type": dict(validator=ChoiceValidator([at.name for at in ActionType if at.name != 'NATIVE']),
+    "stop_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
+    "stop_undo_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
+    "undo_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
+    "action_type": dict(validator=v.Choice([at.name for at in ActionType if at.name != 'NATIVE']),
                         history=InMemoryHistory()),
-    "code": dict(multiline=True, lexer=code_lexer, history=InMemoryHistory(), edit=True),
-    "expected_stdout": dict(multiline=True, history=InMemoryHistory()),
-    "expected_stderr": dict(multiline=True, history=InMemoryHistory()),
-    "expected_rc": dict(validator=IntValidator(), history=InMemoryHistory()),
-    "parameters": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), validator=JSONValidator(),
-                       history=InMemoryHistory()),
-    "system_kwargs": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), validator=JSONValidator(),
+    "code": dict(edit=code_extension, mouse_support=True, lexer=code_lexer, history=InMemoryHistory(),
+                 converter=c.MultiLine),
+    "expected_stdout": dict(multiline=True, mouse_support=True, history=InMemoryHistory(),
+                            converter=c.MultiLine),
+    "expected_stderr": dict(multiline=True, mouse_support=True, history=InMemoryHistory(),
+                            converter=c.MultiLine),
+    "expected_rc": dict(validator=v.Int(), history=InMemoryHistory()),
+    "parameters": dict(multiline=True, mouse_support=True, lexer=PygmentsLexer(PythonLexer), validator=v.JSON(),
+                       converter=c.JSON, history=InMemoryHistory()),
+    "system_kwargs": dict(multiline=True, mouse_support=True, lexer=PygmentsLexer(PythonLexer),
+                          validator=v.JSON(), converter=c.JSON,
                           history=InMemoryHistory()),
-    "pre_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
-    "post_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
+    "pre_process": dict(edit='.py', history=InMemoryHistory(), converter=c.MultiLine),
+    "post_process": dict(edit='.py', history=InMemoryHistory(), converter=c.MultiLine),
     "target": dict(completer=merge_completers([granule_completer, server_name_completer]), history=InMemoryHistory()),
-    "parent_step_ids": dict(validator=ListConverter())
+    "parent_step_ids": dict(validator=v.List(','), converter=c.List(','))
 }
 
 parser = ArgumentParserRaise(allow_abbrev=False, prog='')

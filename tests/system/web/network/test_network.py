@@ -16,6 +16,7 @@ class TestPing(TestDimensigonBase):
     def setUpClass(cls) -> None:
         cls.dim = generate_dimension_json_data()
 
+
     def fill_database(self, node):
         db.create_all()
         d = Dimension.from_json(self.dim)

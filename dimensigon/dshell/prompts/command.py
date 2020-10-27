@@ -12,11 +12,11 @@ from dimensigon.dshell.completer import server_completer
 from dimensigon.dshell.helpers import get_history
 from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.utils import prompt_parameter
-from dimensigon.dshell.validators import IntValidator, ListConverter
+from dimensigon.dshell import validators as v, converters as c
 
 form = {
-    "target": dict(history=InMemoryHistory(), completer=server_completer, validator=ListConverter()),
-    "timeout": dict(history=InMemoryHistory(), validator=IntValidator()),
+    "target": dict(history=InMemoryHistory(), completer=server_completer, validator=v.List(), converter=c.List()),
+    "timeout": dict(history=InMemoryHistory(), validator=v.Int(), converter=c.Int()),
     "input": dict(history=InMemoryHistory()),
 }
 

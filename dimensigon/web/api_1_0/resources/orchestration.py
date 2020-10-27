@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required
 from flask_restful import Resource
 
 from dimensigon.domain.entities import Orchestration
+from dimensigon.utils.helpers import is_iterable_not_string
 from dimensigon.web import db
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dimensigon.web.helpers import filter_query, check_param_in_uri
@@ -18,7 +19,7 @@ class OrchestrationList(Resource):
         query = filter_query(Orchestration, request.args).order_by(Orchestration.created_at)
         return [o.to_json(add_target=check_param_in_uri('target'), add_params=check_param_in_uri('vars'),
                           add_steps=check_param_in_uri('steps'), add_action=check_param_in_uri('action'),
-                          split_lines=True) for o in
+                          split_lines=check_param_in_uri('split_lines')) for o in
                 query.all()]
 
     @forward_or_dispatch()
@@ -47,7 +48,7 @@ class OrchestrationResource(Resource):
     @securizer
     def get(self, orchestration_id):
         return Orchestration.query.get_or_raise(orchestration_id).to_json(add_target=True, add_params=True,
-                                                                        split_lines=True)
+                                                                          split_lines=check_param_in_uri('split_lines'))
 
     @forward_or_dispatch()
     @jwt_required
@@ -57,6 +58,8 @@ class OrchestrationResource(Resource):
     def patch(self, orchestration_id):
         o = Orchestration.query.get_or_raise(orchestration_id)
         for k, v in request.get_json().items():
+            if k == 'description':
+                v = '\n'.join(v) if is_iterable_not_string(v) else v
             setattr(o, k, v)
         db.session.commit()
         return {}, 204

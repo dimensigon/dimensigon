@@ -16,7 +16,7 @@ class ActionTemplateList(Resource):
     @securizer
     def get(self):
         query = filter_query(ActionTemplate, request.args)
-        return [at.to_json(split_lines=check_param_in_uri('human')) for at in query.all()]
+        return [at.to_json(split_lines=check_param_in_uri('split_lines')) for at in query.all()]
 
     @forward_or_dispatch()
     @jwt_required
@@ -47,7 +47,7 @@ class ActionTemplateResource(Resource):
     @jwt_required
     @securizer
     def get(self, action_template_id):
-        return ActionTemplate.query.get_or_raise(action_template_id).to_json(split_lines=check_param_in_uri('human'))
+        return ActionTemplate.query.get_or_raise(action_template_id).to_json(split_lines=check_param_in_uri('split_lines'))
 
     @securizer
     @jwt_required
@@ -60,19 +60,27 @@ class ActionTemplateResource(Resource):
         if 'action_type' in data and at.action_type != ActionType[data.get('action_type')]:
             at.action_type = ActionType[data.get('action_type')]
         if 'code' in data and at.code != (data.get('code')):
-            at.code = data.get('code')
+            aux = data.get('code')
+            at.code = aux if isinstance(aux, str) else '\n'.join(aux)
         if 'parameters' in data and at.parameters != data.get('parameters'):
             at.parameters = data.get('parameters')
         if 'expected_stdout' in data and at.expected_stdout != data.get('expected_stdout'):
-            at.expected_stdout = data.get('expected_stdout')
+            aux = data.get('expected_stdout')
+            at.expected_stdout = aux if isinstance(aux, str) else '\n'.join(aux)
         if 'expected_stderr' in data and at.expected_stderr != data.get('expected_stderr'):
-            at.expected_stderr = data.get('expected_stderr')
+            aux = data.get('expected_stderr')
+            at.expected_stderr = aux if isinstance(aux, str) else '\n'.join(aux)
         if 'expected_rc' in data and at.expected_rc != data.get('expected_rc'):
             at.expected_rc = data.get('expected_rc')
         if 'pre_process' in data and at.pre_process != data.get('pre_process'):
-            at.pre_process = data.get('pre_process')
+            aux = data.get('pre_process')
+            at.pre_process = aux if isinstance(aux, str) else '\n'.join(aux)
         if 'post_process' in data and at.post_process != data.get('post_process'):
-            at.post_process = data.get('post_process')
+            aux = data.get('post_process')
+            at.post_process = aux if isinstance(aux, str) else '\n'.join(aux)
+        if 'description' in data and at.description != data.get('description'):
+            aux = data.get('description')
+            at.description = aux if isinstance(aux, str) else '\n'.join(aux)
         if at in db.session.dirty:
             db.session.commit()
             return {}, 204

@@ -85,9 +85,12 @@ def interactive():
         try:
             namespace = parser.parse_args(shlex.split(text))
         except (ValueError, argparse.ArgumentError) as e:
-            print(e)
+            dprint(e)
             continue
         except SystemExit:
+            continue
+        except Exception as e:
+            dprint(e)
             continue
         else:
             cmd_params = vars(namespace)

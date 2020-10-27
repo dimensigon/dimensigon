@@ -8,7 +8,8 @@ with open("README.md", "r") as fh:
 setup(
     name='dimensigon',
     version=dm.__version__,
-    packages=find_packages(),
+    package_dir={"": "."},
+    packages=find_packages(where=".", exclude=["contrib", "docs", "tests*", "tasks"]),
     url='https://github.com/dimensigon/dimensigon',
     license=dm.__license__,
     author=dm.__author__,
@@ -53,8 +54,7 @@ setup(
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
         "Operating System :: POSIX",
     ],
+    entry_points={'console_scripts': ["dshell=dimensigon.dshell.batch.dshell:main",
+                                      "dimensigon=dimensigon.__main__:main"]},
     python_requires='>=3.6',
-    # scripts=['elevator.py'],
-    entry_points={'console_scripts': ['dshell = dimensigon.dshell.batch.dshell:main',
-                                      'dimensigon = dimensigon.__main__:main']},
 )

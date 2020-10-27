@@ -8,6 +8,7 @@ from flask_restful import Resource
 from sqlalchemy import or_
 
 import dimensigon.defaults as d
+from dimensigon import defaults
 from dimensigon.domain.entities import Transfer, TransferStatus, Software
 from dimensigon.domain.entities.transfer import Status
 from dimensigon.utils.helpers import md5, get_now
@@ -36,7 +37,9 @@ class TransferList(Resource):
         soft = None
         if 'software_id' in json_data:
             soft = Software.query.get_or_raise(json_data['software_id'])
-            pending = Transfer.query.filter_by(software=soft, dest_path=json_data['dest_path']).filter(
+            dest_path = json_data.get('dest_path', current_app.dm.config.path(defaults.SOFTWARE_REPO))
+            pending = Transfer.query.filter_by(software=soft,
+                                               dest_path=dest_path).filter(
                 or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
                     Transfer.status == TransferStatus.IN_PROGRESS)).all()
 
@@ -44,14 +47,11 @@ class TransferList(Resource):
                 raise errors.TransferSoftwareAlreadyOpen(str(soft.id))
             elif pending and json_data['cancel_pending']:
                 for trans in pending:
-                    trans.status = TransferStatus.CANCELLED
-        elif 'filename' not in json_data:
-            return {'error': 'Neither filename nor software specified for the transfer'}, 404
-        elif 'filename' in json_data and ('size' not in json_data or 'checksum' not in json_data):
-            return {'error': 'size and checksum must be specified when a filename set'}, 404
+                    trans.status = TransferStatus.CANCELED
         else:
+            dest_path = json_data['dest_path']
             pending = Transfer.query.filter_by(_filename=json_data['filename'],
-                                               dest_path=json_data['dest_path']).filter(
+                                               dest_path=dest_path).filter(
                 or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
                     Transfer.status == TransferStatus.IN_PROGRESS)).all()
 
@@ -59,9 +59,8 @@ class TransferList(Resource):
                 raise errors.TransferFileAlreadyOpen(os.path.join(json_data['dest_path'], json_data['filename']))
             elif pending and json_data.get('cancel_pending', False):
                 for trans in pending:
-                    trans.status = TransferStatus.CANCELLED
+                    trans.status = TransferStatus.CANCELED
 
-        dest_path = json_data.get('dest_path', current_app.config['SOFTWARE_REPO'])
         file = os.path.join(dest_path, soft.filename if soft else json_data['filename'])
 
         if os.path.exists(file):

@@ -182,3 +182,5 @@ class TestUndoCommand(TestCase):
         uc = UndoCommand(implementation=self.mock_implementation, var_context={'param': 'a'}, id_=1)
         uc._cp = {'success': True}
         self.assertDictEqual({1: {'success': True}}, uc.result)
+
+

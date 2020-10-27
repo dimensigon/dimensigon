@@ -1,9 +1,7 @@
 import datetime
-import re
 import typing as t
 from collections import ChainMap
 
-from jinja2schema import infer
 from sqlalchemy import orm
 
 from dimensigon import defaults
@@ -12,7 +10,7 @@ from dimensigon.utils.typos import UUID, ScalarListType, UtcDateTime
 from dimensigon.web import db, errors
 from .action_template import ActionType
 from ...utils import typos
-from ...utils.helpers import get_now
+from ...utils.helpers import get_now, is_iterable_not_string
 
 if t.TYPE_CHECKING:
     from .action_template import ActionTemplate
@@ -44,7 +42,9 @@ class Step(db.Model, UUIDistributedEntityMixin):
     step_code = db.Column("code", db.Text)
     step_post_process = db.Column("post_process", db.Text)
     step_pre_process = db.Column("pre_process", db.Text)
-    step_name = db.Column("name", db.String(40))
+    step_name = db.Column("name", db.String(40))  # added in SCHEMA_VERSION = 6
+    step_schema = db.Column("schema", db.JSON)  # added in SCHEMA_VERSION = 6
+    step_description = db.Column("description", db.Text)  # added in SCHEMA_VERSION = 6
 
     orchestration = db.relationship("Orchestration", primaryjoin="Step.orchestration_id==Orchestration.id",
                                     back_populates="steps")
@@ -66,10 +66,12 @@ class Step(db.Model, UUIDistributedEntityMixin):
                  stop_on_error: bool = None, stop_undo_on_error: bool = None, undo_on_error: bool = None,
                  expected_stdout: t.Optional[str] = None,
                  expected_stderr: t.Optional[str] = None,
-                 expected_rc: t.Optional[int] = None, parameters: t.Dict[str, t.Any] = None,
+                 expected_rc: t.Optional[int] = None,
+                 parameters: t.Dict[str, t.Any] = None,
+                 schema: t.Dict[str, t.Any] = None,
                  system_kwargs: t.Dict[str, t.Any] = None,
                  parent_steps: t.List['Step'] = None, children_steps: t.List['Step'] = None,
-                 target: t.Union[str, t.Iterable[str]] = None, name=None, **kwargs):
+                 target: t.Union[str, t.Iterable[str]] = None, name: str = None, description: str = None, **kwargs):
 
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         assert undo in (False, True)
@@ -84,17 +86,31 @@ class Step(db.Model, UUIDistributedEntityMixin):
         self.step_undo_on_error = undo_on_error if undo_on_error is not None else kwargs.pop('step_undo_on_error', None)
         self.action_template = action_template
         self.step_action_type = action_type if action_type is not None else kwargs.pop('step_action_type', None)
-        self.step_expected_stdout = expected_stdout if expected_stdout is not None else kwargs.pop(
+
+        expected_stdout = expected_stdout if expected_stdout is not None else kwargs.pop(
             'step_expected_stdout', None)
-        self.step_expected_stderr = expected_stderr if expected_stderr is not None else kwargs.pop(
+        self.step_expected_stdout = '\n'.join(expected_stdout) if is_iterable_not_string(
+            expected_stdout) else expected_stdout
+
+        expected_stderr = expected_stderr if expected_stderr is not None else kwargs.pop(
             'step_expected_stderr', None)
+        self.step_expected_stderr = '\n'.join(expected_stderr) if is_iterable_not_string(
+            expected_stderr) else expected_stderr
+
         self.step_expected_rc = expected_rc if expected_rc is not None else kwargs.pop('step_expected_rc', None)
         self.step_parameters = parameters if parameters is not None else kwargs.pop('step_parameters', None) or {}
+        self.step_schema = schema if schema is not None else kwargs.pop('step_schema', None) or {}
         self.step_system_kwargs = system_kwargs if system_kwargs is not None else kwargs.pop('step_system_kwargs',
                                                                                              None) or {}
-        self.step_code = code if code is not None else kwargs.pop('step_code', None)
-        self.step_post_process = post_process if post_process is not None else kwargs.pop('step_post_process', None)
-        self.step_pre_process = pre_process if pre_process is not None else kwargs.pop('step_pre_process', None)
+        code = code if code is not None else kwargs.pop('step_code', None)
+        self.step_code = '\n'.join(code) if is_iterable_not_string(code) else code
+
+        post_process = post_process if post_process is not None else kwargs.pop('step_post_process', None)
+        self.step_post_process = '\n'.join(post_process) if is_iterable_not_string(post_process) else post_process
+
+        pre_process = pre_process if pre_process is not None else kwargs.pop('step_pre_process', None)
+        self.step_pre_process = '\n'.join(pre_process) if is_iterable_not_string(pre_process) else pre_process
+
         self.orchestration = orchestration
         self.parent_steps = parent_steps or []
         self.children_steps = children_steps or []
@@ -108,6 +124,9 @@ class Step(db.Model, UUIDistributedEntityMixin):
                 raise errors.BaseError('target must not be set when creating an UNDO step')
         self.created_on = kwargs.get('created_on') or get_now()
         self.step_name = name if name is not None else kwargs.pop('step_name', None)
+
+        description = description if description is not None else kwargs.pop('step_description', None)
+        self.step_description = '\n'.join(description) if is_iterable_not_string(description) else description
 
     @orm.reconstructor
     def init_on_load(self):
@@ -175,6 +194,38 @@ class Step(db.Model, UUIDistributedEntityMixin):
     @parameters.setter
     def parameters(self, value):
         self.step_parameters = value
+
+    @property
+    def schema(self):
+        if self.action_template:
+            schema = dict(ChainMap(self.step_schema, self.action_template.schema))
+        else:
+            schema = dict(self.step_schema)
+
+        if self.action_type == ActionType.ORCHESTRATION:
+            from .orchestration import Orchestration
+            o_id = schema.get('mapping', {}).get('orchestration_id')
+            if o_id:
+                o = Orchestration.query.get(o_id)
+                if o:
+                    orch_schema = o.schema
+                    i = schema.get('input', {})
+                    i.update(orch_schema.get('input', {}))
+                    schema.update({'input': i})
+                    m = schema.get('mapping', {})
+                    m.update(orch_schema.get('mapping', {}))
+                    schema.update({'mapping': m})
+                    r = schema.get('required', [])
+                    [r.append(k) for k in orch_schema.get('required', []) if k not in r]
+                    schema.update({'required': r})
+                    o = schema.get('output', [])
+                    [o.append(k) for k in orch_schema.get('output', []) if k not in o]
+                    schema.update({'output': o})
+        return schema
+
+    @schema.setter
+    def schema(self, value):
+        self.step_schema = value
 
     @property
     def system_kwargs(self):
@@ -282,23 +333,15 @@ class Step(db.Model, UUIDistributedEntityMixin):
         self.step_name = value
 
     @property
-    def fetched_parameters(self):
-        return set(re.findall(r'\(\?P<(\w+)>', self.regexp_fetch, flags=re.MULTILINE))
+    def description(self):
+        if self.step_description is None and self.action_template:
+            return str(self.action_template)
+        else:
+            return self.step_description
 
-    @property
-    def user_parameters(self) -> t.Set['str']:
-        code_params = set(self.code_parameters)
-
-        defined_params = set(self.parameters.keys())
-        params_from_param_value = set()
-        for v in self.parameters.values():
-            params_from_param_value.union(re.findall(r'\{\{\s*([\.\w]+)\s*\}\}', str(v), flags=re.MULTILINE))
-
-        return code_params.union(params_from_param_value).difference(defined_params)
-
-    @property
-    def code_parameters(self):
-        return infer(self.code).keys()
+    @description.setter
+    def description(self, value):
+        self.step_description = value
 
     def eq_imp(self, other):
         """
@@ -318,7 +361,9 @@ class Step(db.Model, UUIDistributedEntityMixin):
         _id and _orchestration are not compared
         """
         if isinstance(other, self.__class__):
-            return all([self.undo == other.undo, self.parameters == other.parameters,
+            return all([self.undo == other.undo,
+                        self.parameters == other.parameters,
+                        self.schema == other.schema,
                         self.stop_on_error == other.stop_on_error,
                         self.stop_undo_on_error == other.stop_undo_on_error,
                         self.undo_on_error == other.undo_on_error,
@@ -335,7 +380,7 @@ class Step(db.Model, UUIDistributedEntityMixin):
             raise NotImplemented
 
     def __str__(self):
-        return self.name
+        return self.name or self.id
 
     def __repr__(self):
         return ('Undo ' if self.undo else '') + self.__class__.__name__ + ' ' + str(getattr(self, 'id', ''))
@@ -375,19 +420,28 @@ class Step(db.Model, UUIDistributedEntityMixin):
             stop_undo_on_error=self.step_stop_undo_on_error) if self.step_stop_undo_on_error is not None else None
         data.update(undo_on_error=self.step_undo_on_error) if self.step_undo_on_error is not None else None
         data.update(parameters=self.step_parameters) if self.step_parameters is not None else None
-        data.update(expected_stdout=self.step_expected_stdout) if self.step_expected_stdout is not None else None
-        data.update(expected_stderr=self.step_expected_stderr) if self.step_expected_stderr is not None else None
+        data.update(schema=self.step_schema) if self.step_schema is not None else None
+        if self.step_expected_stdout is not None:
+            data.update(
+                expected_stdout=self.step_expected_stdout.split('\n') if split_lines else self.step_expected_stdout)
+        if self.step_expected_stderr is not None:
+            data.update(
+                expected_stderr=self.step_expected_stderr.split('\n') if split_lines else self.step_expected_stderr)
         data.update(expected_rc=self.step_expected_rc) if self.step_expected_rc is not None else None
         data.update(system_kwargs=self.step_system_kwargs) if self.step_system_kwargs is not None else None
         data.update(parent_step_ids=[str(step.id) for step in self.parents])
-        data.update(
-            code=self.step_code.split('\n') if split_lines else self.step_code) if self.step_code is not None else None
+        if self.step_code is not None:
+            data.update(code=self.step_code.split('\n') if split_lines else self.step_code)
         data.update(action_type=self.step_action_type.name) if self.step_action_type is not None else None
-        data.update(post_process=self.step_post_process.split(
-            '\n') if split_lines else self.step_post_process) if self.step_post_process is not None else None
-        data.update(pre_process=self.step_pre_process.split(
-            '\n') if split_lines else self.step_pre_process) if self.step_pre_process is not None else None
+        if self.step_post_process is not None:
+            data.update(post_process=self.step_post_process.split('\n') if split_lines else self.step_post_process)
+        if self.step_pre_process is not None:
+            data.update(pre_process=self.step_pre_process.split('\n') if split_lines else self.step_pre_process)
         data.update(created_on=self.created_on.strftime(defaults.DATETIME_FORMAT))
+        if self.step_description is not None:
+            data.update(description=self.step_description.split('\n') if split_lines else self.step_description)
+        if self.step_name is not None:
+            data.update(name=self.step_name)
 
         return data
 
