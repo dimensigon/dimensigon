@@ -1,6 +1,7 @@
 import argparse
 import ast
 import functools
+import os
 import re
 import sys
 import types
@@ -377,14 +378,17 @@ class ParamAction(argparse.Action):
             match = self.exp.search(param)
             if not match:
                 raise ValueError(
-                     f"Not a valid parameter '{param}'. Must contain a KEY:VALUE. Ex. string-key:'string-value' or "
-                     f"integer-key:12345 or list-key=[1,2]")
+                    f"Not a valid parameter '{param}'. Must contain a KEY:VALUE. Ex. string-key:'string-value' or "
+                    f"integer-key:12345 or list-key=[1,2]")
             else:
                 mark, key, value = match.groups()
                 try:
                     value = ast.literal_eval(value)
                 except Exception:
                     value = value.encode().decode('unicode-escape')
+            if value.startswith('@'):
+                file = value.strip('@')
+                value = open(file, 'r').read()
 
             container = getattr(namespace, self.dest, None)
             if container is None:
