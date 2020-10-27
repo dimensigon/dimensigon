@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -349,4 +350,95 @@ def _apply_update(engine, new_version, old_version):
             connection.execute(
                 f"UPDATE D_gate SET deleted = 0")
             connection.execute(
-                f"UPDATE D_gate SET deleted = 1 WHERE EXISTS(SELECT * FROM D_server WHERE  D_server.id == D_gate.server_id and D_server.deleted == 1)")
+                f"UPDATE D_gate SET deleted = 1 "
+                f" WHERE EXISTS(SELECT * "
+                f"                FROM D_server "
+                f"               WHERE  D_server.id == D_gate.server_id and D_server.deleted == 1)")
+    elif new_version == 6:
+        _add_columns(engine, 'D_action_template', ['schema JSON', 'description TEXT'])
+        _add_columns(engine, 'D_step', ['name VARCHAR(40)', 'schema JSON', 'description TEXT'])
+        with engine.connect() as connection:
+            schema = json.dumps({"input": {"software_id": {"type": "string",
+                                                           "description": "software id to send"},
+                                           "server_id": {"type": "string",
+                                                         "description": "destination server id"},
+                                           "dest_path": {"type": "string",
+                                                         "description": "destination path to send software"},
+                                           "chunk_size": {"type": "integer"},
+                                           "max_senders": {"type": "integer"},
+                                           },
+                                 "required": ["software_id", "server_id"],
+                                 "output": {"file": {"type": "string",
+                                                     "description": "absolute path file name"}}
+                                 })
+            post_process = 'if cp.success:\n  json_data=json.loads(cp.stdout)\n  vc.set("file", json_data.get("file"))'
+            code = '{"method": "post",' \
+                   '"view":"api_1_0.send",' \
+                   '"json": {"software_id": "{{input[\'software_id\']}}", ' \
+                   '         "dest_server_id": "{{input[\'server_id\']}}"' \
+                   '{% if \'dest_path\' in input %}, "dest_path":"{{input[\'dest_path\']}}"{% endif %}' \
+                   '{% if \'chunk_size\' in input %}, "chunk_size":"{{input[\'chunk_size\']}}"{% endif %}' \
+                   '{% if \'max_senders\' in input %}, "max_senders":"{{input[\'max_senders\']}}"{% endif %}' \
+                   ', "background": false, "include_transfer_data": true, "force": true} }'
+            connection.execute(text(
+                f"UPDATE D_action_template SET schema=:schema, post_process=:post_process , code=:code"
+                f" WHERE id = '00000000-0000-0000-000a-000000000001'"), schema=schema, post_process=post_process,
+                code=code)
+
+            schema = json.dumps({"input": {"list_server_names": {"type": "array",
+                                                                 "items": {"type": "string"}},
+                                           "timeout": {"type": "integer"}
+                                           },
+                                 "required": ["list_server_names"]
+                                 })
+            code = ""
+            connection.execute(text(
+                f"UPDATE D_action_template SET schema=:schema, code=:code"
+                f" WHERE id = '00000000-0000-0000-000a-000000000002'"), schema=schema, code=code)
+
+            schema = json.dumps({"input": {"orchestration_id": {"type": "string"},
+                                           "hosts": {"type": ["string", "array", "object"],
+                                                     "items": {"type": "string"},
+                                                     "minItems": 1,
+                                                     "patternProperties": {
+                                                         ".*": {"anyOf": [{"type": "string"},
+                                                                          {"type": "array",
+                                                                           "items": {"type": "string"},
+                                                                           "minItems": 1
+                                                                           },
+                                                                          ]
+                                                                },
+                                                     },
+                                                     },
+                                           },
+                                 "required": ["orchestration_id", "hosts"]
+                                 })
+            code = ""
+            connection.execute(text(
+                f"UPDATE D_action_template SET schema=:schema, code=:code"
+                f" WHERE id = '00000000-0000-0000-000a-000000000003'"), schema=schema, code=code)
+
+            schema = json.dumps({"input": {"list_server_names": {"type": "array",
+                                                                 "items": {"type": "string"}},
+                                           "timeout": {"type": "integer"}
+                                           },
+                                 "required": ["list_server_names"]
+                                 })
+            code = ""
+            connection.execute(text(
+                f"UPDATE D_action_template SET schema=:schema, code=:code"
+                f" WHERE id = '00000000-0000-0000-000a-000000000004'"), schema=schema, code=code)
+
+            schema = json.dumps({"input": {"list_server_names": {"type": "array",
+                                                                 "items": {"type": "string"}},
+                                           },
+                                 "required": ["list_server_names"]
+                                 })
+            code = ""
+            connection.execute(text(
+                f"UPDATE D_action_template SET schema=:schema, code=:code"
+                f" WHERE id = '00000000-0000-0000-000a-000000000005'"), schema=schema, code=code)
+
+            _LOGGER.warning("After this database release, attribute 'parameters' from Step and ActionTemplate are "
+                            "deprecated. You need to recreate all user actions and orchestrations using the schema "
+                            "attribute. See documentation for more information.")

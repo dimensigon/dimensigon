@@ -35,7 +35,7 @@ meta = MetaData(naming_convention={
 })
 
 db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta,
-                engine_options={'connect_args': {'check_same_thread': False}, 'pool_recycle': 60})
+                engine_options={'connect_args': {'check_same_thread': False}})
 # db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta)
 # db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
@@ -317,7 +317,8 @@ def create_app(config_name):
     app.events = EventHandler()
 
     app.before_request(load_global_data_into_context)
-    app.before_first_request(start_cluster_manager)
+    if not app.config['TESTING']:
+        app.before_first_request(start_cluster_manager)
     _initialize_blueprint(app)
     _initialize_errorhandlers(app)
 

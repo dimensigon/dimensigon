@@ -1,5 +1,7 @@
 import argparse
+import ast
 import functools
+import re
 import sys
 import types
 from typing import Text, Optional, TypeVar, NoReturn
@@ -363,23 +365,26 @@ class ExtendAction(_AppendAction):
         items.extend(values)
         setattr(namespace, self.dest, items)
 
+
 class ParamAction(argparse.Action):
+    exp = re.compile(r"^([\"']?)([\w\-_]+):(.*?)\1$", re.MULTILINE|re.DOTALL)
+
     def __init__(self, option_strings, dest, **kwargs):
         super(ParamAction, self).__init__(option_strings, dest, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
-
-        for value in values:
-            if '=' not in values[0]:
+        for param in values:
+            match = self.exp.search(param)
+            if not match:
                 raise ValueError(
-                    f"Not a valid parameter '{value}'. Must be in format PARAM=VALUE or PARAM=VALUE1,VALUE2.")
+                     f"Not a valid parameter '{param}'. Must contain a KEY:VALUE. Ex. string-key:'string-value' or "
+                     f"integer-key:12345 or list-key=[1,2]")
             else:
-                key, str_list = values[0].split('=', 1)
-
-            if ',' in str_list:
-                value = str_list.split(',')
-            else:
-                value = str_list
+                mark, key, value = match.groups()
+                try:
+                    value = ast.literal_eval(value)
+                except Exception:
+                    value = value.encode().decode('unicode-escape')
 
             container = getattr(namespace, self.dest, None)
             if container is None:

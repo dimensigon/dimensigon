@@ -7,22 +7,25 @@ from pprint import pprint
 
 from prompt_toolkit import prompt
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.filters import in_paste_mode, is_multiline
 from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.key_binding import KeyBindings
 
 import dimensigon.dshell.network as ntwrk
 from dimensigon.dshell.argparse_raise import ArgumentParserRaise
 from dimensigon.dshell.helpers import get_history, exit_dshell
 from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.step import subprompt as step_subprompt
-from dimensigon.dshell.prompts.utils import prompt_parameter
-from dimensigon.dshell.validators import BoolValidator
+from dimensigon.dshell.prompts.utils import prompt_parameter, prompt_continuation
+from dimensigon.dshell import validators as v, converters as c
 
 form = {
     "name": dict(history=InMemoryHistory()),
-    "description": dict(multiline=True, history=InMemoryHistory()),
-    "stop_on_error": dict(validator=BoolValidator, history=InMemoryHistory()),
-    "stop_undo_on_error": dict(validator=BoolValidator, history=InMemoryHistory()),
-    "undo_on_error": dict(validator=BoolValidator, history=InMemoryHistory()),
+    "description": dict(multiline=True, history=InMemoryHistory(), mouse_support=True, prompt_continuation=prompt_continuation,
+                        converter=c.MultiLine),
+    "stop_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
+    "stop_undo_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
+    "undo_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
 }
 
 parser = ArgumentParserRaise(allow_abbrev=False, prog='')
@@ -32,7 +35,11 @@ preview_action.set_defaults(func=lambda x: pprint(x))
 set_action = subparser.add_parser('set')
 set_action.add_argument('parameter', choices=form.keys())
 delete_parser = subparser.add_parser('delete')
-delete_parser.add_argument('parameter', choices=form.keys())
+delete_subparser = delete_parser.add_subparsers(dest='subcmd')
+delete_parameter_parser = delete_subparser.add_parser('parameter')
+delete_parameter_parser.add_argument('parameter', choices=form.keys())
+delete_step_parser = delete_subparser.add_parser('step')
+delete_step_parser.add_argument('step_id')
 submit_action = subparser.add_parser('submit')
 dump_action = subparser.add_parser('dump')
 dump_action.add_argument('file')
@@ -102,11 +109,22 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
                 except EOFError:
                     exit_dshell(rc=1)
         elif namespace.cmd == 'delete':
-            if namespace.parameter not in form.keys():
-                dprint("Not a valid parameter. Available: " + ', '.join(form.keys()))
-            else:
-                entity.pop(namespace.parameter)
-                changed = True
+            if namespace.subcmd == 'step':
+                for s in copy.copy(entity['steps']):
+                    if s['id'] == namespace.step_id:
+                        entity['steps'].remove(s)
+                        changed = True
+                # delete parent dependencies
+                for s in entity['steps']:
+                    if namespace.step_id in s['parent_step_ids']:
+                        s['parent_step_ids'].remove(namespace.step_id)
+                        changed = True
+            elif namespace.subcmd == 'parameter':
+                if namespace.parameter not in form.keys():
+                    dprint("Not a valid parameter. Available: " + ', '.join(form.keys()))
+                else:
+                    entity.pop(namespace.parameter)
+                    changed = True
         elif namespace.cmd == 'submit':
             created = submit(entity)
             if created:
@@ -134,7 +152,7 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
 
             if not step:
                 # generate id
-                step['id'] = str(len(entity.get('steps', [])) + 1)
+                step['id'] = str(int(max([s.get('id') for s in entity.get('steps', [])])) + 1)
                 step['undo'] = namespace.id_or_type == 'undo'
                 step['parent_step_ids'] = []
             changed_step = step_subprompt(step, parent_prompt=f"{parent_prompt}{entity_name}('{entity['name']}')")

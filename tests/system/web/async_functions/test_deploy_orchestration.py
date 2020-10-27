@@ -7,9 +7,9 @@ from flask import g
 from dimensigon.domain.entities import Server, ActionTemplate, ActionType, Orchestration, StepExecution, Step, User, \
     OrchExecution
 from dimensigon.domain.entities.route import Route
-from dimensigon.utils.var_context import VarContext
+from dimensigon.use_cases.deployment import deploy_orchestration
+from dimensigon.utils.var_context import Context
 from dimensigon.web import create_app, db
-from dimensigon.web.async_functions import deploy_orchestration
 from tests.base import TestCaseLockBypass
 from tests.helpers import set_callbacks
 
@@ -83,9 +83,8 @@ class TestDeployOrchestration(TestCaseLockBypass):
                 s9 = o.add_step(id='dddddddd-1234-5678-1234-dddddddd0009', undo=False, action_template=at1,
                                 children=[s2, s3], target=['backend'])
                 db.session.commit()
-        self.vs = VarContext(globals=dict(executor_id='00000000-0000-0000-0000-000000000001'),
-                             defaults={'user': 'joan', 'dir': '/opt/dimensigon',
-                                       'home': '{{dir}}'}, )
+        self.vs = Context({'user': 'joan', 'dir': '/opt/dimensigon', 'home': '{{dir}}'},
+                          dict(executor_id='00000000-0000-0000-0000-000000000001'))
         set_callbacks([('me', self.app.test_client()), ('remote', self.app2.test_client())])
 
     def tearDown(self) -> None:

@@ -1,31 +1,21 @@
 import time
-from unittest import TestCase, mock
+from unittest import mock
 from unittest.mock import patch
 
 from flask import url_for
-from flask_jwt_extended import create_access_token
 
 from dimensigon.domain.entities import Orchestration, ActionTemplate, ActionType, Server, User
-from dimensigon.domain.entities.bootstrap import set_initial
-from dimensigon.network.auth import HTTPBearerAuth
-from dimensigon.web import create_app, db, errors
-from tests.base import ValidateResponseMixin
+from dimensigon.web import db, errors
+from tests import base
 
 
-class TestLaunchOrchestration(TestCase, ValidateResponseMixin):
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        db.create_all()
-        set_initial()
-        self.u = User('test')
-        db.session.add(self.u)
-        db.session.commit()
-        self.auth = HTTPBearerAuth(create_access_token(self.u.id))
+class TestLaunchOrchestration(base.TestDimensigonBase, base.ValidateResponseMixin):
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.fill_database()
+
+    def fill_database(self):
         self.o = Orchestration('create user', version=1)
         self.at1 = ActionTemplate(action_type=ActionType.SHELL, name="create folder", version=1,
                                   code="sudo mkdir -p {{folder}}")
@@ -40,13 +30,9 @@ class TestLaunchOrchestration(TestCase, ValidateResponseMixin):
         self.s2 = self.o.add_step(undo=True, action_template=self.at2, parents=[self.s1])
         self.s3 = self.o.add_step(undo=False, action_template=self.at3, parents=[self.s1])
         self.s4 = self.o.add_step(undo=True, action_template=self.at4, parents=[self.s3])
+
         db.session.add(self.o)
         db.session.commit()
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
 
     def test_launch_orchestration_error_on_server(self):
         resp = self.client.post(url_for('api_1_0.launch_orchestration', orchestration_id=str(self.o.id)),
@@ -77,7 +63,7 @@ class TestLaunchOrchestration(TestCase, ValidateResponseMixin):
         self.validate_error_response(resp, errors.TargetUnspecified(['new']))
 
     @patch('dimensigon.web.api_1_0.urls.use_cases.uuid.uuid4', return_value='a7083c43-34cc-4b26-91f0-ea0928cf5945')
-    @patch('dimensigon.web.api_1_0.urls.use_cases.VarContext')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.Context')
     @patch('dimensigon.web.api_1_0.urls.use_cases.deploy_orchestration')
     @patch('dimensigon.web.api_1_0.urls.use_cases.HTTPBearerAuth', return_value='token')
     def test_launch_orchestration_ok(self, mock_create, mock_deploy, mock_var_context, mock_uuid4):
@@ -105,9 +91,11 @@ class TestLaunchOrchestration(TestCase, ValidateResponseMixin):
         self.assertEqual(200, resp.status_code)
         self.assertDictEqual({'result': 'ok'}, resp.get_json())
 
-        mock_var_context.assert_called_once_with(
-            globals=dict(execution_id='1', executor_id=str(self.u.id)), initials=data['params'])
-        mock_deploy.assert_called_once_with(orchestration=self.o.id, var_context=MockVarContext,
+        mock_var_context.assert_called_once_with(data['params'],
+                                                 dict(execution_id=None, parent_orch_execution_id=None,
+                                                      orch_execution_id='1',
+                                                      executor_id=str(User.get_by_user('root').id)))
+        mock_deploy.assert_called_once_with(execution='1', orchestration=self.o.id, var_context=MockVarContext,
                                             hosts={'all': [str(Server.get_current().id)]})
 
         mock_deploy.side_effect = deploy_orchestration_delayed

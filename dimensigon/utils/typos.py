@@ -10,7 +10,7 @@ import rsa
 from sqlalchemy import types, DateTime, Enum as _Enum
 from sqlalchemy.dialects.postgresql import UUID as pUUID
 
-Kwargs = t.Union[t.Mapping['str', t.Any]]
+Kwargs = t.Union[t.MutableMapping['str', t.Any]]
 Id = t.TypeVar('Id', int, str, uuid.UUID, tuple)
 Ids = t.Sequence[Id]
 Id_or_Ids = t.Union[Id, Ids]
@@ -25,6 +25,7 @@ Callback = t.Tuple[t.Callable[[], None], t.Tuple, t.Dict]
 
 Priority = t.TypeVar('T')
 
+MultiLine = t.Union[str, t.List[str]]
 
 class TypeDecorator(types.TypeDecorator):
     def __repr__(self):

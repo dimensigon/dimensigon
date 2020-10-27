@@ -31,14 +31,15 @@ from dimensigon.domain.entities import Software, Server, SoftwareServerAssociati
     Orchestration, OrchExecution, User, ActionTemplate, ActionType, Gate
 from dimensigon.domain.entities.route import RouteContainer
 from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.use_cases.deployment import deploy_orchestration, validate_input_chain
 from dimensigon.utils import asyncio, subprocess
 from dimensigon.utils.dag import DAG
 from dimensigon.utils.event_handler import Event
 from dimensigon.utils.helpers import get_distributed_entities, is_iterable_not_string, md5, get_now, format_exception
-from dimensigon.utils.var_context import VarContext
+from dimensigon.utils.var_context import Context
 from dimensigon.web import db, executor, errors, threading
 from dimensigon.web.api_1_0 import api_bp
-from dimensigon.web.async_functions import deploy_orchestration, async_send_file
+from dimensigon.web.async_functions import async_send_file
 from dimensigon.web.background_tasks import _async_get_neighbour_catalog_data_mark, \
     upgrade_version, \
     update_catalog
@@ -251,11 +252,14 @@ def send():
     chunks = math.ceil(size / chunk_size)
 
     if 'software_id' in json_data:
-        json_msg = dict(software_id=str(software.id), num_chunks=chunks,
-                        dest_path=json_data.get('dest_path', current_app.config['SOFTWARE_REPO']))
+        json_msg = dict(software_id=str(software.id), num_chunks=chunks)
+        if 'dest_path' in json_data:
+            json_msg['dest_path'] = json_data.get('dest_path')
     else:
-        json_msg = dict(filename=os.path.basename(json_data.get('file')), size=size, checksum=checksum,
-                        num_chunks=chunks, dest_path=json_data.get('dest_path', current_app.config['SOFTWARE_REPO']))
+        json_msg = dict(dest_path=json_data['dest_path'], filename=os.path.basename(json_data.get('file')), size=size,
+                        checksum=checksum, num_chunks=chunks)
+    # if dest_path not set, file will be sent to
+
     if 'force' in json_data:
         json_msg['force'] = json_data['force']
 
@@ -532,11 +536,11 @@ def routes():
         return {}, 204
 
 
-def run_command_and_callback(operation: 'IOperationEncapsulation', var_context, source: Server,
+def run_command_and_callback(operation: 'IOperationEncapsulation', params, context: Context, source: Server,
                              step_execution: StepExecution,
                              jwt_identity, event_id,
                              timeout=None):
-    cp = operation.execute(var_context=var_context, timeout=timeout)
+    cp = operation.execute(params, timeout=timeout, context=context)
 
     execution = db.session.merge(step_execution)
     source = db.session.merge(source)
@@ -545,8 +549,7 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', var_context, 
         db.session.commit()
     except Exception as e:
         current_app.logger.exception(f"Error on commit for execution {execution.id}")
-    data = dict(step_execution=execution.to_json(),
-                var_context=base64.b64encode(pickle.dumps(var_context)).decode('ascii'))
+    data = dict(step_execution=execution.to_json())
     if execution.child_orch_execution:
         data['step_execution'].update(orch_execution=execution.child_orch_execution.to_json(add_step_exec=True))
     resp, code = ntwrk.post(server=source, view_or_url='api_1_0.events', view_data={'event_id': event_id},
@@ -566,15 +569,16 @@ def launch_operation():
     data = request.get_json()
     operation = pickle.loads(base64.b64decode(data['operation'].encode('ascii')))
     var_context = pickle.loads(base64.b64decode(data['var_context'].encode('ascii')))
+    params = pickle.loads(base64.b64decode(data['params'].encode('ascii')))
     orch_exec_json = data['orch_execution']
     orch_exec = OrchExecution.from_json(orch_exec_json)
 
-    se = StepExecution(id=var_context.globals.get('step_execution_id'), server=g.server, step_id=data.get('step_id'),
-                       orch_execution=orch_exec, params=dict(var_context),
+    se = StepExecution(id=var_context.env.get('step_execution_id'), server=g.server, step_id=data.get('step_id'),
+                       orch_execution=orch_exec, params=params,
                        start_time=get_now())
     db.session.add_all([orch_exec, se])
     db.session.commit()
-    future = executor.submit(run_command_and_callback, operation, var_context, g.source, se,
+    future = executor.submit(run_command_and_callback, operation, params, var_context, g.source, se,
                              get_jwt_identity(), data['event_id'],
                              timeout=data.get('timeout', None))
     try:
@@ -596,8 +600,9 @@ def launch_operation():
 @validate_schema(launch_orchestration_post)
 def launch_orchestration(orchestration_id):
     orchestration = Orchestration.query.get_or_raise(orchestration_id)
-    params = request.get_json().get('params', {})
-    hosts = request.get_json().get('hosts')
+    data = request.get_json()
+    params = data.get('params', {})
+    hosts = data.get('hosts')
 
     a = set(orchestration.target)
     if not isinstance(hosts, dict):
@@ -629,11 +634,15 @@ def launch_orchestration(orchestration_id):
 
     execution_id = str(uuid.uuid4())
 
-    vc = VarContext(globals=dict(orch_execution_id=execution_id, executor_id=get_jwt_identity()), initials=params)
+    if data.get('input_validation', True):
+        validate_input_chain(orchestration, params)
+
+    vc = Context(params, dict(execution_id=None, parent_orch_execution_id=None, orch_execution_id=execution_id,
+                              executor_id=get_jwt_identity()))
 
     if request.get_json().get('background', True):
         future = executor.submit(deploy_orchestration, orchestration=orchestration.id, var_context=vc, hosts=hosts,
-                                 execution=execution_id, )
+                                 execution=execution_id)
         try:
             r = future.result(1)
         except concurrent.futures.TimeoutError:
@@ -651,6 +660,7 @@ def launch_orchestration(orchestration_id):
             current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
             raise
         else:
+
             return orch_exe.to_json(add_step_exec=True, human=check_param_in_uri('human'), split_lines=True), 200
 
 

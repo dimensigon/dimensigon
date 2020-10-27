@@ -78,13 +78,13 @@ def manager_locker_unlock(scope, node):
         dprint(resp)
 
 
-def server_list(name=None, iden=None, detail=None, like=None):
+def server_list(name=None, ident=None, detail=None, like=None):
     kwargs = dict(verify=environ.get('SSL_VERIFY'))
     view_data = dict()
     if name is not None:
         view_data.update({'filter[name]': name})
-    if iden:
-        view_data.update({'filter[id]': iden})
+    if ident:
+        view_data.update({'filter[id]': ident})
     if detail:
         view_data.update(params='gates')
     resp = ntwrk.get('api_1_0.serverlist', view_data=view_data, **kwargs)
@@ -161,9 +161,9 @@ def orch_list(**params):
     if params.get('version', None):
         view_data.update({'filter[version]': str(params['version'])})
     if params.get('detail', None):
-        view_data.update({'params': ['steps', 'vars', 'target', 'action', 'human']})
+        view_data.update({'params': ['steps', 'vars', 'target', 'action', 'human', 'split_lines']})
     else:
-        view_data.update({'params': ['vars', 'target', 'human']})
+        view_data.update({'params': ['vars', 'target', 'human', 'split_lines']})
     resp = ntwrk.get('api_1_0.orchestrationlist', view_data=view_data, **kwargs)
     if resp.code == 200:
         data = resp.msg or []
@@ -188,7 +188,7 @@ def orch_create(**params):
 
 def orch_copy(**params):
     resp = ntwrk.get('api_1_0.orchestrationresource',
-                     view_data={'orchestration_id': params.get('orchestration_id')})
+                     view_data={'orchestration_id': params.get('orchestration_id'), 'param': 'split_lines'})
 
     if resp.ok:
         orch = resp.msg
@@ -198,18 +198,28 @@ def orch_copy(**params):
         orch.pop('version', None)
         orch.pop('last_modified_at', None)
         resp = ntwrk.get('api_1_0.steplist',
-                         view_data={'filter[orchestration_id]': params.get('orchestration_id')})
+                         view_data={'filter[orchestration_id]': params.get('orchestration_id'),
+                                    'params': 'split_lines'})
         if resp.ok:
             orch['steps'] = resp.msg
+
+            id2human = {}
+            for s in orch['steps']:
+                id2human[s.get('id')] = str(len(id2human) + 1)
 
             # remove unwanted parameters
             for s in orch['steps']:
                 s.pop('last_modified_at', None)
                 s.pop('created_on', None)
                 s.pop('orchestration_id', None)
+                s['id'] = id2human[s['id']]
+                s['parent_step_ids'] = [id2human[ps] for ps in s['parent_step_ids']]
 
             orch_prompt(entity=orch, parent_prompt='Δ ')
-
+        else:
+            dprint(resp)
+    else:
+        dprint(resp)
 
 def orch_load(file):
     try:
@@ -229,15 +239,16 @@ def orch_run(orchestration_id, **params):
     dprint(resp)
 
 
-def action_list(iden=None, name=None, version=None, like: str = None, last: int = None):
+def action_list(ident=None, name=None, version=None, like: str = None, last: int = None):
     kwargs = dict(verify=environ.get('SSL_VERIFY'))
     view_data = dict()
-    if iden:
-        view_data.update({'filter[id]': iden})
+    if ident:
+        view_data.update({'filter[id]': ident})
     if name:
         view_data.update({'filter[name]': name})
     if version:
         view_data.update({'filter[version]': version})
+    view_data.update(params='split_lines')
     resp = ntwrk.get('api_1_0.actiontemplatelist', view_data=view_data, **kwargs)
     if resp.code == 200:
         data = resp.msg or []
@@ -260,7 +271,7 @@ def action_create(name, action_type, prompt):
 
 def action_copy(**params):
     resp = ntwrk.get('api_1_0.actiontemplateresource',
-                     view_data={'action_template_id': params.get('action_template_id')})
+                     view_data={'action_template_id': params.get('action_template_id'), 'params': 'split_lines'})
 
     if resp.ok:
         action = resp.msg
@@ -497,7 +508,9 @@ def manager_login(username=None, password=None):
 
 
 def manager_save_login():
-    save_config_file(os.path.expanduser(env.get('CONFIG_FILE', None)), username=env._username, token=env._refresh_token, server=env.get('SERVER'), port=env.get('PORT'))
+    save_config_file(os.path.expanduser(env.get('CONFIG_FILE', None)), username=env._username, token=env._refresh_token,
+                     server=env.get('SERVER'), port=env.get('PORT'))
+
 
 def logging_cmd(logger, level):
     logger = logging.getLogger(logger)
@@ -535,7 +548,7 @@ nested_dict = {
         'list': [{'argument': '--detail', 'action': 'store_true'},
                  [{'argument': '--like'},
                   {'argument': '--name', 'completer': server_name_completer},
-                  {'argument': '--id', 'dest': 'iden', 'completer': server_completer},
+                  {'argument': '--id', 'dest': 'ident', 'completer': server_completer},
                   # {'argument': '--last', 'action': 'store', 'type': int}
                   ],
                  server_list
@@ -570,8 +583,11 @@ nested_dict = {
                  'completer': merge_completers([server_completer, granule_completer]),
                  'help': "Run the orch agains the specified target. If no target specified, hosts will be added to "
                          "'all' target. Example: --target node1 node2 backend=node2,node3 "},
-                {'argument': '--param', 'metavar': 'PARAM=VALUE', 'action': ParamAction, 'nargs': "+",
-                 'dest': 'params', 'help': 'Parameters passed to the orchestration'},
+                {'argument': '--param', 'dest': 'params', 'metavar': 'PARAM:VALUE', 'action': ParamAction, "nargs": "+",
+                 'help': 'Parameters passed to the orchestration. Param must start with a lowercase character and ' \
+                         'contain only hyphens (-), underscores (_), lowercase characters, and numbers. ' \
+                         'Example: --params="string-key:\'string-value\'" --param="integer-key:12345" ' \
+                         '--param="list-key:[1,2,3]" --param="dict-key:{\'foo\': 1}"'},
                 {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
                 orch_run],
     },
@@ -581,7 +597,7 @@ nested_dict = {
                  [{'argument': '--json', 'action': 'store_true'},
                   {'argument': '--table', 'action': 'store_true'}],
                  [{'argument': '--like'},
-                  {'argument': '--id', 'completer': action_completer},
+                  {'argument': '--id', 'dest': 'ident', 'completer': action_completer},
                   {'argument': '--name', 'completer': action_name_completer}],
                  action_list
                  ],

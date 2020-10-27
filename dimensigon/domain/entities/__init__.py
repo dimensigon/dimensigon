@@ -28,7 +28,7 @@ from .step import Step
 from .transfer import Transfer, Status as TransferStatus
 from .user import User
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _LOGGER = logging.getLogger('dimensigon.catalog')
 
