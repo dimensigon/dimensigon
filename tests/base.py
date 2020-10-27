@@ -1,4 +1,4 @@
-import threading
+import functools
 from unittest import mock
 from unittest.case import TestCase
 
@@ -8,14 +8,7 @@ from flask_jwt_extended import create_access_token
 from dimensigon.domain.entities import User
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.web import errors, create_app, db
-from tests.helpers import set_test_scoped_session
-
-
-def app_scope():
-    try:
-        return str(hash(flask._app_ctx_stack.top.app)) + str(threading.get_ident())
-    except:
-        return str(threading.get_ident())
+from tests.helpers import set_test_scoped_session, app_scope
 
 
 class TestCaseLockBypass(TestCase):
@@ -33,10 +26,28 @@ class ValidateResponseMixin:
         self.assertDictEqual(errors.format_error_content(error), resp.get_json())
 
 
-class TestDimensigonBase(TestCase, ValidateResponseMixin):
+class AppScopedSession:
 
-    def set_scoped_session(self, func=app_scope):
-        set_test_scoped_session(db, func)
+    # def __new__(cls, *args, **kwargs):
+    #     obj = super(AppScopedSession, cls).__new__(cls)
+    #     if hasattr(obj, 'setUp') and callable(getattr(obj, 'setUp')):
+    #         obj.setUp = AppScopedSession.wrapper_set_scope(obj, obj.setUp, kwargs.pop('db'))
+    #     return obj
+    #
+    # def wrapper_set_scope(self, func, db_):
+    #     @functools.wraps(func)
+    #     def wrapper(*args, **kwargs):
+    #         set_test_scoped_session(db_, app_scope)
+    #         dto = func(*args, **kwargs)
+    #         return dto
+    #
+    #     return wrapper
+
+    def set_test_scoped_session(self, db_):
+        set_test_scoped_session(db_, app_scope)
+
+
+class TestDimensigonBase(TestCase, ValidateResponseMixin):
 
     def setUp(self) -> None:
         self.maxDiff = None

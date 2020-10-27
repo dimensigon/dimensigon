@@ -2,6 +2,7 @@ import base64
 import logging
 import os
 import typing as t
+import zlib
 
 from dimensigon.domain.entities import Log, Server
 from dimensigon.domain.entities.log import Mode
@@ -116,11 +117,12 @@ class LogSender:
                     file = os.path.join('{LOG_REPO}', relative)
                 task = asyncio.create_task(
                     async_post(log.destination_server, 'api_1_0.logresource', view_data={'log_id': str(log_id)},
-                               json={"file": file, 'data': base64.b64encode(data).decode('ascii')},
+                               json={"file": file, 'data': base64.b64encode(zlib.compress(data)).decode('ascii'),
+                                     "compress": True},
                                auth=auth))
 
                 tasks.append((task, pytail, log))
-                logger.debug(f"Sending data from '{pytail.file}' to '{log.destination_server}'")
+                logger.debug(f"Task sending data from '{pytail.file}' to '{log.destination_server}' prepared")
 
         for task, pytail, log in tasks:
             response = await task

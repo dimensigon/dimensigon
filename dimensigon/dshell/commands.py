@@ -360,7 +360,7 @@ def transfer_list(iden=None, status=None, like=None):
 
 def transfer_cancel(transfer_id):
     kwargs = dict(verify=environ.get('SSL_VERIFY'))
-    data = {'status': 'CANCELED'}
+    data = {'status': 'CANCELLED'}
     resp = ntwrk.patch('api_1_0.transferresource', view_data={'transfer_id': transfer_id}, json=data, **kwargs)
     dprint(resp)
 

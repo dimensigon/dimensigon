@@ -1,5 +1,6 @@
 import base64
 import os
+import zlib
 
 from flask import request, current_app
 from flask_jwt_extended import jwt_required
@@ -66,7 +67,10 @@ class LogResource(Resource):
             file = file.format(
                 LOG_REPO=os.path.join(current_app.dm.config.config_dir, defaults.LOG_SENDER_REPO,
                                       clean_string(log.source_server.name)))
-        data_log = base64.b64decode(data.get('data').encode('ascii'))
+        if data.get('compress', False):
+            data_log = zlib.decompress(base64.b64decode(data.get('data').encode('ascii')))
+        else:
+            data_log = base64.b64decode(data.get('data').encode('ascii'))
         try:
             if not os.path.exists(os.path.dirname(file)):
                 os.makedirs(os.path.dirname(file))

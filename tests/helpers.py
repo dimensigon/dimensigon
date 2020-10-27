@@ -156,11 +156,11 @@ def load_data(catalog: t.Dict[str, t.List[t.Dict]]):
                 update_datemark(True)
 
 
-from flask import _app_ctx_stack
+from flask import _app_ctx_stack, _request_ctx_stack
 
 
 def app_scope():
-    return str(hash(_app_ctx_stack.top.app)) + str(threading.get_ident())
+    return str(hash(getattr(_request_ctx_stack.top, 'request', None))) + str(hash(_app_ctx_stack.top.app)) + str(threading.get_ident())
 
 def set_test_scoped_session(db_, func=app_scope):
     db_.session = db_.create_scoped_session(dict(scopefunc=func))

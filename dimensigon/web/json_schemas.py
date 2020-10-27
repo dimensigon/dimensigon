@@ -554,6 +554,7 @@ log_post = {
     "properties": {
         "file": {"type": "string"},
         "data": {"type": "string"},
+        "compress": {"type": "boolean"}
     },
     "required": ["data"],
     "additionalProperties": False
@@ -650,4 +651,61 @@ server_patch = {
         "ignore_on_lock": {"type": "boolean"},
     },
     "additionalProperties": False,
+}
+
+files_post = {
+    "properties": {
+        "src_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "target": {"type": "string"},
+        "dest_folder": {"type": "string"},
+        "destinations": {"type": "array",
+                         "items": {"type": "object",
+                                   "properties": {
+                                       "dst_server_id": {"type": "string",
+                                                         "pattern": UUID_pattern},
+                                       "dest_folder": {"type": "string"}
+
+                                   },
+                                   "required": ["dst_server_id"],
+                                   "additionalProperties": False
+                                   }
+                         }
+    },
+    "required": ["src_server_id", "target"],
+    "additionalProperties": False
+}
+
+file_patch = {
+    "properties": {
+        "src_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "target": {"type": "string"},
+        "dest_folder": {"type": "string"},
+        "destinations": {"type": "array",
+                         "items": {"type": "object",
+                                   "properties": {
+                                       "dst_server_id": {"type": "string",
+                                                         "pattern": UUID_pattern},
+                                       "dest_folder": {"type": "string"}
+
+                                   },
+                                   "required": ["dst_server_id"],
+                                   "additionalProperties": False
+                                   }
+                         }
+    },
+    "additionalProperties": False
+}
+
+file_post = {
+    "type": "object",
+    "properties": {
+        "file": {"type": "string"},
+        "data": {"type": "string"},
+        "force": {"type": "boolean"}
+
+    },
+    "required": ["data", "file"],
+    "additionalProperties": False
 }

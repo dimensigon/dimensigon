@@ -35,7 +35,7 @@ meta = MetaData(naming_convention={
 })
 
 db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta,
-                engine_options={'connect_args': {'check_same_thread': False}, 'pool_recycle': 60})
+                engine_options={'connect_args': {'check_same_thread': False}})
 # db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta)
 # db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
@@ -52,12 +52,17 @@ class DimensigonFlask(Flask):
             import dimensigon.web.network as ntwrk
             from dimensigon.use_cases.helpers import get_root_auth
 
+            self.logger.info("Stopping cluster")
             self.cluster_manager.stop()
-
+            self.logger.debug("Cluster stopped")
             # shutdown executor
+            self.logger.info("Stopping executor")
             executor.shutdown()
+            self.logger.debug("Executor stopped")
             if self.extensions.get('scheduler', None):
-                self.extensions.get('scheduler').shutdown()
+                self.logger.info("Stopping scheduler")
+                self.extensions.get('scheduler').shutdown(wait=False)
+                self.logger.debug("Scheduler stopped")
 
             Parameter.set('last_graceful_shutdown', get_now())
             db.session.commit()
@@ -79,6 +84,8 @@ class DimensigonFlask(Flask):
                             self.logger.warning(f"Unable to send data to {r.server}: {r}")
 
     def bootstrap_start(self):
+        """ bootstraps the application. Gunicorn is still not listening on sockets
+        """
         with self.app_context():
             from dimensigon.domain.entities import Server, Parameter, Route
             import dimensigon.web.network as ntwrk
@@ -212,7 +219,7 @@ class DimensigonFlask(Flask):
 
             neighbours = Server.get_neighbours()
 
-            if Parameter.get('join_server'):
+            if Parameter.get('join_server', None):
                 join_server = Server.query.get(Parameter.get('join_server'))
             else:
                 join_server = None
@@ -317,7 +324,8 @@ def create_app(config_name):
     app.events = EventHandler()
 
     app.before_request(load_global_data_into_context)
-    app.before_first_request(start_cluster_manager)
+    if not app.config['TESTING']:
+        app.before_first_request(start_cluster_manager)
     _initialize_blueprint(app)
     _initialize_errorhandlers(app)
 

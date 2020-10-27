@@ -54,7 +54,6 @@ class SoftDeleteMixin:
 
 
     def wrapper_to_json(self, func):
-
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             no_delete = kwargs.pop('no_delete', False)
@@ -65,6 +64,32 @@ class SoftDeleteMixin:
                     dto.update({attr: getattr(self, attr)})
             return dto
 
+        sig = inspect.signature(func)
+        param_list = list(sig.parameters.values())
+        try:
+            v_p_i = max(
+                [param_list.index(p) for p in param_list if p.kind == inspect.Parameter.VAR_POSITIONAL])
+        except ValueError:
+            v_p_i = None
+        try:
+            var_k_i = min([param_list.index(p) for p in param_list if p.kind == inspect.Parameter.VAR_KEYWORD])
+        except ValueError:
+            var_k_i = None
+
+        # determine position
+        if var_k_i is not None:
+            index = var_k_i - 1
+        else:
+            index = len(param_list)
+        # determine type
+        if v_p_i is None:
+            kind = inspect.Parameter.POSITIONAL_OR_KEYWORD
+        else:
+            kind = inspect.Parameter.KEYWORD_ONLY
+        no_delete = inspect.Parameter("no_delete", kind=kind, default=False)
+        param_list.insert(index, no_delete)
+        new_sig = sig.replace(parameters=param_list)
+        wrapper.__signature__ = new_sig
         return wrapper
 
 

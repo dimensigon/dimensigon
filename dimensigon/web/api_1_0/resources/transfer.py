@@ -44,7 +44,7 @@ class TransferList(Resource):
                 raise errors.TransferSoftwareAlreadyOpen(str(soft.id))
             elif pending and json_data['cancel_pending']:
                 for trans in pending:
-                    trans.status = TransferStatus.CANCELED
+                    trans.status = TransferStatus.CANCELLED
         elif 'filename' not in json_data:
             return {'error': 'Neither filename nor software specified for the transfer'}, 404
         elif 'filename' in json_data and ('size' not in json_data or 'checksum' not in json_data):
@@ -59,7 +59,7 @@ class TransferList(Resource):
                 raise errors.TransferFileAlreadyOpen(os.path.join(json_data['dest_path'], json_data['filename']))
             elif pending and json_data.get('cancel_pending', False):
                 for trans in pending:
-                    trans.status = TransferStatus.CANCELED
+                    trans.status = TransferStatus.CANCELLED
 
         dest_path = json_data.get('dest_path', current_app.config['SOFTWARE_REPO'])
         file = os.path.join(dest_path, soft.filename if soft else json_data['filename'])
