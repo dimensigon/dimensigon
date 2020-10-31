@@ -42,7 +42,8 @@ def get_servers_from_scope(scope: Scope, bypass: t.Union[t.List[Server], Server]
 
         if n_adult_nodes == 0:
             if n_servers <= defaults.MIN_SERVERS_QUORUM:
-                return all_query.all()
+                return all_query.filter(Server.id.in_(last_alive_ids)).order_by(
+                    Server.created_on).all()
             else:
                 return all_query.filter(Server.id.in_(last_alive_ids)).order_by(
                     Server.created_on).limit(defaults.MIN_SERVERS_QUORUM).all()

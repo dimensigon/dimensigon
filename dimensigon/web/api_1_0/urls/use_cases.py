@@ -601,7 +601,7 @@ def launch_operation():
 def launch_orchestration(orchestration_id):
     orchestration = Orchestration.query.get_or_raise(orchestration_id)
     data = request.get_json()
-    params = data.get('params', {})
+    params = data.get('params') or {}
     hosts = data.get('hosts')
 
     a = set(orchestration.target)

@@ -146,14 +146,15 @@ schema = {"type": "object",
               "required": {"type": "array",
                            "items": {"type": "string"}
                            },
-              "output": {"type": "object"},
+              "output": {"type": "array",
+                         "items": {"type": "string"}},
               "mapping": {"type": "object",
-                          "patternProperties": {
-                              ".*": {"type": "object",
-                                     "properties": {
-                                         "from": {"type": "string"},
-                                         "replace": {"type": "string"}
-                                     }}},
+                          # "patternProperties": {
+                          #     ".*": {"type": ["object",
+                          #            "properties": {
+                          #                "from": {"type": "string"},
+                          #                "replace": {"type": "string"}
+                          #            }}},
                           }
           }}
 
@@ -481,6 +482,7 @@ orchestration_step = {
                            {"type": "array",
                             "items": {"type": "string"}}]},
         "parameters": {"type": "object"},
+        "schema": schema,
         "expected_stdout": {"anyOf": [{"type": "string"},
                                       {"type": "array",
                                        "items": {"type": "string"}}]},
@@ -556,7 +558,7 @@ launch_orchestration_post = {
                              },
                   },
                   },
-        "params": {"type": "object"},
+        "params": {"type": ["object", "null"]},
         "background": {"type": "boolean"},
         "input_validation": {"type": "boolean"}
     },
@@ -646,6 +648,7 @@ log_post = {
     "properties": {
         "file": {"type": "string"},
         "data": {"type": "string"},
+        "compress": {"type": "boolean"}
     },
     "required": ["data"],
     "additionalProperties": False
@@ -743,3 +746,83 @@ server_patch = {
     },
     "additionalProperties": False,
 }
+
+files_post = {
+    "properties": {
+        "src_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "target": {"type": "string"},
+        "dest_folder": {"type": "string"},
+        "destinations": {"type": "array",
+                         "items": {"type": "object",
+                                   "properties": {
+                                       "dst_server_id": {"type": "string",
+                                                         "pattern": UUID_pattern},
+                                       "dest_folder": {"type": "string"}
+
+                                   },
+                                   "required": ["dst_server_id"],
+                                   "additionalProperties": False
+                                   }
+                         }
+    },
+    "required": ["src_server_id", "target", 'destinations'],
+    "additionalProperties": False
+}
+file_post = files_post
+
+file_patch = {
+    "properties": {
+        "src_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "target": {"type": "string"},
+        "dest_folder": {"type": "string"},
+        "destinations": {"type": "array",
+                         "items": {"type": "object",
+                                   "properties": {
+                                       "dst_server_id": {"type": "string",
+                                                         "pattern": UUID_pattern},
+                                       "dest_folder": {"type": "string"}
+
+                                   },
+                                   "required": ["dst_server_id"],
+                                   "additionalProperties": False
+                                   }
+                         }
+    },
+    "additionalProperties": False
+}
+
+file_sync = {
+    "type": "object",
+    "properties": {
+        "file": {"type": "string"},
+        "data": {"type": "string"},
+        "force": {"type": "boolean"}
+
+    },
+    "required": ["data", "file"],
+    "additionalProperties": False
+}
+
+destination = {"type": "object",
+               "properties": {
+                   "dst_server_id": {"type": "string",
+                                     "pattern": UUID_pattern},
+                   "dest_folder": {"type": ["string", "null"]}
+
+               },
+               "required": ["dst_server_id"],
+               "additionalProperties": False
+               }
+
+file_server_associations_post = {
+    "anyOf": [destination,
+              {"type": "array",
+               "items": destination}
+              ]
+}
+
+file_server_associations_patch = file_server_associations_post
+
+file_server_associations_delete = file_server_associations_post

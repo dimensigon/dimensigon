@@ -366,12 +366,11 @@ class ExtendAction(_AppendAction):
         items.extend(values)
         setattr(namespace, self.dest, items)
 
-
 class ParamAction(argparse.Action):
     exp = re.compile(r"^([\"']?)([\w\-_]+):(.*?)\1$", re.MULTILINE|re.DOTALL)
 
     def __init__(self, option_strings, dest, **kwargs):
-        super(ParamAction, self).__init__(option_strings, dest, **kwargs)
+        super().__init__(option_strings, dest, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         for param in values:

@@ -1,5 +1,6 @@
 import base64
 import os
+import zlib
 
 from flask import request, current_app
 from flask_jwt_extended import jwt_required
@@ -17,8 +18,8 @@ from dimensigon.web.json_schemas import log_post, logs_post, log_patch
 
 class LogList(Resource):
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     def get(self):
         query = filter_query(Log, request.args)
@@ -48,14 +49,14 @@ class LogList(Resource):
 
 class LogResource(Resource):
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     def get(self, log_id):
         return Log.query.get_or_raise(log_id).to_json()
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     @validate_schema(log_post)
     def post(self, log_id):
@@ -66,7 +67,10 @@ class LogResource(Resource):
             file = file.format(
                 LOG_REPO=os.path.join(current_app.dm.config.config_dir, defaults.LOG_SENDER_REPO,
                                       clean_string(log.source_server.name)))
-        data_log = base64.b64decode(data.get('data').encode('ascii'))
+        if data.get('compress', False):
+            data_log = zlib.decompress(base64.b64decode(data.get('data').encode('ascii')))
+        else:
+            data_log = base64.b64decode(data.get('data').encode('ascii'))
         try:
             if not os.path.exists(os.path.dirname(file)):
                 os.makedirs(os.path.dirname(file))
@@ -76,8 +80,8 @@ class LogResource(Resource):
             return {"error": str(e)}
         return {'offset': os.path.getsize(file)}
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     @validate_schema(log_patch)
     @lock_catalog
@@ -102,8 +106,8 @@ class LogResource(Resource):
             return {}, 204
         return {}, 202
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     @lock_catalog
     def delete(self, log_id):

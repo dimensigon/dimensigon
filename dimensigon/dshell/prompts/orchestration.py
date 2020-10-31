@@ -152,7 +152,7 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
 
             if not step:
                 # generate id
-                step['id'] = str(int(max([s.get('id') for s in entity.get('steps', [])])) + 1)
+                step['id'] = str(int(max([s.get('id') for s in entity.get('steps', [])] or [0])) + 1)
                 step['undo'] = namespace.id_or_type == 'undo'
                 step['parent_step_ids'] = []
             changed_step = step_subprompt(step, parent_prompt=f"{parent_prompt}{entity_name}('{entity['name']}')")

@@ -10,7 +10,7 @@ from dimensigon.web import db
 
 class SoftwareServerAssociation(db.Model, DistributedEntityMixin):
     __tablename__ = "D_software_server"
-    order = 20
+    order = 30
 
     software_id = db.Column(UUID, db.ForeignKey("D_software.id"), primary_key=True, nullable=False)
     server_id = db.Column(UUID, db.ForeignKey("D_server.id"), primary_key=True, nullable=False)
@@ -49,7 +49,7 @@ class SoftwareServerAssociation(db.Model, DistributedEntityMixin):
 
 class Software(db.Model, UUIDistributedEntityMixin):
     __tablename__ = "D_software"
-    order = 10
+    order = 20
 
     name = db.Column(db.String(80), nullable=False)
     version = db.Column(db.String(40), nullable=False)

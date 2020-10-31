@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from functools import partial
 
 import jsonschema
+import yaml
 from RestrictedPython import compile_restricted, safe_builtins
 from flask import current_app, Flask, has_app_context, g
 from flask_jwt_extended import create_access_token
@@ -160,6 +161,8 @@ class ImplementationCommand(ICommand):
                 local = dict(vc=self.var_context, cp=self._cp)
                 byte_code = compile_restricted(self.pre_process_code, '<inline>', 'exec')
                 safe_builtins.update(json=json)
+                safe_builtins.update(yaml=yaml)
+                safe_builtins.update(re=re)
                 exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
             except Exception as e:
                 self._cp = CompletedProcess(success=False, stderr=f"Pre-Process error: {format_exception(e)}")
@@ -912,7 +915,7 @@ def validate_input_chain(validatable: t.Union[Orchestration, Step], params: t.It
 
         missing = required_input_params - set(input_params) - set(constant_params) - set(env_params)
         if missing:
-            raise errors.MissingParameters(missing, step)
+            raise errors.MissingParameters(list(missing), step)
 
         out_params = set(step.schema.get('output', []))
 

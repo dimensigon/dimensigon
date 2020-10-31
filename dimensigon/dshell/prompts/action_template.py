@@ -40,7 +40,7 @@ form = {
                  converter=c.MultiLine),
     "expected_stdout": dict(multiline=True, mouse_support=True, history=InMemoryHistory(), converter=c.MultiLine),
     "expected_stderr": dict(multiline=True, mouse_support=True, history=InMemoryHistory(), converter=c.MultiLine),
-    "expected_rc": dict(validator=v.Int, history=InMemoryHistory()),
+    "expected_rc": dict(validator=v.Int, converter=c.Int, history=InMemoryHistory()),
     "parameters": dict(multiline=True, mouse_support=True, lexer=PygmentsLexer(PythonLexer), validator=v.JSON,
                        history=InMemoryHistory()),
     "schema": dict(edit='.yaml', mouse_support=True, validator=v.JSON, history=InMemoryHistory(), converter=c.Yaml),

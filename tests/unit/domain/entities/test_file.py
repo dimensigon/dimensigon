@@ -1,9 +1,9 @@
 from unittest import TestCase
 
-from dimensigon.domain.entities.file import File
 from flask_jwt_extended import create_access_token
 
 from dimensigon.domain.entities import Server
+from dimensigon.domain.entities.file import File
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.web import create_app, db
 

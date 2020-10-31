@@ -400,11 +400,6 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
                     undo_on_error=self.undo_on_error, stop_undo_on_error=self.stop_undo_on_error)
         if add_target:
             data.update(target=list(self.target))
-        if add_params:
-            try:
-                data.update(params=list(self.user_parameters))
-            except jinja2.TemplateSyntaxError:
-                pass
         if add_steps:
             json_steps = []
             for step in self.steps:

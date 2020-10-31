@@ -235,3 +235,14 @@ def session_scope():
 
 def get_auth_from_request():
     return HTTPBearerAuth(request.headers['Authorization'].split()[1])
+
+
+@contextmanager
+def transaction():
+    from dimensigon.web import db
+    try:
+        yield
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise

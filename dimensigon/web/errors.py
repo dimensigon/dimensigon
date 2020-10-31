@@ -170,9 +170,9 @@ class AlreadyExists(BaseError):
 class EntityNotFound(BaseError):
     status_code = 404
 
-    def __init__(self, entity: str, iden, columns: t.List[str] = None):
+    def __init__(self, entity: str, ident, columns: t.List[str] = None):
         self.entity = entity
-        self.id = iden
+        self.id = ident
         if is_iterable_not_string(columns):
             self.columns = columns
         elif is_string_types(columns):
@@ -686,6 +686,7 @@ class InvalidRoute(BaseError):
         return data
 
 class InvalidDateFormat(BaseError):
+    status_code = 404
 
     def __init__(self, date: str, expected_format: str):
         self.input_date = date
@@ -693,3 +694,19 @@ class InvalidDateFormat(BaseError):
 
     def _format_error_msg(self) -> str:
         return "Date is not a valid format"
+
+
+class InvalidValue(BaseError):
+    status_code = 404
+
+    def __init__(self, msg: str, **kwargs):
+        self.msg = msg
+        self.kwargs = kwargs
+
+    def _format_error_msg(self) -> str:
+        return self.msg
+
+    @property
+    def payload(self) -> t.Optional[dict]:
+        return self.kwargs
+

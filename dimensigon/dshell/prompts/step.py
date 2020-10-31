@@ -22,6 +22,7 @@ from dimensigon.dshell.prompts.utils import prompt_parameter, code_extension
 
 form = {
     "undo": dict(history=InMemoryHistory()),
+    "name": dict(history=InMemoryHistory()),
     "action_template_id": dict(history=InMemoryHistory(), completer=action_completer),
     "stop_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
     "stop_undo_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
@@ -34,9 +35,10 @@ form = {
                             converter=c.MultiLine),
     "expected_stderr": dict(multiline=True, mouse_support=True, history=InMemoryHistory(),
                             converter=c.MultiLine),
-    "expected_rc": dict(validator=v.Int(), history=InMemoryHistory()),
+    "expected_rc": dict(validator=v.Int(), converter=c.Int, history=InMemoryHistory()),
     "parameters": dict(multiline=True, mouse_support=True, lexer=PygmentsLexer(PythonLexer), validator=v.JSON(),
                        converter=c.JSON, history=InMemoryHistory()),
+    "schema": dict(edit='.yaml', mouse_support=True, validator=v.JSON, history=InMemoryHistory(), converter=c.Yaml),
     "system_kwargs": dict(multiline=True, mouse_support=True, lexer=PygmentsLexer(PythonLexer),
                           validator=v.JSON(), converter=c.JSON,
                           history=InMemoryHistory()),

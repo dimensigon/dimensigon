@@ -31,6 +31,7 @@ class Gate(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     def __init__(self, server: 'Server', port: int = defaults.DEFAULT_PORT, dns: str = None,
                  ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address] = None, **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
+        SoftDeleteMixin.__init__(self, **kwargs)
         self.server = server
         self.port = port
         self.ip = ipaddress.ip_address(ip) if isinstance(ip, str) else ip

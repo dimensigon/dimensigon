@@ -85,6 +85,7 @@ def populate_initial_data(dm: Dimensigon):
     with session_scope(session=dm.get_session()) as session:
         gates = dm.config.http_conf.get('binds', None)
 
+        SchemaChanges.set_initial(session)
         Server.set_initial(session, gates)
 
         Locker.set_initial(session)
@@ -355,6 +356,8 @@ def _apply_update(engine, new_version, old_version):
                 f"                FROM D_server "
                 f"               WHERE  D_server.id == D_gate.server_id and D_server.deleted == 1)")
     elif new_version == 6:
+        _create_table(engine, 'D_file')
+        _create_table(engine, 'D_file_server_association')
         _add_columns(engine, 'D_action_template', ['schema JSON', 'description TEXT'])
         _add_columns(engine, 'D_step', ['name VARCHAR(40)', 'schema JSON', 'description TEXT'])
         with engine.connect() as connection:

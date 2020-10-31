@@ -68,25 +68,29 @@ default_logconfig_dict = {
         #     "level": "DEBUG",
         #     "qualname": "dimensigon"
         # },
+        # "dimensigon.lock": {
+        #     "level": "DEBUG",
+        # },
+        "dimensigon.fileSync": {
+            "level": "DEBUG",
+        },
+        "dimensigon.background.log_sender": {
+            "level": "DEBUG",
+        },
         # "dimensigon.db": {
         #     "level": "DEBUG",
-        #     "qualname": "dimensigon.dm"
         # },
         # "dimensigon.routing": {
         #     "level": "DEBUG",
-        #     "qualname": "dimensigon.routing"
         # },
         # "dimensigon.cluster": {
         #     "level": "DEBUG",
-        #     "qualname": "dimensigon.cluster"
         # },
         # "dimensigon.catalog": {
         #     "level": "DEBUG",
-        #     "qualname": "dimensigon.catalog"
         # },
         # "dimensigon.network": {
         #     "level": "INFO",
-        #     "qualname": "dimensigon.network"
         # },
         # "dimensigon.query": {
         #     "level": "DEBUG",
@@ -207,7 +211,7 @@ def setup_database_uri(run_config: RuntimeConfig, config: Config):
 
 def _setup_http_config(run_config: RuntimeConfig, config: Config):
     def on_exit(server):
-        server.app.dm.flask_app.shutdown()
+        server.app.dm.shutdown()
 
     bind = []
     for ip in run_config.ips or ['0.0.0.0']:
