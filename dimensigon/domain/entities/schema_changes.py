@@ -11,9 +11,10 @@ class SchemaChanges(db.Model):
     schema_version = db.Column(db.Integer)
     changed = db.Column(UtcDateTime(timezone=True), default=get_now)
 
-    def set_initial(self):
+    @staticmethod
+    def set_initial(session=None):
         from dimensigon.domain.entities import SCHEMA_VERSION
-        count = self.query.count()
+        count = session.query(SchemaChanges).count()
         # database started
         if count == 0:
             sc = SchemaChanges(schema_version=SCHEMA_VERSION)

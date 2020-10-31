@@ -10,7 +10,7 @@ from sqlalchemy.pool import Pool
 
 from dimensigon.utils.helpers import get_distributed_entities, get_now
 from dimensigon.web import db
-# Server is used in most of the entities. It need to import first
+# Server is used in most of the entities. It must be imported first
 from .server import Server
 from .action_template import ActionTemplate, ActionType
 from .catalog import Catalog
@@ -41,6 +41,8 @@ __all__ = [
     "Dimension",
     "StepExecution",
     "OrchExecution",
+    "File",
+    "FileServerAssociation",
     "Gate",
     "Locker",
     "State",

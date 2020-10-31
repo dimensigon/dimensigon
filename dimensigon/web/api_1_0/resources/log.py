@@ -18,8 +18,8 @@ from dimensigon.web.json_schemas import log_post, logs_post, log_patch
 
 class LogList(Resource):
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     def get(self):
         query = filter_query(Log, request.args)
@@ -49,14 +49,14 @@ class LogList(Resource):
 
 class LogResource(Resource):
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     def get(self, log_id):
         return Log.query.get_or_raise(log_id).to_json()
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     @validate_schema(log_post)
     def post(self, log_id):
@@ -80,8 +80,8 @@ class LogResource(Resource):
             return {"error": str(e)}
         return {'offset': os.path.getsize(file)}
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     @validate_schema(log_patch)
     @lock_catalog
@@ -106,8 +106,8 @@ class LogResource(Resource):
             return {}, 204
         return {}, 202
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     @lock_catalog
     def delete(self, log_id):

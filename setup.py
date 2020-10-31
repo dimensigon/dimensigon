@@ -48,6 +48,7 @@ setup(
         "setuptools",
         "six",
         "tzlocal<3.0"
+        "watchdog"
     ],
     classifiers=[
         "Programming Language :: Python :: 3.6",

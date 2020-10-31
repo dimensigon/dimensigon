@@ -77,7 +77,7 @@ async def check_heartbeat_and_send(cluster_session_id: int, heartbeat_id: dt.dat
 
 class ClusterManager:
 
-    def __init__(self, app, maxsize=None, threshold=None, retain_time=2, start=True):
+    def __init__(self, app, maxsize=None, threshold=None, retain_time=2):
         self.app = app
         self.queue = queue.Queue(maxsize=maxsize or 10000)
         self.cluster = Cluster(threshold=threshold)
@@ -86,10 +86,9 @@ class ClusterManager:
         self.retain_time = retain_time
         self.loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self.run, name='cluster_manager')
+        self._thread.daemon = True
         self._change_buffer_lock = threading.RLock()
         self._timer = None
-        if start:
-            self._thread.start()
 
     @property
     def running(self):
@@ -181,7 +180,7 @@ class ClusterManager:
         logger.debug('Starting cluster manager')
         while not self._stop:
             try:
-                item = self.queue.get(block=True, timeout=5)
+                item = self.queue.get(block=True, timeout=2)
             except queue.Empty:
                 pass
             else:

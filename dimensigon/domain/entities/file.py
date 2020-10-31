@@ -24,7 +24,7 @@ Destination_Servers = t.List[t.Union[t.Tuple[Server, str], t.Tuple[Id, str], Ser
 
 
 class FileServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixin):
-    __tablename__ = 'D_file_server_association'
+    __tablename__ = 'D_file_server_association'  # added in SCHEMA_VERSION = 6
     order = 30
 
     file_id = db.Column(typos.UUID, db.ForeignKey('D_file.id'), nullable=False, primary_key=True)
@@ -42,12 +42,17 @@ class FileServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixin):
 
     @property
     def target(self):
-        return os.path.join(self.dest_folder, os.path.basename(self.file.target))
+        return os.path.join(self.destination_folder, os.path.basename(self.file.target))
 
-    def to_json(self) -> t.Dict:
+    def to_json(self, human=False) -> t.Dict:
         data = super().to_json()
-        data.update({'file_id': str(self.file.id), 'dst_server_id': str(self.destination_server.id),
-                     'dest_folder': self.dest_folder})
+        if human:
+            data.update({'file': {'target': self.file.target, 'src_server': self.file.source_server.name,
+                                  'dst_server': str(self.destination_server.name),
+                                  'dest_folder': self.dest_folder}})
+        else:
+            data.update({'file_id': str(self.file.id), 'dst_server_id': str(self.destination_server.id),
+                         'dest_folder': self.dest_folder})
         return data
 
     @classmethod
@@ -70,7 +75,7 @@ class FileServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixin):
 
 
 class File(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
-    __tablename__ = 'D_file'
+    __tablename__ = 'D_file'  # added in SCHEMA_VERSION = 6
     order = 20
 
     src_server_id = db.Column(typos.UUID, db.ForeignKey('D_server.id'), nullable=False)
@@ -80,7 +85,7 @@ class File(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     l_mtime = db.Column(db.INTEGER)
 
     source_server = db.relationship("Server")
-    destinations: t.List[FileServerAssociation] = db.relationship("FileServerAssociation")
+    destinations: t.List[FileServerAssociation] = db.relationship("FileServerAssociation", lazy='joined')
 
     __table_args__ = (db.UniqueConstraint('src_server_id', 'target'),)
 

@@ -218,7 +218,10 @@ def _replace_path_args(path, args):
 
 
 def generate_url(view, view_data, ip=None, port=defaults.DEFAULT_PORT, scheme='https'):
-    path = view_path_map[view]
+    try:
+        path = view_path_map[view]
+    except KeyError:
+        raise RuntimeError(f"'{view}' not set in metadata")
     path = _replace_path_args(path, view_data or {})
     if (env.get('SERVER', ip) or ip) is None:
         raise ValueError('No SERVER specified.')

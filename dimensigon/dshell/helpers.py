@@ -1,6 +1,8 @@
 import os
 import sys
 
+from dimensigon.utils.helpers import is_valid_uuid
+
 from dimensigon.dshell import environ
 from dimensigon.dshell.history import FileTagHistory
 from dimensigon.dshell.network import get, get_parameters_from_path
@@ -47,3 +49,11 @@ def name2id(view, name, key='name'):
         return resp.msg[0].get('id', None)
     else:
         raise LookupError(f"'{name}' not found")
+
+
+def normalize2id(name):
+    if not is_valid_uuid(name):
+        node_id = name2id('api_1_0.serverlist', name)
+    else:
+        node_id = name
+    return node_id

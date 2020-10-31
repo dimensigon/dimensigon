@@ -2,12 +2,14 @@ import datetime as dt
 import logging
 import os
 import sys
+import time
 import typing as t
 
 from gunicorn.app.base import Application
 
 from dimensigon import defaults
 from dimensigon.exceptions import DimensigonError
+from dimensigon.use_cases.file_sync import FileSync
 from dimensigon.web import DimensigonFlask, create_app, threading
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,8 +45,9 @@ class Dimensigon:
         self.flask_app: t.Optional[DimensigonFlask] = None
         self.http_server: t.Optional[GunicornApp] = None
         self.config = Config(self)
-        self.engine = None
-        self.get_session = None
+        self.file_sync: t.Optional[FileSync] = None
+        self.engine = None        # set on setup_dm function
+        self.get_session = None   # set on setup_dm function
 
     def create_flask_instance(self):
         if self.flask_app is None:
@@ -59,19 +62,39 @@ class Dimensigon:
     def create_instances(self):
         self.create_flask_instance()
         self.create_gunicorn_instance()
+        self.file_sync = FileSync(self.engine, app=self.flask_app)
+
+    def make_first_request(self):
+        from dimensigon.domain.entities import Server
+        import dimensigon.web.network as ntwrk
+
+        with self.flask_app.app_context():
+            start = time.time()
+            while True:
+                resp = ntwrk.get(Server.get_current(), 'root.home', timeout=1)
+                if not resp.ok and time.time() - start < 30:
+                    time.sleep(2)
+                else:
+                    break
 
     def start(self):
         """starts dimensigon server"""
         self.create_instances()
-        self.flask_app.bootstrap_start()
-        th = threading.Timer(interval=4, function=self.flask_app.make_first_request)
+        self.flask_app.bootstrap()
+        self.file_sync.start()
+        th = threading.Timer(interval=4, function=self.make_first_request)
         th.start()
         if self.config.flask:
             self.flask_app.run(host='0.0.0.0', port=defaults.DEFAULT_PORT, ssl_context='adhoc')
-            self.flask_app.shutdown()
+            self.shutdown()
             sys.exit(0)
         else:
             self.http_server.run()
+            self.shutdown()
+
+    def shutdown(self):
+        self.flask_app.shutdown()
+        self.file_sync.stop()
 
 class Config:
 

@@ -49,8 +49,8 @@ class ActionTemplateResource(Resource):
     def get(self, action_template_id):
         return ActionTemplate.query.get_or_raise(action_template_id).to_json(split_lines=check_param_in_uri('split_lines'))
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     @validate_schema(action_template_patch)
     @lock_catalog

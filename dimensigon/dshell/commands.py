@@ -2,7 +2,6 @@ import argparse as argparse
 import functools
 import json
 import os
-import uuid
 
 import requests
 from prompt_toolkit.completion import merge_completers
@@ -15,7 +14,7 @@ from dimensigon.dshell import environ as env
 from dimensigon.dshell.argparse_raise import ParamAction, ExtendAction
 from dimensigon.dshell.bootstrap import save_config_file
 from dimensigon.dshell.completer import *
-from dimensigon.dshell.helpers import name2id, exit_dshell
+from dimensigon.dshell.helpers import name2id, exit_dshell, normalize2id
 from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.action_template import subprompt as action_prompt
 from dimensigon.dshell.prompts.command import subprompt as command_prompt
@@ -45,10 +44,7 @@ def status(node, detail=False):
 def ping(node):
     for n in node:
         dprint(f"### {n}:") if len(node) > 1 else None
-        if not is_valid_uuid(n):
-            node_id = name2id('api_1_0.serverlist', n)
-        else:
-            node_id = n
+        node_id = normalize2id(n)
         resp = ntwrk.post('root.ping', headers={'D-Destination': node_id},
                           json={'start_time': get_now().strftime(defaults.DATETIME_FORMAT)})
         dprint(resp)
@@ -57,10 +53,7 @@ def ping(node):
 def manager_locker_show(node):
     for n in node:
         dprint(f"### {n}:") if len(node) > 1 else None
-        if not is_valid_uuid(n):
-            node_id = name2id('api_1_0.serverlist', n)
-        else:
-            node_id = n
+        node_id = normalize2id(n)
         resp = ntwrk.get('api_1_0.locker', headers={'D-Destination': node_id})
         dprint(resp)
 
@@ -68,10 +61,7 @@ def manager_locker_show(node):
 def manager_locker_unlock(scope, node):
     for n in node:
         dprint(f"### {n}:") if len(node) > 1 else None
-        if not is_valid_uuid(n):
-            node_id = name2id('api_1_0.serverlist', n)
-        else:
-            node_id = n
+        node_id = normalize2id(n)
         resp = ntwrk.post('api_1_0.locker_unlock',
                           json={'scope': scope, 'applicant': "", 'force': True},
                           headers={'D-Destination': node_id})
@@ -104,22 +94,12 @@ def server_list(name=None, ident=None, detail=None, like=None):
 
 
 def server_delete(server_ids):
-    converted_ids = []
-    for server_id in server_ids:
-        try:
-            uuid.UUID(server_id)
-        except Exception:
-            not_an_uuid = True
-        else:
-            not_an_uuid = False
-        if not_an_uuid:
-            server_id = name2id('api_1_0.serverlist', server_id)
-        converted_ids.append(server_id)
+    normalized_ids = [normalize2id(server_id) for server_id in server_ids]
 
-    if converted_ids:
-        resp = ntwrk.delete('api_1_0.serverlist', json={'server_ids': converted_ids})
+    if normalized_ids:
+        resp = ntwrk.delete('api_1_0.serverlist', json={'server_ids': normalized_ids})
         if resp.ok:
-            dprint(f"Server{'s' if len(converted_ids) > 1 else ''} removed successfully")
+            dprint(f"Server{'s' if len(normalized_ids) > 1 else ''} removed successfully")
         else:
             dprint(resp)
     else:
@@ -134,10 +114,8 @@ def server_routes(node, refresh=False):
         dprint(f"### {n}:") if len(node) > 1 else None
         if n == 'localhost':
             node_id = None
-        elif not is_valid_uuid(n):
-            node_id = name2id('api_1_0.serverlist', n)
         else:
-            node_id = n
+            node_id = normalize2id(n)
 
         kwargs = {}
         if node_id:
@@ -540,6 +518,72 @@ def env_set(key, value):
         environ.set(key, ' '.join(value))
 
 
+def sync_add_file(server: str, file: str, destinations: t.List, dest_folder: str = None):
+    server_id = normalize2id(server)
+    json_data = {'src_server_id': server_id, 'target': file, 'destinations': []}
+    if dest_folder:
+        json_data.update(dest_folder=dest_folder)
+    for dest in destinations:
+        if ':' in dest:
+            server, d_folder = dest.split(':', 1)
+        else:
+            server, d_folder = dest, None
+        s_id = normalize2id(server)
+        aux = {'dst_server_id': s_id}
+        if d_folder:
+            aux.update(dest_folder=d_folder)
+        json_data['destinations'].append(aux)
+
+    resp = ntwrk.post('api_1_0.filelist', json=json_data)
+    dprint(resp)
+
+
+def sync_add_destination(file_id: str, destinations: t.List):
+    json_data = []
+    for dest in destinations:
+        if ':' in dest:
+            server, d_folder = dest.split(':', 1)
+        else:
+            server, d_folder = dest, None
+        s_id = normalize2id(server)
+        aux = {'dst_server_id': s_id}
+        if d_folder:
+            aux.update(dest_folder=d_folder)
+        json_data.append(aux)
+    resp = ntwrk.post('api_1_0.fileserverassociationlist', view_data={'file_id': file_id}, json=json_data)
+    dprint(resp)
+
+
+def sync_delete_file(file_id):
+    resp = ntwrk.delete('api_1_0.fileresource', view_data={'file_id': file_id})
+    dprint(resp)
+
+
+def sync_delete_destination(file_id: str, destinations: t.List):
+    json_data = []
+    for dest in destinations:
+        s_id = normalize2id(dest)
+        aux = {'dst_server_id': s_id}
+        json_data.append(aux)
+    resp = ntwrk.delete('api_1_0.fileserverassociationlist', view_data={'file_id': file_id}, json=json_data)
+    dprint(resp)
+
+
+def sync_list(ident, source_server, detail):
+    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    view_data = dict()
+    if ident:
+        view_data.update({'filter[id]': ident})
+    if source_server:
+        view_data.update({'filter[src_server_id]': normalize2id(source_server)})
+    if detail:
+        view_data.update({'params': ['destinations', 'human']})
+    else:
+        view_data.update({'params': ['human']})
+    resp = ntwrk.get('api_1_0.filelist', view_data=view_data, **kwargs)
+    dprint(resp)
+
+
 nested_dict = {
     'status': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
                {'argument': '--detail', 'action': 'store_true'}, status],
@@ -658,6 +702,32 @@ nested_dict = {
             {'argument': '--timeout', 'type': int, 'help': 'timeout in seconds to wait for command to terminate'},
             {'argument': '--input'},
             cmd],
+    'sync': {
+        'list': [{'argument': '--id', 'dest': 'ident', 'completer': file_completer},
+                 {'argument': '--server', 'dest': 'source_server', 'completer': server_name_completer},
+                 {'argument': '--detail', 'action': 'store_true'},
+                 sync_list
+                 ],
+        'add': {'file': [{'argument': 'server', 'completer': server_name_completer},
+                         {'argument': 'file'},
+                         {'argument': 'destinations', 'metavar': 'SERVER[:FOLDER]', "nargs": "+",
+                          'completer': server_name_completer},
+                         {'argument': '--dest_folder',
+                          'help': 'default folder used for syncing file. If no dest_folder, mirror '
+                                  'copy will be used'},
+                         sync_add_file],
+                'destination': [{'argument': 'file_id', 'completer': file_completer},
+                                {'argument': 'destinations', 'metavar': 'SERVER[:FILE]', "nargs": "+",
+                                 'completer': server_name_completer},
+                                sync_add_destination]},
+        'delete': {'file': [{'argument': 'file_id', 'completer': file_completer},
+                            sync_delete_file],
+                   'destination': [{'argument': 'file_id', 'completer': file_completer},
+                                   {'argument': 'destinations', "nargs": "+", 'completer': file_dest_completer},
+                                   sync_delete_destination]
+                   },
+
+    },
     'logfed': {
         'subscribe': {'log': [{'argument': 'src_server_id',
                                'metavar': 'source_server',

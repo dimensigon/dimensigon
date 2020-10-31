@@ -686,6 +686,7 @@ class InvalidRoute(BaseError):
         return data
 
 class InvalidDateFormat(BaseError):
+    status_code = 404
 
     def __init__(self, date: str, expected_format: str):
         self.input_date = date

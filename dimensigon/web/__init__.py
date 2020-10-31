@@ -25,7 +25,6 @@ if t.TYPE_CHECKING:
     from ..core import Dimensigon
     from ..use_cases.clustering import ClusterManager
 
-
 meta = MetaData(naming_convention={
     "ix": "ix_%(column_0_label)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",
@@ -35,55 +34,17 @@ meta = MetaData(naming_convention={
 })
 
 db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta,
-                engine_options={'connect_args': {'check_same_thread': False}})
+                engine_options={'connect_args': {'check_same_thread': True}})
 # db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta)
 # db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
 executor = Executor()
 
-
 class DimensigonFlask(Flask):
     dm: t.ClassVar['Dimensigon'] = None
     cluster_manager: t.ClassVar['ClusterManager']
 
-    def shutdown(self):
-        with self.app_context():
-            from dimensigon.domain.entities import Server, Parameter
-            import dimensigon.web.network as ntwrk
-            from dimensigon.use_cases.helpers import get_root_auth
-
-            self.logger.info("Stopping cluster")
-            self.cluster_manager.stop()
-            self.logger.debug("Cluster stopped")
-            # shutdown executor
-            self.logger.info("Stopping executor")
-            executor.shutdown()
-            self.logger.debug("Executor stopped")
-            if self.extensions.get('scheduler', None):
-                self.logger.info("Stopping scheduler")
-                self.extensions.get('scheduler').shutdown(wait=False)
-                self.logger.debug("Scheduler stopped")
-
-            Parameter.set('last_graceful_shutdown', get_now())
-            db.session.commit()
-            servers = Server.get_neighbours()
-            if servers:
-                self.logger.debug(f"Sending shutdown to {', '.join([s.name for s in servers])}")
-            else:
-                self.logger.debug("No server to send shutdown information")
-            if servers:
-                responses = asyncio.run(
-                    ntwrk.parallel_requests(servers, 'post',
-                                            view_or_url='api_1_0.cluster_out',
-                                            view_data=dict(server_id=str(Server.get_current().id)),
-                                            json={'death': get_now().strftime(defaults.DATEMARK_FORMAT)},
-                                            timeout=2, auth=get_root_auth()))
-                if self.logger.level <= logging.DEBUG:
-                    for r in responses:
-                        if not r.ok:
-                            self.logger.warning(f"Unable to send data to {r.server}: {r}")
-
-    def bootstrap_start(self):
+    def bootstrap(self):
         """ bootstraps the application. Gunicorn is still not listening on sockets
         """
         with self.app_context():
@@ -92,11 +53,7 @@ class DimensigonFlask(Flask):
             from dimensigon.use_cases.helpers import get_root_auth
             from dimensigon.use_cases import routing
             from dimensigon.domain.entities import Locker
-            from ..use_cases.clustering import ClusterManager
 
-            self.cluster_manager = ClusterManager(self,
-                                                  threshold=self.dm.config.refresh_interval * defaults.COMA_NODE_FACTOR * 0.85,
-                                                  start=False)
 
             # reset scopes
             Locker.set_initial(unlock=True)
@@ -188,21 +145,36 @@ class DimensigonFlask(Flask):
                 else:
                     if resp and not resp.ok:
                         self.logger.warning(f"Remote servers may not connect with {me}. ")
-
         self.start_background_tasks()
 
-    def make_first_request(self):
-        from dimensigon.domain.entities import Server
-        import dimensigon.web.network as ntwrk
+    def start_background_tasks(self):
+        from ..use_cases.log_sender import LogSender
+        from ..use_cases.clustering import ClusterManager
+        from dimensigon.web.background_tasks import process_catalog_route_table
+        if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
+            if self.extensions.get('scheduler') is None and self.config['SCHEDULER']:
+                # passing timezone="UTC" to solve problems with systems where get_localzone() returns an object with
+                # local zone
+                bs = self.extensions['scheduler'] = BackgroundScheduler(timezone="UTC", daemon=False)
+                ls = self.extensions['log_sender'] = LogSender()
+                bs.start()
 
-        with self.app_context():
-            start = time.time()
-            while True:
-                resp = ntwrk.get(Server.get_current(), 'root.home', timeout=1)
-                if not resp.ok and time.time() - start < 30:
-                    time.sleep(2)
-                else:
-                    break
+                # if self.config.get('AUTOUPGRADE'):
+                # bs.add_job(func=process_get_new_version_from_gogs, args=(self,), trigger="interval",
+                #            id='upgrader',
+                #            hours=6)
+                if self.dm.config.refresh_interval:
+                    bs.add_job(func=process_catalog_route_table, name="catalog & route upgrade",
+                               args=(self,),
+                               id='routing_cluster_catalog_refresh',
+                               trigger="interval", minutes=self.dm.config.refresh_interval.seconds / 60)
+                bs.add_job(func=run_in_background, name="log_sender", args=(ls.send_new_data, self),
+                           id='log_sender',
+                           trigger="interval",
+                           minutes=2, next_run_time=get_now() + dt.timedelta(seconds=30))
+
+            self.cluster_manager = ClusterManager(self,
+                                                  threshold=self.dm.config.refresh_interval * defaults.COMA_NODE_FACTOR * 0.85)
 
     def notify_cluster(self):
         from dimensigon.domain.entities import Server
@@ -254,32 +226,49 @@ class DimensigonFlask(Flask):
                 self.logger.debug("No neighbour to send 'Cluster IN'")
                 self.cluster_manager.set_alive(me.id)
 
-    def start_background_tasks(self):
-        from ..use_cases.log_sender import LogSender
-        from dimensigon.web.background_tasks import process_catalog_route_table
-        if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
-            if self.extensions.get('scheduler') is None and self.config['SCHEDULER']:
-                # passing timezone="UTC" to solve problems with systems where get_localzone() returns an object with
-                # local zone
-                bs = BackgroundScheduler(timezone="UTC")
-                self.extensions['scheduler'] = bs
-                ls = LogSender()
-                self.extensions['log_sender'] = ls
-                bs.start()
+    def stop_background_tasks(self):
+        bs = self.extensions.get('scheduler')
+        if bs:
+            bs.shutdown(wait=False)
+        executor.shutdown(wait=False)
+        # ls = self.extensions.get('log_sender')
+        # if ls:
+        #     ls.stop()
+        # fs = self.extensions.get('file_sync')
+        # if fs:
+        #     fs.stop()
 
-                # if self.config.get('AUTOUPGRADE'):
-                # bs.add_job(func=process_get_new_version_from_gogs, args=(self,), trigger="interval",
-                #            id='upgrader',
-                #            hours=6)
-                if self.dm.config.refresh_interval:
-                    bs.add_job(func=process_catalog_route_table, name="catalog & route upgrade",
-                               args=(self,),
-                               id='routing_cluster_catalog_refresh',
-                               trigger="interval", minutes=self.dm.config.refresh_interval.seconds / 60)
-                bs.add_job(func=run_in_background, name="log_sender", args=(ls.send_new_data, self),
-                           id='log_sender',
-                           trigger="interval",
-                           minutes=2, next_run_time=get_now() + dt.timedelta(seconds=30))
+        self.cluster_manager.stop()
+
+    def shutdown(self):
+        with self.app_context():
+            from dimensigon.domain.entities import Server, Parameter
+            import dimensigon.web.network as ntwrk
+            from dimensigon.use_cases.helpers import get_root_auth
+
+            self.logger.info("Stopping cluster")
+            self.cluster_manager.stop()
+            self.logger.debug("Cluster stopped")
+            self.stop_background_tasks()
+
+            Parameter.set('last_graceful_shutdown', get_now())
+            db.session.commit()
+            servers = Server.get_neighbours()
+            if servers:
+                self.logger.debug(f"Sending shutdown to {', '.join([s.name for s in servers])}")
+            else:
+                self.logger.debug("No server to send shutdown information")
+            if servers:
+                responses = asyncio.run(
+                    ntwrk.parallel_requests(servers, 'post',
+                                            view_or_url='api_1_0.cluster_out',
+                                            view_data=dict(server_id=str(Server.get_current().id)),
+                                            json={'death': get_now().strftime(defaults.DATEMARK_FORMAT)},
+                                            timeout=2, auth=get_root_auth()))
+                if self.logger.level <= logging.DEBUG:
+                    for r in responses:
+                        if not r.ok:
+                            self.logger.warning(f"Unable to send data to {r.server}: {r}")
 
     def run(self, host=None, port=None, debug=None, **options):
         super(DimensigonFlask, self).run(host=host, port=port, debug=debug, use_reloader=False, **options)
@@ -325,17 +314,14 @@ def create_app(config_name):
 
     app.before_request(load_global_data_into_context)
     if not app.config['TESTING']:
-        app.before_first_request(start_cluster_manager)
+        app.before_first_request(app.notify_cluster)
+        # app.before_first_request(app.cluster_manager.start)
+        # app.before_first_request(app.file_sync.start)
     _initialize_blueprint(app)
     _initialize_errorhandlers(app)
 
     return app
 
-
-def start_cluster_manager():
-    from flask import current_app
-    current_app.notify_cluster()
-    current_app.cluster_manager.start()
 
 
 # @jwt.user_loader_callback_loader

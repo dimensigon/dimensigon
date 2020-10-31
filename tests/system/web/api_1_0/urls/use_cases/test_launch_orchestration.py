@@ -14,8 +14,8 @@ from dimensigon.domain.entities import User, ActionTemplate, ActionType, Orchest
     StepExecution
 from dimensigon.use_cases.use_cases import upgrade_catalog
 from dimensigon.web import db
-from tests.base import TwoNodeMixin, request_scope
-from tests.helpers import set_callbacks
+from tests.base import TwoNodeMixin
+from tests.helpers import set_callbacks, request_scope
 
 now = defaults.INITIAL_DATEMARK
 

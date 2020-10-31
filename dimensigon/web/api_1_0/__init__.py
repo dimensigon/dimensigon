@@ -22,6 +22,8 @@ api.add_resource(LogResource, '/log/<log_id>')
 api.add_resource(FileList, '/file')
 api.add_resource(FileResource, '/file/<file_id>')
 
+api.add_resource(FileServerAssociationList, '/file/<file_id>/destinations')
+
 api.add_resource(OrchestrationList, '/orchestrations')
 api.add_resource(OrchestrationResource, '/orchestrations/<orchestration_id>')
 api.add_resource(OrchestrationExecutionRelationship, '/orchestrations/<orchestration_id>/executions')
