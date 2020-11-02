@@ -8,13 +8,13 @@ import platform
 import random
 import sys
 import time
-from dataclasses import dataclass
 
 import coolname
 import prompt_toolkit
 import requests
 import rsa
 import yaml
+from dataclasses import dataclass
 from flask import Flask
 from flask_jwt_extended import create_access_token
 
@@ -30,7 +30,6 @@ PLATFORM = platform.system()
 from dimensigon.domain.entities import *
 from dimensigon.web.network import pack_msg2, unpack_msg2
 from dimensigon.web import create_app, db
-
 from dimensigon.use_cases.use_cases import upgrade_catalog
 from dimensigon.utils.helpers import generate_symmetric_key, generate_dimension, get_now, str_resp
 

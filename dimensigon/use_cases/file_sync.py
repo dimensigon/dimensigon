@@ -1,13 +1,9 @@
 import asyncio
-import atexit
 import base64
 import logging
 import multiprocessing as mp
 import os
 import queue
-import signal
-import sys
-import threading
 import time
 import typing as t
 import zlib
@@ -21,13 +17,15 @@ from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
 from dimensigon.domain.entities import File, Server
+from dimensigon.use_cases.base import Process
 from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.utils import asyncio
 from dimensigon.utils.typos import Id
 from dimensigon.web import network as ntwrk
 
 if t.TYPE_CHECKING:
-    pass
+    from dimensigon.core import Dimensigon
+
 _logger = logging.getLogger('dimensigon.fileSync')
 
 SYNC_INTERVAL = 5
@@ -61,31 +59,35 @@ class BlacklistEntry:
     blacklisted: float = None
 
 
-class FileSync:
+class FileSync(Process):
+    _logger = _logger
 
-    def __init__(self, engine, app, sync_interval=SYNC_INTERVAL,
+    def __init__(self, dimensigon: 'Dimensigon', shutdown_event, sync_interval=SYNC_INTERVAL,
                  file_watches_refresh_period=FILE_WATCHES_REFRESH_PERIOD, max_allowed_errors=MAX_ALLOWED_ERRORS,
                  retry_blacklist=RETRY_BLACKLIST):
-        self.engine = engine
-        self.session = None
-        self.app = app
+        super().__init__(shutdown_event, name=self.__class__.__name__)
+        self.dm = dimensigon
 
+        # Multiprocessing
+        self.queue = mp.Queue(1000)
+
+        # Parameters
         self.sync_interval = sync_interval
         self.file_watches_refresh_period = file_watches_refresh_period
         self.max_allowed_errors = max_allowed_errors
         self.retry_blacklist = retry_blacklist
-        self.queue = mp.Queue(1000)
-        self._process = threading.Thread(target=self._run, name="FileSync")
+
+        # internals
         self._changed_files: t.Set[Id] = set()
         self._changed_servers: t.Dict[Id, t.List[Id]] = dict()
-        self._stop = threading.Event()
         self._file2watch: t.Dict[Id, ObservedWatch] = {}
         self._last_file_updated = None
         self._blacklist: t.Dict[t.Tuple[Id, Id], BlacklistEntry] = {}
+        self.session = None
         self._server = None
 
     def _create_session(self):
-        self.Session = sessionmaker(bind=self.engine)
+        self.Session = sessionmaker(bind=self.dm.engine)
         return self.Session()
 
     @property
@@ -125,7 +127,7 @@ class FileSync:
     def _consume_events(self):
         while not (self.queue.empty() or self._stop.is_set()):
             try:
-                item = self.queue.get_nowait()
+                item = self.queue.get(block=True, timeout=1)
             except queue.Empty:
                 break
             self._add(*item)
@@ -152,26 +154,21 @@ class FileSync:
             server_ids = [fsa.destination_server.id for fsa in file.destinations]
             fsas = file.destinations
 
-        # tasks = [ntwrk.async_post(fsa.destination_server, view_or_url='api_1_0.file_sync',
-        #                           view_data={'file_id': file.id},
-        #                           json=dict(file=fsa.target, data=content, force=True),
-        #                           auth=get_root_auth()) for fsa in fsas if
-        #          fsa.destination_server.id in getattr(getattr(self.app, 'cluster_manager', None), 'cluster',
-        #                                               server_ids)]
-        with self.app.app_context():
+        with self.dm.flask_app.app_context():
             auth = get_root_auth()
+            alive = self.dm.cluster_manager.get_alive()
             tasks = [ntwrk.async_post(fsa.destination_server, view_or_url='api_1_0.file_sync',
                                       view_data={'file_id': file.id},
                                       json=dict(file=fsa.target, data=content, force=True),
-                                      auth=auth) for fsa in fsas]
-            _logger.debug(
-                f"Syncing file {file} with the following servers: {', '.join([fsa.destination_server.name for fsa in fsas])}.")
-            # skipped = [fsa.destination_server.name for fsa in fsas if
-            #            fsa.destination_server.id not in getattr(getattr(self.app, 'cluster_manager', None), 'cluster',
-            #                                                     server_ids)]
-            # if skipped:
-            #     _logger.debug(f"Following servers are skipped because we do not see them alive: {skipped}")
+                                      auth=auth) for fsa in fsas if fsa.destination_server.id in alive]
+            skipped = [fsa.destination_server.name for fsa in fsas if fsa.destination_server.id not in alive]
+            if skipped:
+                _logger.debug(
+                    f"Following servers are skipped because we do not see them alive: {', '.join(skipped)}")
             if tasks:
+                _logger.debug(
+                    f"Syncing file {file} with the following servers: {', '.join([fsa.destination_server.name for fsa in fsas if fsa.destination_server.id in alive])}.")
+
                 resp = await asyncio.gather(*tasks)
                 for resp, fsa in zip(resp, fsas):
                     if not resp.ok:
@@ -189,6 +186,7 @@ class FileSync:
                     else:
                         if (file.id, fsa.destination_server.id) in self._blacklist:
                             self._blacklist.pop((file.id, fsa.destination_server.id), None)
+
 
     def _sync_files(self):
         self._consume_events()
@@ -212,8 +210,7 @@ class FileSync:
             file = self.get_file(file_id)
             dest = self.session.query(Server).filter_by(deleted=0).filter_by(id=server_id).count()
             bl = self._blacklist[(file_id, server_id)]
-            if file and dest:  # file and server in the black list may b
-                # e deleted
+            if file and dest:  # file and server in the black list may be deleted
                 # if server_id in getattr(getattr(self.app, 'cluster_manager', None), 'cluster', [server_id]):
                 if bl.retries < self.max_allowed_errors or time.time() - bl.blacklisted > self.retry_blacklist:
                     if file_id not in self._changed_files:
@@ -279,32 +276,29 @@ class FileSync:
                     # add for sending file for first time
                     self._add(file_id, None)
 
-    def _run(self):
-        try:
-            _logger.debug(f"Starting FileSync ({os.getpid()})")
-            self._executor = ThreadPoolExecutor(max_workers=max(os.cpu_count(), 4),
-                                                thread_name_prefix="FileSyncThreadPool")
-            self._loop = asyncio.new_event_loop()
-            self._loop.set_default_executor(self._executor)
-            self._observer = Observer()
-            self.session = self._create_session()
-            self._observer.start()
-            asyncio.set_event_loop(self._loop)
-            self._set_initial_modifications()
-            while not self._stop.is_set():
-                self._set_watchers()
-                self._sync_files()
-                self._stop.wait(self.sync_interval)
-        except:
-            _logger.exception("")
-        finally:
-            self.session.close()
-            self._observer.stop()
+    def _main(self):
+        self._executor = ThreadPoolExecutor(max_workers=max(os.cpu_count(), 4),
+                                            thread_name_prefix="FileSyncThreadPool")
+        self._loop = asyncio.new_event_loop()
+        self._loop.set_default_executor(self._executor)
+        asyncio.set_event_loop(self._loop)
+        self._observer = Observer()
+        self.session = self._create_session()
+        self._observer.start()
 
-    def start(self):
-        # signal.signal(signal.SIGTERM, self.stop)
-        # signal.signal(signal.SIGINT, self.stop)
-        self._process.start()
+        self._set_initial_modifications()
+        while not self._stop.is_set():
+            self._set_watchers()
+            self._sync_files()
+
+    def _shutdown(self):
+        self.queue.close()
+        self.queue.join_thread()
+        self._observer.stop()
+        self.session.close()
+        self._loop.stop()
+        self._loop.close()
+        self._executor.shutdown()
 
     def add(self, file: t.Union[File, Id], server: t.Union[Server, Id] = None):
         if isinstance(file, File):
@@ -319,12 +313,3 @@ class FileSync:
             self.queue.put((file_id, server_id), timeout=2)
         except queue.Full:
             _logger.warning("Queue is full. Try increasing its size")
-
-    def stop(self, timeout=None):
-        _logger.debug("Stopping FileSync")
-        self._stop.set()
-        self._process.join()
-        if self._process.is_alive():
-            _logger.warning("FileSync is still alive")
-        else:
-            _logger.info(f"FileSync stopped")

@@ -87,3 +87,6 @@ class Parameter(db.Model):
         if not session.query(cls).get('join_server'):
             p = Parameter('join_server')
             session.add(p)
+        if not session.query(cls).get('new_gates_server'):
+            p = Parameter('new_gates_server')
+            session.add(p)

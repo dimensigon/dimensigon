@@ -31,6 +31,7 @@ class FileServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixin):
     dst_server_id = db.Column(typos.UUID, db.ForeignKey('D_server.id'), nullable=False, primary_key=True)
     dest_folder = db.Column(db.Text)
 
+
     file = db.relationship("File")
     destination_server = db.relationship("Server")
 

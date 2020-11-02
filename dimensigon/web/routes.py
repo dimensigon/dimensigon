@@ -36,7 +36,7 @@ def healthcheck():
         except:
             raise errors.InvalidDateFormat(request.get_json()['heartbeat'], defaults.DATETIME_FORMAT)
         exclude = request.get_json().get('exclude', [])
-        current_app.cluster_manager.set_keepalive(g.source.id, heartbeat)
+        current_app.dm.cluster_manager.put(g.source.id, heartbeat)
 
     catalog_ver = Catalog.max_catalog()
     data = {"version": dimensigon.__version__,
@@ -50,24 +50,15 @@ def healthcheck():
     if not check_param_in_uri('human'):
         server = {'id': str(g.server.id), 'name': g.server.name}
         neighbours = [{'id': str(s.id), 'name': s.name} for s in Server.get_neighbours()]
-        cluster = {'alive': [current_app.cluster_manager.cluster[i] for i in current_app.cluster_manager.cluster],
-                   'in_coma': [current_app.cluster_manager.cluster[i] for i in current_app.cluster_manager.cluster if
-                               i not in
-                               current_app.cluster_manager.cluster.get_delta_keepalive(
-                                   delta=current_app.dm.config.refresh_interval * defaults.COMA_NODE_FACTOR) and i != g.server.id]}
+        cluster = {'alive': current_app.dm.cluster_manager.get_alive(),
+                   'in_coma': current_app.dm.cluster_manager.get_zombies()}
     else:
         server = g.server.name
         neighbours = sorted([s.name for s in Server.get_neighbours()])
-        cluster = {'alive': sorted([getattr(Server.query.get(i), 'name', i) for i in current_app.cluster_manager.cluster]),
-                   'in_coma': sorted([getattr(Server.query.get(i), 'name', i) for i in current_app.cluster_manager.cluster if
-                               i not in
-                               current_app.cluster_manager.cluster.get_delta_keepalive(
-                                   delta=current_app.dm.config.refresh_interval * defaults.COMA_NODE_FACTOR) and i != g.server.id])}
-    cluster.update(running=current_app.cluster_manager.running)
+        cluster = {'alive': sorted([getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_alive()]),
+                   'in_coma': sorted([getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_zombies()])}
     data.update(server=server, neighbours=neighbours, cluster=cluster,
                 now=get_now().strftime(defaults.DATETIME_FORMAT))
-
-
 
     return data
 

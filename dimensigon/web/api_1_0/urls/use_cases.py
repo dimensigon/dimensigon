@@ -373,8 +373,14 @@ _cluster_logger = logging.getLogger('dimensigon.cluster')
 def cluster():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         data = request.get_json()
-        # _cluster_logger.debug(f"Data received {clustering.log_data(data)}")
-        current_app.cluster_manager.put(data)
+        converted = []
+        for item in data:
+            try:
+                keepalive = dt.datetime.strptime(item['keepalive'], defaults.DATEMARK_FORMAT)
+            except ValueError:
+                raise errors.InvalidDateFormat(item['keepalive'], defaults.DATEMARK_FORMAT)
+            converted.append((item['id'], keepalive, item['death']))
+        current_app.dm.cluster_manager.put_many(converted)
         return {}, 204
     else:
         raise errors.UserForbiddenError
@@ -426,15 +432,20 @@ async def background_cluster_in(server_id, routes, auth):
 @securizer
 def cluster_in(server_id):
     user = User.get_current()
+    data = request.get_json()
     if user and user.user == 'root':
-        cr = current_app.cluster_manager.set_alive(server_id)
+        try:
+            keepalive = dt.datetime.strptime(data.get('keepalive'), defaults.DATEMARK_FORMAT)
+        except ValueError:
+            raise errors.InvalidDateFormat(data.get('keepalive'), defaults.DATEMARK_FORMAT)
+        current_app.dm.cluster_manager.put(server_id, keepalive)
         _cluster_logger.debug(
             f"{getattr(Server.query.get(server_id), 'name', server_id) or server_id} is a new alive server")
 
         # run background execution to check routes
-        executor.submit(asyncio.run, background_cluster_in(server_id, request.get_json(), get_auth_from_request()))
+        executor.submit(asyncio.run, background_cluster_in(server_id, data['routes'], get_auth_from_request()))
 
-        return {'cluster': current_app.cluster_manager.cluster.get_cluster(),
+        return {'cluster': current_app.dm.cluster_manager.get_cluster(defaults.DATEMARK_FORMAT),
                 'neighbours': [s.id for s in Server.get_neighbours()]}, 200
 
     else:
@@ -465,7 +476,7 @@ def cluster_out(server_id):
                 death = get_now()
         else:
             death = None
-        current_app.cluster_manager.set_death(server_id, death=death)
+        current_app.dm.cluster_manager.put(server_id, keepalive=death, death=True)
         _cluster_logger.debug(f"{Server.query.get(server_id).name or server_id} is a death server")
 
         # run background route

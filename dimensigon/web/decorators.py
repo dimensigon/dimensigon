@@ -270,15 +270,9 @@ def validate_schema(schema_name=None, **methods):
         def wrapper(*args, **kw):
             schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
             if schema:
-                try:
-                    validate(request.json, schema)
-                except SchemaError as e:
-                    current_app.logger.error(f"Error validating: {json.dumps(request.json, indent=2)}")
-                    raise e
+                validate(request.json, schema)
             return f(*args, **kw)
-
         return wrapper
-
     return decorator
 
 

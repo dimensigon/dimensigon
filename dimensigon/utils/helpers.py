@@ -395,8 +395,6 @@ def session_scope(session=None):
 def format_exception(exc: Exception):
     return ''.join(traceback.format_exception(exc, exc, exc.__traceback__))
 
-
-
 def str_resp(resp: requests.Response):
     try:
         return resp.json()

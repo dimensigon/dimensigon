@@ -30,13 +30,11 @@ cluster_post = {
     "items": {"type": "object",
               "properties": {
                   "id": {"type": "string", "pattern": UUID_pattern},
-                  "birth": {"type": "string"},
-                  "keepalive": {"anyOf": [{"type": "string"}, {"type": "null"}]},
-                  "death": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+                  "keepalive": {"type": "string"},
+                  "death": {"type": ["boolean", "null"]}
               },
-              "required": ["id", "birth"]
+              "required": ["id", "keepalive", "death"]
               }
-
 }
 
 locker_prevent_post = {

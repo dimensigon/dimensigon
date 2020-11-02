@@ -74,6 +74,9 @@ default_logconfig_dict = {
         "dimensigon.fileSync": {
             "level": "DEBUG",
         },
+        "dimensigon.cluster": {
+            "level": "DEBUG",
+        },
         "dimensigon.background.log_sender": {
             "level": "DEBUG",
         },
@@ -210,8 +213,8 @@ def setup_database_uri(run_config: RuntimeConfig, config: Config):
 
 
 def _setup_http_config(run_config: RuntimeConfig, config: Config):
-    def on_exit(server):
-        server.app.dm.shutdown()
+    # def on_exit(server):
+    #     server.app.dm.shutdown()
 
     bind = []
     for ip in run_config.ips or ['0.0.0.0']:
@@ -227,7 +230,7 @@ def _setup_http_config(run_config: RuntimeConfig, config: Config):
         # SSL
         # do_handshake_on_connect=False,
         # Server Hooks
-        on_exit=on_exit,
+        # on_exit=on_exit,
         # Server Mechanics
         preload_app=True,
         daemon=run_config.daemon,

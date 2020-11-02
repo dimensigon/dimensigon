@@ -2,7 +2,6 @@ import datetime as dt
 import json
 import logging
 import os
-import random
 import time
 import typing as t
 
@@ -23,7 +22,6 @@ from ..utils.helpers import get_now, bind2gate
 
 if t.TYPE_CHECKING:
     from ..core import Dimensigon
-    from ..use_cases.clustering import ClusterManager
 
 meta = MetaData(naming_convention={
     "ix": "ix_%(column_0_label)s",
@@ -42,7 +40,6 @@ executor = Executor()
 
 class DimensigonFlask(Flask):
     dm: t.ClassVar['Dimensigon'] = None
-    cluster_manager: t.ClassVar['ClusterManager']
 
     def bootstrap(self):
         """ bootstraps the application. Gunicorn is still not listening on sockets
@@ -53,7 +50,6 @@ class DimensigonFlask(Flask):
             from dimensigon.use_cases.helpers import get_root_auth
             from dimensigon.use_cases import routing
             from dimensigon.domain.entities import Locker
-
 
             # reset scopes
             Locker.set_initial(unlock=True)
@@ -132,7 +128,7 @@ class DimensigonFlask(Flask):
                                 server = None
                     else:
                         self.logger.debug("New gates created succesfully")
-                        self.server_id_with_new_gates = server.id
+                        Parameter.set('new_gates_server', server.id)
                         break
 
                 if not servers:
@@ -141,15 +137,15 @@ class DimensigonFlask(Flask):
                         for gate in new_gates:
                             g = me.add_new_gate(gate[0], gate[1])
                             db.session.add(g)
-                        db.session.commit()
+
                 else:
                     if resp and not resp.ok:
                         self.logger.warning(f"Remote servers may not connect with {me}. ")
+                db.session.commit()
         self.start_background_tasks()
 
     def start_background_tasks(self):
         from ..use_cases.log_sender import LogSender
-        from ..use_cases.clustering import ClusterManager
         from dimensigon.web.background_tasks import process_catalog_route_table
         if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
             if self.extensions.get('scheduler') is None and self.config['SCHEDULER']:
@@ -173,59 +169,6 @@ class DimensigonFlask(Flask):
                            trigger="interval",
                            minutes=2, next_run_time=get_now() + dt.timedelta(seconds=30))
 
-            self.cluster_manager = ClusterManager(self,
-                                                  threshold=self.dm.config.refresh_interval * defaults.COMA_NODE_FACTOR * 0.85)
-
-    def notify_cluster(self):
-        from dimensigon.domain.entities import Server
-        import dimensigon.web.network as ntwrk
-        from dimensigon.use_cases.helpers import get_root_auth
-        from dimensigon.use_cases import routing
-        from dimensigon.domain.entities import Parameter
-
-        with self.app_context():
-            cluster_logger = logging.getLogger('dimensigon.cluster')
-            not_notify = set()
-            me = Server.get_current()
-            msg, debug_msg = routing.format_routes_message()
-
-            neighbours = Server.get_neighbours()
-
-            if Parameter.get('join_server', None):
-                join_server = Server.query.get(Parameter.get('join_server'))
-            else:
-                join_server = None
-
-            if neighbours:
-                random.shuffle(neighbours)
-                first = [s for s in neighbours if s.id == self.server_id_with_new_gates]
-                if first:
-                    neighbours.pop(neighbours.index(first[0]))
-                    neighbours = first + neighbours
-                elif join_server in neighbours:
-                        neighbours.pop(neighbours.index(join_server))
-                        neighbours = [join_server] + neighbours
-                for s in neighbours:
-                    if s.id not in not_notify:
-                        self.logger.debug(f"Sending 'Cluster IN' message to {s}")
-                        resp = ntwrk.post(s, 'api_1_0.cluster_in', view_data=dict(server_id=str(me.id)),
-                                          json=msg, timeout=10, auth=get_root_auth())
-                        if resp.ok:
-                            self.cluster_manager.cluster.update_cluster(resp.msg['cluster'])
-                            not_notify.update(resp.msg.get('neighbours', []))
-                        else:
-                            self.logger.debug(f"Unable to send 'Cluster IN' message to {s} . Response: {resp}")
-                    else:
-                        self.logger.debug(f"Skiping server {s} from sending 'Cluster IN' message")
-                else:
-                    self.cluster_manager.set_alive(me.id)
-                alive = [(getattr(Server.query.get(s_id), 'name', None) or s_id) for s_id in
-                         self.cluster_manager.cluster.get_alive()]
-                cluster_logger.info(f"Alive servers: {', '.join(alive)}")
-            else:
-                self.logger.debug("No neighbour to send 'Cluster IN'")
-                self.cluster_manager.set_alive(me.id)
-
     def stop_background_tasks(self):
         bs = self.extensions.get('scheduler')
         if bs:
@@ -238,7 +181,6 @@ class DimensigonFlask(Flask):
         # if fs:
         #     fs.stop()
 
-        self.cluster_manager.stop()
 
     def shutdown(self):
         with self.app_context():
@@ -246,9 +188,6 @@ class DimensigonFlask(Flask):
             import dimensigon.web.network as ntwrk
             from dimensigon.use_cases.helpers import get_root_auth
 
-            self.logger.info("Stopping cluster")
-            self.cluster_manager.stop()
-            self.logger.debug("Cluster stopped")
             self.stop_background_tasks()
 
             Parameter.set('last_graceful_shutdown', get_now())
@@ -313,10 +252,10 @@ def create_app(config_name):
     app.events = EventHandler()
 
     app.before_request(load_global_data_into_context)
-    if not app.config['TESTING']:
-        app.before_first_request(app.notify_cluster)
-        # app.before_first_request(app.cluster_manager.start)
-        # app.before_first_request(app.file_sync.start)
+    # if not app.config['TESTING']:
+    # app.before_first_request(app.dm.cluster_manager.notify_cluster)
+    # app.before_first_request(app.cluster_manager.start)
+    # app.before_first_request(app.file_sync.start)
     _initialize_blueprint(app)
     _initialize_errorhandlers(app)
 
