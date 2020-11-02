@@ -75,12 +75,10 @@ class Process:
         self._init_signals()
         try:
             self._main()
-        except BaseException as exc:
-            # -- TODO: call raise if in some sort of interactive mode
-            if type(exc) in (TerminateInterrupt, KeyboardInterrupt):
-                sys.exit(1)
-            else:
-                sys.exit(2)
+        except (TerminateInterrupt, KeyboardInterrupt):
+            sys.exit(1)
+        except Exception:
+            self._logger.exception(f"Error while executing {self.name}")
         finally:
             self._shutdown()
         self._logger.info(f"{self.name} stopped")

@@ -124,14 +124,6 @@ class FileSync(Process):
             if file_id in self._changed_servers:
                 self._changed_servers.pop(file_id)
 
-    def _consume_events(self):
-        while not (self.queue.empty() or self._stop.is_set()):
-            try:
-                item = self.queue.get(block=True, timeout=1)
-            except queue.Empty:
-                break
-            self._add(*item)
-
     @staticmethod
     def _read_file(file, compress=True):
         with open(file, 'rb') as fd:
@@ -186,10 +178,13 @@ class FileSync(Process):
                     else:
                         if (file.id, fsa.destination_server.id) in self._blacklist:
                             self._blacklist.pop((file.id, fsa.destination_server.id), None)
-
+                        fsa.l_mtime = file.l_mtime
+                try:
+                    self.session.commit()
+                except:
+                    self.session.rollback()
 
     def _sync_files(self):
-        self._consume_events()
         tasks = []
         for file_id in self._changed_files:
             f = self.get_file(file_id)
@@ -248,8 +243,14 @@ class FileSync(Process):
         for file in self.my_files_query.all():
             self._schedule_file(file)
             try:
-                if os.path.exists(file.target) and os.stat(file.target).st_mtime_ns != file.l_mtime:
-                    self._add(file.id, None)
+                if os.path.exists(file.target):
+                    mtime = os.stat(file.target).st_mtime_ns
+                    if mtime != file.l_mtime:
+                        self._add(file.id, None)
+                    else:
+                        for fsa in file.destinations:
+                            if fsa.l_mtime != mtime:
+                                self._add(file.id, fsa.destination_server.id)
             except:
                 pass
 
@@ -287,9 +288,18 @@ class FileSync(Process):
         self._observer.start()
 
         self._set_initial_modifications()
+        start = time.time()
         while not self._stop.is_set():
-            self._set_watchers()
-            self._sync_files()
+            try:
+                item = self.queue.get(block=True, timeout=0.2)
+            except queue.Empty:
+                pass
+            else:
+                self._add(*item)
+            if time.time() - start > self.sync_interval:
+                start = time.time()
+                self._set_watchers()
+                self._sync_files()
 
     def _shutdown(self):
         self.queue.close()
