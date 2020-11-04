@@ -14,7 +14,7 @@ from dimensigon.web.decorators import forward_or_dispatch, securizer, validate_s
 from dimensigon.web.helpers import filter_query, check_param_in_uri
 from dimensigon.web.json_schemas import files_post, file_post, file_patch, file_sync
 
-_logger = logging.getLogger('dimensigon.fileSync')
+_logger = logging.getLogger('dm.fileSync')
 
 
 @api_bp.route("/file/<file_id>/sync", methods=['POST'])

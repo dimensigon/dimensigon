@@ -70,7 +70,7 @@ class Transfer(db.Model, UUIDEntityMixin, EntityReprMixin):
         if self.started_on:
             json.update(started_on=self.started_on.strftime(dimensigon.defaults.DATETIME_FORMAT))
         if self.ended_on:
-            json.update(ended_on=self.ended_on)
+            json.update(ended_on=self.ended_on.strftime(dimensigon.defaults.DATETIME_FORMAT))
         return json
 
     @property

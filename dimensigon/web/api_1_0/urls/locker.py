@@ -15,7 +15,7 @@ from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_s
 from dimensigon.web.helpers import transaction
 from dimensigon.web.json_schemas import locker_prevent_post, locker_unlock_lock_post
 
-logger = logging.getLogger('dimensigon.lock')
+logger = logging.getLogger('dm.lock')
 
 @api_bp.route('/locker', methods=['GET'])
 @forward_or_dispatch()

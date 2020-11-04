@@ -50,7 +50,7 @@ TIMEOUT_COMMAND = 20  # max time waiting for a command execution
 TIMEOUT_LOCK_REQUEST = 60  # timeout on lock/unlock/prevent_lock HTTP request
 
 
-CHUNK_SIZE = 2*1024  # in MB
+CHUNK_SIZE = 2  # in MB
 MAX_SENDERS = 4
 
 MIN_SERVERS_QUORUM = 5  # minimum servers to run quorum algorithm

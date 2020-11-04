@@ -39,7 +39,7 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
         gate = [gate for gate in server.gates if ip in (gate.ip, get_ip(gate.dns))]
         if not gate:
-            logger = logging.getLogger('dimensigon')
+            logger = logging.getLogger('dm')
             try:
 
                 with lock_scope(Scope.CATALOG):
@@ -68,7 +68,7 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
                 logger.error(f"Unable to lock catalog for saving {remote_addr} from {server}. Reason: {e}")
             except Exception:
-                logger = logging.getLogger('dimensigon')
+                logger = logging.getLogger('dm')
                 logger.exception(f"Unable to save {remote_addr} from {server}")
 
 
@@ -140,7 +140,7 @@ def set_source():
 def forward_or_dispatch(*methods):
     def inner(func):
         from flask import request
-        logger = logging.getLogger('dimensigon.forwarder')
+        logger = logging.getLogger('dm.forwarder')
 
         @functools.wraps(func)
         def wrapper_decorator(*args, **kwargs):
@@ -354,7 +354,7 @@ def run_as(username: str):
     return decorator
 
 
-logger = logging.getLogger('dimensigon.time')
+logger = logging.getLogger('dm.time')
 
 def log_time(tag=''):
     def decorator(f):

@@ -9,7 +9,7 @@ if t.TYPE_CHECKING:
     from dimensigon.domain.entities import Server, Gate
 
 
-logger = logging.getLogger('dimensigon.route')
+logger = logging.getLogger('dm.route')
 
 
 class RouteContainer:

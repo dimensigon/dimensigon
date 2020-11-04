@@ -25,7 +25,7 @@ class TransferList(Resource):
     @securizer
     def get(self):
         query = filter_query(Transfer, request.args)
-        return [t.to_json() for t in query.all()]
+        return [t.to_json() for t in query.order_by(Transfer.created_on).all()]
 
     @forward_or_dispatch()
     @jwt_required
@@ -48,6 +48,7 @@ class TransferList(Resource):
             elif pending and json_data['cancel_pending']:
                 for trans in pending:
                     trans.status = TransferStatus.CANCELED
+                    trans.ended_on = get_now()
         else:
             dest_path = json_data['dest_path']
             pending = Transfer.query.filter_by(_filename=json_data['filename'],
@@ -60,6 +61,7 @@ class TransferList(Resource):
             elif pending and json_data.get('cancel_pending', False):
                 for trans in pending:
                     trans.status = TransferStatus.CANCELED
+                    trans.ended_on = get_now()
 
         file = os.path.join(dest_path, soft.filename if soft else json_data['filename'])
 
@@ -155,6 +157,7 @@ class TransferResource(Resource):
         if trans.num_chunks == 1:
             msg = f"File {trans.filename} from transfer {transfer_id} generated successfully"
             trans.status = TransferStatus.COMPLETED
+            trans.ended_on = get_now()
             db.session.commit()
         else:
             msg = f"Chunk {chunk_id} from transfer {transfer_id} generated successfully"
@@ -208,6 +211,7 @@ class TransferResource(Resource):
         # check final file length and checksum
         if os.path.getsize(file) != trans.size:
             trans.status = TransferStatus.SIZE_ERROR
+            trans.ended_on = get_now()
             db.session.commit()
             # os.remove(file)
             msg = f"Error on transfer '{transfer_id}': Final file size does not match expected size"
@@ -216,6 +220,7 @@ class TransferResource(Resource):
 
         if md5(file) != trans.checksum:
             trans.status = TransferStatus.CHECKSUM_ERROR
+            trans.ended_on = get_now()
             db.session.commit()
             # os.remove(file)
             msg = f"Error on transfer '{transfer_id}': Checksum error"
@@ -223,6 +228,7 @@ class TransferResource(Resource):
             return {"error": msg}, 404
 
         trans.status = TransferStatus.COMPLETED
+        trans.ended_on = get_now()
         db.session.commit()
         msg = f"File {os.path.join(trans.dest_path, trans.filename)} from transfer {trans.id} recived successfully"
         current_app.logger.debug(msg)

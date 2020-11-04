@@ -247,7 +247,7 @@ def send():
         else:
             raise errors.FileNotFound(file)
 
-    chunk_size = min(json_data.get('chunk_size', d.CHUNK_SIZE), d.CHUNK_SIZE) * 1024
+    chunk_size = d.CHUNK_SIZE * 1024 * 1024
     max_senders = min(json_data.get('max_senders', d.MAX_SENDERS), d.MAX_SENDERS)
     chunks = math.ceil(size / chunk_size)
 
@@ -359,7 +359,7 @@ def fetch_catalog(data_mark):
     return data
 
 
-_cluster_logger = logging.getLogger('dimensigon.cluster')
+_cluster_logger = logging.getLogger('dm.cluster')
 
 
 @api_bp.route('/cluster', methods=['POST'])

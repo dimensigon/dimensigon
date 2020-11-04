@@ -69,7 +69,7 @@ def manager_locker_unlock(scope, node):
 
 
 def server_list(name=None, ident=None, detail=None, like=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     view_data = dict()
     if name is not None:
         view_data.update({'filter[name]': name})
@@ -130,7 +130,7 @@ def server_routes(node, refresh=False):
 
 
 def orch_list(**params):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     view_data = dict()
     if params.get('id', None):
         view_data.update({'filter[id]': params['id']})
@@ -218,7 +218,7 @@ def orch_run(orchestration_id, **params):
 
 
 def action_list(ident=None, name=None, version=None, like: str = None, last: int = None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     view_data = dict()
     if ident:
         view_data.update({'filter[id]': ident})
@@ -274,7 +274,7 @@ def action_load(file):
 
 
 def software_add(name, version, file, family=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     json_data = dict(name=name, version=version, file=file)
     if family is not None:
         json_data.update(family=family)
@@ -284,15 +284,18 @@ def software_add(name, version, file, family=None):
 
 def software_send(dest_server_id, software_id=None, software=None, version=None, file=None, dest_path=None,
                   background=True, force=False):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
-    json_data = dict(dest_server_id=dest_server_id, dest_path=dest_path, force=force)
+    kwargs = {}
+    json_data = dict(dest_server_id=dest_server_id, force=force)
     if software_id:
         json_data.update(software_id=software_id)
     elif file:
         json_data.update(file=file)
     else:
         json_data.update(software=software, version=version)
+    if dest_path is not None:
+        json_data.update(dest_path=dest_path)
 
+    json_data.update(background=background)
     if not background:
         json_data.update(include_transfer_data=True)
     resp = ntwrk.post('api_1_0.send', json=json_data, **kwargs)
@@ -300,7 +303,7 @@ def software_send(dest_server_id, software_id=None, software=None, version=None,
 
 
 def software_list(name=None, version=None, detail=None, like=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     view_data = dict()
     if name:
         view_data.update({'filter[name]': name})
@@ -324,8 +327,8 @@ def software_list(name=None, version=None, detail=None, like=None):
         dprint(resp)
 
 
-def transfer_list(iden=None, status=None, like=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+def transfer_list(iden=None, status=None, like=None, last=None):
+    kwargs = {}
     view_data = dict()
     if iden:
         view_data.update({'filter[id]': iden})
@@ -342,20 +345,23 @@ def transfer_list(iden=None, status=None, like=None):
                     filtered_data.append(server)
         else:
             filtered_data = data
-        dprint(filtered_data)
+        if last:
+            dprint(filtered_data[:last])
+        else:
+            dprint(filtered_data)
     else:
         dprint(resp)
 
 
 def transfer_cancel(transfer_id):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     data = {'status': 'CANCELLED'}
     resp = ntwrk.patch('api_1_0.transferresource', view_data={'transfer_id': transfer_id}, json=data, **kwargs)
     dprint(resp)
 
 
 def exec_list(orch=None, server=None, execution_id=None, last=None, asc=None, detail=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     view_data = dict()
     view = 'api_1_0.orchexecutionlist'
 
@@ -411,7 +417,7 @@ def cmd(command, target, timeout=None, input=None, shell=None):
 
 
 def logfed_list():
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     resp = ntwrk.get('api_1_0.loglist', view_data={'params': 'human'}, **kwargs)
     dprint(resp.msg if resp.code else str(resp.exception) if str(
         resp.exception) else resp.exception.__class__.__name__)
@@ -427,7 +433,7 @@ def logfed_subscribe(src_server_id, target, dst_server_id, include=None, exclude
         _dst_server_id = name2id('api_1_0.serverlist', dst_server_id)
     else:
         _dst_server_id = dst_server_id
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     json_data = dict(src_server_id=_src_server_id, target=target, dst_server_id=_dst_server_id, include=include,
                      exclude=exclude, dest_folder=dest_folder, recursive=recursive, mode=mode)
     json_data = clean_none(json_data)
@@ -436,7 +442,7 @@ def logfed_subscribe(src_server_id, target, dst_server_id, include=None, exclude
 
 
 def logfed_unsubscribe(log_id):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     resp = ntwrk.delete('api_1_0.logresource', {'log_id': log_id}, **kwargs)
     dprint(resp)
 
@@ -570,7 +576,7 @@ def sync_delete_destination(file_id: str, destinations: t.List):
 
 
 def sync_list(ident, source_server, detail):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     view_data = dict()
     if ident:
         view_data.update({'filter[id]': ident})

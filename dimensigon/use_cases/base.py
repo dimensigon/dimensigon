@@ -71,7 +71,7 @@ class Process:
         return signal_object
 
     def _run(self):
-        self._logger.debug(f'Starting {self.name} ({os.getpid()})')
+        self._logger.info(f'Starting {self.name} ({os.getpid()})')
         self._init_signals()
         try:
             self._main()

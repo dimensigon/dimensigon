@@ -25,7 +25,7 @@ from dimensigon.web import network as ntwrk
 if t.TYPE_CHECKING:
     from dimensigon.core import Dimensigon
 
-_logger = logging.getLogger('dimensigon.cluster')
+_logger = logging.getLogger('dm.cluster')
 
 
 async def send_cluster_register(cr, servers=None, auth=None, exclude=None):
@@ -44,7 +44,7 @@ async def send_cluster_register(cr, servers=None, auth=None, exclude=None):
 
 
 def check_server_alive(server: Server):
-    alive_server_ids = [i for i in current_app.cluster_manager.cluster if
+    alive_server_ids = [i for i in current_app.dm.cluster_manager.get_alive() if
                         server.id != i and i != Server.get_current().id]
     # check if I have it as a neighbour
     if server.route and server.route.cost == 0:
@@ -67,20 +67,20 @@ def check_server_alive(server: Server):
 
 
 def update_cluster_status():
-    alive_server_ids = current_app.cluster_manager.cluster.get_alive()
+    alive_server_ids = current_app.dm.cluster_manager.get_alive()
     updated = False
     for alive_server_id in alive_server_ids:
         if alive_server_id != Server.get_current().id:
             alive = check_server_alive(Server.query.get(Server))
             if not alive:
-                current_app.cluster_manager.cluster.set_death(alive_server_id)
+                current_app.dm.cluster_manager.put(ident=alive_server_id, keepalive=get_now(), death=True)
                 updated = True
     return updated
 
 
 async def check_heartbeat_and_send(cluster_session_id: int, heartbeat_id: dt.datetime,
                                    exclude: t.Optional[t.List[Id]] = None):
-    cr = current_app.cluster_manager.cluster.set_alive(cluster_session_id, heartbeat_id)
+    cr = current_app.dm.cluster_manager.put(ident=cluster_session_id, keepalive=heartbeat_id)
     if cr:
         await send_cluster_register(cr, exclude=exclude)
 
@@ -174,12 +174,11 @@ Item = t.Union[Input, t.List[Input]]
 class ClusterManager(Process):
     _logger = _logger
 
-    def __init__(self, dimensigon: 'Dimensigon', shutdown_event, maxsize=None, zombie_threshold=180, delayed=2):
-        super().__init__(shutdown_event, name=self.__class__.__name__)
+    def __init__(self, dimensigon: 'Dimensigon', maxsize=None, zombie_threshold=180, delayed=2):
+        super().__init__(dimensigon.shutdown_event, name=self.__class__.__name__)
         self.dm = dimensigon
         self.Session = sessionmaker(bind=self.dm.engine)
         self.manager = mp.Manager()
-        self._stop = shutdown_event
         self.queue = mp.Queue(maxsize=maxsize or 10000)
         self._registry: t.Dict[Id, _Entry] = self.manager.dict()
         # self._registry: t.Dict[Id, _Entry] = dict()
@@ -343,6 +342,7 @@ class ClusterManager(Process):
             t.cancel()
         if self._timer:
             self._timer.cancel()
+        self._loop.run_until_complete(self._loop.shutdown_asyncgens())
         self._loop.stop()
         self._loop.close()
 

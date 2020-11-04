@@ -86,8 +86,7 @@ send_post = {
         "dest_path": {"type": "string"},
         "chunk_size": {"type": "integer",  # size in MB
                        "minimum": 1,
-                       "maximum": 1 * 1024,
-                       # "multipleOf": 1024
+                       "maximum": 4 * 1024,
                        },
         "max_senders": {"type": "integer",
                         "minimum": 1},

@@ -18,7 +18,7 @@ from dimensigon.utils.typos import Id
 from dimensigon.web import errors, db
 from dimensigon.web.network import async_post, Response
 
-logger = logging.getLogger('dimensigon.lock')
+logger = logging.getLogger('dm.lock')
 
 async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope, applicant, auth=None,
                          datemark=None) -> t.List[Response]:

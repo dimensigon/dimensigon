@@ -40,7 +40,7 @@ from dimensigon.web.network import post
 # if t.TYPE_CHECKING:
 
 
-logger = logging.getLogger('dimensigon.deployment')
+logger = logging.getLogger('dm.deployment')
 
 
 class ICommand(ABC):

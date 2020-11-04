@@ -152,7 +152,6 @@ class DimensigonFlask(Flask):
                 # passing timezone="UTC" to solve problems with systems where get_localzone() returns an object with
                 # local zone
                 bs = self.extensions['scheduler'] = BackgroundScheduler(timezone="UTC", daemon=False)
-                ls = self.extensions['log_sender'] = LogSender()
                 bs.start()
 
                 # if self.config.get('AUTOUPGRADE'):
@@ -164,10 +163,7 @@ class DimensigonFlask(Flask):
                                args=(self,),
                                id='routing_cluster_catalog_refresh',
                                trigger="interval", minutes=self.dm.config.refresh_interval.seconds / 60)
-                bs.add_job(func=run_in_background, name="log_sender", args=(ls.send_new_data, self),
-                           id='log_sender',
-                           trigger="interval",
-                           minutes=2, next_run_time=get_now() + dt.timedelta(seconds=30))
+
 
     def stop_background_tasks(self):
         bs = self.extensions.get('scheduler')

@@ -18,7 +18,7 @@ from dimensigon.utils.helpers import get_distributed_entities
 from dimensigon.web import db, errors
 from dimensigon.web.network import get
 
-catalog_logger = logging.getLogger('dimensigon.catalog')
+catalog_logger = logging.getLogger('dm.catalog')
 
 def run_elevator(file, new_version, logger):
     logger.info(f"Upgrading to version {new_version}")

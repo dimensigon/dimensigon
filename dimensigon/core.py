@@ -2,6 +2,7 @@ import datetime as dt
 import logging
 import multiprocessing as mp
 import os
+import signal
 import time
 import typing as t
 
@@ -12,9 +13,10 @@ from dimensigon.exceptions import DimensigonError
 from dimensigon.use_cases.base import default_signal_handler, init_signals, TerminateInterrupt
 from dimensigon.use_cases.clustering import ClusterManager
 from dimensigon.use_cases.file_sync import FileSync
+# from dimensigon.use_cases.log_sender import LogSender
 from dimensigon.web import DimensigonFlask, create_app, threading
 
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger("dm")
 
 
 def _sleep_secs(max_sleep, end_time=999999999999999.9):
@@ -52,6 +54,7 @@ class Dimensigon:
     MAX_TERMINATE_CALLED = 3
     int_handler = staticmethod(default_signal_handler)
     term_handler = staticmethod(default_signal_handler)
+    _logger = _logger
 
     def __init__(self):
         self.flask_app: t.Optional[DimensigonFlask] = None
@@ -60,10 +63,12 @@ class Dimensigon:
         self.config = Config(self)
         self.cluster_manager: t.Optional[ClusterManager] = None
         self.file_sync: t.Optional[FileSync] = None
+        # self.log_sender: t.Optional[LogSender] = None  # log sender embedded in file_sync process
         self.shutdown_event = mp.Event()
         self.STOP_WAIT_SECS = 90
         self.engine = None  # set on setup_dm function
         self.get_session = None  # set on setup_dm function
+        self.procs = []
 
     def _init_signals(self):
         signal_object = init_signals(self.shutdown_event, self.int_handler, self.term_handler)
@@ -80,9 +85,10 @@ class Dimensigon:
             self.gunicorn.dm = self
 
     def create_processes(self):
-        self.cluster_manager = ClusterManager(self, self.shutdown_event,
+        self.cluster_manager = ClusterManager(self,
                                               zombie_threshold=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD * 60)
-        self.file_sync = FileSync(self, self.shutdown_event)
+        self.file_sync = FileSync(self)
+        # self.log_sender = LogSender(self)  # log sender embedded in file_sync process
         if self.config.flask:
             self.server = mp.Process(target=self.flask_app.run, name="Flask server",
                                      kwargs=dict(host='0.0.0.0', port=defaults.DEFAULT_PORT, ssl_context='adhoc'))
@@ -108,31 +114,36 @@ class Dimensigon:
                     break
 
     def start_server(self):
-        self.flask_app.before_first_request(self.cluster_manager.notify_cluster)
+        if hasattr(self.cluster_manager, 'notify_cluster'):
+            self.flask_app.before_first_request(self.cluster_manager.notify_cluster)
         th = threading.Timer(interval=4, function=self.make_first_request)
         th.start()
         self.server.start()
 
     def start(self):
         """starts dimensigon server"""
+        _logger.info(f"Starting Dimensigon ({os.getpid()})")
         self.bootstrap()
         self.flask_app.bootstrap()
         self.cluster_manager.start()
         self.file_sync.start()
+        # self.log_sender.start() # log sender embedded in file_sync process
         self.start_server()
-        while not self.shutdown_event.is_set():
-            try:
+        try:
+            while not self.shutdown_event.is_set():
                 time.sleep(0.2)
-            except (TerminateInterrupt, KeyboardInterrupt):
-                pass
+        except (TerminateInterrupt, KeyboardInterrupt):
+            pass
         self.shutdown()
 
     def shutdown(self):
         _logger.info(f"Shutting down Dimensigon")
         self.flask_app.shutdown()
         self.shutdown_event.set()
+        os.kill(self.server.pid, signal.SIGTERM)
 
         procs = []
+        # procs.append(self.log_sender.process)  # log sender embedded in file_sync process
         procs.append(self.file_sync.process)
         procs.append(self.cluster_manager.process)
         procs.append(self.server)

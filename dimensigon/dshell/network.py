@@ -130,7 +130,7 @@ def request(method, url, session=None, token_refreshed=False, login=True, **kwar
         kwargs['headers'] = {}
     kwargs['headers'].update({'D-Securizer': 'plain'})
 
-    kwargs['verify'] = False
+    kwargs['verify'] = env.get('SSL_VERIFY')
 
     logger.debug(f"{method.upper()} {url}\n{kwargs}")
 

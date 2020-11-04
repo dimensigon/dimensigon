@@ -1,12 +1,13 @@
 import asyncio
 import base64
 import logging
-import multiprocessing as mp
 import os
 import queue
 import time
 import typing as t
 import zlib
+import multiprocessing as mp
+from collections import OrderedDict
 from concurrent.futures.thread import ThreadPoolExecutor
 
 from dataclasses import dataclass
@@ -16,24 +17,47 @@ from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
-from dimensigon.domain.entities import File, Server
+from dimensigon.domain.entities import File, Server, Log
+from dimensigon.domain.entities.log import Mode
 from dimensigon.use_cases.base import Process
 from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.utils import asyncio
+from dimensigon.utils.pygtail import Pygtail
 from dimensigon.utils.typos import Id
 from dimensigon.web import network as ntwrk
 
 if t.TYPE_CHECKING:
     from dimensigon.core import Dimensigon
 
-_logger = logging.getLogger('dimensigon.fileSync')
+_logger = logging.getLogger('dm.fileSync')
+_log_logger = logging.getLogger('dm.logfed')
 
+MAX_LINES = 10000  # max lines readed from a log
 SYNC_INTERVAL = 5
 # period of time process checks for new files added to the database. must be equal or bigger than SYNC_INTERVAL
 FILE_WATCHES_REFRESH_PERIOD = 30
-MAX_ALLOWED_ERRORS = 3
+MAX_ALLOWED_ERRORS = 2
 # retry blacklisted servers after RETRY_BLACKLIST seconds
-RETRY_BLACKLIST = 120
+RETRY_BLACKLIST = 300
+
+
+class _PygtailBuffer(Pygtail):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._buffer = None
+
+    def fetch(self):
+        if self._buffer:
+            return self._buffer
+        else:
+            self._buffer = ''.join(self.readlines(max_lines=MAX_LINES))
+        return self._buffer
+
+    def update_offset_file(self):
+        self._buffer = None
+        super().update_offset_file()
+
 
 FileWatchId = t.Tuple[Id, str]
 
@@ -62,10 +86,10 @@ class BlacklistEntry:
 class FileSync(Process):
     _logger = _logger
 
-    def __init__(self, dimensigon: 'Dimensigon', shutdown_event, sync_interval=SYNC_INTERVAL,
+    def __init__(self, dimensigon: 'Dimensigon', sync_interval=SYNC_INTERVAL,
                  file_watches_refresh_period=FILE_WATCHES_REFRESH_PERIOD, max_allowed_errors=MAX_ALLOWED_ERRORS,
                  retry_blacklist=RETRY_BLACKLIST):
-        super().__init__(shutdown_event, name=self.__class__.__name__)
+        super().__init__(dimensigon.shutdown_event, name=self.__class__.__name__)
         self.dm = dimensigon
 
         # Multiprocessing
@@ -83,8 +107,12 @@ class FileSync(Process):
         self._file2watch: t.Dict[Id, ObservedWatch] = {}
         self._last_file_updated = None
         self._blacklist: t.Dict[t.Tuple[Id, Id], BlacklistEntry] = {}
+        self._blacklist_log: t.Dict[t.Tuple[Id, Id], BlacklistEntry] = {}
         self.session = None
         self._server = None
+
+        # log variables
+        self._mapper: t.Dict[Id, t.List[_PygtailBuffer]] = {}
 
     def _create_session(self):
         self.Session = sessionmaker(bind=self.dm.engine)
@@ -300,10 +328,11 @@ class FileSync(Process):
                 start = time.time()
                 self._set_watchers()
                 self._sync_files()
+                self._send_new_data()
 
     def _shutdown(self):
-        self.queue.close()
-        self.queue.join_thread()
+        # self.queue.close()
+        # self.queue.join_thread()
         self._observer.stop()
         self.session.close()
         self._loop.stop()
@@ -323,3 +352,112 @@ class FileSync(Process):
             self.queue.put((file_id, server_id), timeout=2)
         except queue.Full:
             _logger.warning("Queue is full. Try increasing its size")
+
+    @property
+    def my_logs(self):
+        return self.session.query(Log).filter_by(source_server=Server.get_current(session=self.session)).all()
+
+    def update_mapper(self):
+        logs = self.my_logs
+        id2log = {log.id: log for log in logs}
+        # remove logs
+        for log_id in list(self._mapper.keys()):
+            if log_id not in id2log:
+                del self._mapper[log_id]
+
+        # add new logs
+        for log in logs:
+            if log.id not in self._mapper:
+                self._mapper[log.id] = []
+            self.update_pytail_objects(log, self._mapper[log.id])
+
+    def update_pytail_objects(self, log: Log, pytail_list: t.List):
+        if os.path.isfile(log.target):
+            if len(pytail_list) == 0:
+                filename = '.' + os.path.basename(log.target) + '.offset'
+                path = os.path.dirname(log.target)
+                offset_file = os.path.join(path, filename)
+                pytail_list.append(
+                    _PygtailBuffer(file=log.target, offset_mode='manual', offset_file=offset_file))
+        else:
+            for folder, dirnames, filenames in os.walk(log.target):
+                for filename in filenames:
+                    if log._re_include.search(filename) and not log._re_exclude.search(filename):
+                        file = os.path.join(folder, filename)
+                        offset_file = os.path.join(folder, '.' + filename + '.offset')
+                        if not any(map(lambda p: p.file == file, pytail_list)):
+                            pytail_list.append(
+                                _PygtailBuffer(file=file, offset_mode='manual', offset_file=offset_file))
+                if not log.recursive:
+                    break
+                new_dirnames = []
+                for dirname in dirnames:
+                    if log._re_include.search(dirname) and not log._re_exclude.search(dirname):
+                        new_dirnames.append(dirname)
+                dirnames[:] = new_dirnames
+
+    def _send_new_data(self):
+        self.update_mapper()
+        tasks = OrderedDict()
+
+        for log_id, pb in self._mapper.items():
+            log = self.session.query(Log).get(log_id)
+            for pytail in pb:
+                data = pytail.fetch()
+                data = data.encode() if isinstance(data, str) else data
+                if data and log.destination_server.id in self.dm.cluster_manager.get_alive():
+                    if log.mode == Mode.MIRROR:
+                        file = pytail.file
+                    elif log.mode == Mode.REPO_ROOT:
+                        path_to_remove = os.path.dirname(log.target)
+                        relative = os.path.relpath(pytail.file, path_to_remove)
+                        file = os.path.join('{LOG_REPO}', relative)
+                    elif log.mode == Mode.FOLDER:
+                        path_to_remove = os.path.dirname(log.target)
+                        relative = os.path.relpath(pytail.file, path_to_remove)
+                        file = os.path.join(log.dest_folder, relative)
+                    else:
+                        def get_root(dirname):
+                            new_dirname = os.path.dirname(dirname)
+                            if new_dirname == dirname:
+                                return dirname
+                            else:
+                                return get_root(new_dirname)
+
+                        relative = os.path.relpath(pytail.file, get_root(pytail.file))
+                        file = os.path.join('{LOG_REPO}', relative)
+                    with self.dm.flask_app.app_context():
+                        auth = get_root_auth()
+
+                    task = ntwrk.async_post(log.destination_server, 'api_1_0.logresource',
+                                            view_data={'log_id': str(log_id)},
+                                            json={"file": file,
+                                                  'data': base64.b64encode(zlib.compress(data)).decode('ascii'),
+                                                  "compress": True},
+                                            auth=auth)
+
+                    tasks[task] = (pytail, log)
+                    _log_logger.debug(f"Task sending data from '{pytail.file}' to '{log.destination_server}' prepared")
+
+        with self.dm.flask_app.app_context():
+            responses = self._loop.run_until_complete(asyncio.gather(*list(tasks.keys())))
+
+        for task, resp in zip(tasks.keys(), responses):
+            pytail, log = tasks[task]
+            if resp.ok:
+                pytail.update_offset_file()
+                _log_logger.debug(f"Updated offset from '{pytail.file}'")
+                if log.id not in self._blacklist:
+                    self._blacklist_log.pop(log.id, None)
+            else:
+                _log_logger.error(
+                    f"Unable to send log information from '{pytail.file}' to '{log.destination_server}'. Error: {resp}")
+                if log.id not in self._blacklist:
+                    bl = BlacklistEntry()
+                    self._blacklist_log[log.id] = bl
+                else:
+                    bl = self._blacklist_log.get(log.id)
+                bl.retries += 1
+                if bl.retries >= self.max_allowed_errors:
+                    _log_logger.debug(f"Adding server {log.destination_server.id} to the blacklist.")
+                    bl.blacklisted = time.time()

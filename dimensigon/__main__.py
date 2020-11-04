@@ -146,7 +146,7 @@ def app_context(f):
 
 
 def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = True, verify: bool = False):
-    logger = logging.getLogger('dimensigon.join')
+    logger = logging.getLogger('dm.join')
     dm.create_flask_instance()
     with dm.flask_app.app_context():
         Server.set_initial()

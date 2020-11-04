@@ -47,7 +47,7 @@ def ensure_config_path(config_dir: str) -> None:
 default_logconfig_dict = {
     'version': 1,
     'disable_existing_loggers': False,
-    "root": {"level": "INFO", "handlers": ["console", "error_file"]},
+    "root": {"level": "DEBUG", "handlers": ["console", "error_file"]},
     'loggers': {
         "gunicorn.error": {
             "level": "INFO",
@@ -68,34 +68,34 @@ default_logconfig_dict = {
         #     "level": "DEBUG",
         #     "qualname": "dimensigon"
         # },
-        # "dimensigon.lock": {
+        # "dm.lock": {
         #     "level": "DEBUG",
         # },
-        "dimensigon.fileSync": {
+        "dm.fileSync": {
             "level": "DEBUG",
         },
-        "dimensigon.cluster": {
+        "dm.cluster": {
             "level": "DEBUG",
         },
-        "dimensigon.background.log_sender": {
+        "dm.logfed": {
             "level": "DEBUG",
         },
-        # "dimensigon.db": {
+        # "dm.db": {
         #     "level": "DEBUG",
         # },
-        # "dimensigon.routing": {
+        # "dm.routing": {
         #     "level": "DEBUG",
         # },
-        # "dimensigon.cluster": {
+        # "dm.cluster": {
         #     "level": "DEBUG",
         # },
-        # "dimensigon.catalog": {
+        # "dm.catalog": {
         #     "level": "DEBUG",
         # },
-        # "dimensigon.network": {
+        # "dm.network": {
         #     "level": "INFO",
         # },
-        # "dimensigon.query": {
+        # "dm.query": {
         #     "level": "DEBUG",
         #     "handlers": ["query_file"],
         #     "propagate": False

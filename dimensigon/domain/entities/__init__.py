@@ -32,7 +32,7 @@ from .user import User
 
 SCHEMA_VERSION = 6
 
-_LOGGER = logging.getLogger('dimensigon.catalog')
+_LOGGER = logging.getLogger('dm.catalog')
 
 __all__ = [
     "ActionTemplate",
@@ -155,7 +155,7 @@ def my_on_connect(dbapi_con, connection_record):
     # dbapi_con.execute("PRAGMA busy_timeout=10000")
 
 
-_query_logger = logging.getLogger('dimensigon.query')
+_query_logger = logging.getLogger('dm.query')
 
 
 @event.listens_for(Engine, "before_cursor_execute")

@@ -17,9 +17,9 @@ from dimensigon.utils.helpers import get_now
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import run_as
 
-logger = logging.getLogger('dimensigon.background')
-catalog_logger = logging.getLogger('dimensigon.catalog')
-upgrader_logger = logging.getLogger('dimensigon.upgrader')
+logger = logging.getLogger('dm.background')
+catalog_logger = logging.getLogger('dm.catalog')
+upgrader_logger = logging.getLogger('dm.upgrader')
 
 
 #

@@ -15,7 +15,7 @@ from dimensigon.domain.entities import SCHEMA_VERSION, SchemaChanges
 from dimensigon.utils.helpers import session_scope
 from dimensigon.web import db
 
-_LOGGER = logging.getLogger('dimensigon.db')
+_LOGGER = logging.getLogger('dm.db')
 
 PROGRESS_FILE = ".migration_progress"
 

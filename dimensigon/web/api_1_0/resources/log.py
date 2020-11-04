@@ -71,13 +71,18 @@ class LogResource(Resource):
             data_log = zlib.decompress(base64.b64decode(data.get('data').encode('ascii')))
         else:
             data_log = base64.b64decode(data.get('data').encode('ascii'))
-        try:
-            if not os.path.exists(os.path.dirname(file)):
+
+        if not os.path.exists(os.path.dirname(file)):
+            try:
                 os.makedirs(os.path.dirname(file))
+            except PermissionError:
+                raise errors.GenericError(f"Permission denied creating '{os.makedirs(os.path.dirname(file))}'", 500)
+        try:
             with open(file, 'ab') as fh:
                 fh.write(data_log)
         except Exception as e:
-            return {"error": str(e)}
+            raise errors.GenericError(f"{e}", 500)
+
         return {'offset': os.path.getsize(file)}
 
     @jwt_required

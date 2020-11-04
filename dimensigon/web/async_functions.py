@@ -20,18 +20,18 @@ if t.TYPE_CHECKING:
 async def async_send_file(dest_server: Server, transfer_id: Id, file,
                           chunk_size: int = None, chunks: int = None, max_senders: int = None,
                           auth=None, retries: int = 1):
-    async def send_chunk(server: Server, view: str, chunk, sem):
+    async def send_chunk(server: Server, view: str, _chunk, _chunk_size, sem, _session):
         async with sem:
-            json_msg = dict(chunk=chunk)
+            json_msg = dict(chunk=_chunk)
 
             with open(file, 'rb') as fd:
-                fd.seek(chunk * chunk_size)
-                chunk_content = base64.b64encode(fd.read(chunk_size)).decode('ascii')
+                fd.seek(_chunk * _chunk_size)
+                chunk_content = base64.b64encode(fd.read(_chunk_size)).decode('ascii')
             json_msg.update(content=chunk_content)
 
             return await async_post(server, view_or_url=view,
                                     view_data=dict(transfer_id=str(transfer_id)), json=json_msg, auth=auth,
-                                    session=session)
+                                    session=_session)
 
     chunk_size = chunk_size or defaults.CHUNK_SIZE
     max_senders = max_senders or defaults.MAX_SENDERS
@@ -44,7 +44,8 @@ async def async_send_file(dest_server: Server, transfer_id: Id, file,
         while retries > 0:
             retry_chunks = []
             for chunk in l_chunks:
-                task = asyncio.create_task(send_chunk(dest_server, 'api_1_0.transferresource', chunk, sem))
+                task = asyncio.create_task(
+                    send_chunk(dest_server, 'api_1_0.transferresource', chunk, chunk_size, sem, session))
                 responses.update({chunk: task})
 
             for chunk, task in responses.items():
@@ -68,5 +69,3 @@ async def async_send_file(dest_server: Server, transfer_id: Id, file,
     if l_chunks:
         data = {c: responses[c].result() for c in l_chunks}
         raise errors.ChunkSendError(data)
-
-

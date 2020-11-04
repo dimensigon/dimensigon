@@ -26,8 +26,7 @@ def get_servers_from_scope(scope: Scope, bypass: t.Union[t.List[Server], Server]
     quorum = []
     me = Server.get_current()
     if scope == scope.CATALOG:
-        last_alive_ids = current_app.cluster_manager.cluster.get_delta_keepalive(
-            dt.timedelta(minutes=defaults.REFRESH_PERIOD * defaults.COMA_NODE_FACTOR))
+        last_alive_ids = current_app.dm.cluster_manager.get_alive()
         if me.id not in last_alive_ids:
             last_alive_ids.append(me.id)
         all_query = Server.query.filter_by(l_ignore_on_lock=False)
