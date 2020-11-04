@@ -42,6 +42,7 @@ COMA_NODE_FACTOR = 2  # multiply factor to decide if a node is in coma state. In
 ADULT_NODES = dt.timedelta(hours=24)  # age of a node to be selectable for the quorum
 MAJORITY = 0.51  # ratio of servers to be selectable from old population in order to perform a lock
 
+
 TIMEOUT_REQUEST = 60
 TIMEOUT_PREVENTING_LOCK = 60  # max time in seconds locker will be in PREVENTING_LOCK before returning to UNLOCK
 TIMEOUT_ORCHESTRATION = 1800  # max time waiting for an orchestration to finish
@@ -49,7 +50,7 @@ TIMEOUT_COMMAND = 20  # max time waiting for a command execution
 TIMEOUT_LOCK_REQUEST = 60  # timeout on lock/unlock/prevent_lock HTTP request
 
 
-CHUNK_SIZE = 2*1024  # in MB
+CHUNK_SIZE = 2  # in MB
 MAX_SENDERS = 4
 
 MIN_SERVERS_QUORUM = 5  # minimum servers to run quorum algorithm

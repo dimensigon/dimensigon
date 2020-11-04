@@ -17,7 +17,7 @@ from dimensigon.utils.helpers import convert, is_iterable_not_string, is_valid_u
 from dimensigon.utils.typos import Id
 from dimensigon.web import network as ntwrk, db
 
-logger = logging.getLogger('dimensigon.routing')
+logger = logging.getLogger('dm.routing')
 
 
 class _RLock(threading._RLock):

@@ -30,13 +30,11 @@ cluster_post = {
     "items": {"type": "object",
               "properties": {
                   "id": {"type": "string", "pattern": UUID_pattern},
-                  "birth": {"type": "string"},
-                  "keepalive": {"anyOf": [{"type": "string"}, {"type": "null"}]},
-                  "death": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+                  "keepalive": {"type": "string"},
+                  "death": {"type": ["boolean", "null"]}
               },
-              "required": ["id", "birth"]
+              "required": ["id", "keepalive", "death"]
               }
-
 }
 
 locker_prevent_post = {
@@ -88,8 +86,7 @@ send_post = {
         "dest_path": {"type": "string"},
         "chunk_size": {"type": "integer",  # size in MB
                        "minimum": 1,
-                       "maximum": 1 * 1024,
-                       # "multipleOf": 1024
+                       "maximum": 4 * 1024,
                        },
         "max_senders": {"type": "integer",
                         "minimum": 1},
@@ -99,7 +96,7 @@ send_post = {
     },
     "oneOf": [{"required": ["software_id", "dest_server_id"]},
               {"required": ["software", "version", "dest_server_id"]},
-              {"required": ["file", "dest_server_id"]}],
+              {"required": ["file", "dest_server_id", "dest_path"]}],
     "additionalProperties": False
 }
 
@@ -140,21 +137,48 @@ software_servers_put = {
     "additionalProperties": False
 }
 
+schema = {"type": "object",
+          "properties": {
+              "input": {"type": "object"},
+              "required": {"type": "array",
+                           "items": {"type": "string"}
+                           },
+              "output": {"type": "array",
+                         "items": {"type": "string"}},
+              "mapping": {"type": "object",
+                          # "patternProperties": {
+                          #     ".*": {"type": ["object",
+                          #            "properties": {
+                          #                "from": {"type": "string"},
+                          #                "replace": {"type": "string"}
+                          #            }}},
+                          }
+          }}
+
 action_type_pattern = f"^({'|'.join([at.name for at in ActionType if at.name != 'NATIVE'])})$"
 action_template_post = {
     "type": "object",
     "properties": {
-        "name": {"type": "string"},
+        "name": {"type": "string",
+                 "maxLength": 40},
+        "description": {"type": "string"},
         "action_type": {"type": "string",
                         "pattern": action_type_pattern},
-        "code": {"type": "string"},
+        "code": {"anyOf": [{"type": "string"},
+                           {"type": "array",
+                            "items": {"type": "string"}}]},
         "parameters": {"type": "object"},
+        "schema": schema,
         "expected_stdout": {"type": "string"},
         "expected_stderr": {"type": "string"},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "pre_process": {"type": "string"},
-        "post_process": {"type": "string"},
+        "pre_process": {"anyOf": [{"type": "string"},
+                                  {"type": "array",
+                                   "items": {"type": "string"}}]},
+        "post_process": {"anyOf": [{"type": "string"},
+                                   {"type": "array",
+                                    "items": {"type": "string"}}]},
     },
     "if": {
         "properties": {"action_type": {"const": "SEND"}}
@@ -163,7 +187,9 @@ action_template_post = {
         "required": ["name", "action_type"],
     },
     "else": {
-        "properties": {"code": {"type": "string"}},
+        "properties": {"code": {"anyOf": [{"type": "string"},
+                                          {"type": "array",
+                                           "items": {"type": "string"}}]}},
         "required": ["name", "action_type", "code"],
     },
     "required": ["name", "action_type", "code"],
@@ -173,16 +199,28 @@ action_template_post = {
 action_template_patch = {
     "type": "object",
     "properties": {
+        "description": {"type": "string"},
         "action_type": {"type": "string",
                         "pattern": f"^({'|'.join([at.name for at in ActionType])})$"},
-        "code": {"type": "string"},
+        "code": {"anyOf": [{"type": "string"},
+                           {"type": "array",
+                            "items": {"type": "string"}}]},
         "parameters": {"type": "object"},
-        "expected_stdout": {"type": "string"},
-        "expected_stderr": {"type": "string"},
+        "schema": schema,
+        "expected_stdout": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
+        "expected_stderr": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "pre_process": {"type": "string"},
-        "post_process": {"type": "string"},
+        "pre_process": {"anyOf": [{"type": "string"},
+                                  {"type": "array",
+                                   "items": {"type": "string"}}]},
+        "post_process": {"anyOf": [{"type": "string"},
+                                   {"type": "array",
+                                    "items": {"type": "string"}}]},
     },
     "additionalProperties": False
 }
@@ -195,7 +233,9 @@ _step_post = {
         "orchestration_id": {"type": "string",
                              "pattern": UUID_pattern},
         "undo": {"type": "boolean"},
-        "name": {"type": "string"},
+        "name": {"type": "string",
+                 "maxLength": 40},
+        "description": {"type": "string"},
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
         "action_template_id": {"type": "string",
@@ -203,14 +243,25 @@ _step_post = {
         "action_type": {"type": "string",
                         "pattern": action_type_pattern},
         "undo_on_error": {"type": "boolean"},
-        "code": {"type": "string"},
+        "code": {"anyOf": [{"type": "string"},
+                           {"type": "array",
+                            "items": {"type": "string"}}]},
         "parameters": {"type": "object"},
-        "expected_stdout": {"type": "string"},
-        "expected_stderr": {"type": "string"},
+        "schema": schema,
+        "expected_stdout": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
+        "expected_stderr": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "pre_process": {"type": "string"},
-        "post_process": {"type": "string"},
+        "pre_process": {"anyOf": [{"type": "string"},
+                                  {"type": "array",
+                                   "items": {"type": "string"}}]},
+        "post_process": {"anyOf": [{"type": "string"},
+                                   {"type": "array",
+                                    "items": {"type": "string"}}]},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
                                                 {"type": "integer", "minimum": 1}]
@@ -244,15 +295,28 @@ step_put = {
         "action_type": {"type": "string",
                         "pattern": action_type_pattern},
 
-        "code": {"type": "string"},
+        "code": {"anyOf": [{"type": "string"},
+                           {"type": "array",
+                            "items": {"type": "string"}}]},
         "parameters": {"type": "object"},
-        "expected_stdout": {"type": "string"},
-        "expected_stderr": {"type": "string"},
+        "schema": schema,
+        "expected_stdout": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
+        "expected_stderr": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "pre_process": {"type": "string"},
-        "post_process": {"type": "string"},
-        "name": {"type": "string"},
+        "pre_process": {"anyOf": [{"type": "string"},
+                                  {"type": "array",
+                                   "items": {"type": "string"}}]},
+        "post_process": {"anyOf": [{"type": "string"},
+                                   {"type": "array",
+                                    "items": {"type": "string"}}]},
+        "name": {"type": "string",
+                 "maxLength": 40},
+        "description": {"type": "string"},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
                                                 {"type": "integer", "minimum": 1}]
@@ -282,15 +346,28 @@ step_patch = {
         "action_type": {"type": "string",
                         "pattern": action_type_pattern},
         "undo_on_error": {"type": "boolean"},
-        "code": {"type": "string"},
+        "code": {"anyOf": [{"type": "string"},
+                           {"type": "array",
+                            "items": {"type": "string"}}]},
         "parameters": {"type": "object"},
-        "expected_stdout": {"type": "string"},
-        "expected_stderr": {"type": "string"},
+        "schema": schema,
+        "expected_stdout": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
+        "expected_stderr": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "pre_process": {"type": "string"},
-        "post_process": {"type": "string"},
-        "name": {"type": "string"},
+        "pre_process": {"anyOf": [{"type": "string"},
+                                  {"type": "array",
+                                   "items": {"type": "string"}}]},
+        "post_process": {"anyOf": [{"type": "string"},
+                                   {"type": "array",
+                                    "items": {"type": "string"}}]},
+        "name": {"type": "string",
+                 "maxLength": 40},
+        "description": {"type": "string"},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
                                                 {"type": "integer", "minimum": 1}]
@@ -398,14 +475,25 @@ orchestration_step = {
         "action_type": {"type": "string",
                         "pattern": action_type_pattern},
         "undo_on_error": {"type": "boolean"},
-        "code": {"type": "string"},
+        "code": {"anyOf": [{"type": "string"},
+                           {"type": "array",
+                            "items": {"type": "string"}}]},
         "parameters": {"type": "object"},
-        "expected_stdout": {"type": "string"},
-        "expected_stderr": {"type": "string"},
+        "schema": schema,
+        "expected_stdout": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
+        "expected_stderr": {"anyOf": [{"type": "string"},
+                                      {"type": "array",
+                                       "items": {"type": "string"}}]},
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "pre_process": {"type": "string"},
-        "post_process": {"type": "string"},
+        "pre_process": {"anyOf": [{"type": "string"},
+                                  {"type": "array",
+                                   "items": {"type": "string"}}]},
+        "post_process": {"anyOf": [{"type": "string"},
+                                   {"type": "array",
+                                    "items": {"type": "string"}}]},
         "parent_step_ids": {"type": "array",
                             "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}
                             },
@@ -422,7 +510,9 @@ orchestration_full = {
     "type": "object",
     "properties": {
         "name": {"type": "string"},
-        "description": {"type": "string"},
+        "description": {"anyOf": [{"type": "string"},
+                                  {"type": "array",
+                                   "items": {"type": "string"}}]},
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
         "undo_on_error": {"type": "boolean"},
@@ -438,7 +528,9 @@ orchestration_patch = {
     "properties": {
         "name": {"type": "string"},
         "version": {"type": "integer", "minimum": 1},
-        "description": {"type": "string"},
+        "description": {"anyOf": [{"type": "string"},
+                                  {"type": "array",
+                                   "items": {"type": "string"}}]},
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
         "undo_on_error": {"type": "boolean"}
@@ -450,24 +542,22 @@ orchestration_patch = {
 launch_orchestration_post = {
     "type": "object",
     "properties": {
-        'hosts': {"anyOf": [{"type": "string"},
-                            {"type": "array",
-                             "items": {"type": "string"},
-                             "minItems": 1},
-                            {"type": "object",
-                             "patternProperties": {
-                                 ".*": {"anyOf": [{"type": "string"},
-                                                  {"type": "array",
-                                                   "items": {"type": "string"},
-                                                   "minItems": 1
-                                                   },
-                                                  ]
+        'hosts': {"type": ["string", "array", "object"],
+                  "items": {"type": "string"},
+                  "minItems": 1,
+                  "patternProperties": {
+                      ".*": {"anyOf": [{"type": "string"},
+                                       {"type": "array",
+                                        "items": {"type": "string"},
+                                        "minItems": 1
                                         },
+                                       ]
                              },
-                             }]
                   },
-        "params": {"type": "object"},
-        "background": {"type": "boolean"}
+                  },
+        "params": {"type": ["object", "null"]},
+        "background": {"type": "boolean"},
+        "input_validation": {"type": "boolean"}
     },
     "required": ["hosts"],
     "additionalProperties": False,
@@ -490,7 +580,8 @@ transfers_post = {
         "force": {"type": "boolean"},           # forces to transfer file even if it exists in the destination
 
     },
-    "required": ['num_chunks'],
+    "oneOf": [{"required": ["num_chunks", "software_id"]},
+              {"required": ["num_chunks", "filename", "dest_path", "size", "checksum"]}],
     "additionalProperties": False
 }
 
@@ -554,6 +645,7 @@ log_post = {
     "properties": {
         "file": {"type": "string"},
         "data": {"type": "string"},
+        "compress": {"type": "boolean"}
     },
     "required": ["data"],
     "additionalProperties": False
@@ -651,3 +743,83 @@ server_patch = {
     },
     "additionalProperties": False,
 }
+
+files_post = {
+    "properties": {
+        "src_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "target": {"type": "string"},
+        "dest_folder": {"type": "string"},
+        "destinations": {"type": "array",
+                         "items": {"type": "object",
+                                   "properties": {
+                                       "dst_server_id": {"type": "string",
+                                                         "pattern": UUID_pattern},
+                                       "dest_folder": {"type": "string"}
+
+                                   },
+                                   "required": ["dst_server_id"],
+                                   "additionalProperties": False
+                                   }
+                         }
+    },
+    "required": ["src_server_id", "target", 'destinations'],
+    "additionalProperties": False
+}
+file_post = files_post
+
+file_patch = {
+    "properties": {
+        "src_server_id": {"type": "string",
+                          "pattern": UUID_pattern},
+        "target": {"type": "string"},
+        "dest_folder": {"type": "string"},
+        "destinations": {"type": "array",
+                         "items": {"type": "object",
+                                   "properties": {
+                                       "dst_server_id": {"type": "string",
+                                                         "pattern": UUID_pattern},
+                                       "dest_folder": {"type": "string"}
+
+                                   },
+                                   "required": ["dst_server_id"],
+                                   "additionalProperties": False
+                                   }
+                         }
+    },
+    "additionalProperties": False
+}
+
+file_sync = {
+    "type": "object",
+    "properties": {
+        "file": {"type": "string"},
+        "data": {"type": "string"},
+        "force": {"type": "boolean"}
+
+    },
+    "required": ["data", "file"],
+    "additionalProperties": False
+}
+
+destination = {"type": "object",
+               "properties": {
+                   "dst_server_id": {"type": "string",
+                                     "pattern": UUID_pattern},
+                   "dest_folder": {"type": ["string", "null"]}
+
+               },
+               "required": ["dst_server_id"],
+               "additionalProperties": False
+               }
+
+file_server_associations_post = {
+    "anyOf": [destination,
+              {"type": "array",
+               "items": destination}
+              ]
+}
+
+file_server_associations_patch = file_server_associations_post
+
+file_server_associations_delete = file_server_associations_post

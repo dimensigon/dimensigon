@@ -14,11 +14,11 @@ from pygments.lexers.special import TextLexer
 
 import dimensigon.dshell.network as ntwrk
 from dimensigon.domain.entities import ActionType
+from dimensigon.dshell import validators as v, converters as c
 from dimensigon.dshell.argparse_raise import ArgumentParserRaise
 from dimensigon.dshell.helpers import get_history, exit_dshell
 from dimensigon.dshell.output import dprint
-from dimensigon.dshell.prompts.utils import prompt_parameter
-from dimensigon.dshell.validators import ChoiceValidator, IntValidator, JSONValidator
+from dimensigon.dshell.prompts.utils import prompt_parameter, code_extension
 
 
 def code_lexer(action_type):
@@ -34,18 +34,22 @@ def code_lexer(action_type):
 form = {
     "name": dict(history=InMemoryHistory()),
     "version": dict(history=InMemoryHistory()),
-    "action_type": dict(validator=ChoiceValidator([at.name for at in ActionType if at.name != 'NATIVE']),
+    "action_type": dict(validator=v.Choice([at.name for at in ActionType if at.name != 'NATIVE']),
                         history=InMemoryHistory()),
-    "code": dict(multiline=True, lexer=code_lexer, history=InMemoryHistory(), edit=True),
-    "expected_stdout": dict(multiline=True, history=InMemoryHistory()),
-    "expected_stderr": dict(multiline=True, history=InMemoryHistory()),
-    "expected_rc": dict(validator=IntValidator(), history=InMemoryHistory()),
-    "parameters": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), validator=JSONValidator(),
+    "code": dict(edit=code_extension, mouse_support=True, lexer=code_lexer, history=InMemoryHistory(),
+                 converter=c.MultiLine),
+    "expected_stdout": dict(multiline=True, mouse_support=True, history=InMemoryHistory(), converter=c.MultiLine),
+    "expected_stderr": dict(multiline=True, mouse_support=True, history=InMemoryHistory(), converter=c.MultiLine),
+    "expected_rc": dict(validator=v.Int, converter=c.Int, history=InMemoryHistory()),
+    "parameters": dict(multiline=True, mouse_support=True, lexer=PygmentsLexer(PythonLexer), validator=v.JSON,
                        history=InMemoryHistory()),
-    "system_kwargs": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), validator=JSONValidator(),
+    "schema": dict(edit='.yaml', mouse_support=True, validator=v.JSON, history=InMemoryHistory(), converter=c.Yaml),
+    "system_kwargs": dict(multiline=True, mouse_support=True, lexer=PygmentsLexer(PythonLexer), validator=v.JSON,
                           history=InMemoryHistory()),
-    "pre_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
-    "post_process": dict(multiline=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(), edit=True),
+    "pre_process": dict(edit='.py', mouse_support=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(),
+                        converter=c.MultiLine),
+    "post_process": dict(edit='.py', mouse_support=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(),
+                         converter=c.MultiLine),
 }
 
 parser = ArgumentParserRaise(allow_abbrev=False, prog='')
@@ -105,25 +109,18 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
                 dprint("Not a valid parameter. Available: " + ', '.join(form.keys()))
             else:
                 try:
-                    if prompt_parameter(namespace.parameter, entity, form, f"{parent_prompt}{entity_name}('{entity['name']}')"):
+                    if prompt_parameter(namespace.parameter, entity, form,
+                                        f"{parent_prompt}{entity_name}('{entity['name']}')"):
                         changed = True
                 except KeyboardInterrupt:
                     continue  # Control-C pressed. Try again.
                 except EOFError:
                     exit_dshell(rc=1)
         elif namespace.cmd == 'submit':
-            if 'id' in entity:
-                resp = ntwrk.patch(f'api_1_0.{entity_name.replace("_", "")}resource', json=entity)
-            else:
-                resp = ntwrk.post(f'api_1_0.{entity_name.replace("_", "")}list', json=entity)
-
-            if resp.code and 200 <= resp.code <= 299:
-                if resp.msg:
-                    pprint(resp.msg)
-                break
-            else:
-                pprint(resp.msg if resp.code is not None else str(resp.exception) if str(
-                    resp.exception) else resp.exception.__class__.__name__)
+            resp = ntwrk.post(f'api_1_0.{entity_name.replace("_", "")}list', json=entity)
+            dprint(resp)
+            if resp.ok:
+                return
         elif namespace.cmd == 'delete':
             if namespace.parameter not in form.keys():
                 dprint("Not a valid parameter. Available: " + ', '.join(form.keys()))

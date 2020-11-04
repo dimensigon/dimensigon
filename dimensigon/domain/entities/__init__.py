@@ -10,10 +10,13 @@ from sqlalchemy.pool import Pool
 
 from dimensigon.utils.helpers import get_distributed_entities, get_now
 from dimensigon.web import db
+# Server is used in most of the entities. It must be imported first
+from .server import Server
 from .action_template import ActionTemplate, ActionType
 from .catalog import Catalog
 from .dimension import Dimension
 from .execution import StepExecution, OrchExecution
+from .file import File, FileServerAssociation
 from .gate import Gate
 from .locker import Locker, State, Scope
 from .log import Log, Mode as LogMode
@@ -21,16 +24,15 @@ from .orchestration import Orchestration
 from .parameter import Parameter
 from .route import Route
 from .schema_changes import SchemaChanges
-from .server import Server
 from .service import Service
 from .software import Software, SoftwareServerAssociation
 from .step import Step
 from .transfer import Transfer, Status as TransferStatus
 from .user import User
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
-_LOGGER = logging.getLogger('dimensigon.catalog')
+_LOGGER = logging.getLogger('dm.catalog')
 
 __all__ = [
     "ActionTemplate",
@@ -39,6 +41,8 @@ __all__ = [
     "Dimension",
     "StepExecution",
     "OrchExecution",
+    "File",
+    "FileServerAssociation",
     "Gate",
     "Locker",
     "State",
@@ -80,9 +84,25 @@ def update_datemark(set):
     catalog.datemark = set
 
 
-def set_events():
-    for name, entity in get_distributed_entities():
-        def receive_before_insert(mapper, connection, target):
+for name, entity in get_distributed_entities():
+    def receive_before_insert(mapper, connection, target):
+        if not hasattr(catalog, 'data'):
+            catalog.data = {}
+        if getattr(catalog, 'datemark', True):
+            target.last_modified_at = get_now()
+        if not target.__class__ in catalog.data:
+            catalog.data.update({target.__class__: target.last_modified_at})
+        else:
+            catalog.data.update(
+                {target.__class__: max(target.last_modified_at, catalog.data[target.__class__])})
+
+
+    def receive_before_update(mapper, connection, target):
+        # validate if target is updated
+        it = inspect(target)
+        columns = [c for c in mapper.columns.keys() if not c.startswith('l_')]
+        changed = any([attr.history.has_changes() for attr in it.attrs if attr.key in columns])
+        if changed:
             if not hasattr(catalog, 'data'):
                 catalog.data = {}
             if getattr(catalog, 'datemark', True):
@@ -93,28 +113,9 @@ def set_events():
                 catalog.data.update(
                     {target.__class__: max(target.last_modified_at, catalog.data[target.__class__])})
 
-        def receive_before_update(mapper, connection, target):
-            # validate if target is updated
-            it = inspect(target)
-            columns = mapper.columns.keys()
-            changed = any(
-                [attr.history.has_changes() for attr in it.attrs if attr.key in columns])
-            if changed:
-                if not hasattr(catalog, 'data'):
-                    catalog.data = {}
-                if getattr(catalog, 'datemark', True):
-                    target.last_modified_at = get_now()
-                if not target.__class__ in catalog.data:
-                    catalog.data.update({target.__class__: target.last_modified_at})
-                else:
-                    catalog.data.update(
-                        {target.__class__: max(target.last_modified_at, catalog.data[target.__class__])})
 
-        event.listen(entity, 'before_insert', receive_before_insert, propagate=False)
-        event.listen(entity, 'before_update', receive_before_update, propagate=False)
-
-
-set_events()
+    event.listen(entity, 'before_insert', receive_before_insert, propagate=False)
+    event.listen(entity, 'before_update', receive_before_update, propagate=False)
 
 
 @event.listens_for(db.session, 'after_commit')
@@ -154,7 +155,7 @@ def my_on_connect(dbapi_con, connection_record):
     # dbapi_con.execute("PRAGMA busy_timeout=10000")
 
 
-_query_logger = logging.getLogger('dimensigon.query')
+_query_logger = logging.getLogger('dm.query')
 
 
 @event.listens_for(Engine, "before_cursor_execute")

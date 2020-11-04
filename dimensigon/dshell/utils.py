@@ -8,7 +8,7 @@ def get_raw_text(text):
     if is_formatted_text(text):
         return ''.join([token[1] for token in text.formatted_text])
     else:
-        text
+        return text
 
 
 def clean_none(data):

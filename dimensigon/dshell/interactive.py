@@ -1,5 +1,6 @@
 import argparse
 import inspect
+import os
 import shlex
 
 from prompt_toolkit import PromptSession
@@ -12,6 +13,7 @@ from dimensigon.dshell.commands import nested_dict
 from dimensigon.dshell.completer import DshellCompleter
 from dimensigon.dshell.helpers import exit_dshell, get_history
 from dimensigon.dshell.output import dprint
+from dimensigon.utils import subprocess
 
 
 def call_func_with_signature(cmd_params):
@@ -82,24 +84,31 @@ def interactive():
             continue  # Control-C pressed. Try again.
         except EOFError:
             exit_dshell()
-        try:
-            namespace = parser.parse_args(shlex.split(text))
-        except (ValueError, argparse.ArgumentError) as e:
-            print(e)
-            continue
-        except SystemExit:
-            continue
-        else:
-            cmd_params = vars(namespace)
 
-        if not text:
-            continue
-        elif text == 'help':
-            parser.print_usage()
-        elif text and len(cmd_params) == 0:
+        if text.startswith('!'):
+            subprocess.call(text.lstrip('!'), shell=True)
+        else:
             try:
-                parser.parse_args(shlex.split(text) + ['-h'])
+                namespace = parser.parse_args(shlex.split(text))
+            except (ValueError, argparse.ArgumentError) as e:
+                dprint(e)
+                continue
             except SystemExit:
                 continue
-        else:
-            call_func_with_signature(cmd_params)
+            except Exception as e:
+                dprint(e)
+                continue
+            else:
+                cmd_params = vars(namespace)
+
+            if not text:
+                continue
+            elif text == 'help':
+                parser.print_usage()
+            elif text and len(cmd_params) == 0:
+                try:
+                    parser.parse_args(shlex.split(text) + ['-h'])
+                except SystemExit:
+                    continue
+            else:
+                call_func_with_signature(cmd_params)

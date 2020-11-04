@@ -47,7 +47,7 @@ def ensure_config_path(config_dir: str) -> None:
 default_logconfig_dict = {
     'version': 1,
     'disable_existing_loggers': False,
-    "root": {"level": "INFO", "handlers": ["console", "error_file"]},
+    "root": {"level": "DEBUG", "handlers": ["console", "error_file"]},
     'loggers': {
         "gunicorn.error": {
             "level": "INFO",
@@ -68,27 +68,34 @@ default_logconfig_dict = {
         #     "level": "DEBUG",
         #     "qualname": "dimensigon"
         # },
-        # "dimensigon.db": {
+        # "dm.lock": {
         #     "level": "DEBUG",
-        #     "qualname": "dimensigon.dm"
         # },
-        # "dimensigon.routing": {
+        "dm.fileSync": {
+            "level": "DEBUG",
+        },
+        "dm.cluster": {
+            "level": "DEBUG",
+        },
+        "dm.logfed": {
+            "level": "DEBUG",
+        },
+        # "dm.db": {
         #     "level": "DEBUG",
-        #     "qualname": "dimensigon.routing"
         # },
-        # "dimensigon.cluster": {
+        # "dm.routing": {
         #     "level": "DEBUG",
-        #     "qualname": "dimensigon.cluster"
         # },
-        # "dimensigon.catalog": {
+        # "dm.cluster": {
         #     "level": "DEBUG",
-        #     "qualname": "dimensigon.catalog"
         # },
-        # "dimensigon.network": {
+        # "dm.catalog": {
+        #     "level": "DEBUG",
+        # },
+        # "dm.network": {
         #     "level": "INFO",
-        #     "qualname": "dimensigon.network"
         # },
-        # "dimensigon.query": {
+        # "dm.query": {
         #     "level": "DEBUG",
         #     "handlers": ["query_file"],
         #     "propagate": False
@@ -206,8 +213,8 @@ def setup_database_uri(run_config: RuntimeConfig, config: Config):
 
 
 def _setup_http_config(run_config: RuntimeConfig, config: Config):
-    def on_exit(server):
-        server.app.dm.flask_app.shutdown()
+    # def on_exit(server):
+    #     server.app.dm.shutdown()
 
     bind = []
     for ip in run_config.ips or ['0.0.0.0']:
@@ -223,7 +230,7 @@ def _setup_http_config(run_config: RuntimeConfig, config: Config):
         # SSL
         # do_handshake_on_connect=False,
         # Server Hooks
-        on_exit=on_exit,
+        # on_exit=on_exit,
         # Server Mechanics
         preload_app=True,
         daemon=run_config.daemon,

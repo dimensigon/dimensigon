@@ -2,7 +2,6 @@ import argparse as argparse
 import functools
 import json
 import os
-import uuid
 
 import requests
 from prompt_toolkit.completion import merge_completers
@@ -15,7 +14,7 @@ from dimensigon.dshell import environ as env
 from dimensigon.dshell.argparse_raise import ParamAction, ExtendAction
 from dimensigon.dshell.bootstrap import save_config_file
 from dimensigon.dshell.completer import *
-from dimensigon.dshell.helpers import name2id, exit_dshell
+from dimensigon.dshell.helpers import name2id, exit_dshell, normalize2id
 from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.action_template import subprompt as action_prompt
 from dimensigon.dshell.prompts.command import subprompt as command_prompt
@@ -45,10 +44,7 @@ def status(node, detail=False):
 def ping(node):
     for n in node:
         dprint(f"### {n}:") if len(node) > 1 else None
-        if not is_valid_uuid(n):
-            node_id = name2id('api_1_0.serverlist', n)
-        else:
-            node_id = n
+        node_id = normalize2id(n)
         resp = ntwrk.post('root.ping', headers={'D-Destination': node_id},
                           json={'start_time': get_now().strftime(defaults.DATETIME_FORMAT)})
         dprint(resp)
@@ -57,10 +53,7 @@ def ping(node):
 def manager_locker_show(node):
     for n in node:
         dprint(f"### {n}:") if len(node) > 1 else None
-        if not is_valid_uuid(n):
-            node_id = name2id('api_1_0.serverlist', n)
-        else:
-            node_id = n
+        node_id = normalize2id(n)
         resp = ntwrk.get('api_1_0.locker', headers={'D-Destination': node_id})
         dprint(resp)
 
@@ -68,23 +61,20 @@ def manager_locker_show(node):
 def manager_locker_unlock(scope, node):
     for n in node:
         dprint(f"### {n}:") if len(node) > 1 else None
-        if not is_valid_uuid(n):
-            node_id = name2id('api_1_0.serverlist', n)
-        else:
-            node_id = n
+        node_id = normalize2id(n)
         resp = ntwrk.post('api_1_0.locker_unlock',
                           json={'scope': scope, 'applicant': "", 'force': True},
                           headers={'D-Destination': node_id})
         dprint(resp)
 
 
-def server_list(name=None, iden=None, detail=None, like=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+def server_list(name=None, ident=None, detail=None, like=None):
+    kwargs = {}
     view_data = dict()
     if name is not None:
         view_data.update({'filter[name]': name})
-    if iden:
-        view_data.update({'filter[id]': iden})
+    if ident:
+        view_data.update({'filter[id]': ident})
     if detail:
         view_data.update(params='gates')
     resp = ntwrk.get('api_1_0.serverlist', view_data=view_data, **kwargs)
@@ -104,22 +94,12 @@ def server_list(name=None, iden=None, detail=None, like=None):
 
 
 def server_delete(server_ids):
-    converted_ids = []
-    for server_id in server_ids:
-        try:
-            uuid.UUID(server_id)
-        except Exception:
-            not_an_uuid = True
-        else:
-            not_an_uuid = False
-        if not_an_uuid:
-            server_id = name2id('api_1_0.serverlist', server_id)
-        converted_ids.append(server_id)
+    normalized_ids = [normalize2id(server_id) for server_id in server_ids]
 
-    if converted_ids:
-        resp = ntwrk.delete('api_1_0.serverlist', json={'server_ids': converted_ids})
+    if normalized_ids:
+        resp = ntwrk.delete('api_1_0.serverlist', json={'server_ids': normalized_ids})
         if resp.ok:
-            dprint(f"Server{'s' if len(converted_ids) > 1 else ''} removed successfully")
+            dprint(f"Server{'s' if len(normalized_ids) > 1 else ''} removed successfully")
         else:
             dprint(resp)
     else:
@@ -134,10 +114,8 @@ def server_routes(node, refresh=False):
         dprint(f"### {n}:") if len(node) > 1 else None
         if n == 'localhost':
             node_id = None
-        elif not is_valid_uuid(n):
-            node_id = name2id('api_1_0.serverlist', n)
         else:
-            node_id = n
+            node_id = normalize2id(n)
 
         kwargs = {}
         if node_id:
@@ -152,7 +130,7 @@ def server_routes(node, refresh=False):
 
 
 def orch_list(**params):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     view_data = dict()
     if params.get('id', None):
         view_data.update({'filter[id]': params['id']})
@@ -161,9 +139,9 @@ def orch_list(**params):
     if params.get('version', None):
         view_data.update({'filter[version]': str(params['version'])})
     if params.get('detail', None):
-        view_data.update({'params': ['steps', 'vars', 'target', 'action', 'human']})
+        view_data.update({'params': ['steps', 'vars', 'target', 'action', 'human', 'split_lines']})
     else:
-        view_data.update({'params': ['vars', 'target', 'human']})
+        view_data.update({'params': ['vars', 'target', 'human', 'split_lines']})
     resp = ntwrk.get('api_1_0.orchestrationlist', view_data=view_data, **kwargs)
     if resp.code == 200:
         data = resp.msg or []
@@ -188,7 +166,7 @@ def orch_create(**params):
 
 def orch_copy(**params):
     resp = ntwrk.get('api_1_0.orchestrationresource',
-                     view_data={'orchestration_id': params.get('orchestration_id')})
+                     view_data={'orchestration_id': params.get('orchestration_id'), 'param': 'split_lines'})
 
     if resp.ok:
         orch = resp.msg
@@ -198,18 +176,28 @@ def orch_copy(**params):
         orch.pop('version', None)
         orch.pop('last_modified_at', None)
         resp = ntwrk.get('api_1_0.steplist',
-                         view_data={'filter[orchestration_id]': params.get('orchestration_id')})
+                         view_data={'filter[orchestration_id]': params.get('orchestration_id'),
+                                    'params': 'split_lines'})
         if resp.ok:
             orch['steps'] = resp.msg
+
+            id2human = {}
+            for s in orch['steps']:
+                id2human[s.get('id')] = str(len(id2human) + 1)
 
             # remove unwanted parameters
             for s in orch['steps']:
                 s.pop('last_modified_at', None)
                 s.pop('created_on', None)
                 s.pop('orchestration_id', None)
+                s['id'] = id2human[s['id']]
+                s['parent_step_ids'] = [id2human[ps] for ps in s['parent_step_ids']]
 
             orch_prompt(entity=orch, parent_prompt='Δ ')
-
+        else:
+            dprint(resp)
+    else:
+        dprint(resp)
 
 def orch_load(file):
     try:
@@ -229,15 +217,16 @@ def orch_run(orchestration_id, **params):
     dprint(resp)
 
 
-def action_list(iden=None, name=None, version=None, like: str = None, last: int = None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+def action_list(ident=None, name=None, version=None, like: str = None, last: int = None):
+    kwargs = {}
     view_data = dict()
-    if iden:
-        view_data.update({'filter[id]': iden})
+    if ident:
+        view_data.update({'filter[id]': ident})
     if name:
         view_data.update({'filter[name]': name})
     if version:
         view_data.update({'filter[version]': version})
+    view_data.update(params='split_lines')
     resp = ntwrk.get('api_1_0.actiontemplatelist', view_data=view_data, **kwargs)
     if resp.code == 200:
         data = resp.msg or []
@@ -260,7 +249,7 @@ def action_create(name, action_type, prompt):
 
 def action_copy(**params):
     resp = ntwrk.get('api_1_0.actiontemplateresource',
-                     view_data={'action_template_id': params.get('action_template_id')})
+                     view_data={'action_template_id': params.get('action_template_id'), 'params': 'split_lines'})
 
     if resp.ok:
         action = resp.msg
@@ -285,7 +274,7 @@ def action_load(file):
 
 
 def software_add(name, version, file, family=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     json_data = dict(name=name, version=version, file=file)
     if family is not None:
         json_data.update(family=family)
@@ -295,15 +284,18 @@ def software_add(name, version, file, family=None):
 
 def software_send(dest_server_id, software_id=None, software=None, version=None, file=None, dest_path=None,
                   background=True, force=False):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
-    json_data = dict(dest_server_id=dest_server_id, dest_path=dest_path, force=force)
+    kwargs = {}
+    json_data = dict(dest_server_id=dest_server_id, force=force)
     if software_id:
         json_data.update(software_id=software_id)
     elif file:
         json_data.update(file=file)
     else:
         json_data.update(software=software, version=version)
+    if dest_path is not None:
+        json_data.update(dest_path=dest_path)
 
+    json_data.update(background=background)
     if not background:
         json_data.update(include_transfer_data=True)
     resp = ntwrk.post('api_1_0.send', json=json_data, **kwargs)
@@ -311,7 +303,7 @@ def software_send(dest_server_id, software_id=None, software=None, version=None,
 
 
 def software_list(name=None, version=None, detail=None, like=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     view_data = dict()
     if name:
         view_data.update({'filter[name]': name})
@@ -335,8 +327,8 @@ def software_list(name=None, version=None, detail=None, like=None):
         dprint(resp)
 
 
-def transfer_list(iden=None, status=None, like=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+def transfer_list(iden=None, status=None, like=None, last=None):
+    kwargs = {}
     view_data = dict()
     if iden:
         view_data.update({'filter[id]': iden})
@@ -353,20 +345,23 @@ def transfer_list(iden=None, status=None, like=None):
                     filtered_data.append(server)
         else:
             filtered_data = data
-        dprint(filtered_data)
+        if last:
+            dprint(filtered_data[:last])
+        else:
+            dprint(filtered_data)
     else:
         dprint(resp)
 
 
 def transfer_cancel(transfer_id):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
-    data = {'status': 'CANCELED'}
+    kwargs = {}
+    data = {'status': 'CANCELLED'}
     resp = ntwrk.patch('api_1_0.transferresource', view_data={'transfer_id': transfer_id}, json=data, **kwargs)
     dprint(resp)
 
 
 def exec_list(orch=None, server=None, execution_id=None, last=None, asc=None, detail=None):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     view_data = dict()
     view = 'api_1_0.orchexecutionlist'
 
@@ -422,7 +417,7 @@ def cmd(command, target, timeout=None, input=None, shell=None):
 
 
 def logfed_list():
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     resp = ntwrk.get('api_1_0.loglist', view_data={'params': 'human'}, **kwargs)
     dprint(resp.msg if resp.code else str(resp.exception) if str(
         resp.exception) else resp.exception.__class__.__name__)
@@ -438,7 +433,7 @@ def logfed_subscribe(src_server_id, target, dst_server_id, include=None, exclude
         _dst_server_id = name2id('api_1_0.serverlist', dst_server_id)
     else:
         _dst_server_id = dst_server_id
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     json_data = dict(src_server_id=_src_server_id, target=target, dst_server_id=_dst_server_id, include=include,
                      exclude=exclude, dest_folder=dest_folder, recursive=recursive, mode=mode)
     json_data = clean_none(json_data)
@@ -447,7 +442,7 @@ def logfed_subscribe(src_server_id, target, dst_server_id, include=None, exclude
 
 
 def logfed_unsubscribe(log_id):
-    kwargs = dict(verify=environ.get('SSL_VERIFY'))
+    kwargs = {}
     resp = ntwrk.delete('api_1_0.logresource', {'log_id': log_id}, **kwargs)
     dprint(resp)
 
@@ -497,7 +492,9 @@ def manager_login(username=None, password=None):
 
 
 def manager_save_login():
-    save_config_file(os.path.expanduser(env.get('CONFIG_FILE', None)), username=env._username, token=env._refresh_token, server=env.get('SERVER'), port=env.get('PORT'))
+    save_config_file(os.path.expanduser(env.get('CONFIG_FILE', None)), username=env._username, token=env._refresh_token,
+                     server=env.get('SERVER'), port=env.get('PORT'))
+
 
 def logging_cmd(logger, level):
     logger = logging.getLogger(logger)
@@ -527,6 +524,72 @@ def env_set(key, value):
         environ.set(key, ' '.join(value))
 
 
+def sync_add_file(server: str, file: str, destinations: t.List, dest_folder: str = None):
+    server_id = normalize2id(server)
+    json_data = {'src_server_id': server_id, 'target': file, 'destinations': []}
+    if dest_folder:
+        json_data.update(dest_folder=dest_folder)
+    for dest in destinations:
+        if ':' in dest:
+            server, d_folder = dest.split(':', 1)
+        else:
+            server, d_folder = dest, None
+        s_id = normalize2id(server)
+        aux = {'dst_server_id': s_id}
+        if d_folder:
+            aux.update(dest_folder=d_folder)
+        json_data['destinations'].append(aux)
+
+    resp = ntwrk.post('api_1_0.filelist', json=json_data)
+    dprint(resp)
+
+
+def sync_add_destination(file_id: str, destinations: t.List):
+    json_data = []
+    for dest in destinations:
+        if ':' in dest:
+            server, d_folder = dest.split(':', 1)
+        else:
+            server, d_folder = dest, None
+        s_id = normalize2id(server)
+        aux = {'dst_server_id': s_id}
+        if d_folder:
+            aux.update(dest_folder=d_folder)
+        json_data.append(aux)
+    resp = ntwrk.post('api_1_0.fileserverassociationlist', view_data={'file_id': file_id}, json=json_data)
+    dprint(resp)
+
+
+def sync_delete_file(file_id):
+    resp = ntwrk.delete('api_1_0.fileresource', view_data={'file_id': file_id})
+    dprint(resp)
+
+
+def sync_delete_destination(file_id: str, destinations: t.List):
+    json_data = []
+    for dest in destinations:
+        s_id = normalize2id(dest)
+        aux = {'dst_server_id': s_id}
+        json_data.append(aux)
+    resp = ntwrk.delete('api_1_0.fileserverassociationlist', view_data={'file_id': file_id}, json=json_data)
+    dprint(resp)
+
+
+def sync_list(ident, source_server, detail):
+    kwargs = {}
+    view_data = dict()
+    if ident:
+        view_data.update({'filter[id]': ident})
+    if source_server:
+        view_data.update({'filter[src_server_id]': normalize2id(source_server)})
+    if detail:
+        view_data.update({'params': ['destinations', 'human']})
+    else:
+        view_data.update({'params': ['human']})
+    resp = ntwrk.get('api_1_0.filelist', view_data=view_data, **kwargs)
+    dprint(resp)
+
+
 nested_dict = {
     'status': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
                {'argument': '--detail', 'action': 'store_true'}, status],
@@ -535,7 +598,7 @@ nested_dict = {
         'list': [{'argument': '--detail', 'action': 'store_true'},
                  [{'argument': '--like'},
                   {'argument': '--name', 'completer': server_name_completer},
-                  {'argument': '--id', 'dest': 'iden', 'completer': server_completer},
+                  {'argument': '--id', 'dest': 'ident', 'completer': server_completer},
                   # {'argument': '--last', 'action': 'store', 'type': int}
                   ],
                  server_list
@@ -570,8 +633,11 @@ nested_dict = {
                  'completer': merge_completers([server_completer, granule_completer]),
                  'help': "Run the orch agains the specified target. If no target specified, hosts will be added to "
                          "'all' target. Example: --target node1 node2 backend=node2,node3 "},
-                {'argument': '--param', 'metavar': 'PARAM=VALUE', 'action': ParamAction, 'nargs': "+",
-                 'dest': 'params', 'help': 'Parameters passed to the orchestration'},
+                {'argument': '--param', 'dest': 'params', 'metavar': 'PARAM:VALUE', 'action': ParamAction, "nargs": "+",
+                 'help': 'Parameters passed to the orchestration. Param must start with a lowercase character and ' \
+                         'contain only hyphens (-), underscores (_), lowercase characters, and numbers. ' \
+                         'Example: --params="string-key:\'string-value\'" --param="integer-key:12345" ' \
+                         '--param="list-key:[1,2,3]" --param="dict-key:{\'foo\': 1}"'},
                 {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
                 orch_run],
     },
@@ -581,7 +647,7 @@ nested_dict = {
                  [{'argument': '--json', 'action': 'store_true'},
                   {'argument': '--table', 'action': 'store_true'}],
                  [{'argument': '--like'},
-                  {'argument': '--id', 'completer': action_completer},
+                  {'argument': '--id', 'dest': 'ident', 'completer': action_completer},
                   {'argument': '--name', 'completer': action_name_completer}],
                  action_list
                  ],
@@ -642,6 +708,32 @@ nested_dict = {
             {'argument': '--timeout', 'type': int, 'help': 'timeout in seconds to wait for command to terminate'},
             {'argument': '--input'},
             cmd],
+    'sync': {
+        'list': [{'argument': '--id', 'dest': 'ident', 'completer': file_completer},
+                 {'argument': '--server', 'dest': 'source_server', 'completer': server_name_completer},
+                 {'argument': '--detail', 'action': 'store_true'},
+                 sync_list
+                 ],
+        'add': {'file': [{'argument': 'server', 'completer': server_name_completer},
+                         {'argument': 'file'},
+                         {'argument': 'destinations', 'metavar': 'SERVER[:FOLDER]', "nargs": "+",
+                          'completer': server_name_completer},
+                         {'argument': '--dest_folder',
+                          'help': 'default folder used for syncing file. If no dest_folder, mirror '
+                                  'copy will be used'},
+                         sync_add_file],
+                'destination': [{'argument': 'file_id', 'completer': file_completer},
+                                {'argument': 'destinations', 'metavar': 'SERVER[:FILE]', "nargs": "+",
+                                 'completer': server_name_completer},
+                                sync_add_destination]},
+        'delete': {'file': [{'argument': 'file_id', 'completer': file_completer},
+                            sync_delete_file],
+                   'destination': [{'argument': 'file_id', 'completer': file_completer},
+                                   {'argument': 'destinations', "nargs": "+", 'completer': file_dest_completer},
+                                   sync_delete_destination]
+                   },
+
+    },
     'logfed': {
         'subscribe': {'log': [{'argument': 'src_server_id',
                                'metavar': 'source_server',

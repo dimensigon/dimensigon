@@ -31,14 +31,15 @@ from dimensigon.domain.entities import Software, Server, SoftwareServerAssociati
     Orchestration, OrchExecution, User, ActionTemplate, ActionType, Gate
 from dimensigon.domain.entities.route import RouteContainer
 from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.use_cases.deployment import deploy_orchestration, validate_input_chain
 from dimensigon.utils import asyncio, subprocess
 from dimensigon.utils.dag import DAG
 from dimensigon.utils.event_handler import Event
 from dimensigon.utils.helpers import get_distributed_entities, is_iterable_not_string, md5, get_now, format_exception
-from dimensigon.utils.var_context import VarContext
+from dimensigon.utils.var_context import Context
 from dimensigon.web import db, executor, errors, threading
 from dimensigon.web.api_1_0 import api_bp
-from dimensigon.web.async_functions import deploy_orchestration, async_send_file
+from dimensigon.web.async_functions import async_send_file
 from dimensigon.web.background_tasks import _async_get_neighbour_catalog_data_mark, \
     upgrade_version, \
     update_catalog
@@ -246,16 +247,19 @@ def send():
         else:
             raise errors.FileNotFound(file)
 
-    chunk_size = min(json_data.get('chunk_size', d.CHUNK_SIZE), d.CHUNK_SIZE) * 1024
+    chunk_size = d.CHUNK_SIZE * 1024 * 1024
     max_senders = min(json_data.get('max_senders', d.MAX_SENDERS), d.MAX_SENDERS)
     chunks = math.ceil(size / chunk_size)
 
     if 'software_id' in json_data:
-        json_msg = dict(software_id=str(software.id), num_chunks=chunks,
-                        dest_path=json_data.get('dest_path', current_app.config['SOFTWARE_REPO']))
+        json_msg = dict(software_id=str(software.id), num_chunks=chunks)
+        if 'dest_path' in json_data:
+            json_msg['dest_path'] = json_data.get('dest_path')
     else:
-        json_msg = dict(filename=os.path.basename(json_data.get('file')), size=size, checksum=checksum,
-                        num_chunks=chunks, dest_path=json_data.get('dest_path', current_app.config['SOFTWARE_REPO']))
+        json_msg = dict(dest_path=json_data['dest_path'], filename=os.path.basename(json_data.get('file')), size=size,
+                        checksum=checksum, num_chunks=chunks)
+    # if dest_path not set, file will be sent to
+
     if 'force' in json_data:
         json_msg['force'] = json_data['force']
 
@@ -355,7 +359,7 @@ def fetch_catalog(data_mark):
     return data
 
 
-_cluster_logger = logging.getLogger('dimensigon.cluster')
+_cluster_logger = logging.getLogger('dm.cluster')
 
 
 @api_bp.route('/cluster', methods=['POST'])
@@ -369,8 +373,14 @@ _cluster_logger = logging.getLogger('dimensigon.cluster')
 def cluster():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         data = request.get_json()
-        # _cluster_logger.debug(f"Data received {clustering.log_data(data)}")
-        current_app.cluster_manager.put(data)
+        converted = []
+        for item in data:
+            try:
+                keepalive = dt.datetime.strptime(item['keepalive'], defaults.DATEMARK_FORMAT)
+            except ValueError:
+                raise errors.InvalidDateFormat(item['keepalive'], defaults.DATEMARK_FORMAT)
+            converted.append((item['id'], keepalive, item['death']))
+        current_app.dm.cluster_manager.put_many(converted)
         return {}, 204
     else:
         raise errors.UserForbiddenError
@@ -422,15 +432,20 @@ async def background_cluster_in(server_id, routes, auth):
 @securizer
 def cluster_in(server_id):
     user = User.get_current()
+    data = request.get_json()
     if user and user.user == 'root':
-        cr = current_app.cluster_manager.set_alive(server_id)
+        try:
+            keepalive = dt.datetime.strptime(data.get('keepalive'), defaults.DATEMARK_FORMAT)
+        except ValueError:
+            raise errors.InvalidDateFormat(data.get('keepalive'), defaults.DATEMARK_FORMAT)
+        current_app.dm.cluster_manager.put(server_id, keepalive)
         _cluster_logger.debug(
             f"{getattr(Server.query.get(server_id), 'name', server_id) or server_id} is a new alive server")
 
         # run background execution to check routes
-        executor.submit(asyncio.run, background_cluster_in(server_id, request.get_json(), get_auth_from_request()))
+        executor.submit(asyncio.run, background_cluster_in(server_id, data['routes'], get_auth_from_request()))
 
-        return {'cluster': current_app.cluster_manager.cluster.get_cluster(),
+        return {'cluster': current_app.dm.cluster_manager.get_cluster(defaults.DATEMARK_FORMAT),
                 'neighbours': [s.id for s in Server.get_neighbours()]}, 200
 
     else:
@@ -461,7 +476,7 @@ def cluster_out(server_id):
                 death = get_now()
         else:
             death = None
-        current_app.cluster_manager.set_death(server_id, death=death)
+        current_app.dm.cluster_manager.put(server_id, keepalive=death, death=True)
         _cluster_logger.debug(f"{Server.query.get(server_id).name or server_id} is a death server")
 
         # run background route
@@ -532,11 +547,11 @@ def routes():
         return {}, 204
 
 
-def run_command_and_callback(operation: 'IOperationEncapsulation', var_context, source: Server,
+def run_command_and_callback(operation: 'IOperationEncapsulation', params, context: Context, source: Server,
                              step_execution: StepExecution,
                              jwt_identity, event_id,
                              timeout=None):
-    cp = operation.execute(var_context=var_context, timeout=timeout)
+    cp = operation.execute(params, timeout=timeout, context=context)
 
     execution = db.session.merge(step_execution)
     source = db.session.merge(source)
@@ -545,8 +560,7 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', var_context, 
         db.session.commit()
     except Exception as e:
         current_app.logger.exception(f"Error on commit for execution {execution.id}")
-    data = dict(step_execution=execution.to_json(),
-                var_context=base64.b64encode(pickle.dumps(var_context)).decode('ascii'))
+    data = dict(step_execution=execution.to_json())
     if execution.child_orch_execution:
         data['step_execution'].update(orch_execution=execution.child_orch_execution.to_json(add_step_exec=True))
     resp, code = ntwrk.post(server=source, view_or_url='api_1_0.events', view_data={'event_id': event_id},
@@ -566,15 +580,16 @@ def launch_operation():
     data = request.get_json()
     operation = pickle.loads(base64.b64decode(data['operation'].encode('ascii')))
     var_context = pickle.loads(base64.b64decode(data['var_context'].encode('ascii')))
+    params = pickle.loads(base64.b64decode(data['params'].encode('ascii')))
     orch_exec_json = data['orch_execution']
     orch_exec = OrchExecution.from_json(orch_exec_json)
 
-    se = StepExecution(id=var_context.globals.get('step_execution_id'), server=g.server, step_id=data.get('step_id'),
-                       orch_execution=orch_exec, params=dict(var_context),
+    se = StepExecution(id=var_context.env.get('step_execution_id'), server=g.server, step_id=data.get('step_id'),
+                       orch_execution=orch_exec, params=params,
                        start_time=get_now())
     db.session.add_all([orch_exec, se])
     db.session.commit()
-    future = executor.submit(run_command_and_callback, operation, var_context, g.source, se,
+    future = executor.submit(run_command_and_callback, operation, params, var_context, g.source, se,
                              get_jwt_identity(), data['event_id'],
                              timeout=data.get('timeout', None))
     try:
@@ -596,8 +611,9 @@ def launch_operation():
 @validate_schema(launch_orchestration_post)
 def launch_orchestration(orchestration_id):
     orchestration = Orchestration.query.get_or_raise(orchestration_id)
-    params = request.get_json().get('params', {})
-    hosts = request.get_json().get('hosts')
+    data = request.get_json()
+    params = data.get('params') or {}
+    hosts = data.get('hosts')
 
     a = set(orchestration.target)
     if not isinstance(hosts, dict):
@@ -629,11 +645,15 @@ def launch_orchestration(orchestration_id):
 
     execution_id = str(uuid.uuid4())
 
-    vc = VarContext(globals=dict(orch_execution_id=execution_id, executor_id=get_jwt_identity()), initials=params)
+    if data.get('input_validation', True):
+        validate_input_chain(orchestration, params)
+
+    vc = Context(params, dict(execution_id=None, parent_orch_execution_id=None, orch_execution_id=execution_id,
+                              executor_id=get_jwt_identity()))
 
     if request.get_json().get('background', True):
         future = executor.submit(deploy_orchestration, orchestration=orchestration.id, var_context=vc, hosts=hosts,
-                                 execution=execution_id, )
+                                 execution=execution_id)
         try:
             r = future.result(1)
         except concurrent.futures.TimeoutError:
@@ -651,6 +671,7 @@ def launch_orchestration(orchestration_id):
             current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
             raise
         else:
+
             return orch_exe.to_json(add_step_exec=True, human=check_param_in_uri('human'), split_lines=True), 200
 
 

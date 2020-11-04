@@ -8,6 +8,7 @@ from flask_restful import Resource
 from sqlalchemy import or_
 
 import dimensigon.defaults as d
+from dimensigon import defaults
 from dimensigon.domain.entities import Transfer, TransferStatus, Software
 from dimensigon.domain.entities.transfer import Status
 from dimensigon.utils.helpers import md5, get_now
@@ -24,7 +25,7 @@ class TransferList(Resource):
     @securizer
     def get(self):
         query = filter_query(Transfer, request.args)
-        return [t.to_json() for t in query.all()]
+        return [t.to_json() for t in query.order_by(Transfer.created_on).all()]
 
     @forward_or_dispatch()
     @jwt_required
@@ -36,7 +37,9 @@ class TransferList(Resource):
         soft = None
         if 'software_id' in json_data:
             soft = Software.query.get_or_raise(json_data['software_id'])
-            pending = Transfer.query.filter_by(software=soft, dest_path=json_data['dest_path']).filter(
+            dest_path = json_data.get('dest_path', current_app.dm.config.path(defaults.SOFTWARE_REPO))
+            pending = Transfer.query.filter_by(software=soft,
+                                               dest_path=dest_path).filter(
                 or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
                     Transfer.status == TransferStatus.IN_PROGRESS)).all()
 
@@ -45,13 +48,11 @@ class TransferList(Resource):
             elif pending and json_data['cancel_pending']:
                 for trans in pending:
                     trans.status = TransferStatus.CANCELED
-        elif 'filename' not in json_data:
-            return {'error': 'Neither filename nor software specified for the transfer'}, 404
-        elif 'filename' in json_data and ('size' not in json_data or 'checksum' not in json_data):
-            return {'error': 'size and checksum must be specified when a filename set'}, 404
+                    trans.ended_on = get_now()
         else:
+            dest_path = json_data['dest_path']
             pending = Transfer.query.filter_by(_filename=json_data['filename'],
-                                               dest_path=json_data['dest_path']).filter(
+                                               dest_path=dest_path).filter(
                 or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
                     Transfer.status == TransferStatus.IN_PROGRESS)).all()
 
@@ -60,8 +61,8 @@ class TransferList(Resource):
             elif pending and json_data.get('cancel_pending', False):
                 for trans in pending:
                     trans.status = TransferStatus.CANCELED
+                    trans.ended_on = get_now()
 
-        dest_path = json_data.get('dest_path', current_app.config['SOFTWARE_REPO'])
         file = os.path.join(dest_path, soft.filename if soft else json_data['filename'])
 
         if os.path.exists(file):
@@ -156,6 +157,7 @@ class TransferResource(Resource):
         if trans.num_chunks == 1:
             msg = f"File {trans.filename} from transfer {transfer_id} generated successfully"
             trans.status = TransferStatus.COMPLETED
+            trans.ended_on = get_now()
             db.session.commit()
         else:
             msg = f"Chunk {chunk_id} from transfer {transfer_id} generated successfully"
@@ -209,6 +211,7 @@ class TransferResource(Resource):
         # check final file length and checksum
         if os.path.getsize(file) != trans.size:
             trans.status = TransferStatus.SIZE_ERROR
+            trans.ended_on = get_now()
             db.session.commit()
             # os.remove(file)
             msg = f"Error on transfer '{transfer_id}': Final file size does not match expected size"
@@ -217,6 +220,7 @@ class TransferResource(Resource):
 
         if md5(file) != trans.checksum:
             trans.status = TransferStatus.CHECKSUM_ERROR
+            trans.ended_on = get_now()
             db.session.commit()
             # os.remove(file)
             msg = f"Error on transfer '{transfer_id}': Checksum error"
@@ -224,6 +228,7 @@ class TransferResource(Resource):
             return {"error": msg}, 404
 
         trans.status = TransferStatus.COMPLETED
+        trans.ended_on = get_now()
         db.session.commit()
         msg = f"File {os.path.join(trans.dest_path, trans.filename)} from transfer {trans.id} recived successfully"
         current_app.logger.debug(msg)

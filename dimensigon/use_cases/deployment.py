@@ -1,6 +1,7 @@
 import base64
 import concurrent
 import datetime
+import functools
 import json
 import logging
 import pickle
@@ -10,32 +11,36 @@ import time
 import typing as t
 import uuid
 from abc import ABC, abstractmethod
-from collections import ChainMap
+from collections import OrderedDict
 from concurrent.futures.process import ProcessPoolExecutor
+from concurrent.futures.thread import ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import partial
 
+import jsonschema
+import yaml
 from RestrictedPython import compile_restricted, safe_builtins
-from flask import current_app, Flask, has_app_context
+from flask import current_app, Flask, has_app_context, g
 from flask_jwt_extended import create_access_token
 from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Server, Orchestration, Step, StepExecution, OrchExecution
+from dimensigon.domain.entities import Server, Orchestration, Step, StepExecution, OrchExecution, User, Scope
 from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.use_cases import lock as lock
 from dimensigon.use_cases.operations import CompletedProcess, IOperationEncapsulation, create_operation
 from dimensigon.utils.dag import DAG
 from dimensigon.utils.event_handler import Event
-from dimensigon.utils.helpers import get_now
+from dimensigon.utils.helpers import get_now, format_exception
 from dimensigon.utils.typos import Id
-from dimensigon.utils.var_context import VarContext
-from dimensigon.web import db
+from dimensigon.utils.var_context import Context
+from dimensigon.web import db, errors, executor
 from dimensigon.web.network import post
 
 # if t.TYPE_CHECKING:
 
 
-logger = logging.getLogger('dimensigon.deployment')
+logger = logging.getLogger('dm.deployment')
 
 
 class ICommand(ABC):
@@ -100,61 +105,166 @@ class ICommand(ABC):
         return f"{self.__class__.__name__} {self.id}"
 
 
+def elapsed_times(tag):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(self, *args, **kwargs):
+            if not hasattr(self, '_elapsed_times'):
+                self._elapsed_times = {}
+            start = time.time()
+            ret = f(self, *args, **kwargs)
+            self._elapsed_times[tag] = time.time() - start
+            return ret
+
+        return wrapper
+
+    return decorator
+
+
 class ImplementationCommand(ICommand):
 
     def __init__(self, implementation: IOperationEncapsulation,
-                 var_context: VarContext = None,
+                 var_context: Context = None,
                  id_=None,
                  register: 'RegisterStepExecution' = None,
                  pre_process=None,
                  post_process=None,
+                 signature=None
                  ):
         super().__init__(id_)
         self.implementation = implementation
-        self.var_context = var_context or {}
+        self.var_context = var_context
+        self.params = {}
         self.register = register
         self.step_execution_id = None
         self.pre_post_error = None
-        self.pre_process = pre_process
-        self.post_process = post_process
+        self.pre_process_code = pre_process
+        self.post_process_code = post_process
+        self.signature = signature or {}
+        self._elapsed_times = {}
         self._cp: CompletedProcess = None
 
-    def invoke(self, timeout=None) -> t.Optional[bool]:
-        elapsed_times = {}
-        if not self._cp:
-            params = None
-            if self.register:
-                self.step_execution_id = self.register.create_step_execution(self)
-                self.var_context.globals.update(step_execution_id=self.step_execution_id)
+    def create_step_execution(self):
+        if self.register:
+            step_execution_id = self.register.create_step_execution(self)
+            self.var_context.env.update(step_execution_id=step_execution_id)
+            self.step_execution_id = step_execution_id
 
+    def register_execution(self):
+        if self.register:
+            self.register.save_step_execution(self, params=self.params, **self._elapsed_times)
+
+    @elapsed_times('pre_process_time')
+    def pre_process(self):
+        if self.pre_process_code:
             try:
-                elapsed_times['pre_process_time'] = self.pre_processing(local=dict(vc=self.var_context, cp=self._cp))
+                local = dict(vc=self.var_context, cp=self._cp)
+                byte_code = compile_restricted(self.pre_process_code, '<inline>', 'exec')
+                safe_builtins.update(json=json)
+                safe_builtins.update(yaml=yaml)
+                safe_builtins.update(re=re)
+                exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
             except Exception as e:
-                self._cp = CompletedProcess(success=False, stderr=f"Pre-Process error: {e}")
+                self._cp = CompletedProcess(success=False, stderr=f"Pre-Process error: {format_exception(e)}")
 
-            if not self._cp:
-                try:
-                    params = dict(self.var_context)
-                except Exception as e:
-                    self._cp = CompletedProcess(success=False, stderr=f"Variable Resolution error: {e}")
-
-            if not self._cp:
-                start = time.time()
-                try:
-                    self._cp = self.implementation.execute(self.var_context, timeout=timeout)
-                except Exception as e:
-                    self._cp = CompletedProcess(success=False, stderr=f"Execution error: {e}")
-                    logger.exception(f"Exception on execution {self.id}")
+    def extract_params(self):
+        if not self._cp:
+            try:
+                if self.signature:
+                    self.params = {}
+                    for dest, value in self.signature.get('mapping', {}).items():
+                        if isinstance(value, dict) and len(value) == 1 and 'from' in value:
+                            action, source = tuple(value.items())[0]
+                            if source.startswith('env.'):
+                                source = source.split('.', 1)[1]
+                                container = self.var_context.env
+                            elif source.startswith('input.'):
+                                source = source.split('.', 1)[1]
+                                container = self.var_context
+                            else:
+                                container = self.var_context
+                            try:
+                                self.params[dest] = container.__getitem__(source)
+                            except KeyError:
+                                if dest in self.signature.get('required', []):
+                                    se = StepExecution.query.get(self.step_execution_id)
+                                    raise errors.MissingParameters(['source'],
+                                                                   se.step, se.server)
+                        else:
+                            self.params[dest] = value
+                    for key, value in self.signature.get('input', {}).items():
+                        if key not in self.params:
+                            try:
+                                self.params[key] = self.var_context[key]
+                            except KeyError:
+                                if 'default' in value:
+                                    self.params[key] = value['default']
+                                elif key in self.signature.get('required', []):
+                                    raise errors.MissingParameters([key], Step.query.get(self.id[1]),
+                                                                   Server.query.get(self.id[0]))
+                    if self.signature.get('input'):
+                        jsonschema.validate(self.params, dict(type="object", properties=self.signature.get('input'),
+                                                              required=self.signature.get('required', [])))
                 else:
-                    try:
-                        elapsed_times['post_process_time'] = self.post_processing(
-                            local=dict(vc=self.var_context, cp=self._cp))
-                    except Exception as e:
-                        self._cp.success = False
-                        self._cp.stderr = f"{self._cp.stderr}\nPost-Process error: {e}"
+                    self.params = dict(self.var_context)
+            except KeyError as e:
+                self._cp = CompletedProcess(success=False, stderr=f"Variable {e} not found")
+            except jsonschema.ValidationError as e:
+                self._cp = CompletedProcess(success=False, stderr=f"Param validation error: {e}")
+            except errors.MissingParameters as e:
+                self._cp = CompletedProcess(success=False, stderr=f"{e}")
+            except Exception as e:
+                self._cp = CompletedProcess(success=False, stderr=f"{format_exception(e)}")
 
-            if self.register:
-                self.register.register_step_execution(self, params=params, **elapsed_times)
+    def _invoke(self, timeout):
+        if not self._cp:
+            try:
+                self._cp = self.implementation.execute(self.params, timeout=timeout, context=self.var_context)
+            except Exception as e:
+                self._cp = CompletedProcess(success=False, stderr=f"Execution error: {e}")
+                logger.exception(f"Exception on execution {self.id}")
+
+    @elapsed_times('post_process_time')
+    def post_process(self):
+        if self.post_process_code:
+            try:
+                local = dict(vc=self.var_context, cp=self._cp)
+                byte_code = compile_restricted(self.post_process_code, '<inline>', 'exec')
+                safe_builtins.update(json=json, re=re)
+                exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
+            except Exception as e:
+                self._cp.success = False
+                if self._cp.stderr:
+                    self._cp.stderr = f"{self._cp.stderr}\nPost-Process error: {format_exception(e)}"
+                else:
+                    self._cp.stderr = f"Post-Process error: {format_exception(e)}"
+
+    def check_output_variables(self):
+        if self._cp.success:
+            output = set(self.signature.get('output', []))
+            missing = output - set(self.var_context.keys())
+            if missing:
+                self._cp.success = False
+                if self._cp.stderr:
+                    self._cp.stderr = f"{self._cp.stderr}\nMissing output values: {', '.join(missing)}"
+                else:
+                    self._cp.stderr = f"Missing output values: {', '.join(sorted(missing))}"
+
+    def invoke(self, timeout=None) -> t.Optional[bool]:
+        if not self._cp:
+            self.create_step_execution()
+
+            self.pre_process()
+
+            self.extract_params()
+
+            self._invoke(timeout)
+
+            self.post_process()
+
+            self.check_output_variables()
+
+            self.register_execution()
 
         return self.success
 
@@ -166,31 +276,6 @@ class ImplementationCommand(ICommand):
     def success(self) -> t.Optional[bool]:
         return getattr(self._cp, 'success', None)
 
-    def pre_processing(self, local: dict = None):
-        local = local or dict()
-        if self.pre_process:
-            start = time.time()
-
-            byte_code = compile_restricted(self.pre_process, '<inline>', 'exec')
-            safe_builtins.update(json=json)
-            exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
-
-            return time.time() - start
-        else:
-            return None
-
-    def post_processing(self, local: dict = None):
-        local = local or dict()
-        if self.post_process:
-            start = time.time()
-
-            byte_code = compile_restricted(self.post_process, '<inline>', 'exec')
-            safe_builtins.update(json=json, re=re)
-            exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
-
-            return time.time() - start
-        else:
-            return None
 
 class UndoCommand(ImplementationCommand):
 
@@ -268,7 +353,8 @@ class CompositeCommand(ICommand):
 
     def __init__(self, dict_tree: t.Dict[ICommand, t.List[ICommand]],
                  stop_on_error: bool, stop_undo_on_error: bool = None,
-                 id_=None, executor: concurrent.futures.Executor = None, timeout: t.Union[int, float] = None):
+                 id_=None, executor: concurrent.futures.Executor = None, timeout: t.Union[int, float] = None,
+                 register: 'RegisterStepExecution' = None, var_context: Context = None):
         """
 
         Parameters
@@ -291,8 +377,10 @@ class CompositeCommand(ICommand):
         self._dag = DAG().from_dict_of_lists(dict_tree)
         self.stop_on_error = stop_on_error
         self.stop_undo_on_error = stop_undo_on_error
-        self.executor = executor or ProcessPoolExecutor(max_workers=4)
+        self.executor = executor or ThreadPoolExecutor(max_workers=4)
         self.timeout = timeout
+        self.register = register
+        self.var_context = var_context
 
     @property
     def success(self) -> t.Optional[bool]:
@@ -351,10 +439,13 @@ class CompositeCommand(ICommand):
 
                     duration = time.time() - start
                     left = max(timeout - duration, 0) if timeout else None
-
+                # if self.var_context:
+                #     self.var_context.merge_common_variables()
                 if stop is True or (timeout is not None and (time.time() - start) > timeout):
                     break
             level += 1
+            self.register.commit_data()
+        self.register.commit_data()
         return all(res) if len(res) > 0 else None
 
     def undo(self, timeout=None) -> t.Optional[bool]:
@@ -438,7 +529,8 @@ class CompositeCommand(ICommand):
         return self._dag
 
 
-class ProxyMixin(object):
+class ProxyImplementationMixin(ImplementationCommand):
+    _command: ImplementationCommand
 
     def __init__(self, server: Id, timeout: t.Union[int, float] = 30):
         """
@@ -461,6 +553,7 @@ class ProxyMixin(object):
         """
         self.__dict__['_server'] = server
         self.__dict__['_app'] = current_app._get_current_object()
+        self.__dict__['_auth'] = None
         self.__dict__['_completion_event'] = threading.Event()
         self.__dict__['timeout'] = timeout
         self.__dict__['_command'] = None
@@ -510,13 +603,42 @@ class ProxyMixin(object):
                                                  end_time=datetime.datetime.strptime(step_exec_json.get('end_time'),
                                                                                      defaults.DATETIME_FORMAT) if step_exec_json.get(
                                                      'end_time') else None)
-            var_context = pickle.loads(base64.b64decode(event.data['var_context'].encode()))
-            self._command.var_context.update_variables(var_context.extract_variables())
         else:
             self._command._cp = CompletedProcess(success=False, stdout=str(event.data),
                                                  stderr=f'Unknown message got on completion event.')
 
         self._completion_event.set()
+
+    def _invoke(self, timeout):
+        if not self._cp:
+            start = time.time()
+            data = dict(operation=base64.b64encode(pickle.dumps(self._command.implementation)).decode('ascii'),
+                        var_context=base64.b64encode(pickle.dumps(self._command.var_context)).decode('ascii'),
+                        params=base64.b64encode(pickle.dumps(self._command.params)).decode('ascii'),
+                        timeout=timeout,
+                        step_id=str(self.id[1]),
+                        orch_execution=self._command.register.json_orch_execution,
+                        event_id=str(uuid.uuid4()))
+            resp = post(server=self.server, view_or_url='api_1_0.launch_operation', json=data, auth=self.auth,
+                        timeout=timeout)
+            if resp.code == 204:
+                current_app.events.register(data['event_id'], self.callback_completion_event)
+                event = self._completion_event.wait(timeout=timeout - (time.time() - start))
+                if event is not True:
+                    self._command._cp = CompletedProcess(success=False, stdout='',
+                                                         stderr=f'Timeout of {timeout} reached waiting '
+                                                                f'server operation completion')
+
+            elif resp.code == 200:
+                self.callback_completion_event(Event(None, data=resp.msg))
+            elif resp.code:
+                if isinstance(resp.msg, dict):
+                    msg = json.dumps(resp.msg)
+                else:
+                    msg = str(resp.msg)
+
+                self._command._cp = CompletedProcess(success=False, stdout='',
+                                                     stderr=msg, rc=resp.code)
 
     def invoke(self, timeout=None) -> bool:
         """
@@ -537,103 +659,48 @@ class ProxyMixin(object):
             ctx = self._app.app_context()
             ctx.push()
         try:
-            auth = HTTPBearerAuth(
-                create_access_token(self._command.var_context.globals['executor_id'], datetime.timedelta(seconds=15)))
+            self.__dict__['auth'] = HTTPBearerAuth(
+                create_access_token(self._command.var_context.env['executor_id'], datetime.timedelta(seconds=15)))
             self.__dict__['_server'] = Server.query.get(self._server)
             timeout = timeout or self.timeout
 
-            if self._cp is None:
-                elapsed_times = {}
-                params = None
-                if self.register:
-                    self._command.step_execution_id = self.register.create_step_execution(self)
-                    self._command.var_context.globals.update(step_execution_id=self._command.step_execution_id)
+            super().invoke(timeout)
 
-                try:
-                    elapsed_times['pre_process_time'] = self.pre_processing(
-                        local=dict(vc=self.var_context, cp=self._cp))
-                except Exception as e:
-                    self._cp = CompletedProcess(success=False, stderr=f"Pre-Process error: {e}")
-
-                if not self._cp:
-                    try:
-                        params = self.var_context.extract_variables()
-                    except Exception as e:
-                        self._cp = CompletedProcess(success=False, stderr=f"Variable Resolution error: {e}")
-
-                if not self._cp:
-                    start = time.time()
-                    data = dict(operation=base64.b64encode(pickle.dumps(self._command.implementation)).decode('ascii'),
-                                var_context=base64.b64encode(pickle.dumps(self._command.var_context)).decode('ascii'),
-                                timeout=timeout,
-                                step_id=str(self.id[1]),
-                                orch_execution=self._command.register.json_orch_execution,
-                                event_id=str(uuid.uuid4()))
-                    resp = post(server=self.server, view_or_url='api_1_0.launch_operation', json=data, auth=auth,
-                                timeout=timeout)
-                    if resp.code == 204:
-                        current_app.events.register(data['event_id'], self.callback_completion_event)
-                        event = self._completion_event.wait(timeout=timeout - (time.time() - start))
-                        if event is not True:
-                            self._command._cp = CompletedProcess(success=False, stdout='',
-                                                                 stderr=f'Timeout of {timeout} reached waiting '
-                                                                        f'server operation completion')
-
-                    elif resp.code == 200:
-                        self.callback_completion_event(Event(None, data=resp.msg))
-                    elif resp.code:
-                        if isinstance(resp.msg, dict):
-                            msg = json.dumps(resp.msg)
-                        else:
-                            msg = str(resp.msg)
-
-                        self._command._cp = CompletedProcess(success=False, stdout='',
-                                                             stderr=msg, rc=resp.code)
-                    elapsed_times['execution_time'] = time.time() - start
-                try:
-                    elapsed_times['post_process_time'] = self.post_processing(
-                        local=dict(vc=self.var_context, cp=self._cp))
-                except Exception as e:
-                    self._cp.success = False
-                    self._cp.stderr = f"{self._cp.stderr}\nPost-Process error: {e}"
-
-                if self.register:
-                    self.register.register_step_execution(self, params=params, **elapsed_times)
         finally:
             if ctx:
                 ctx.pop()
         return self.success
 
 
-class ProxyCommand(ProxyMixin, Command):
+class ProxyCommand(ProxyImplementationMixin, Command):
 
     def __init__(self, server_id: Id, *args, timeout: t.Union[int, float] = 300, **kwargs):
-        ProxyMixin.__init__(self, server_id, timeout=timeout)
+        ProxyImplementationMixin.__init__(self, server_id, timeout=timeout)
         object.__setattr__(self, "_command", Command(*args, **kwargs))
 
 
-class ProxyUndoCommand(ProxyMixin, UndoCommand):
+class ProxyUndoCommand(ProxyImplementationMixin, UndoCommand):
 
     def __init__(self, server_id: Id, *args, timeout: t.Union[int, float] = 300, **kwargs):
-        ProxyMixin.__init__(self, server_id, timeout=timeout)
+        ProxyImplementationMixin.__init__(self, server_id, timeout=timeout)
         object.__setattr__(self, "_command", UndoCommand(*args, **kwargs))
 
 
-def _create_server_undo_command(executor, var_context, current_server, server_id: Id, s: Step, register, d=None,
-                                s2cc=None) -> t.Optional[t.Union[UndoCommand, CompositeCommand]]:
+def _create_server_undo_command(executor, current_server, server_id: Id, s: Step, var_context: Context, register,
+                                d=None, s2cc=None) -> t.Optional[t.Union[UndoCommand, CompositeCommand]]:
     def iterate_tree(_cls, _step: Step, _d, _s2cc):
         if _step in _s2cc:
             _uc = _s2cc[_step]
         else:
             stop_on_error = _step.step_stop_on_error if _step.step_stop_on_error is not None else s.stop_undo_on_error
             _uc = _cls(create_operation(_step),
-                       var_context=var_context.create_new_ctx(
-                           defaults=ChainMap({**_step.parameters, 'server_id': server_id},
-                                             _step.orchestration.parameters)),
                        id_=(str(server_id), str(_step.id)),
+                       var_context=var_context.local_ctx({'server_id': server_id}, key_server_ctx=server_id),
                        pre_process=_step.pre_process,
                        post_process=_step.post_process,
-                       stop_on_error=stop_on_error, register=register)
+                       stop_on_error=stop_on_error,
+                       register=register,
+                       signature=_step.schema)
             _s2cc[_step] = _uc
         if _uc not in _d:
             _d[_uc] = []
@@ -659,7 +726,7 @@ def _create_server_undo_command(executor, var_context, current_server, server_id
                                 executor=executor)
 
 
-def create_cmd_from_orchestration(orchestration: Orchestration, var_context: VarContext,
+def create_cmd_from_orchestration(orchestration: Orchestration, var_context: Context,
                                   hosts: t.Dict[str, t.List[Id]],
                                   executor: concurrent.futures.Executor,
                                   register: 'RegisterStepExecution') -> CompositeCommand:
@@ -670,6 +737,7 @@ def create_cmd_from_orchestration(orchestration: Orchestration, var_context: Var
         if _step in _s2cc:
             cc = _s2cc[_step]
         else:
+            activate_server_ctx = len([server_id for target in _step.target for server_id in hosts[target]]) > 1
             for target in _step.target:
                 for server_id in hosts[target]:
                     if str(server_id) == str(current_server.id):
@@ -677,19 +745,21 @@ def create_cmd_from_orchestration(orchestration: Orchestration, var_context: Var
                     else:
                         cls = partial(ProxyCommand, server_id)
 
+                    var_kwargs = dict()
+                    if activate_server_ctx:
+                        var_kwargs.update(key_server_ctx=server_id)
                     c = cls(create_operation(_step),
-                            undo_command=_create_server_undo_command(executor, var_context, current_server, server_id,
-                                                                     _step, register),
-                            var_context=var_context.create_new_ctx(
-                                defaults=ChainMap({**_step.parameters, 'server_id': server_id},
-                                                  _step.orchestration.parameters)),
+                            undo_command=_create_server_undo_command(executor, current_server, server_id,
+                                                                     _step, var_context, register),
+                            var_context=var_context.local_ctx({'server_id': server_id}, **var_kwargs),
                             stop_on_error=_step.stop_on_error,
                             stop_undo_on_error=None,
                             undo_on_error=_step.undo_on_error,
                             pre_process=_step.pre_process,
                             post_process=_step.post_process,
                             register=register,
-                            id_=(str(server_id), str(_step.id)))
+                            id_=(str(server_id), str(_step.id)),
+                            signature=_step.schema)
 
                     d[c] = []
             if len(d) == 1:
@@ -698,7 +768,7 @@ def create_cmd_from_orchestration(orchestration: Orchestration, var_context: Var
                 cc = CompositeCommand(dict_tree=d,
                                       stop_on_error=False,
                                       stop_undo_on_error=False,
-                                      id_=str(_step.id), executor=executor)
+                                      id_=str(_step.id), executor=executor, register=register, var_context=var_context)
             else:
                 cc = None
         return cc
@@ -724,7 +794,7 @@ def create_cmd_from_orchestration(orchestration: Orchestration, var_context: Var
     return CompositeCommand(dict_tree=tree,
                             stop_undo_on_error=orchestration.stop_undo_on_error,
                             stop_on_error=orchestration.stop_on_error,
-                            id_=str(orchestration.id), executor=executor)
+                            id_=str(orchestration.id), executor=executor, register=register)
 
 
 ORCH_EXEC_PATTERN = re.compile(r"^orch_execution_id=([a-zA-Z0-9-]{36})$")
@@ -737,78 +807,242 @@ class RegisterStepExecution:
         else:
             self.app = current_app._get_current_object()
 
-        self.data = threading.local()
-        self._json_orch_execution = orch_execution.to_json() # orch_execution property is used when running ProxyCommand
+        self.json_orch_execution = orch_execution.to_json()  # json_orch_execution property is used when running ProxyCommand
+        self._store: t.Dict[Id, StepExecution] = OrderedDict()
         engine = db.get_engine()
         self.Session = sessionmaker(bind=engine)
-
-    @property
-    def json_orch_execution(self):
-        return self._json_orch_execution
-
-    @property
-    def orch_execution(self):
-        if not hasattr(self.data, 'orch_execution') or getattr(self.data, 'orch_execution') not in self.data.session:
-            self.data.orch_execution = self.data.session.query(OrchExecution).get(self._json_orch_execution['id'])
-        return self.data.orch_execution
-
-
 
     @contextmanager
     def session_scope(self):
         """Provide a transactional scope around a series of operations."""
-        self.data.session = self.Session()
+        ctx = None
+        if not has_app_context():
+            ctx = self.app.app_context()
+            ctx.push()
+
         try:
-            yield self.data.session
-            self.data.session.commit()
-        except:
-            self.data.session.rollback()
-            raise
+            session = self.Session()
+            try:
+                yield session
+                session.commit()
+            except:
+                session.rollback()
+                logger.exception("Unable to commit")
+            finally:
+                session.close()
         finally:
-            self.data.session.close()
+            if ctx:
+                ctx.pop()
 
     def update_orch_execution(self, **kwargs):
         with self.session_scope() as s:
+            orch_execution = s.query(OrchExecution).get(self.json_orch_execution.get('id'))
             for key, value in kwargs.items():
-                setattr(self.orch_execution, key, value)
+                setattr(orch_execution, key, value)
+            s.commit()
+            self.json_orch_execution = orch_execution.to_json()
 
     def create_step_execution(self, command):
-        ctx = None
-        if not has_app_context():
-            ctx = self.app.app_context()
-            ctx.push()
+        ident = uuid.uuid4()
+        se = StepExecution(id=ident, step_id=command.id[1],
+                           server_id=command.id[0], orch_execution_id=self.json_orch_execution.get('id'),
+                           start_time=get_now())
+        self._store[ident] = se
+        return ident
 
-        try:
+    def save_step_execution(self, command: ImplementationCommand, params=None, pre_process_time=None,
+                            execution_time=None,
+                            post_process_time=None):
+        se = self._store[command.step_execution_id]
+        se.load_completed_result(command._cp)
+        se.params = params
+        se.pre_process_elapsed_time = pre_process_time
+        se.execution_elapsed_time = execution_time
+        se.post_process_elapsed_time = post_process_time
+        se.end_time = get_now()
+        if command._cp.stdout and ORCH_EXEC_PATTERN.match(command._cp.stdout):
+            se.child_orch_execution_id = ORCH_EXEC_PATTERN.findall(command._cp.stdout)[0]
+
+    def commit_data(self):
+        if self._store:
             with self.session_scope() as s:
-                se = StepExecution(id=uuid.uuid4(), step_id=command.id[1],
-                                   server_id=command.id[0], orch_execution_id=self.orch_execution.id,
-                                   start_time=get_now())
-                s.add(se)
+                for step in self._store.values():
+                    s.add(step)
+                try:
+                    s.commit()
+                except:
+                    s.rollback()
+                    logger.exception("Unable to commit data")
+                else:
+                    self._store.clear()
 
-                return se.id
-        finally:
-            if ctx:
-                ctx.pop()
 
-    def register_step_execution(self, command: ImplementationCommand, params=None, pre_process_time=None,
-                                execution_time=None,
-                                post_process_time=None):
-        ctx = None
-        if not has_app_context():
-            ctx = self.app.app_context()
-            ctx.push()
+def validate_input_chain(validatable: t.Union[Orchestration, Step], params: t.Iterable[str]) -> \
+        t.Dict[Step, t.Set[str]]:
+    """validates against the validatable that params have all needed parameters
 
+    Parameters
+    ----------
+    validatable: object that carries the schema
+    params:      input key parameters
+
+    Returns
+    -------
+    returns a dict like object with all missed parameters per step
+    """
+    iterable = validatable.root if isinstance(validatable, Orchestration) else validatable.children
+    not_found = {}
+    params = set(params)
+    for step in iterable:
+        required_input_params = set(step.schema.get('required', []))
+        m = step.schema.get('mapping', {})
+        constant_params = []
+        env_params = []
+        if m:
+            mapped_params = {}
+            for dest, value in m.items():
+                if isinstance(value, dict) and len(value) == 1 and 'from' in value:
+                    action, source = tuple(value.items())[0]
+                    if source.startswith('env.'):
+                        env_params.append(dest)
+                    else:
+                        mapped_params.update({source: dest})
+                else:
+                    constant_params.append(dest)
+            input_params = set([mapped_params.get(p, p) for p in params])
+        else:
+            input_params = set(params)
+
+        missing = required_input_params - set(input_params) - set(constant_params) - set(env_params)
+        if missing:
+            raise errors.MissingParameters(list(missing), step)
+
+        out_params = set(step.schema.get('output', []))
+
+        r_not_found = validate_input_chain(step, params=params | out_params)
+        not_found.update(r_not_found)
+    return not_found
+
+
+def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
+                         hosts: t.Dict[str, t.Union[t.List[Id]]],
+                         var_context: 'Context' = None,
+                         execution: t.Union[Id, OrchExecution] = None,
+                         executor: t.Union[Id, User] = None,
+                         execution_server: t.Union[Id, Server] = None,
+                         lock_retries=2,
+                         lock_delay=3) -> OrchExecution:
+    """deploy the orchestration
+
+    Args:
+        orchestration: id or orchestration to execute
+        hosts: Mapping to all distributions
+        var_context: Context configuration
+        execution: id or execution to associate with the orchestration. If none, a new one is created
+        executor: id or User who executes the orchestration
+        execution_server: id or User who executes the orchestration
+        lock_retries: tries to lock for orchestration N times
+        lock_delay: delay between retries
+    Returns:
+        dict: dict with tuple ids and the :class: CompletedProcess
+
+    Raises:
+        Exception: if anything goes wrong
+    """
+    execution = execution or var_context.env.get('orch_execution_id')
+    executor = executor or var_context.env.get('executor_id')
+    hosts = hosts or var_context.get('hosts')
+    if not isinstance(orchestration, Orchestration):
+        orchestration = db.session.query(Orchestration).get(orchestration)
+    if not isinstance(execution, OrchExecution):
+
+        if execution is not None:
+            exe = db.session.query(OrchExecution).get(execution)
+        else:
+            exe = db.session.query(OrchExecution).get(var_context.get('execution_id'))
+        if exe is None:
+            if not isinstance(executor, User):
+                executor = db.session.query(User).get(executor)
+            if executor is None:
+                raise ValueError('executor must be set')
+            if not isinstance(execution_server, Server):
+                if execution_server is None:
+                    try:
+                        execution_server = g.server
+                    except AttributeError:
+                        execution_server = Server.get_current()
+                    if execution_server is None:
+                        raise ValueError('execution server not found')
+                else:
+                    execution_server = db.session.query(Server).get(execution_server)
+            exe = OrchExecution(id=execution, orchestration_id=orchestration.id, target=hosts,
+                                params=dict(var_context),
+                                executor_id=executor.id, server_id=execution_server.id)
+            db.session.add(exe)
+            db.session.commit()
+
+    else:
+        exe = execution
+    current_app.logger.debug(
+        f"Execution {exe.id}: Launching orchestration {orchestration} on {hosts} with {var_context}")
+
+    return _deploy_orchestration(orchestration, var_context, hosts, exe, lock_retries, lock_delay)
+
+
+def _deploy_orchestration(orchestration: Orchestration,
+                          var_context: 'Context',
+                          hosts: t.Dict[str, t.List[Id]],
+                          execution: OrchExecution,
+                          lock_retries,
+                          lock_delay
+                          ) -> OrchExecution:
+    """
+    Parameters
+    ----------
+    orchestration
+        orchestration to deploy
+    params
+        parameters to pass to the steps
+
+    Returns
+    -------
+    t.Tuple[bool, bool, t.Dict[int, dpl.CompletedProcess]]:
+        tuple with 3 values. (boolean indicating if invoke process ended up successfully,
+        boolean indicating if undo process ended up successfully,
+        dict with all the executions). If undo process not executed, boolean set to None
+    """
+    rse = RegisterStepExecution(execution)
+    kwargs = dict()
+    kwargs['start_time'] = execution.start_time or get_now()
+    cc = create_cmd_from_orchestration(orchestration, var_context, hosts=hosts, register=rse, executor=executor)
+
+    # convert UUID into str as in_ filter does not handle UUID type
+    all = [str(s) for s in hosts['all']]
+    servers = Server.query.filter(Server.id.in_(all)).all()
+    try:
+        applicant = lock.lock(Scope.ORCHESTRATION, servers, execution.id, retries=lock_retries, delay=lock_delay)
+    except errors.LockError as e:
+        kwargs.update(success=False, message=str(e))
+        rse.update_orch_execution(**kwargs)
+        raise
+    try:
+        kwargs['success'] = cc.invoke()
+        if not kwargs['success'] and orchestration.undo_on_error:
+            kwargs['undo_success'] = cc.undo()
+        kwargs['end_time'] = get_now()
+        rse.update_orch_execution(**kwargs)
+    except Exception as e:
+        current_app.logger.exception("Exception while executing invocation command")
+        kwargs.update(success=False, message=str(e))
+        rse.update_orch_execution(**kwargs)
         try:
-            with self.session_scope() as s:
-                se: StepExecution = s.query(StepExecution).get(command.step_execution_id)
-                se.load_completed_result(command._cp)
-                se.params = params
-                se.pre_process_elapsed_time = pre_process_time
-                se.execution_elapsed_time = execution_time
-                se.post_process_elapsed_time = post_process_time
-                se.end_time = get_now()
-                if command._cp.stdout and ORCH_EXEC_PATTERN.match(command._cp.stdout):
-                    se.child_orch_execution_id = ORCH_EXEC_PATTERN.findall(command._cp.stdout)[0]
-        finally:
-            if ctx:
-                ctx.pop()
+            db.session.rollback()
+        except:
+            pass
+
+    finally:
+
+        lock.unlock(Scope.ORCHESTRATION, applicant=applicant, servers=servers)
+
+    db.session.refresh(execution)
+    return execution

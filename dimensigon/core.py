@@ -1,16 +1,27 @@
 import datetime as dt
 import logging
+import multiprocessing as mp
 import os
-import sys
+import signal
+import time
 import typing as t
 
 from gunicorn.app.base import Application
 
 from dimensigon import defaults
 from dimensigon.exceptions import DimensigonError
+from dimensigon.use_cases.base import default_signal_handler, init_signals, TerminateInterrupt
+from dimensigon.use_cases.clustering import ClusterManager
+from dimensigon.use_cases.file_sync import FileSync
+# from dimensigon.use_cases.log_sender import LogSender
 from dimensigon.web import DimensigonFlask, create_app, threading
 
-_LOGGER = logging.getLogger(__name__)
+_logger = logging.getLogger("dm")
+
+
+def _sleep_secs(max_sleep, end_time=999999999999999.9):
+    # Calculate time left to sleep, no less than 0
+    return max(0.0, min(end_time - time.time(), max_sleep))
 
 
 class GunicornApp(Application):
@@ -21,6 +32,7 @@ class GunicornApp(Application):
 
         self.application = application
         self.options = options or {}
+        self.process = None
 
         # if port, or host isn't set-- run from os.environments
         #
@@ -39,12 +51,28 @@ class GunicornApp(Application):
 
 
 class Dimensigon:
+    MAX_TERMINATE_CALLED = 3
+    int_handler = staticmethod(default_signal_handler)
+    term_handler = staticmethod(default_signal_handler)
+    _logger = _logger
+
     def __init__(self):
         self.flask_app: t.Optional[DimensigonFlask] = None
-        self.http_server: t.Optional[GunicornApp] = None
+        self.gunicorn: t.Optional[GunicornApp] = None
+        self.server: t.Optional[mp.Process] = None
         self.config = Config(self)
-        self.engine = None
-        self.get_session = None
+        self.cluster_manager: t.Optional[ClusterManager] = None
+        self.file_sync: t.Optional[FileSync] = None
+        # self.log_sender: t.Optional[LogSender] = None  # log sender embedded in file_sync process
+        self.shutdown_event = mp.Event()
+        self.STOP_WAIT_SECS = 90
+        self.engine = None  # set on setup_dm function
+        self.get_session = None  # set on setup_dm function
+        self.procs = []
+
+    def _init_signals(self):
+        signal_object = init_signals(self.shutdown_event, self.int_handler, self.term_handler)
+        return signal_object
 
     def create_flask_instance(self):
         if self.flask_app is None:
@@ -52,26 +80,94 @@ class Dimensigon:
             self.flask_app.dm = self
 
     def create_gunicorn_instance(self):
-        if self.http_server is None:
-            self.http_server = GunicornApp(self.flask_app, self.config.http_conf)
-            self.http_server.dm = self
+        if self.gunicorn is None:
+            self.gunicorn = GunicornApp(self.flask_app, self.config.http_conf)
+            self.gunicorn.dm = self
 
-    def create_instances(self):
+    def create_processes(self):
+        self.cluster_manager = ClusterManager(self,
+                                              zombie_threshold=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD * 60)
+        self.file_sync = FileSync(self)
+        # self.log_sender = LogSender(self)  # log sender embedded in file_sync process
+        if self.config.flask:
+            self.server = mp.Process(target=self.flask_app.run, name="Flask server",
+                                     kwargs=dict(host='0.0.0.0', port=defaults.DEFAULT_PORT, ssl_context='adhoc'))
+        else:
+            self.server = mp.Process(target=self.gunicorn.run, name="Gunicorn server")
+
+    def bootstrap(self):
         self.create_flask_instance()
         self.create_gunicorn_instance()
+        self.create_processes()
+
+    def make_first_request(self):
+        from dimensigon.domain.entities import Server
+        import dimensigon.web.network as ntwrk
+
+        with self.flask_app.app_context():
+            start = time.time()
+            while True:
+                resp = ntwrk.get(Server.get_current(), 'root.home', timeout=1)
+                if not resp.ok and time.time() - start < 30:
+                    time.sleep(2)
+                else:
+                    break
+
+    def start_server(self):
+        if hasattr(self.cluster_manager, 'notify_cluster'):
+            self.flask_app.before_first_request(self.cluster_manager.notify_cluster)
+        th = threading.Timer(interval=4, function=self.make_first_request)
+        th.start()
+        self.server.start()
 
     def start(self):
         """starts dimensigon server"""
-        self.create_instances()
-        self.flask_app.bootstrap_start()
-        th = threading.Timer(interval=4, function=self.flask_app.make_first_request)
-        th.start()
-        if self.config.flask:
-            self.flask_app.run(host='0.0.0.0', port=defaults.DEFAULT_PORT, ssl_context='adhoc')
-            self.flask_app.shutdown()
-            sys.exit(0)
-        else:
-            self.http_server.run()
+        _logger.info(f"Starting Dimensigon ({os.getpid()})")
+        self.bootstrap()
+        self.flask_app.bootstrap()
+        self.cluster_manager.start()
+        self.file_sync.start()
+        # self.log_sender.start() # log sender embedded in file_sync process
+        self.start_server()
+        try:
+            while not self.shutdown_event.is_set():
+                time.sleep(0.2)
+        except (TerminateInterrupt, KeyboardInterrupt):
+            pass
+        self.shutdown()
+
+    def shutdown(self):
+        _logger.info(f"Shutting down Dimensigon")
+        self.flask_app.shutdown()
+        self.shutdown_event.set()
+        os.kill(self.server.pid, signal.SIGTERM)
+
+        procs = []
+        # procs.append(self.log_sender.process)  # log sender embedded in file_sync process
+        procs.append(self.file_sync.process)
+        procs.append(self.cluster_manager.process)
+        procs.append(self.server)
+        end_time = time.time() + self.STOP_WAIT_SECS
+
+        for proc in procs:
+            _logger.debug(f"Joining process {proc.name}")
+            join_secs = _sleep_secs(self.STOP_WAIT_SECS, end_time)
+            proc.join(join_secs)
+
+        still_running = []
+        while procs:
+            proc = procs.pop()
+            if proc.exitcode is None:
+                _logger.debug(f"{proc.name} still alive. Terminating...")
+                if not proc.terminate():
+                    still_running.append(proc)
+            else:
+                exitcode = proc.exitcode
+                if exitcode:
+                    _logger.error(f"Process {proc.name} ended with exitcode {exitcode}")
+                else:
+                    _logger.debug(f"Process {proc.name} stopped successfully")
+
 
 class Config:
 

@@ -175,7 +175,7 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
     @classmethod
     def get_neighbours(cls, alive=False,
-                       exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None) -> t.List[
+                       exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None, session=None) -> t.List[
         'Server']:
         """returns neighbour servers
 
@@ -185,7 +185,11 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         Returns:
 
         """
-        query = cls.query.join(cls.route).filter(Route.cost == 0)
+        if session:
+            query = session.query(cls)
+        else:
+            query = cls.query
+        query = query.join(cls.route).filter(Route.cost == 0)
         if exclude:
             if isinstance(exclude, list):
                 if isinstance(exclude[0], Server):
@@ -197,46 +201,20 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
             else:
                 query = query.filter(Server.id != exclude)
 
-        if alive:
-            query = query.filter(Server.id.in_([iden for iden in current_app.cluster_manager.cluster.get_delta_keepalive(
-                dt.timedelta(minutes=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD))]))
+        # if alive:
+        #     query = query.filter(cls.id.in_([iden for iden in current_app.dm.cluster_manager.get_alive()]))
 
-        return query.order_by(Server.name).all()
+        return query.order_by(cls.name).all()
 
     @classmethod
-    def get_neighbours(cls, alive=False,
-                       exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None) -> t.List[
-        'Server']:
-        """returns neighbour servers
-
-        Args:
-            alive: if True, returns neighbour servers inside the cluster
-
-        Returns:
-
-        """
-        query = cls.query.join(cls.route).filter(Route.cost == 0)
-        if exclude:
-            if isinstance(exclude, list):
-                if isinstance(exclude[0], Server):
-                    query = query.filter(Server.id.in_([s.id for s in exclude]))
-                else:
-                    query = query.filter(Server.id.in_(exclude))
-            elif isinstance(exclude, Server):
-                query = query.filter(Server.id != exclude.id)
-            else:
-                query = query.filter(Server.id != exclude)
-
-        if alive:
-            query = query.filter(Server.id.in_([iden for iden in current_app.cluster.cluster_manager.get_delta_keepalive(
-                dt.timedelta(minutes=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD))]))
-
-        return query.order_by(Server.name).all()
-    @classmethod
-    def get_not_neighbours(cls) -> t.List['Server']:
-        return cls.query.outerjoin(cls.route).filter(
-            or_(or_(Route.cost > 0, Route.cost == None), cls.route == None)).filter(Server._me == False).order_by(
-            Server.name).all()
+    def get_not_neighbours(cls, session=None) -> t.List['Server']:
+        if session:
+            query = session.query(cls)
+        else:
+            query = cls.query
+        return query.outerjoin(cls.route).filter(
+            or_(or_(Route.cost > 0, Route.cost == None), cls.route == None)).filter(cls._me == False).order_by(
+            cls.name).all()
 
     @classmethod
     def get_reachable_servers(cls, alive=False, exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None) -> t.List[
@@ -259,8 +237,7 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
             query = query.filter(Server.id.notin_(c_exclude))
 
         if alive:
-            query = query.filter(Server.id.in_([iden for iden in current_app.cluster_manager.cluster.get_delta_keepalive(
-                dt.timedelta(minutes=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD))]))
+            query = query.filter(Server.id.in_([iden for iden in current_app.dm.cluster_manager.get_alive()]))
 
         return query.order_by(Server.name).all()
 
@@ -293,23 +270,27 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         return server
 
     @classmethod
-    def get_current(cls) -> 'Server':
+    def get_current(cls, session=None) -> 'Server':
         global _me
+        if session:
+            query = session.query(cls)
+        else:
+            query = cls.query
         if has_app_context():
             app = current_app._get_current_object()
             if app not in _me:
-                entity = cls.query.filter_by(_me=True).filter_by(deleted=False).one()
+                entity = query.filter_by(_me=True).filter_by(deleted=False).one()
                 if entity:
                     db.session.expunge(entity)
                     _me[app] = entity
                 else:
                     raise NoResultFound('No row was found for one()')
             return db.session.merge(_me[app], load=False)
-        return cls.query.filter_by(_me=True).filter_by(deleted=False).one()
+        return query.filter_by(_me=True).filter_by(deleted=False).one()
 
     @staticmethod
     def set_initial(session=None, gates=None):
-        logger = logging.getLogger('dimensigon.db')
+        logger = logging.getLogger('dm.db')
         if session is None:
             session = db.session
         server = session.query(Server).filter_by(_me=True).all()

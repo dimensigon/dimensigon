@@ -90,7 +90,7 @@ class ResourceCompleter(Completer):
                 if value:
                     if is_iterable_not_string(value):
                         value = ','.join(value)
-                    url_filters.update({'filter[{dest}]': value})
+                    url_filters.update({f'filter[{dest}]': value})
 
         try:
             url = ntwrk.generate_url(self.resource, {**url_filters, **self.resource_params})
@@ -365,5 +365,9 @@ logfed_completer = ResourceCompleter('api_1_0.loglist', resource_params={'params
                                      meta_html_format="<b>{target}</b>, "
                                                       "<i>{src_server}</i> -> "
                                                       "<i>{dst_server}</i>")
+file_completer = ResourceCompleter('api_1_0.filelist', resource_params={'params': 'human'},
+                                   meta_html_format="{src_server}:<b>{target}</b>", )
+file_dest_completer = ResourceCompleter('api_1_0.fileserverassociationlist', 'version', resource_params={'params': 'human'},
+                                        filters=['file_id'])
 
 logger_completer = DshellWordCompleter([l for l in logging.root.manager.loggerDict.keys() if l.startswith('dshell')])

@@ -116,7 +116,7 @@ class TestTransferList(TestCase):
                                 json={"software_id": str(self.soft.id), 'dest_path': self.dest_path,
                                       'num_chunks': 16, 'cancel_pending': True}, headers=self.auth.header)
         self.assertEqual(202, resp.status_code)
-        self.assertEqual(TransferStatus.CANCELED, t.status)
+        self.assertEqual(TransferStatus.CANCELLED, t.status)
 
     def test_post_create_filename_transfer_with_pending_transfer(self):
         t = Transfer(software=self.filename, size=self.size, checksum=self.checksum, dest_path=self.dest_path,
@@ -149,7 +149,7 @@ class TestTransferList(TestCase):
                                       'num_chunks': 16,
                                       'cancel_pending': True}, headers=self.auth.header)
         self.assertEqual(202, resp.status_code)
-        self.assertEqual(TransferStatus.CANCELED, t.status)
+        self.assertEqual(TransferStatus.CANCELLED, t.status)
 
     def test_post_filename_and_software_not_specified(self, ):
         resp = self.client.post(url_for('api_1_0.transferlist'),

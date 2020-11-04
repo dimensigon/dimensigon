@@ -8,13 +8,13 @@ import platform
 import random
 import sys
 import time
-from dataclasses import dataclass
 
 import coolname
 import prompt_toolkit
 import requests
 import rsa
 import yaml
+from dataclasses import dataclass
 from flask import Flask
 from flask_jwt_extended import create_access_token
 
@@ -30,9 +30,8 @@ PLATFORM = platform.system()
 from dimensigon.domain.entities import *
 from dimensigon.web.network import pack_msg2, unpack_msg2
 from dimensigon.web import create_app, db
-
 from dimensigon.use_cases.use_cases import upgrade_catalog
-from dimensigon.utils.helpers import generate_symmetric_key, generate_dimension, get_now
+from dimensigon.utils.helpers import generate_symmetric_key, generate_dimension, get_now, str_resp
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
 
@@ -147,7 +146,7 @@ def app_context(f):
 
 
 def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = True, verify: bool = False):
-    logger = logging.getLogger('dimensigon.join')
+    logger = logging.getLogger('dm.join')
     dm.create_flask_instance()
     with dm.flask_app.app_context():
         Server.set_initial()
@@ -170,12 +169,12 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
             else:
                 if resp.status_code != 200:
                     if resp.status_code in (401, 422):
-                        logger.error(f"Error trying to get dimensigon public key: {resp.status_code}, {resp.content}")
-                        break
+                        logger.error(f"Error on authentication: {str_resp(resp)}")
+                        sys.exit(1)
                     else:
-                        logger.error(f"Error trying to get dimensigon public key: {resp.status_code}, {resp.content}")
+                        logger.error(f"Error trying to get dimensigon public key: {str_resp(resp)}")
                 else:
-                    break
+                    continue
             if i < times - 1:
                 d = int(random.random() * 25 * (i + 1))
                 logger.info(f"Retrying in {d} seconds.")
@@ -205,8 +204,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 if resp.ok:
                     break
                 else:
-                    logger.error(f"Error while trying to join. Error: {resp.status_code}, "
-                                 f"{resp.content}")
+                    logger.error(f"Error while trying to join. {str_resp(resp)}")
             except Exception as e:
                 logger.exception(f"Error while trying to join.")
                 resp = None
@@ -219,47 +217,50 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
             resp_data = {}
         elif resp.status_code != 200:
             db.session.rollback()
-            logger.info(f"Error while trying to join the dimension: {resp.status_code}, {resp.content}")
+            logger.info(f"Error while trying to join the dimension: {str_resp(resp)}")
             resp_data = {}
         else:
             resp_data = unpack_msg2(resp.json(), pub_key=pub_key, priv_key=tmp_priv,
                                     symmetric_key=symmetric_key)
             logger.log(1, resp_data)
         if 'Dimension' in resp_data:
-            dim = Dimension.from_json(resp_data.pop('Dimension'))
-            dim.current = True
-            db.session.add(dim)
+            json_dim = resp_data.pop('Dimension')
+            dim = Dimension.query.get(json_dim.get('id'))
+            if not dim:
+                dim = Dimension.from_json(json_dim)
+                dim.current = True
+                db.session.add(dim)
 
-            keyfile_content = base64.b64decode(resp_data.pop('keyfile').encode())
-            with open(dm.config.http_conf['keyfile'], 'wb') as fh:
-                fh.write(keyfile_content)
-                del keyfile_content
-            certfile_content = base64.b64decode(resp_data.pop('certfile').encode())
-            with open(dm.config.http_conf['certfile'], 'wb') as fh:
-                fh.write(certfile_content)
-                del certfile_content
+                keyfile_content = base64.b64decode(resp_data.pop('keyfile').encode())
+                with open(dm.config.http_conf['keyfile'], 'wb') as fh:
+                    fh.write(keyfile_content)
+                    del keyfile_content
+                certfile_content = base64.b64decode(resp_data.pop('certfile').encode())
+                with open(dm.config.http_conf['certfile'], 'wb') as fh:
+                    fh.write(certfile_content)
+                    del certfile_content
 
-            logger.info('Updating Catalog...')
-            reference_server_id = resp_data.pop('me')
-            # remove catalog
-            for c in Catalog.query.all():
-                db.session.delete(c)
-            try:
-                upgrade_catalog(resp_data['catalog']) # implicit commit
-            except Exception as e:
-                logger.exception(f"Unable to upgrade catalog.")
-                exit(1)
-            else:
-                logger.info('Catalog updated.')
-            # set reference server as a neighbour
-            reference_server = Server.query.get(reference_server_id)
-            if not reference_server:
-                db.session.rollback()
-                logger.info(f"Server id {reference_server_id} not found in catalog.")
-                exit(1)
-            Route(destination=reference_server, cost=0)
-            # update_route_table_cost(True)
-            Parameter.set("join_server", f'{reference_server.id}')
+                logger.info('Updating Catalog...')
+                reference_server_id = resp_data.pop('me')
+                # remove catalog
+                for c in Catalog.query.all():
+                    db.session.delete(c)
+                try:
+                    upgrade_catalog(resp_data['catalog']) # implicit commit
+                except Exception as e:
+                    logger.exception(f"Unable to upgrade catalog.")
+                    exit(1)
+                else:
+                    logger.info('Catalog updated.')
+                # set reference server as a neighbour
+                reference_server = Server.query.get(reference_server_id)
+                if not reference_server:
+                    db.session.rollback()
+                    logger.info(f"Server id {reference_server_id} not found in catalog.")
+                    exit(1)
+                Route(destination=reference_server, cost=0)
+                # update_route_table_cost(True)
+                Parameter.set("join_server", f'{reference_server.id}')
 
             resp = None
             times = 5

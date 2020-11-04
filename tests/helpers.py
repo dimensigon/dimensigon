@@ -11,6 +11,7 @@ from io import StringIO
 from threading import Thread
 from unittest.mock import Mock
 
+import flask
 import requests
 from aioresponses import aioresponses, CallbackResult
 from cryptography.hazmat.backends import default_backend
@@ -156,11 +157,23 @@ def load_data(catalog: t.Dict[str, t.List[t.Dict]]):
                 update_datemark(True)
 
 
-from flask import _app_ctx_stack
-
-
 def app_scope():
-    return str(hash(_app_ctx_stack.top.app)) + str(threading.get_ident())
+    try:
+        return str(hash(flask._app_ctx_stack.top.app)) + str(threading.get_ident())
+    except:
+        return str(threading.get_ident())
 
-def set_test_scoped_session(db_, func=app_scope):
+
+def request_scope():
+    try:
+        return str(hash(flask._request_ctx_stack.top.request)) + str(hash(flask._app_ctx_stack.top.app)) + str(
+            threading.get_ident())
+    except:
+        return app_scope()
+
+
+def set_test_scoped_session(db_, func=app_scope, check_same_thread=False):
+    connect_args = db_._engine_options.get('connect_args', {})
+    connect_args.update(check_same_thread=check_same_thread)
+    db_._engine_options['connect_args'] = connect_args
     db_.session = db_.create_scoped_session(dict(scopefunc=func))

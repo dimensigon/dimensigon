@@ -29,8 +29,8 @@ def set_software_server(soft, server, path, recalculate_data=False):
 
 class SoftwareList(Resource):
 
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     def get(self):
         query = filter_query(Software, request.args)
@@ -62,8 +62,8 @@ class SoftwareList(Resource):
 
 # /software/<software_id>
 class SoftwareResource(Resource):
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     def get(self, software_id):
         return Software.query.get_or_raise(software_id).to_json()
@@ -71,8 +71,8 @@ class SoftwareResource(Resource):
 
 # software/<software_id>/servers
 class SoftwareServersResource(Resource):
-    @securizer
     @jwt_required
+    @securizer
     @forward_or_dispatch()
     def get(self, software_id):
         soft = Software.query.get_or_raise(software_id)

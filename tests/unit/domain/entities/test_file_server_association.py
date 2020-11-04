@@ -4,6 +4,7 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, File, FileServerAssociation
+from dimensigon.domain.entities.bootstrap import set_initial
 from dimensigon.web import create_app, db, errors
 
 

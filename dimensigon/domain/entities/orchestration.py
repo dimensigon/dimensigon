@@ -1,17 +1,19 @@
 import itertools
 import typing as t
 
+import jinja2
 from sqlalchemy import orm
 
 from dimensigon.domain.entities.base import UUIDistributedEntityMixin
+from dimensigon.domain.entities import ActionType
 from dimensigon.utils.dag import DAG
 from dimensigon.web import db, errors
 from .step import Step
-from ...utils.helpers import get_now
+from ...utils.helpers import get_now, is_iterable_not_string
 from ...utils.typos import UtcDateTime
 
 if t.TYPE_CHECKING:
-    from dimensigon.domain.entities import ActionTemplate, ActionType
+    from dimensigon.domain.entities import ActionTemplate
 
 Tdependencies = t.Union[t.Dict[Step, t.Iterable[Step]], t.Iterable[t.Tuple[Step, Step]]]
 
@@ -43,7 +45,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
 
         self.name = name
         self.version = version
-        self.description = description
+        self.description = '\n'.join(description) if is_iterable_not_string(description) else description
         self.steps = steps or []
         assert isinstance(stop_on_error, bool)
         self.stop_on_error = stop_on_error
@@ -398,11 +400,6 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
                     undo_on_error=self.undo_on_error, stop_undo_on_error=self.stop_undo_on_error)
         if add_target:
             data.update(target=list(self.target))
-        if add_params:
-            try:
-                data.update(params=list(self.user_parameters))
-            except:
-                pass
         if add_steps:
             json_steps = []
             for step in self.steps:
@@ -418,3 +415,28 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
 
     def __str__(self):
         return f"{self.name}.{self.version}"
+
+    @property
+    def schema(self):
+        outer_schema = {'input': {}, 'required': [], 'output': []}
+        level = 1
+        while level <= self._graph.depth:
+            for step in self._graph.get_nodes_at_level(level):
+                schema = step.schema
+                for k, v in step.schema.get('input', {}).items():
+                    if k not in outer_schema['input'] and \
+                            k not in outer_schema['output'] and \
+                            k not in schema.get('mapping', {}):
+                        outer_schema['input'].update({k: v})
+                for k, v in step.schema.get('mapping', {}).items():
+                    if isinstance(v, dict) and len(v) == 1 and 'from' in v:
+                        action, source = tuple(v.items())[0]
+                        if not (source in outer_schema['input'] or source in outer_schema['output']):
+                            raise errors.MappingError(source, step)
+                for k in list(schema.get('output', [])):
+                    outer_schema['output'].append(k) if k not in outer_schema['output'] else None
+                for k in list(schema.get('required', [])):
+                    if k not in outer_schema['output'] and k not in schema.get('mapping', {}):
+                        outer_schema['required'].append(k) if k not in outer_schema['required'] else None
+            level += 1
+        return outer_schema

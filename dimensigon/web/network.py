@@ -21,7 +21,7 @@ from dimensigon.web import errors, db
 
 requests.packages.urllib3.disable_warnings()
 
-logger = logging.getLogger('dimensigon.network')
+logger = logging.getLogger('dm.network')
 
 log_requests_with_elapsed = 3
 
