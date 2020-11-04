@@ -26,8 +26,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
     name = db.Column(db.String(40), nullable=False)
     version = db.Column(db.Integer, nullable=False)
     action_type = db.Column(typos.Enum(ActionType), nullable=False)
-    code = db.Column(db.Text, nullable=False)
-    parameters = db.Column(db.JSON)  # deprecated. schema attribute used instead
+    code = db.Column(db.Text)
     expected_stdout = db.Column(db.Text)
     expected_stderr = db.Column(db.Text)
     expected_rc = db.Column(db.Integer)
@@ -38,7 +37,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
     description = db.Column(db.Text)  # added in SCHEMA_VERSION = 6
 
     def __init__(self, name: str, version: int, action_type: ActionType, code: MultiLine = None,
-                 parameters: typos.Kwargs = None, expected_stdout: MultiLine = None, expected_stderr: MultiLine = None,
+                 expected_stdout: MultiLine = None, expected_stderr: MultiLine = None,
                  expected_rc: int = None, system_kwargs: typos.Kwargs = None, pre_process: MultiLine = None,
                  post_process: MultiLine = None, schema: typos.Kwargs = None, description: MultiLine = None, **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
@@ -46,7 +45,6 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
         self.version = version
         self.action_type = action_type
         self.code = '\n'.join(code) if is_iterable_not_string(code) else code
-        self.parameters = parameters or {}
         self.schema = schema or {}
         self.expected_stdout = '\n'.join(expected_stdout) if is_iterable_not_string(
             expected_stdout) else expected_stdout
@@ -73,11 +71,9 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
         data.update(name=self.name, version=self.version,
                     action_type=self.action_type.name,
                     code=self.code.split('\n') if split_lines else self.code)
-        if self.parameters is not None:
-            data.update(parameters=self.parameters)
         if self.schema is not None:
             data.update(schema=self.schema)
-        if self.parameters is not None:
+        if self.system_kwargs is not None:
             data.update(system_kwargs=self.system_kwargs)
         if self.expected_stdout is not None:
             data.update(expected_stdout=self.expected_stdout.split('\n') if split_lines else self.expected_stdout)

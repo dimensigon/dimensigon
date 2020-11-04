@@ -31,7 +31,6 @@ class Step(db.Model, UUIDistributedEntityMixin):
     step_stop_on_error = db.Column("stop_on_error", db.Boolean)
     step_stop_undo_on_error = db.Column("stop_undo_on_error", db.Boolean)
     step_undo_on_error = db.Column("undo_on_error", db.Boolean)
-    step_parameters = db.Column("parameters", db.JSON)
     step_expected_stdout = db.Column("expected_stdout", db.Text)
     step_expected_stderr = db.Column("expected_stderr", db.Text)
     step_expected_rc = db.Column("expected_rc", db.Integer)
@@ -67,7 +66,6 @@ class Step(db.Model, UUIDistributedEntityMixin):
                  expected_stdout: t.Optional[str] = None,
                  expected_stderr: t.Optional[str] = None,
                  expected_rc: t.Optional[int] = None,
-                 parameters: t.Dict[str, t.Any] = None,
                  schema: t.Dict[str, t.Any] = None,
                  system_kwargs: t.Dict[str, t.Any] = None,
                  parent_steps: t.List['Step'] = None, children_steps: t.List['Step'] = None,
@@ -98,7 +96,6 @@ class Step(db.Model, UUIDistributedEntityMixin):
             expected_stderr) else expected_stderr
 
         self.step_expected_rc = expected_rc if expected_rc is not None else kwargs.pop('step_expected_rc', None)
-        self.step_parameters = parameters if parameters is not None else kwargs.pop('step_parameters', None) or {}
         self.step_schema = schema if schema is not None else kwargs.pop('step_schema', None) or {}
         self.step_system_kwargs = system_kwargs if system_kwargs is not None else kwargs.pop('step_system_kwargs',
                                                                                              None) or {}
@@ -183,17 +180,6 @@ class Step(db.Model, UUIDistributedEntityMixin):
     @undo_on_error.setter
     def undo_on_error(self, value):
         self.step_undo_on_error = value
-
-    @property
-    def parameters(self):
-        if self.action_template:
-            return dict(ChainMap(self.step_parameters, self.action_template.parameters))
-        else:
-            return dict(self.step_parameters)
-
-    @parameters.setter
-    def parameters(self, value):
-        self.step_parameters = value
 
     @property
     def schema(self):
@@ -362,7 +348,6 @@ class Step(db.Model, UUIDistributedEntityMixin):
         """
         if isinstance(other, self.__class__):
             return all([self.undo == other.undo,
-                        self.parameters == other.parameters,
                         self.schema == other.schema,
                         self.stop_on_error == other.stop_on_error,
                         self.stop_undo_on_error == other.stop_undo_on_error,
@@ -419,7 +404,6 @@ class Step(db.Model, UUIDistributedEntityMixin):
         data.update(
             stop_undo_on_error=self.step_stop_undo_on_error) if self.step_stop_undo_on_error is not None else None
         data.update(undo_on_error=self.step_undo_on_error) if self.step_undo_on_error is not None else None
-        data.update(parameters=self.step_parameters) if self.step_parameters is not None else None
         data.update(schema=self.step_schema) if self.step_schema is not None else None
         if self.step_expected_stdout is not None:
             data.update(
