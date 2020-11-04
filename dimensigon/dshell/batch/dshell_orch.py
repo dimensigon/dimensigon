@@ -1,5 +1,5 @@
 """
-Usage: dshell orch list [--id ID|--name NAME|--like LIKE] [--version N] [--last N]
+Usage: dshell orch list [--id ID|--name NAME|--like LIKE] [--version N] [--detail]
        dshell orch create (- | FILE)
        dshell orch run ID [[--param PARAM=VALUE]... | [--json-parameters JSON]]
                           ((--target NAME=VALUE)... | --json-target JSON)
@@ -30,29 +30,17 @@ import sys
 from pprint import pprint
 
 from docopt import docopt
-from schema import Schema, Or, Use, And, SchemaError
 
 import dimensigon.dshell.network as ntwrk
 from dimensigon.dshell.commands import orch_list, orch_run
-
-orch_schema = Schema(
-    {
-        'FILE': Or(None, Use(open, error="Unable to open file. File not found")),
-        '--last': Or(None, And(Use(int, error="Not a valid integer"), And(lambda n: 0 < n,
-                                                                          error="integer must be above 0"))),
-        str: object}, )
 
 
 def main(args):
     argv = docopt(__doc__, args)
 
-    try:
-        argv = orch_schema.validate(argv)
-    except SchemaError as e:
-        exit(str(e))
     if argv['list']:
-        orch_list(iden=argv['--id'], name=argv['--name'], version=argv['--version'], like=argv['--like'],
-                    last=argv['--last'])
+        orch_list(ident=argv['--id'], name=argv['--name'], version=argv['--version'], like=argv['--like'],
+                  detail=argv['--detail'])
     elif argv['create']:
         data = None
         if argv['-']:
@@ -75,7 +63,7 @@ def main(args):
                 pprint(resp.msg if resp.code is not None else str(resp.exception) if str(
                     resp.exception) else resp.exception.__class__.__name__)
         else:
-            print("No data found to create action template")
+            exit("No data found to create action template")
     elif argv['run']:
         orchestration_id = argv['ID']
 
