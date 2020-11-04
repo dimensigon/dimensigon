@@ -25,14 +25,15 @@ Options:
     --version N              Versions to list
     --no-wait                Does not wait the orchestration to finish
 """
+import ast
 import json
+import re
 import sys
-from pprint import pprint
 
 from docopt import docopt
 
 import dimensigon.dshell.network as ntwrk
-from dimensigon.dshell.commands import orch_list, orch_run
+from dimensigon.dshell.commands import orch_list, orch_run, dprint
 
 
 def main(args):
@@ -48,44 +49,66 @@ def main(args):
             part = json.loads(content)
             data = part if isinstance(part, list) else [part]
         elif argv['FILE']:
-            data = []
-            content = argv['FILE'].read()
-            part = json.loads(content)
-            data.extend(part) if isinstance(part, list) else data.append(part)
+            try:
+                content = open(argv['FILE'], 'r').read()
+            except Exception as e:
+                exit(str(e))
+            try:
+                data = json.loads(content)
+            except Exception as e:
+                exit(f"Json format error: {e}")
         else:
             exit("No file specified")
         if data:
-            resp = ntwrk.post(f'api_1_0.orchestrationlist', json=data)
-            if resp.ok:
-                if resp.msg:
-                    pprint(resp.msg)
-            else:
-                pprint(resp.msg if resp.code is not None else str(resp.exception) if str(
-                    resp.exception) else resp.exception.__class__.__name__)
+            resp = ntwrk.post(f'api_1_0.orchestrationfull', json=data)
+            dprint(resp)
         else:
             exit("No data found to create action template")
     elif argv['run']:
         orchestration_id = argv['ID']
 
         if argv['--json-parameters'] is None:
-            parameters = {}
+            container = {}
             for param in argv['--param']:
-                key, value = param.split('=', 1)
-                if ',' in value:
-                    parameters[key] = value.split(',')
+                match = re.search(r"^([\"']?)([\w\-_]+):(.*?)\1$", param, re.MULTILINE | re.DOTALL)
+                if not match:
+                    exit(
+                        f"Not a valid parameter '{param}'. Must contain a KEY:VALUE. Ex. string-key:'string-value' or "
+                        f"integer-key:12345 or list-key:[1,2]")
                 else:
-                    parameters[key] = value
+                    mark, key, value = match.groups()
+                    try:
+                        value = ast.literal_eval(value)
+                    except Exception:
+                        value = value.encode().decode('unicode-escape')
+                if isinstance(value, str) and value.startswith('@'):
+                    file = value.strip('@')
+                    value = open(file, 'r').read()
+
+                container.update({key: value})
+            parameters = container
         else:
             parameters = json.loads(argv['--json-parameters'])
 
         if argv['--json-target'] is None:
-            target = {}
-            for param in argv['--target']:
-                key, value = param.split('=', 1)
-                if ',' in value:
-                    target[key] = value.split(',')
+            container = {}
+            for value in argv['--target']:
+                if '=' in value:
+                    target, host = value.split('=')
+                    if ',' in host:
+                        host = host.split(',')
+                    else:
+                        host = [host]
+                    if target in container:
+                        container[target].extend(host)
+                    else:
+                        container.update({target: host})
                 else:
-                    target[key] = value
+                    if 'all' not in container:
+                        container.update({'all': [value]})
+                    else:
+                        container['all'].append(value)
+            target = container
         else:
             target = json.loads(argv['--json-target'])
 

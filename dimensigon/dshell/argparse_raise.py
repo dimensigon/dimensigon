@@ -378,14 +378,14 @@ class ParamAction(argparse.Action):
             if not match:
                 raise ValueError(
                     f"Not a valid parameter '{param}'. Must contain a KEY:VALUE. Ex. string-key:'string-value' or "
-                    f"integer-key:12345 or list-key=[1,2]")
+                    f"integer-key:12345 or list-key:[1,2]")
             else:
                 mark, key, value = match.groups()
                 try:
                     value = ast.literal_eval(value)
                 except Exception:
                     value = value.encode().decode('unicode-escape')
-            if value.startswith('@'):
+            if isinstance(value, str) and value.startswith('@'):
                 file = value.strip('@')
                 value = open(file, 'r').read()
 

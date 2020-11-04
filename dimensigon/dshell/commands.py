@@ -210,8 +210,7 @@ def orch_load(file):
 
 def orch_run(orchestration_id, **params):
     if not params['hosts']:
-        print('No target specified')
-        return
+        exit('No target specified')
     resp = ntwrk.post('api_1_0.launch_orchestration',
                       view_data={'orchestration_id': orchestration_id, 'params': 'human'}, json=params)
     dprint(resp)

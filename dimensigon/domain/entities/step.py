@@ -69,7 +69,8 @@ class Step(db.Model, UUIDistributedEntityMixin):
                  schema: t.Dict[str, t.Any] = None,
                  system_kwargs: t.Dict[str, t.Any] = None,
                  parent_steps: t.List['Step'] = None, children_steps: t.List['Step'] = None,
-                 target: t.Union[str, t.Iterable[str]] = None, name: str = None, description: str = None, **kwargs):
+                 target: t.Union[str, t.Iterable[str]] = None, name: str = None, description: str = None, rid=None,
+                 **kwargs):
 
         UUIDistributedEntityMixin.__init__(self, **kwargs)
         assert undo in (False, True)
@@ -124,10 +125,10 @@ class Step(db.Model, UUIDistributedEntityMixin):
 
         description = description if description is not None else kwargs.pop('step_description', None)
         self.step_description = '\n'.join(description) if is_iterable_not_string(description) else description
+        self.rid = rid # used when creating an Orchestration
 
     @orm.reconstructor
     def init_on_load(self):
-        self.parameters = self.parameters or {}
         self.system_kwargs = self.system_kwargs or {}
 
     @property

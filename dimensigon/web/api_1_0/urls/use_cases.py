@@ -613,7 +613,7 @@ def launch_orchestration(orchestration_id):
     orchestration = Orchestration.query.get_or_raise(orchestration_id)
     data = request.get_json()
     params = data.get('params') or {}
-    hosts = data.get('hosts')
+    hosts = data.get('hosts', Server.get_current().id)
 
     a = set(orchestration.target)
     if not isinstance(hosts, dict):
@@ -813,21 +813,21 @@ def orchestrations_full():
         json_data['version'] = Orchestration.query.filter_by(name=json_data['name']).count() + 1
     o = Orchestration(**json_data)
     db.session.add(o)
-    resp_data = {'id': str(o.id)}
+    resp_data = {'id': o.id}
     if generated_version:
         resp_data.update(version=o.version)
 
     # reorder steps in order of dependency
-    id2step = {str(s['id']): s for s in json_steps}
+    id2step = {s['id']: s for s in json_steps}
 
     dag = DAG()
     for s in json_steps:
-        step_id = str(s['id'])
+        step_id = s['id']
         if s['undo'] and len(s.get('parent_step_ids', [])) == 0:
             raise errors.UndoStepWithoutParent(step_id)
         dag.add_node(step_id)
         for p_s_id in s.get('parent_step_ids', []):
-            dag.add_edge(str(p_s_id), step_id)
+            dag.add_edge(p_s_id, step_id)
 
     if dag.is_cyclic():
         raise errors.CycleError
@@ -841,14 +841,15 @@ def orchestrations_full():
     rid2step = OrderedDict()
     dependencies = {}
     for json_step in new_steps:
-        rid = str(json_step.pop('id', None))
+        rid = json_step.pop('id', None)
+        json_step['rid'] = rid
         if rid is not None and rid in rid2step.keys():
             raise errors.DuplicatedId(rid)
         if 'action_template_id' in json_step:
             json_step['action_template'] = ActionTemplate.query.get_or_raise(json_step.pop('action_template_id'))
         elif 'action_type' in json_step:
             json_step['action_type'] = ActionType[json_step.pop('action_type')]
-        dependencies[rid] = {'parent_step_ids': [str(p_id) for p_id in json_step.pop('parent_step_ids', [])]}
+        dependencies[rid] = {'parent_step_ids': [p_id for p_id in json_step.pop('parent_step_ids', [])]}
         s = o.add_step(**json_step)
         db.session.add(s)
         if rid:
@@ -870,6 +871,6 @@ def orchestrations_full():
     # send new ids in order of appearance at beginning
     new_id_steps = []
     for rid in rid2step.keys():
-        new_id_steps.append(str(rid2step[rid].id))
+        new_id_steps.append(rid2step[rid].id)
     resp_data.update({'step_ids': new_id_steps})
     return resp_data, 201

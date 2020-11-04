@@ -60,7 +60,6 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
 
     @orm.reconstructor
     def init_on_load(self):
-        self.parameters = self.parameters or {}
         self.system_kwargs = self.system_kwargs or {}
 
     def __str__(self):
@@ -69,8 +68,9 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
     def to_json(self, split_lines=False):
         data = super().to_json()
         data.update(name=self.name, version=self.version,
-                    action_type=self.action_type.name,
-                    code=self.code.split('\n') if split_lines else self.code)
+                    action_type=self.action_type.name)
+        if self.code is not None:
+            data.update(code=self.code.split('\n') if split_lines else self.code)
         if self.schema is not None:
             data.update(schema=self.schema)
         if self.system_kwargs is not None:

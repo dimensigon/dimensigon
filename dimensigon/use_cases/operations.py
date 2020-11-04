@@ -2,6 +2,7 @@ import copy
 import datetime as dt
 import functools
 import inspect
+import os
 import re
 import sqlite3
 import sys
@@ -288,7 +289,7 @@ class NativeWaitOperation(IOperationEncapsulation):
                 min_timeout = defaults.MAX_TIME_WAITING_SERVERS
         try:
             now = get_now()
-            pending_names = set(params.get('list_server_names', []))
+            pending_names = set(params.get('server_names', []))
             with lock_scope(Scope.CATALOG, retries=3, delay=4, applicant=context.env.get('orch_execution_id')):
                 while len(pending_names) > 0:
                     try:
@@ -310,8 +311,8 @@ class NativeWaitOperation(IOperationEncapsulation):
         else:
             if not pending_names:
                 cp.success = True
-                cp.stdout = f"Server{'s' if len(params.get('list_server_names', [])) > 1 else ''} " \
-                            f"{', '.join(sorted(params.get('list_server_names', [])))} found"
+                cp.stdout = f"Server{'s' if len(params.get('server_names', [])) > 1 else ''} " \
+                            f"{', '.join(sorted(params.get('server_names', [])))} found"
             else:
                 cp.success = False
                 cp.stderr = f"Server{'s' if len(pending_names) > 1 else ''} {', '.join(sorted(pending_names))} " \
@@ -337,7 +338,7 @@ class NativeDmRunningOperation(IOperationEncapsulation):
             else:
                 min_timeout = defaults.MAX_TIME_WAITING_SERVERS
 
-        pending_names = set(params.get('list_server_names', []))
+        pending_names = set(params.get('server_names', []))
 
         while len(pending_names) > 0:
             try:
@@ -355,8 +356,8 @@ class NativeDmRunningOperation(IOperationEncapsulation):
 
         if not pending_names:
             cp.success = True
-            cp.stdout = f"Server{'s' if len(params.get('list_server_names', [])) > 1 else ''} " \
-                        f"{', '.join(sorted(params.get('list_server_names', [])))} with dimensigon running"
+            cp.stdout = f"Server{'s' if len(params.get('server_names', [])) > 1 else ''} " \
+                        f"{', '.join(sorted(params.get('server_names', [])))} with dimensigon running"
         else:
             cp.success = False
             cp.stderr = f"Server{'s' if len(pending_names) > 1 else ''} {', '.join(sorted(pending_names))} " \
@@ -372,7 +373,7 @@ class NativeDeleteOperation(IOperationEncapsulation):
         cp.set_start_time()
         try:
             with lock_scope(Scope.CATALOG, retries=3, delay=4, applicant=context.env.get('orch_execution_id')):
-                to_be_deleted = Server.query.filter(Server.name.in_(params.get('list_server_names', []))).all()
+                to_be_deleted = Server.query.filter(Server.name.in_(params.get('server_names', []))).all()
                 acquired = routing._lock.acquire(timeout=15)
                 if acquired:
                     routing.logger.debug(
@@ -492,7 +493,7 @@ class ShellOperation(IOperationEncapsulation):
         r = None
         try:
             r = subprocess.run(tokens, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               **system_kwargs, timeout=timeout)
+                               **system_kwargs, timeout=timeout, env=os.environ)
             cp.stdout = r.stdout.decode() if isinstance(r.stdout, bytes) else r.stdout
             cp.stderr = r.stderr.decode() if isinstance(r.stderr, bytes) else r.stderr
             cp.rc = r.returncode

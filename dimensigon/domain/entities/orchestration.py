@@ -176,10 +176,12 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         children = children or []
         if parents:
             if any([p.undo for p in parents]) and not step.undo:
-                raise errors.ParentUndoError(self.step.id, [p.undo for p in parents if p.undo])
+                attr = 'rid' if step.rid is not None else 'id'
+                raise errors.ParentUndoError(getattr(step, attr), [getattr(s, attr) for s in parents if s.undo])
         if children:
             if any([not c.undo for c in children]) and step.undo:
-                raise errors.ChildDoError(self.step.id, [c.undo for c in children if not c.undo])
+                attr = 'rid' if step.rid is not None else 'id'
+                raise errors.ChildDoError(getattr(step, attr), [getattr(s, attr) for s in children if s.undo])
         g = self._graph.copy()
         g.add_edges_from([(p, step) for p in parents])
         g.add_edges_from([(step, c) for c in children])
