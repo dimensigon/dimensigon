@@ -107,15 +107,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
         with bypass_datamark_update(session):
             at = session.query(cls).get('00000000-0000-0000-000a-000000000001')
             if at is None:
-                at = ActionTemplate(name='send', version=1, action_type=ActionType.REQUEST,
-                                    code='{"method": "post",' \
-                                         '"view":"api_1_0.send",' \
-                                         '"json": {"software_id": "{{input.software_id}}", ' \
-                                         '         "dest_server_id": "{{input.server_id}}"' \
-                                         '{% if input.dest_path %}, "dest_path":"{{input.dest_path}}"{% endif %}' \
-                                         '{% if input.chunk_size %}, "chunk_size":"{{input.chunk_size}}"{% endif %}' \
-                                         '{% if input.max_senders %}, "max_senders":"{{input.max_senders}}"{% endif %}' \
-                                         ', "background": false, "include_transfer_data": true, "force": true} }',
+                at = ActionTemplate(name='send software', version=1, action_type=ActionType.NATIVE,
                                     expected_rc=201, last_modified_at=defaults.INITIAL_DATEMARK,
                                     schema={"input": {"software_id": {"type": "string",
                                                                       "description": "software id to send"},
@@ -137,21 +129,23 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
                 session.add(at)
             at = session.query(cls).get('00000000-0000-0000-000a-000000000002')
             if at is None:
-                at = ActionTemplate(name='wait', version=1, action_type=ActionType.NATIVE,
-                                    code="",
+                at = ActionTemplate(name='wait servers', version=1, action_type=ActionType.NATIVE,
+                                    description="waits server_names to join to the dimension",
                                     last_modified_at=defaults.INITIAL_DATEMARK,
-                                    schema={"input": {"list_server_names": {"type": "array",
-                                                                            "items": {"type": "string"}},
-                                                      "timeout": {"type": "integer"}
+                                    schema={"input": {"server_names": {"type": "array",
+                                                                       "items": {"type": "string"}},
+                                                      "timeout": {"type": "integer",
+                                                                  "description": "time in seconds waiting for server_names to join",
+                                                                  "default": 600}
                                                       },
-                                            "required": ["list_server_names"]
+                                            "required": ["server_names"]
                                             },
                                     id='00000000-0000-0000-000a-000000000002')
                 session.add(at)
             at = session.query(cls).get('00000000-0000-0000-000a-000000000003')
             if at is None:
                 at = ActionTemplate(name='orchestration', version=1, action_type=ActionType.ORCHESTRATION,
-                                    code="",
+                                    description="launches an orchestration",
                                     schema={"input": {"orchestration_id": {"type": "string"},
                                                       "hosts": {"type": ["string", "array", "object"],
                                                                 "items": {"type": "string"},
@@ -174,13 +168,14 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
                 session.add(at)
             at = session.query(cls).get('00000000-0000-0000-000a-000000000004')
             if at is None:
-                at = ActionTemplate(name='dm running', version=1, action_type=ActionType.NATIVE,
-                                    code="",
-                                    schema={"input": {"list_server_names": {"type": "array",
-                                                                            "items": {"type": "string"}},
-                                                      "timeout": {"type": "integer"}
+                at = ActionTemplate(name='wait route to servers', version=1, action_type=ActionType.NATIVE,
+                                    description="waits until we have a valid route to a server",
+                                    schema={"input": {"server_names": {"type": "array",
+                                                                       "items": {"type": "string"}},
+                                                      "timeout": {"type": "integer",
+                                                                  "description": "time in seconds waiting for server_names to be alive"}
                                                       },
-                                            "required": ["list_server_names"]
+                                            "required": ["server_names"]
                                             },
                                     last_modified_at=defaults.INITIAL_DATEMARK,
                                     id='00000000-0000-0000-000a-000000000004')
@@ -188,11 +183,11 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
             at = session.query(cls).get('00000000-0000-0000-000a-000000000005')
             if at is None:
                 at = ActionTemplate(name='delete servers', version=1, action_type=ActionType.NATIVE,
-                                    code="",
-                                    schema={"input": {"list_server_names": {"type": "array",
-                                                                            "items": {"type": "string"}},
+                                    description="deletes server_names from the dimension",
+                                    schema={"input": {"server_names": {"type": "array",
+                                                                       "items": {"type": "string"}},
                                                       },
-                                            "required": ["list_server_names"]
+                                            "required": ["server_names"]
                                             },
                                     last_modified_at=defaults.INITIAL_DATEMARK,
                                     id='00000000-0000-0000-000a-000000000005')

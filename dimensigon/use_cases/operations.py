@@ -1,4 +1,5 @@
 import copy
+import datetime as dt
 import functools
 import inspect
 import re
@@ -7,7 +8,6 @@ import sys
 import time
 import typing as t
 from abc import ABC, abstractmethod
-from datetime import datetime
 
 import flask
 import jinja2
@@ -26,8 +26,8 @@ from dimensigon.utils.helpers import get_now
 from dimensigon.utils.typos import Kwargs
 from dimensigon.utils.var_context import Context
 from dimensigon.web import db, errors
+from dimensigon.web import network as ntwrk
 from dimensigon.web.helpers import normalize_hosts
-from dimensigon.web.network import request, get
 
 
 @dataclass
@@ -36,8 +36,8 @@ class CompletedProcess:
     stdout: t.Union[str, bytes] = None
     stderr: t.Union[str, bytes] = None
     rc: int = None
-    start_time: datetime = None
-    end_time: datetime = None
+    start_time: dt.datetime = None
+    end_time: dt.datetime = None
     pre_post_error: Exception = None
 
     def set_start_time(self) -> 'CompletedProcess':
@@ -80,7 +80,7 @@ class IOperationEncapsulation(ABC):
         return
 
     @abstractmethod
-    def execute(self, properties: Kwargs, timeout=None, context:Context=None) -> CompletedProcess:
+    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         """
         StepExecution process
         Parameters
@@ -150,8 +150,7 @@ class IOperationEncapsulation(ABC):
 
 class RequestOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context:Context=None) -> CompletedProcess:
-        params_dict = dict(params)
+    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         kwargs = json.loads(self.rpl_params(params, context.env))
         kwargs.update(self.system_kwargs)
         cp = CompletedProcess()
@@ -164,88 +163,116 @@ class RequestOperation(IOperationEncapsulation):
 
         resp, exception = None, None
 
-        if 'software_id' in params:
-            def search_cost(ssa, route_list):
-                cost = [route['cost'] for route in route_list if str(ssa.server.id) == route['destination_id']]
-                if cost:
-                    if cost[0] is None:
-                        cost = 999999
-                    else:
-                        cost = cost[0]
-                else:
-                    cost = 999999
-                return cost
+        # process kwargs
+        url = kwargs.pop('view_or_url', kwargs.pop('view', kwargs.pop('url', None)))
 
-            soft = Software.query.get(params_dict.get('software_id', None))
-            if not soft:
-                cp.stderr = f"software id '{params_dict.get('software_id', None)}' not found"
-                cp.success = False
-                cp.set_end_time()
-                return cp
-            if not soft.ssas:
-                cp.stderr = f"{soft.id} has no server association"
-                cp.success = False
-                cp.set_end_time()
-                return cp
-            dest_server = Server.query.get(params_dict.get('server_id', None))
-            if not dest_server:
-                cp.stderr = f"destination server id '{params_dict.get('server_id', None)}' not found"
-                cp.success = False
-                cp.set_end_time()
-                return cp
-
-            auth = HTTPBearerAuth(create_access_token(get_jwt_identity()))
-            # decide best server source
-            resp = get(dest_server, 'api_1_0.routes', auth=auth, timeout=5)
-            if resp.code == 200:
-                ssas = copy.copy(soft.ssas)
-                ssas.sort(key=functools.partial(search_cost, route_list=resp.msg['route_list']))
-            else:
-                ssas = soft.ssas
-            server = ssas[0].server
-
-            # Process kwargs
-            if 'auth' not in kwargs:
-                kwargs['auth'] = auth
-
-            view_or_url = kwargs.pop('view_or_url', kwargs.pop('view', kwargs.pop('url', None)))
-
-            # run request
-            resp = request(method, server, view_or_url, **kwargs)
-            cp.stdout = flask.json.dumps(resp.msg) if isinstance(resp.msg, dict) else resp.msg
-            cp.stderr = str(resp.exception) if str(resp.exception) else resp.exception.__class__.__name__
-            cp.rc = resp.code
-            if resp.exception is None:
-                self.evaluate_result(cp)
+        # Run request
+        try:
+            resp = requests.request(method, url, **kwargs)
+        except Exception as e:
+            exception = e
         else:
-            # process kwargs
-            url = kwargs.pop('view_or_url', kwargs.pop('view', kwargs.pop('url', None)))
-
-            # Run request
-            try:
-                resp = requests.request(method, url, **kwargs)
-            except Exception as e:
-                exception = e
-            else:
-                cp.rc = resp.status_code
-                cp.stdout = resp.text
-            if exception is None:
-                self.evaluate_result(cp)
-            else:
-                cp.success = False
-                cp.stderr = str(exception) if str(exception) else exception.__class__.__name__
+            cp.rc = resp.status_code
+            cp.stdout = resp.text
+        if exception is None:
+            self.evaluate_result(cp)
+        else:
+            cp.success = False
+            cp.stderr = str(exception) if str(exception) else exception.__class__.__name__
         cp.set_end_time()
         return cp
 
+
 class NativeOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context:Context=None):
+    def execute(self, params: Kwargs, timeout=None, context: Context = None):
         pass
+
+
+class NativeSoftwareSendOperation(IOperationEncapsulation):
+
+    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
+        params_dict = dict(params)
+        cp = CompletedProcess()
+        cp.set_start_time()
+
+        # common parameters
+        kwargs = self.system_kwargs
+        if kwargs.get('timeout') is not None and timeout is not None:
+            kwargs['timeout'] = min(kwargs.get('timeout'), timeout)
+        else:
+            if timeout is None:
+                kwargs['timeout'] = kwargs.get('timeout') or 15 * 60
+            else:
+                kwargs['timeout'] = timeout
+
+        auth = HTTPBearerAuth(
+            create_access_token(get_jwt_identity(), expires_delta=dt.timedelta(seconds=kwargs['timeout'])))
+        resp, exception = None, None
+
+        def search_cost(ssa, route_list):
+            cost = [route['cost'] for route in route_list if str(ssa.server.id) == route['destination_id']]
+            if cost:
+                if cost[0] is None:
+                    cost = 999999
+                else:
+                    cost = cost[0]
+            else:
+                cost = 999999
+            return cost
+
+        soft = Software.query.get(params_dict.get('software_id', None))
+        if not soft:
+            cp.stderr = f"software id '{params_dict.get('software_id', None)}' not found"
+            cp.success = False
+            cp.set_end_time()
+            return cp
+        if not soft.ssas:
+            cp.stderr = f"{soft.id} has no server association"
+            cp.success = False
+            cp.set_end_time()
+            return cp
+        dest_server = Server.query.get(params_dict.get('server_id', None))
+        if not dest_server:
+            cp.stderr = f"destination server id '{params_dict.get('server_id', None)}' not found"
+            cp.success = False
+            cp.set_end_time()
+            return cp
+
+        # decide best server source
+        resp = ntwrk.get(dest_server, 'api_1_0.routes', auth=auth, timeout=10)
+        if resp.code == 200:
+            ssas = copy.copy(soft.ssas)
+            ssas.sort(key=functools.partial(search_cost, route_list=resp.msg['route_list']))
+        else:
+            ssas = soft.ssas
+        server = ssas[0].server
+
+        # Process kwargs
+        if 'auth' not in kwargs:
+            kwargs['auth'] = auth
+        data = {'software_id': soft.id, 'dest_server_id': dest_server.id, "background": False,
+                "include_transfer_data": True, "force": True}
+        if params.get('dest_path', None):
+            data.update(dest_path=params.get('dest_path', None))
+        if params.get('chunk_size', None):
+            data.update(chunk_size=params.get('chunk_size', None))
+        if params.get('max_senders', None):
+            data.update(max_senders=params.get('max_senders', None))
+        # run request
+        resp = ntwrk.post(server, 'api_1_0.send', json=data, **kwargs)
+        cp.stdout = flask.json.dumps(resp.msg) if isinstance(resp.msg, dict) else resp.msg
+        cp.stderr = str(resp.exception) if str(resp.exception) else resp.exception.__class__.__name__
+        cp.rc = resp.code
+        if resp.exception is None:
+            self.evaluate_result(cp)
+        cp.set_end_time()
+        return cp
 
 
 class NativeWaitOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context:Context=None):
+    def execute(self, params: Kwargs, timeout=None, context: Context = None):
         start = time.time()
         found = []
         cp = CompletedProcess()
@@ -295,7 +322,7 @@ class NativeWaitOperation(IOperationEncapsulation):
 
 class NativeDmRunningOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context:Context=None):
+    def execute(self, params: Kwargs, timeout=None, context: Context = None):
         start = time.time()
         running = []
         cp = CompletedProcess()
@@ -326,7 +353,6 @@ class NativeDmRunningOperation(IOperationEncapsulation):
             else:
                 break
 
-
         if not pending_names:
             cp.success = True
             cp.stdout = f"Server{'s' if len(params.get('list_server_names', [])) > 1 else ''} " \
@@ -341,7 +367,7 @@ class NativeDmRunningOperation(IOperationEncapsulation):
 
 class NativeDeleteOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context:Context=None):
+    def execute(self, params: Kwargs, timeout=None, context: Context = None):
         cp = CompletedProcess()
         cp.set_start_time()
         try:
@@ -453,7 +479,7 @@ class ShellOperation(IOperationEncapsulation):
     #     env.update(**os.environ)
     #     return env
 
-    def execute(self, params: Kwargs, timeout=None, context:Context=None) -> CompletedProcess:
+    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         tokens = self.rpl_params(params, context.env)
 
         system_kwargs = self.system_kwargs.copy()
@@ -483,7 +509,7 @@ class ShellOperation(IOperationEncapsulation):
 
 class OrchestrationOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context:Context=None) -> CompletedProcess:
+    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         from dimensigon.use_cases.deployment import deploy_orchestration
 
         cp = CompletedProcess().set_start_time()
@@ -529,7 +555,6 @@ class OrchestrationOperation(IOperationEncapsulation):
 
         cp.stdout = f"orch_execution_id={exe.id}"
 
-
         ctx = Context(params,
                       dict(parent_orch_execution_id=context.env['orch_execution_id'],
                            orch_execution_id=exe.id,
@@ -568,7 +593,9 @@ def create_operation(step: 'Step') -> IOperationEncapsulation:
     kls = _factories[step.action_type]
 
     if kls == NativeOperation:
-        if step.action_template.id == '00000000-0000-0000-000a-000000000002':
+        if step.action_template.id == '00000000-0000-0000-000a-000000000001':
+            kls = NativeSoftwareSendOperation
+        elif step.action_template.id == '00000000-0000-0000-000a-000000000002':
             kls = NativeWaitOperation
         elif step.action_template.id == '00000000-0000-0000-000a-000000000004':
             kls = NativeDmRunningOperation
