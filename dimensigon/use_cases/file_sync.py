@@ -1,12 +1,12 @@
 import asyncio
 import base64
 import logging
+import multiprocessing as mp
 import os
 import queue
 import time
 import typing as t
 import zlib
-import multiprocessing as mp
 from collections import OrderedDict
 from concurrent.futures.thread import ThreadPoolExecutor
 
@@ -17,6 +17,7 @@ from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
+from dimensigon import defaults
 from dimensigon.domain.entities import File, Server, Log
 from dimensigon.domain.entities.log import Mode
 from dimensigon.use_cases.base import Process
@@ -376,7 +377,7 @@ class FileSync(Process):
             if len(pytail_list) == 0:
                 filename = '.' + os.path.basename(log.target) + '.offset'
                 path = os.path.dirname(log.target)
-                offset_file = os.path.join(path, filename)
+                offset_file = self.dm.config.path(defaults.OFFSET_DIR, path, filename)
                 pytail_list.append(
                     _PygtailBuffer(file=log.target, offset_mode='manual', offset_file=offset_file))
         else:

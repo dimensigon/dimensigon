@@ -63,5 +63,6 @@ SOFTWARE_REPO = 'software'
 DIMENSIGON_DIR = os.path.join(SOFTWARE_REPO, 'dimensigon')
 LOG_FOLDER = 'logs'
 LOG_SENDER_REPO = 'logfed'
+OFFSET_DIR = 'offset'
 
 

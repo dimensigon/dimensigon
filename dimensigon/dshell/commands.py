@@ -344,8 +344,9 @@ def transfer_list(iden=None, status=None, like=None, last=None):
                     filtered_data.append(server)
         else:
             filtered_data = data
-        if last:
-            dprint(filtered_data[:last])
+        assert last is None or last > 0, f"Invalid value '{last}'"
+        if last is not None and last > 0:
+            dprint(filtered_data[-last:])
         else:
             dprint(filtered_data)
     else:
@@ -601,7 +602,7 @@ nested_dict = {
         'create': [{'argument': 'name'},
                    {'argument': 'action_type', 'choices': [at.name for at in ActionType if at.name != 'NATIVE']},
                    {'argument': '--prompt', 'action': "store_true",
-                    'help': 'does not ask for every action parameter one by one'},
+                    'help': 'prompts for every action parameter to be set by user'},
                    action_create],
         'copy': [{'argument': 'action_template_id', 'completer': action_completer},
                  action_copy],

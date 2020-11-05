@@ -285,9 +285,9 @@ class ClusterManager(Process):
                     temp_buffer = dict(self._buffer)
                     self._buffer.clear()
 
-                _logger.debug(
-                    f"Sending cluster information to the following nodes {', '.join([s.name for s in neighbours])}"
-                )
+                _logger.log(1,
+                            f"Sending cluster information to the following nodes {', '.join([s.name for s in neighbours])}"
+                            )
                 _logger.log(1, f"{json.dumps(log_data(temp_buffer.values()), indent=2)}")
 
                 auth = get_root_auth()

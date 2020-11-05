@@ -18,7 +18,7 @@ import six
 from cryptography.fernet import Fernet
 from flask import current_app
 
-from dimensigon import defaults
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -317,6 +317,7 @@ def get_ips(ipv4=True, ipv6=False) -> t.List[t.Tuple[str, int]]:
     return ips
 
 def bind2gate(bind: t.List[str]) -> t.List[t.Tuple[str, int]]:
+    from dimensigon import defaults
     specified_gates = set()
     for b in bind:
         if ':' in b:

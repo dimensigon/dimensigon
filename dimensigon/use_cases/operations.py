@@ -101,15 +101,29 @@ class IOperationEncapsulation(ABC):
         template = jinja2.Template(self.code)
         return template.render(input=params, env=env)
 
-    def evaluate_result(self, cp: CompletedProcess):
+    def evaluate_result(self, cp: CompletedProcess, context=None):
         if cp.success is None:
             res = []
             if self.expected_stdout is not None:
                 if isinstance(cp.stdout, str):
-                    res.append(True) if re.search(self.expected_stdout, cp.stdout) else res.append(False)
+                    match = re.match(self.expected_stdout, cp.stdout)
+                    if match:
+                        res.append(True)
+                        if context:
+                            for k, v in match.groupdict():
+                                context.set(k, v)
+                    else:
+                        res.append(False)
             if self.expected_stderr is not None:
                 if isinstance(cp.stderr, str):
-                    res.append(True) if re.search(self.expected_stderr, cp.stderr) else res.append(False)
+                    match = re.match(self.expected_stderr, cp.stderr)
+                    if match:
+                        res.append(True)
+                        if context:
+                            for k, v in match.groupdict():
+                                context.set(k, v)
+                    else:
+                        res.append(False)
             if self.expected_rc is not None:
                 res.append(True) if self.expected_rc == cp.rc else res.append(False)
             cp.success = all(res)
@@ -176,7 +190,7 @@ class RequestOperation(IOperationEncapsulation):
             cp.rc = resp.status_code
             cp.stdout = resp.text
         if exception is None:
-            self.evaluate_result(cp)
+            self.evaluate_result(cp, context)
         else:
             cp.success = False
             cp.stderr = str(exception) if str(exception) else exception.__class__.__name__
@@ -503,7 +517,7 @@ class ShellOperation(IOperationEncapsulation):
         finally:
             cp.set_end_time()
 
-        self.evaluate_result(cp)
+        self.evaluate_result(cp, context)
 
         return cp
 
