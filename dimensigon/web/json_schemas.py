@@ -2,6 +2,11 @@ from dimensigon.domain.entities import Scope, ActionType, LogMode
 from dimensigon.domain.entities.transfer import Status
 
 UUID_pattern = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+Id = {"type": "string", "pattern": UUID_pattern}
+Id_or_null = {"type": ["string", "null"],
+              "pattern": UUID_pattern}
+Multiline = {"type": ["string", "array", "null"],
+             "items": {"type": "string"}}
 
 login_post = {
     "type": "object",
@@ -18,7 +23,7 @@ healthcheck_post = {
     "type": "object",
     "properties": {
         "exclude": {"type": "array",
-                    "items": {"type": "string", "pattern": UUID_pattern}},
+                    "items": Id},
         "heartbeat": {"type": "string"},
     },
     "required": ["exclude", "heartbeat"],
@@ -29,7 +34,7 @@ cluster_post = {
     "type": "array",
     "items": {"type": "object",
               "properties": {
-                  "id": {"type": "string", "pattern": UUID_pattern},
+                  "id": Id,
                   "keepalive": {"type": "string"},
                   "death": {"type": ["boolean", "null"]}
               },
@@ -65,7 +70,7 @@ manager_server_ignore_lock_post = {
     "type": "object",
     "properties": {
         "server_ids": {"type": "array",
-                       "items": {"type": "string", "pattern": UUID_pattern},
+                       "items": Id,
                        },
         "ignore_on_lock": {"type": "boolean"}
     },
@@ -76,13 +81,11 @@ manager_server_ignore_lock_post = {
 send_post = {
     "type": "object",
     "properties": {
-        "software_id": {"type": "string",
-                        "pattern": UUID_pattern},
+        "software_id": Id,
         "software": {"type": "string"},
         "version": {"type": "string"},
         "file": {"type": "string"},
-        "dest_server_id": {"type": "string",
-                           "pattern": UUID_pattern},
+        "dest_server_id": Id,
         "dest_path": {"type": "string"},
         "chunk_size": {"type": "integer",  # size in MB
                        "minimum": 1,
@@ -115,8 +118,7 @@ software_post = {
 software_patch = {
     "type": "object",
     "properties": {
-        "server_id": {"type": "string",
-                      "pattern": UUID_pattern},
+        "server_id": Id,
         "path": {"type": "string"},
     },
     "required": ["server_id", "path"],
@@ -128,8 +130,7 @@ software_servers_put = {
     "items": {
         "type": "object",
         "properties": {
-            "server_id": {"type": "string",
-                          "pattern": UUID_pattern},
+            "server_id": Id,
             "file": {"type": "string"}
         },
         "required": ["server_id", "path"]
@@ -230,16 +231,14 @@ _step_post = {
     "properties": {
         "id": {"anyOf": [{"type": "string"},
                          {"type": "integer", "minimum": 1}]},
-        "orchestration_id": {"type": "string",
-                             "pattern": UUID_pattern},
+        "orchestration_id": Id,
         "undo": {"type": "boolean"},
         "name": {"type": "string",
                  "maxLength": 40},
         "description": {"type": "string"},
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
-        "action_template_id": {"type": "string",
-                               "pattern": UUID_pattern},
+        "action_template_id": Id,
         "action_type": {"type": "string",
                         "pattern": action_type_pattern},
         "undo_on_error": {"type": "boolean"},
@@ -248,22 +247,16 @@ _step_post = {
                             "items": {"type": "string"}}]},
         "parameters": {"type": "object"},
         "schema": schema,
-        "expected_stdout": {"anyOf": [{"type": "string"},
-                                      {"type": "array",
-                                       "items": {"type": "string"}}]},
-        "expected_stderr": {"anyOf": [{"type": "string"},
-                                      {"type": "array",
-                                       "items": {"type": "string"}}]},
+        "expected_stdout": Multiline,
+        "expected_stderr": Multiline,
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "pre_process": {"anyOf": [{"type": "string"},
-                                  {"type": "array",
-                                   "items": {"type": "string"}}]},
+        "pre_process": Multiline,
         "post_process": {"anyOf": [{"type": "string"},
                                    {"type": "array",
                                     "items": {"type": "string"}}]},
         "parent_step_ids": {"type": "array",
-                            "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                            "items": {"anyOf": [Id,
                                                 {"type": "integer", "minimum": 1}]
                                       }
                             },
@@ -290,8 +283,7 @@ step_put = {
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
         "undo_on_error": {"type": "boolean"},
-        "action_template_id": {"type": "string",
-                               "pattern": UUID_pattern},
+        "action_template_id": Id,
         "action_type": {"type": "string",
                         "pattern": action_type_pattern},
 
@@ -318,12 +310,12 @@ step_put = {
                  "maxLength": 40},
         "description": {"type": "string"},
         "parent_step_ids": {"type": "array",
-                            "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                            "items": {"anyOf": [Id,
                                                 {"type": "integer", "minimum": 1}]
                                       }
                             },
         "child_step_ids": {"type": "array",
-                           "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                           "items": {"anyOf": [Id,
                                                {"type": "integer", "minimum": 1}]
                                      }
                            },
@@ -341,8 +333,7 @@ step_patch = {
         "undo": {"type": "boolean"},
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
-        "action_template_id": {"type": "string",
-                               "pattern": UUID_pattern},
+        "action_template_id": Id,
         "action_type": {"type": "string",
                         "pattern": action_type_pattern},
         "undo_on_error": {"type": "boolean"},
@@ -351,30 +342,22 @@ step_patch = {
                             "items": {"type": "string"}}]},
         "parameters": {"type": "object"},
         "schema": schema,
-        "expected_stdout": {"anyOf": [{"type": "string"},
-                                      {"type": "array",
-                                       "items": {"type": "string"}}]},
-        "expected_stderr": {"anyOf": [{"type": "string"},
-                                      {"type": "array",
-                                       "items": {"type": "string"}}]},
+        "expected_stdout": Multiline,
+        "expected_stderr": Multiline,
         "expected_rc": {"type": "integer"},
         "system_kwargs": {"type": "object"},
-        "pre_process": {"anyOf": [{"type": "string"},
-                                  {"type": "array",
-                                   "items": {"type": "string"}}]},
-        "post_process": {"anyOf": [{"type": "string"},
-                                   {"type": "array",
-                                    "items": {"type": "string"}}]},
+        "pre_process": Multiline,
+        "post_process": Multiline,
         "name": {"type": "string",
                  "maxLength": 40},
         "description": {"type": "string"},
         "parent_step_ids": {"type": "array",
-                            "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                            "items": {"anyOf": [Id,
                                                 {"type": "integer", "minimum": 1}]
                                       }
                             },
         "child_step_ids": {"type": "array",
-                           "items": {"anyOf": [{"type": "string", "pattern": UUID_pattern},
+                           "items": {"anyOf": [Id,
                                                {"type": "integer", "minimum": 1}]
                                      }
                            },
@@ -387,7 +370,7 @@ step_patch = {
 step_parents = {
     "type": "object",
     "properties": {
-        "parent_step_ids": {"type": "array", "items": {"type": "string", "pattern": UUID_pattern}},
+        "parent_step_ids": {"type": "array", "items": Id},
         "additionalProperties": False
     }
 }
@@ -395,7 +378,7 @@ step_parents = {
 step_children = {
     "type": "object",
     "properties": {
-        "children_step_ids": {"type": "array", "items": {"type": "string", "pattern": UUID_pattern}},
+        "children_step_ids": {"type": "array", "items": Id},
         "additionalProperties": False
     }
 }
@@ -403,23 +386,14 @@ step_children = {
 routes_patch = {
     "type": "object",
     "properties": {
-        "server_id": {"type": "string",
-                      "pattern": UUID_pattern},
+        "server_id": Id,
         "route_list": {"type": "array",
                        "items": {
                            "type": "object",
                            "properties": {
-                               "destination_id": {"type": "string", "pattern": UUID_pattern},
-                               "proxy_server_id": {"anyOf": [
-                                   {"type": "string",
-                                    "pattern": UUID_pattern},
-                                   {"type": "null"}
-                               ]},
-                               "gate_id": {"anyOf": [
-                                   {"type": "string",
-                                    "pattern": UUID_pattern},
-                                   {"type": "null"}
-                               ]},
+                               "destination_id": Id,
+                               "proxy_server_id": Id_or_null,
+                               "gate_id": Id_or_null,
                                "cost": {"anyOf": [
                                    {"type": "integer",
                                     "minimum": 0},
@@ -430,8 +404,7 @@ routes_patch = {
                        }
                        },
         "exclude": {"type": "array",
-                    "items": {"type": "string",
-                              "pattern": UUID_pattern}}
+                    "items": Id}
     },
     "additionalProperties": False,
     "required": ["server_id", "route_list"]
@@ -465,54 +438,39 @@ orchestration_post = {
 orchestration_step = {
     "type": "object",
     "properties": {
-        "id": {"type": "string"},
+        "id": {"type": ["string", "integer"]},
         "undo": {"type": "boolean"},
         "name": {"type": "string"},
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
-        "action_template_id": {"type": "string",
-                               "pattern": UUID_pattern},
+        "action_template_id": Id,
         "action_type": {"type": "string",
                         "pattern": action_type_pattern},
         "undo_on_error": {"type": "boolean"},
-        "code": {"anyOf": [{"type": "string"},
-                           {"type": "array",
-                            "items": {"type": "string"}}]},
-        "parameters": {"type": "object"},
+        "code": Multiline,
         "schema": schema,
-        "expected_stdout": {"anyOf": [{"type": "string"},
-                                      {"type": "array",
-                                       "items": {"type": "string"}}]},
-        "expected_stderr": {"anyOf": [{"type": "string"},
-                                      {"type": "array",
-                                       "items": {"type": "string"}}]},
-        "expected_rc": {"type": "integer"},
+        "expected_stdout": Multiline,
+        "expected_stderr": Multiline,
+        "expected_rc": {"type": ["integer", "null"]},
         "system_kwargs": {"type": "object"},
-        "pre_process": {"anyOf": [{"type": "string"},
-                                  {"type": "array",
-                                   "items": {"type": "string"}}]},
-        "post_process": {"anyOf": [{"type": "string"},
-                                   {"type": "array",
-                                    "items": {"type": "string"}}]},
+        "pre_process": Multiline,
+        "post_process": Multiline,
         "parent_step_ids": {"type": "array",
-                            "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}
+                            "items": {"type": ["string", "integer"]}
                             },
-        "target": {"anyOf": [{"type": "string"},
-                             {"type": "array", "items": {"type": "string"}}]}
+        "target": {"type": ["string", "array", "null"],
+                   "items": {"type": "string"}}
     },
     "oneOf": [{"required": ["undo", "action_template_id"]},
               {"required": ["undo", "action_type"]}],
     "additionalProperties": False
 }
 
-
 orchestration_full = {
     "type": "object",
     "properties": {
         "name": {"type": "string"},
-        "description": {"anyOf": [{"type": "string"},
-                                  {"type": "array",
-                                   "items": {"type": "string"}}]},
+        "description": Multiline,
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
         "undo_on_error": {"type": "boolean"},
@@ -528,16 +486,13 @@ orchestration_patch = {
     "properties": {
         "name": {"type": "string"},
         "version": {"type": "integer", "minimum": 1},
-        "description": {"anyOf": [{"type": "string"},
-                                  {"type": "array",
-                                   "items": {"type": "string"}}]},
+        "description": Multiline,
         "stop_on_error": {"type": "boolean"},
         "stop_undo_on_error": {"type": "boolean"},
         "undo_on_error": {"type": "boolean"}
     },
     "additionalProperties": False
 }
-
 
 launch_orchestration_post = {
     "type": "object",
@@ -563,21 +518,18 @@ launch_orchestration_post = {
     "additionalProperties": False,
 }
 
-
-
 transfers_post = {
     "type": "object",
     "properties": {
-        "software_id": {"type": "string",
-                        "pattern": UUID_pattern},
-        "filename": {"type": "string"},         # specify filename if you want to send a file instead of a software
+        "software_id": Id,
+        "filename": {"type": "string"},  # specify filename if you want to send a file instead of a software
         "size": {"type": "integer"},
         "checksum": {"type": "string"},
-        "dest_path": {"type": "string"},        # if not specified DM_SOFTWARE_REPO is used
+        "dest_path": {"type": "string"},  # if not specified DM_SOFTWARE_REPO is used
         "num_chunks": {"type": "integer",
                        "minimum": 0},
         "cancel_pending": {"type": "boolean"},  # cancels pending transfers from the same file in the same folder
-        "force": {"type": "boolean"},           # forces to transfer file even if it exists in the destination
+        "force": {"type": "boolean"},  # forces to transfer file even if it exists in the destination
 
     },
     "oneOf": [{"required": ["num_chunks", "software_id"]},
@@ -609,13 +561,11 @@ transfer_patch = {
 logs_post = {
     "type": "object",
     "properties": {
-        "src_server_id": {"type": "string",
-                          "pattern": UUID_pattern},
+        "src_server_id": Id,
         "target": {"type": "string"},
         "include": {"type": "string"},
         "exclude": {"type": "string"},
-        "dst_server_id": {"type": "string",
-                          "pattern": UUID_pattern},
+        "dst_server_id": Id,
         "dest_folder": {"type": "string"},
         "recursive": {"type": "boolean"},
         "mode": {"type": "string",
@@ -693,8 +643,7 @@ launch_command_post = {
 servers_delete = {
     "type": "object",
     "properties": {"server_ids": {"type": "array",
-                                  "items": {"type": "string",
-                                            "pattern": UUID_pattern}}
+                                  "items": Id}
                    },
     "additionalProperties": False,
     "required": ["server_ids"]
@@ -746,17 +695,14 @@ server_patch = {
 
 files_post = {
     "properties": {
-        "src_server_id": {"type": "string",
-                          "pattern": UUID_pattern},
+        "src_server_id": Id,
         "target": {"type": "string"},
         "dest_folder": {"type": "string"},
         "destinations": {"type": "array",
                          "items": {"type": "object",
                                    "properties": {
-                                       "dst_server_id": {"type": "string",
-                                                         "pattern": UUID_pattern},
+                                       "dst_server_id": Id,
                                        "dest_folder": {"type": "string"}
-
                                    },
                                    "required": ["dst_server_id"],
                                    "additionalProperties": False
@@ -766,19 +712,18 @@ files_post = {
     "required": ["src_server_id", "target", 'destinations'],
     "additionalProperties": False
 }
+
 file_post = files_post
 
 file_patch = {
     "properties": {
-        "src_server_id": {"type": "string",
-                          "pattern": UUID_pattern},
+        "src_server_id": Id,
         "target": {"type": "string"},
         "dest_folder": {"type": "string"},
         "destinations": {"type": "array",
                          "items": {"type": "object",
                                    "properties": {
-                                       "dst_server_id": {"type": "string",
-                                                         "pattern": UUID_pattern},
+                                       "dst_server_id": Id,
                                        "dest_folder": {"type": "string"}
 
                                    },
@@ -804,8 +749,7 @@ file_sync = {
 
 destination = {"type": "object",
                "properties": {
-                   "dst_server_id": {"type": "string",
-                                     "pattern": UUID_pattern},
+                   "dst_server_id": Id,
                    "dest_folder": {"type": ["string", "null"]}
 
                },

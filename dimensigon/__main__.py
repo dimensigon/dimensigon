@@ -374,7 +374,7 @@ def get_arguments() -> argparse.Namespace:
         "--pid-file",
         metavar="path_to_pid_file",
         default=None,
-        help="Path to PID file useful for running as daemon. If not set, default config path will be used",
+        help="Path to PID file. If not set, default config path will be used",
     )
     parser.add_argument(
         "--port",
@@ -445,10 +445,10 @@ def get_arguments() -> argparse.Namespace:
         action='store_true',
         help="run the process with flask http.",
     )
-    if os.name == "posix":
-        parser.add_argument(
-            "--daemon", action="store_true", help="Run Dimensigon as daemon"
-        )
+    # if os.name == "posix":
+    #     parser.add_argument(
+    #         "--daemon", action="store_true", help="Run Dimensigon as daemon"
+    #     )
 
     subparser = parser.add_subparsers(dest='command')
     join_parser = subparser.add_parser("join", help="Joins to the dimension.")
@@ -507,8 +507,8 @@ def get_arguments() -> argparse.Namespace:
 
     arguments = parser.parse_args()
 
-    if os.name != "posix":
-        setattr(arguments, "daemon", False)
+    # if os.name != "posix":
+    #     setattr(arguments, "daemon", False)
 
     return arguments
 
@@ -523,7 +523,7 @@ class RuntimeConfig:
     keyfile: str = None
     certfile: str = None
     threads: int = None
-    daemon: bool = None
+    # daemon: bool = None
     accesslog: str = None
     errorlog: str = None
     logconfig: dict = None
@@ -545,7 +545,7 @@ def main():
                                           keyfile=args.keyfile,
                                           certfile=args.certfile,
                                           threads=args.threads,
-                                          daemon=args.daemon,
+                                          # daemon=args.daemon,
                                           accesslog=args.accesslog,
                                           errorlog=args.errorlog,
                                           logconfig=yaml.load(args.logconfig_file,

@@ -129,16 +129,16 @@ def server_routes(node, refresh=False):
         dprint(resp)
 
 
-def orch_list(**params):
+def orch_list(ident=None, name=None, version=None, detail=False, like=None):
     kwargs = {}
     view_data = dict()
-    if params.get('id', None):
-        view_data.update({'filter[id]': params['id']})
-    if params.get('name'):
-        view_data.update({'filter[name]': params['name']})
-    if params.get('version', None):
-        view_data.update({'filter[version]': str(params['version'])})
-    if params.get('detail', None):
+    if ident is not None:
+        view_data.update({'filter[id]': ident})
+    if name is not None:
+        view_data.update({'filter[name]': name})
+    if version is not None:
+        view_data.update({'filter[version]': str(version)})
+    if detail:
         view_data.update({'params': ['steps', 'vars', 'target', 'action', 'human', 'split_lines']})
     else:
         view_data.update({'params': ['vars', 'target', 'human', 'split_lines']})
@@ -147,9 +147,9 @@ def orch_list(**params):
         data = resp.msg or []
         # post process
         filtered_data = []
-        if params.get('like', None):
+        if like is not None:
             for server in data:
-                if params.get('like') in server.get('name'):
+                if like in server.get('name'):
                     filtered_data.append(server)
         else:
             filtered_data = data
@@ -210,8 +210,7 @@ def orch_load(file):
 
 def orch_run(orchestration_id, **params):
     if not params['hosts']:
-        print('No target specified')
-        return
+        exit('No target specified')
     resp = ntwrk.post('api_1_0.launch_orchestration',
                       view_data={'orchestration_id': orchestration_id, 'params': 'human'}, json=params)
     dprint(resp)
@@ -591,32 +590,132 @@ def sync_list(ident, source_server, detail):
 
 
 nested_dict = {
-    'status': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
-               {'argument': '--detail', 'action': 'store_true'}, status],
-    'ping': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, ping],
-    'server': {
-        'list': [{'argument': '--detail', 'action': 'store_true'},
-                 [{'argument': '--like'},
-                  {'argument': '--name', 'completer': server_name_completer},
-                  {'argument': '--id', 'dest': 'ident', 'completer': server_completer},
-                  # {'argument': '--last', 'action': 'store', 'type': int}
-                  ],
-                 server_list
+    'action': {
+        'list': [{'argument': '--version', 'action': 'store', 'type': int,
+                  'completer': action_ver_completer},
+                 [{'argument': '--id', 'dest': 'ident', 'completer': action_completer},
+                  {'argument': '--name', 'completer': action_name_completer},
+                  {'argument': '--like'}],
+                 action_list
                  ],
-        'delete': [
-            {'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+', 'completer': server_completer,
-             'help': 'Node to be deleted'},
-            server_delete],
-        'routes': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
-                   {'argument': '--refresh', 'action': 'store_true'},
-                   server_routes],
+        'create': [{'argument': 'name'},
+                   {'argument': 'action_type', 'choices': [at.name for at in ActionType if at.name != 'NATIVE']},
+                   {'argument': '--prompt', 'action': "store_true",
+                    'help': 'does not ask for every action parameter one by one'},
+                   action_create],
+        'copy': [{'argument': 'action_template_id', 'completer': action_completer},
+                 action_copy],
+        'load': [{'argument': 'file', 'type': argparse.FileType('r')},
+                 action_load],
     },
+    'cmd': [{'argument': 'command', 'nargs': '*'},
+            {'argument': '--shell', 'action': 'store_true'},
+            {'argument': '--target', 'action': ExtendAction, 'nargs': "+",
+             'completer': merge_completers([server_completer, granule_completer])},
+            {'argument': '--timeout', 'type': int, 'help': 'timeout in seconds to wait for command to terminate'},
+            {'argument': '--input'},
+            cmd],
+    "env": {
+        "list": [env_list],
+        "get": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
+                env_get],
+        "set": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
+                {'argument': 'value', 'nargs': '*'},
+                env_set]},
+    'exec': {
+        'list': [{'argument': '--orch', 'completer': orch_completer},
+                 {'argument': '--id', 'dest': 'execution_id'},
+                 {'argument': '--server', 'completer': server_completer},
+                 {'argument': '--last', 'metavar': 'N', 'type': int, 'help': "shows last N orchestrations"},
+                 {'argument': '--asc', 'action': 'store_true'},
+                 {'argument': '--detail', 'action': 'store_true'},
+                 exec_list]
+    },
+    'exit': [exit_dshell],
+    'logfed': {
+        'subscribe': {'log': [{'argument': 'src_server_id',
+                               'metavar': 'source_server',
+                               'help': 'source server to get the logs from',
+                               'completer': server_name_completer},
+                              {'argument': 'target',
+                               'metavar': 'file',
+                               'help': 'log file to watch out'},
+                              {'argument': 'dst_server_id',
+                               'metavar': 'destination_server',
+                               'help': 'destination server to get the logs from',
+                               'completer': server_name_completer},
+                              {'argument': '--mode', 'choices': ['REPO_MIRROR', 'REPO_ROOT', 'MIRROR'],
+                               'help': 'defines where the log will be sent on destination. REPO_MIRROR send the '
+                                       'file inside the dest LOG folder and mantains absolute path from origin. '
+                                       'REPO_ROOT sends the file inside the dest LOG without mantaining origin'
+                                       '\'s path. MIRROR preserves source path and tries to create at dest'},
+                              {'argument': '--dest_folder',
+                               'help': 'destination folder to send logs. If not specified, '
+                                       'default mode REPO_MIRROR is used'},
+                              logfed_subscribe
+                              ],
+                      'dir': [{'argument': 'target',
+                               'metavar': 'folder',
+                               'help': 'folder to watch out for files to send'},
+                              {'argument': 'src_server_id',
+                               'metavar': 'source_server_id',
+                               'help': 'source server to get the logs from',
+                               'completer': server_completer},
+                              {'argument': 'dst_server_id',
+                               'metavar': 'destination_server_id',
+                               'help': 'source server to get the logs from',
+                               'completer': server_completer},
+                              {'argument': '--include',
+                               'help': 'regular expression used to filter which '
+                                       'files and folders should subscribe'},
+                              {'argument': '--exclude',
+                               'help': 'regular expression used to filter which files and folders '
+                                       'should NOT subscribe'},
+                              {'argument': '--recursive',
+                               'help': 'enters in each folder to find files to send'},
+                              {'argument': '--mode', 'choices': ['REPO_MIRROR', 'REPO_ROOT', 'MIRROR'],
+                               'help': 'defines where the log will be sent on destination. REPO_MIRROR send the '
+                                       'file inside the dest LOG folder and mantains absolute path from origin. '
+                                       'REPO_ROOT sends the file inside the dest LOG without mantaining origin'
+                                       '\'s path. MIRROR preserves source path and tries to create at dest'},
+                              {'argument': '--dest_folder',
+                               'help': 'destination folder to send logs. If not specified, '
+                                       'default mode REPO_MIRROR is used'},
+                              logfed_subscribe]
+                      },
+        'unsubscribe': [{'argument': 'log_id', 'completer': logfed_completer},
+                        logfed_unsubscribe],
+        'list': [logfed_list],
+    },
+    "logging": [{'argument': 'logger', 'completer': logger_completer},
+                {'argument': 'level', 'choices': ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']},
+                logging_cmd],
+    "manager": {
+        "catalog": {"refresh": [manager_catalog_refresh]},
+        "locker": {"ignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
+                               'completer': server_completer},
+                              functools.partial(manager_locker_ignore, True)],
+                   "unignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
+                                 'completer': server_completer},
+                                functools.partial(manager_locker_ignore, False)],
+                   'show': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, manager_locker_show],
+                   'unlock': [{'argument': 'scope', 'choices': [s.name for s in Scope]},
+                              {'argument': 'node', 'nargs': '+', 'completer': server_completer},
+                              manager_locker_unlock]
+                   },
+        "token": [{'argument': 'expires_time', 'nargs': '?', 'metavar': 'MINUTES',
+                   'help': 'Join token expire time in minutes'},
+                  {'argument': '--raw', 'action': 'store_true'},
+                  manager_token],
+        "save": {"login": [manager_save_login]},
+        "login": [{'argument': 'username', 'nargs': '?'},
+                  manager_login], },
     'orch': {
         'list': [{'argument': '--version', 'action': 'store', 'type': int,
                   'completer': orch_ver_completer},
                  {'argument': '--detail', 'action': 'store_true'},
                  [{'argument': '--like'},
-                  {'argument': '--id', 'completer': orch_completer},
+                  {'argument': '--id', 'dest': 'ident', 'completer': orch_completer},
                   {'argument': '--name', 'completer': orch_name_completer}],
                  orch_list
                  ],
@@ -641,34 +740,23 @@ nested_dict = {
                 {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
                 orch_run],
     },
-    'action': {
-        'list': [{'argument': '--version', 'action': 'store', 'type': int,
-                  'completer': action_ver_completer},
-                 [{'argument': '--json', 'action': 'store_true'},
-                  {'argument': '--table', 'action': 'store_true'}],
+    'ping': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, ping],
+    'server': {
+        'list': [{'argument': '--detail', 'action': 'store_true'},
                  [{'argument': '--like'},
-                  {'argument': '--id', 'dest': 'ident', 'completer': action_completer},
-                  {'argument': '--name', 'completer': action_name_completer}],
-                 action_list
+                  {'argument': '--name', 'completer': server_name_completer},
+                  {'argument': '--id', 'dest': 'ident', 'completer': server_completer},
+                  # {'argument': '--last', 'action': 'store', 'type': int}
+                  ],
+                 server_list
                  ],
-        'create': [{'argument': 'name'},
-                   {'argument': 'action_type', 'choices': [at.name for at in ActionType if at.name != 'NATIVE']},
-                   {'argument': '--prompt', 'action': "store_true",
-                    'help': 'does not ask for every action parameter one by one'},
-                   action_create],
-        'copy': [{'argument': 'action_template_id', 'completer': action_completer},
-                 action_copy],
-        'load': [{'argument': 'file', 'type': argparse.FileType('r')},
-                 action_load],
-    },
-    'exec': {
-        'list': [{'argument': '--orch', 'completer': orch_completer},
-                 {'argument': '--id', 'dest': 'execution_id'},
-                 {'argument': '--server', 'completer': server_completer},
-                 {'argument': '--last', 'metavar': 'N', 'type': int, 'help': "shows last N orchestrations"},
-                 {'argument': '--asc', 'action': 'store_true'},
-                 {'argument': '--detail', 'action': 'store_true'},
-                 exec_list]
+        'delete': [
+            {'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+', 'completer': server_completer,
+             'help': 'Node to be deleted'},
+            server_delete],
+        'routes': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
+                   {'argument': '--refresh', 'action': 'store_true'},
+                   server_routes],
     },
     'software': {
         'add': [{'argument': 'name'},
@@ -692,22 +780,8 @@ nested_dict = {
                  {'argument': '--foreground', 'action': 'store_false', 'dest': 'background', 'default': True},
                  {'argument': '--force', 'action': 'store_true'},
                  software_send], },
-    'transfer': {
-        'cancel': [{'argument': 'transfer_id'},
-                   transfer_cancel],
-        'list': [
-            {'argument': '--status', 'action': "append", 'nargs': '+', 'choices': [s.name for s in Status]},
-            [{'argument': '--id'},
-             {'argument': '--last', 'action': 'store', 'type': int}, ],
-            transfer_list
-        ]},
-    'cmd': [{'argument': 'command', 'nargs': '*'},
-            {'argument': '--shell', 'action': 'store_true'},
-            {'argument': '--target', 'action': ExtendAction, 'nargs': "+",
-             'completer': merge_completers([server_completer, granule_completer])},
-            {'argument': '--timeout', 'type': int, 'help': 'timeout in seconds to wait for command to terminate'},
-            {'argument': '--input'},
-            cmd],
+    'status': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
+               {'argument': '--detail', 'action': 'store_true'}, status],
     'sync': {
         'list': [{'argument': '--id', 'dest': 'ident', 'completer': file_completer},
                  {'argument': '--server', 'dest': 'source_server', 'completer': server_name_completer},
@@ -734,98 +808,14 @@ nested_dict = {
                    },
 
     },
-    'logfed': {
-        'subscribe': {'log': [{'argument': 'src_server_id',
-                               'metavar': 'source_server',
-                               'help': 'source server to get the logs from',
-                               'completer': server_name_completer},
-                              {'argument': 'target',
-                               'metavar': 'file',
-                               'help': 'log file to watch out'},
-                              {'argument': 'dst_server_id',
-                               'metavar': 'destination_server',
-                               'help': 'destination server to get the logs from',
-                               'completer': server_name_completer},
-                              {'argument': '--mode', 'choices': ['REPO_MIRROR', 'REPO_ROOT', 'MIRROR'],
-                                      'help': 'defines where the log will be sent on destination. REPO_MIRROR send the '
-                                              'file inside the dest LOG folder and mantains absolute path from origin. '
-                                              'REPO_ROOT sends the file inside the dest LOG without mantaining origin'
-                                              '\'s path. MIRROR preserves source path and tries to create at dest'},
-                              {'argument': '--dest_folder',
-                                      'help': 'destination folder to send logs. If not specified, '
-                                              'default mode REPO_MIRROR is used'},
-                              logfed_subscribe
-                              ],
-                             'dir': [{'argument': 'target',
-                                      'metavar': 'folder',
-                                      'help': 'folder to watch out for files to send'},
-                                     {'argument': 'src_server_id',
-                                      'metavar': 'source_server_id',
-                                      'help': 'source server to get the logs from',
-                                      'completer': server_completer},
-                                     {'argument': 'dst_server_id',
-                                      'metavar': 'destination_server_id',
-                                      'help': 'source server to get the logs from',
-                                      'completer': server_completer},
-                                     {'argument': '--include',
-                                      'help': 'regular expression used to filter which '
-                                              'files and folders should subscribe'},
-                                     {'argument': '--exclude',
-                                      'help': 'regular expression used to filter which files and folders '
-                                              'should NOT subscribe'},
-                                     {'argument': '--recursive',
-                                      'help': 'enters in each folder to find files to send'},
-                                     {'argument': '--mode', 'choices': ['REPO_MIRROR', 'REPO_ROOT', 'MIRROR'],
-                                      'help': 'defines where the log will be sent on destination. REPO_MIRROR send the '
-                                              'file inside the dest LOG folder and mantains absolute path from origin. '
-                                              'REPO_ROOT sends the file inside the dest LOG without mantaining origin'
-                                              '\'s path. MIRROR preserves source path and tries to create at dest'},
-                                     {'argument': '--dest_folder',
-                                      'help': 'destination folder to send logs. If not specified, '
-                                              'default mode REPO_MIRROR is used'},
-                                     logfed_subscribe]
-                      },
-        'unsubscribe': [{'argument': 'log_id', 'completer': logfed_completer},
-                        logfed_unsubscribe],
-        'list': [logfed_list],
-    },
-    "manager": {
-        "catalog": {"refresh": [manager_catalog_refresh]},
-        "locker": {"ignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
-                               'completer': server_completer},
-                              functools.partial(manager_locker_ignore, True)],
-                   "unignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
-                                 'completer': server_completer},
-                                functools.partial(manager_locker_ignore, False)],
-                   'show': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, manager_locker_show],
-                   'unlock': [{'argument': 'scope', 'choices': [s.name for s in Scope]},
-                              {'argument': 'node', 'nargs': '+', 'completer': server_completer},
-                              manager_locker_unlock]
-                   },
-        "token": [{'argument': 'expires_time', 'nargs': '?', 'metavar': 'MINUTES',
-                   'help': 'Join token expire time in minutes'},
-                  {'argument': '--raw', 'action': 'store_true'},
-                  manager_token],
-        "save": {"login": [manager_save_login]},
-        "login": [{'argument': 'username', 'nargs': '?'},
-                  manager_login], }
-    # "locker": {"lock": [{'argument': "scope", 'choices': ["CATALOG", "ORCHESTRATION", "UPGRADE"]},
-    #                     {'argument': "servers", 'nargs': '*', 'completer': server_completer},
-    #                     locker_lock],
-    #            "unlock": [{'argument': "scope", 'choices': ["CATALOG", "ORCHESTRATION", "UPGRADE"]},
-    #                       {'argument': "servers", 'nargs': '*', 'completer': server_completer},
-    #                       locker_unlock]},
-    ,
-    "logging": [{'argument': 'logger', 'completer': logger_completer},
-                {'argument': 'level', 'choices': ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']},
-                logging_cmd],
-    "env": {
-        "list": [env_list],
-        "get": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
-                env_get],
-        "set": [{'argument': 'key', 'completer': DshellWordCompleter(environ._environ.keys())},
-                {'argument': 'value', 'nargs': '*'},
-                env_set]},
-    'exit': [exit_dshell]
+    'transfer': {
+        'cancel': [{'argument': 'transfer_id'},
+                   transfer_cancel],
+        'list': [
+            {'argument': '--status', 'action': "append", 'nargs': '+', 'choices': [s.name for s in Status]},
+            [{'argument': '--id'},
+             {'argument': '--last', 'action': 'store', 'type': int}, ],
+            transfer_list
+        ]},
 
 }

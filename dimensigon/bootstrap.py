@@ -47,7 +47,7 @@ def ensure_config_path(config_dir: str) -> None:
 default_logconfig_dict = {
     'version': 1,
     'disable_existing_loggers': False,
-    "root": {"level": "DEBUG", "handlers": ["console", "error_file"]},
+    "root": {"level": "INFO", "handlers": ["console", "error_file"]},
     'loggers': {
         "gunicorn.error": {
             "level": "INFO",
@@ -71,15 +71,15 @@ default_logconfig_dict = {
         # "dm.lock": {
         #     "level": "DEBUG",
         # },
-        "dm.fileSync": {
-            "level": "DEBUG",
-        },
-        "dm.cluster": {
-            "level": "DEBUG",
-        },
-        "dm.logfed": {
-            "level": "DEBUG",
-        },
+        # "dm.fileSync": {
+        #     "level": "DEBUG",
+        # },
+        # "dm.cluster": {
+        #     "level": "DEBUG",
+        # },
+        # "dm.logfed": {
+        #     "level": "DEBUG",
+        # },
         # "dm.db": {
         #     "level": "DEBUG",
         # },
@@ -233,7 +233,7 @@ def _setup_http_config(run_config: RuntimeConfig, config: Config):
         # on_exit=on_exit,
         # Server Mechanics
         preload_app=True,
-        daemon=run_config.daemon,
+        # daemon=run_config.daemon,
         pidfile=os.path.join(run_config.pid_file or config.config_dir, defaults.PID_FILE),
         # Server Socket
         bind=bind,

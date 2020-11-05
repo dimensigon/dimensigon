@@ -47,7 +47,7 @@ setup(
         "schema",
         "setuptools",
         "six",
-        "tzlocal<3.0"
+        "tzlocal<3.0",
         "watchdog"
     ],
     classifiers=[

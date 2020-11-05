@@ -1,7 +1,7 @@
 """
-Usage: dshell action list [--id ID|--name NAME|--like LIKE] [--version N] [--last N]
+Usage: dshell action list [--version N] [--id ID|--name NAME|--like LIKE]  [--last N]
        dshell action create (- | FILE)
-       dshell action create NAME ACTION_TYPE [--code CODE] [--parameters DATA] [--expected-stdout OUT]
+       dshell action create NAME ACTION_TYPE [--code CODE] [--expected-stdout OUT] [--schema DATA|FILE]
                             [--expected-stderr ERR] [--expected-rc RC] [--system-kwargs DATA]
                             [--pre-process CODE] [--post-process CODE]
 
@@ -20,16 +20,19 @@ Options:
     --last N                Shows last N servers
     --like LIKE             List action templates whose names contain LIKE
     --name NAME             Action templates' name to list
-    --parameters DATA       Parameters passed to the code
+    --schema DATA|FILE      Schema defined. Can be JSON data or a yaml file containing schema information
     --post-process POST     Code executed after CODE execution
     --pre-process PRE       Code executed before CODE execution
     --system-kwargs DATA    Special parameters passed to python command call
     --version N             Versions to list
 """
 import json
+import os
 import sys
 from pprint import pprint
 
+import yaml
+from dimensigon.dshell.output import dprint
 from docopt import docopt
 from schema import Schema, Or, And, Use, SchemaError
 
@@ -58,7 +61,7 @@ def main(args):
     except SchemaError as e:
         exit(str(e))
     if argv['list']:
-        action_list(iden=argv['--id'], name=argv['--name'], version=argv['--version'], like=argv['--like'],
+        action_list(ident=argv['--id'], name=argv['--name'], version=argv['--version'], like=argv['--like'],
                     last=argv['--last'])
     elif argv['create']:
         if argv['-']:
@@ -71,11 +74,20 @@ def main(args):
             part = json.loads(content)
             data.extend(part) if isinstance(part, list) else data.append(part)
         else:
+            if argv['--schema']:
+                if os.path.isfile(argv['--schema']):
+                    try:
+                        content = open(argv['--schema'], 'r').read()
+                        schema = yaml.load(content, Loader=yaml.SafeLoader)
+                    except Exception as e:
+                        exit(f"Error while trying to load yaml file. Exception {e}")
+                else:
+                    schema = argv['--schema']
             data = {'name': argv['NAME'],
                     'version': argv['--version'],
                     'action_type': argv['ACTION_TYPE'],
                     'code': argv['--code'],
-                    'parameters': argv['--parameters'],
+                    'schema': schema,
                     'expected_stdout': argv['--expected-stdout'],
                     'expected_stderr': argv['--expected-stderr'],
                     'expected_rc': argv['--expected-rc'],
@@ -84,14 +96,9 @@ def main(args):
                     'post_process': argv['--post-process']
                     }
             data = clean_none(data)
-        pprint(data)
+        dprint(data)
         if data:
             resp = ntwrk.post(f'api_1_0.actiontemplatelist', json=data)
-            if resp.ok:
-                if resp.msg:
-                    pprint(resp.msg)
-            else:
-                pprint(resp.msg if resp.code is not None else str(resp.exception) if str(
-                    resp.exception) else resp.exception.__class__.__name__)
+            dprint(resp)
         else:
-            print("No data found to create action template")
+            exit("No data found to create action template")
