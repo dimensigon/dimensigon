@@ -5,17 +5,16 @@ import inspect
 import os
 import re
 import sqlite3
-import stat
 import sys
 import tempfile
 import time
 import typing as t
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 
 import flask
 import jinja2
 import requests
+from dataclasses import dataclass
 from flask import json
 from flask_jwt_extended import create_access_token, get_jwt_identity
 
@@ -533,7 +532,7 @@ class ShellOperation(IOperationEncapsulation):
         tmp.write(f"#!{shebang}\n")
         tmp.write(tokens)
         tmp.close()
-        os.chmod(tmp.name, stat.S_IEXEC | stat.S_IREAD | stat.S_IWRITE)
+        os.chmod(tmp.name, 0o755)
         r = None
 
         if user:
