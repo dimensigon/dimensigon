@@ -32,7 +32,7 @@ DEFAULT_DB_URL = f"{DB_PREFIX}{{db_file}}"
 DEFAULT_DB_FILE = "dimensigon.db"
 
 # Dimensigon Defaults
-MAX_WAITING_TIME = 300  # time in seconds waiting tasks to finish
+STEP_TIMEOUT = 300  # time in seconds waiting tasks to finish
 MAX_TIME_WAITING_SERVERS = 600  # max time waiting for servers to be created
 JOIN_TOKEN_EXPIRE_TIME = 15  # join token expire time in minutes
 REFRESH_PERIOD = 5  # Run route table, catalog and cluster refresh every minutes

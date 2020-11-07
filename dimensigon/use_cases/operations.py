@@ -524,7 +524,8 @@ class ShellOperation(IOperationEncapsulation):
         system_kwargs = self.system_kwargs.copy()
 
         shebang = system_kwargs.pop('shebang', '/bin/bash')
-        timeout = system_kwargs.pop('timeout', 300)
+        user = system_kwargs.pop('run_as', None)
+        timeout = system_kwargs.pop('timeout', None)
 
         cp = CompletedProcess()
         cp.set_start_time()
@@ -534,13 +535,17 @@ class ShellOperation(IOperationEncapsulation):
         tmp.close()
         os.chmod(tmp.name, stat.S_IEXEC | stat.S_IREAD | stat.S_IWRITE)
         r = None
+
+        if user:
+            cmd = f"sudo -niu {user} {tmp.name}"
+        else:
+            cmd = tmp.name
         try:
-            r = subprocess.run(tmp.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               **system_kwargs, timeout=timeout, env=os.environ)
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
             cp.stdout = r.stdout.decode() if isinstance(r.stdout, bytes) else r.stdout
             cp.stderr = r.stderr.decode() if isinstance(r.stderr, bytes) else r.stderr
             cp.rc = r.returncode
-        except (subprocess.TimeoutExpired, ValueError) as e:
+        except subprocess.TimeoutExpired as e:
             cp.stderr = str(e)
             cp.success = False
         finally:
