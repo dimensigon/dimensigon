@@ -200,17 +200,18 @@ def orch_load(file):
     try:
         orch = json.load(file)
     except Exception as e:
-        print(e)
+        dprint(e)
     else:
         orch_prompt(orch, parent_prompt='Δ ')
 
 
 def orch_run(orchestration_id, **params):
     if not params['hosts']:
-        exit('No target specified')
-    resp = ntwrk.post('api_1_0.launch_orchestration',
-                      view_data={'orchestration_id': orchestration_id, 'params': 'human'}, json=params)
-    dprint(resp)
+        dprint('No target specified')
+    else:
+        resp = ntwrk.post('api_1_0.launch_orchestration',
+                          view_data={'orchestration_id': orchestration_id, 'params': 'human'}, json=params)
+        dprint(resp)
 
 
 def action_list(ident=None, name=None, version=None, like: str = None, last: int = None):
