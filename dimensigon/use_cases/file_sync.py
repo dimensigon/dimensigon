@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import logging
 import multiprocessing as mp
 import os
@@ -9,8 +10,8 @@ import typing as t
 import zlib
 from collections import OrderedDict
 from concurrent.futures.thread import ThreadPoolExecutor
-
 from dataclasses import dataclass
+
 from sqlalchemy import orm
 from sqlalchemy.orm import sessionmaker
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
@@ -23,6 +24,7 @@ from dimensigon.domain.entities.log import Mode
 from dimensigon.use_cases.base import Process
 from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.utils import asyncio
+from dimensigon.utils.helpers import remove_root
 from dimensigon.utils.pygtail import Pygtail
 from dimensigon.utils.typos import Id
 from dimensigon.web import network as ntwrk
@@ -377,7 +379,10 @@ class FileSync(Process):
             if len(pytail_list) == 0:
                 filename = '.' + os.path.basename(log.target) + '.offset'
                 path = os.path.dirname(log.target)
-                offset_file = self.dm.config.path(defaults.OFFSET_DIR, path, filename)
+                offset_file = self.dm.config.path(defaults.OFFSET_DIR, remove_root(path), filename)
+                if not os.path.exists(offset_file):
+                    _log_logger.debug(f"creating offset file {offset_file}")
+                    os.makedirs(os.path.dirname(offset_file), exist_ok=True)
                 pytail_list.append(
                     _PygtailBuffer(file=log.target, offset_mode='manual', offset_file=offset_file))
         else:
@@ -429,7 +434,9 @@ class FileSync(Process):
                         file = os.path.join('{LOG_REPO}', relative)
                     with self.dm.flask_app.app_context():
                         auth = get_root_auth()
-
+                    json.dumps({"file": file,
+                                'data': base64.b64encode(zlib.compress(data)).decode('ascii'),
+                                "compress": True})
                     task = ntwrk.async_post(log.destination_server, 'api_1_0.logresource',
                                             view_data={'log_id': str(log_id)},
                                             json={"file": file,

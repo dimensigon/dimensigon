@@ -134,7 +134,7 @@ class IOperationEncapsulation(ABC):
                     if match:
                         res.append(True)
                         if context:
-                            for k, v in match.groupdict():
+                            for k, v in match.groupdict().items():
                                 context.set(k, v)
                     else:
                         res.append(False)
@@ -144,7 +144,7 @@ class IOperationEncapsulation(ABC):
                     if match:
                         res.append(True)
                         if context:
-                            for k, v in match.groupdict():
+                            for k, v in match.groupdict().items():
                                 context.set(k, v)
                     else:
                         res.append(False)

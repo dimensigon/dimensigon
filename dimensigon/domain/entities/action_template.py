@@ -115,11 +115,10 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
                                                       "max_senders": {"type": "integer"},
                                                       },
                                             "required": ["software_id", "server_id"],
-                                            "output": {"file": {"type": "string",
-                                                                "description": "absolute path file name"}}
+                                            "output": ["file"]
                                             },
                                     id='00000000-0000-0000-000a-000000000001',
-                                    post_process="if cp.success:\n  json_data=json.loads(cp.stdout)\n  vc.set('file', "
+                                    post_process="import json\nif cp.success:\n  json_data=json.loads(cp.stdout)\n  vc.set('file', "
                                                  "json_data.get('file'))")
 
                 session.add(at)

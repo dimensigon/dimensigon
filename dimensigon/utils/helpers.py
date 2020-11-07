@@ -18,8 +18,6 @@ import six
 from cryptography.fernet import Fernet
 from flask import current_app
 
-
-
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -396,8 +394,21 @@ def session_scope(session=None):
 def format_exception(exc: Exception):
     return ''.join(traceback.format_exception(exc, exc, exc.__traceback__))
 
+
 def str_resp(resp: requests.Response):
     try:
         return resp.json()
     except ValueError:
         return resp.text
+
+
+def get_root(path: str):
+    parent_path = os.path.dirname(os.path.abspath(os.path.expanduser(path)))
+    if path == parent_path:
+        return parent_path
+    else:
+        return get_root(parent_path)
+
+
+def remove_root(path: str):
+    return path.lstrip(get_root(path))

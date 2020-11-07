@@ -320,12 +320,14 @@ def _write_default_config(config_dir: str) -> bool:
     log_folder_path = os.path.join(config_dir, defaults.LOG_FOLDER)
     log_sender_repo_path = os.path.join(config_dir, defaults.LOG_SENDER_REPO)
     ssl_path = os.path.join(config_dir, defaults.SSL_DIR)
+    offset_path = os.path.join(config_dir, defaults.OFFSET_DIR)
 
     try:
         os.makedirs(software_repo_path, exist_ok=True)
         os.makedirs(log_folder_path, exist_ok=True)
         os.makedirs(log_sender_repo_path, exist_ok=True)
         os.makedirs(ssl_path, exist_ok=True)
+        os.makedirs(offset_path, exist_ok=True)
     except OSError:
         print("Unable to create default configuration", config_dir)
         return False
