@@ -540,7 +540,7 @@ class ShellOperation(IOperationEncapsulation):
         else:
             cmd = tmp.name
         try:
-            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, shell=True)
             cp.stdout = r.stdout.decode() if isinstance(r.stdout, bytes) else r.stdout
             cp.stderr = r.stderr.decode() if isinstance(r.stderr, bytes) else r.stderr
             cp.rc = r.returncode
