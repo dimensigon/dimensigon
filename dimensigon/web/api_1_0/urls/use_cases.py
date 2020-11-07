@@ -363,13 +363,13 @@ _cluster_logger = logging.getLogger('dm.cluster')
 
 
 @api_bp.route('/cluster', methods=['POST'])
-@log_time('full')
+# @log_time('full')
 # @forward_or_dispatch()
 @jwt_required
 @securizer
-@log_time('after securizer')
+# @log_time('after securizer')
 @validate_schema(cluster_post)
-@log_time('after validation')
+# @log_time('after validation')
 def cluster():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         data = request.get_json()
@@ -504,12 +504,12 @@ def cluster_out(server_id):
 # set node to alive and check if neighbour
 
 @api_bp.route('/routes', methods=['GET', 'POST', 'PATCH'])
-@log_time('full')
+# @log_time('full')
 @forward_or_dispatch('GET', 'POST')
 @jwt_required
 @securizer
 @validate_schema(POST=routes_post, PATCH=routes_patch)
-@log_time('after validation')
+# @log_time('after validation')
 def routes():
     if request.method == 'GET':
         route_table = []

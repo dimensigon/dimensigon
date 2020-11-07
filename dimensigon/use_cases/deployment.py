@@ -20,6 +20,8 @@ from functools import partial
 import jsonschema
 import yaml
 from RestrictedPython import compile_restricted, safe_builtins
+from RestrictedPython.Eval import default_guarded_getiter
+from RestrictedPython.Guards import full_write_guard
 from flask import current_app, Flask, has_app_context, g
 from flask_jwt_extended import create_access_token
 from sqlalchemy.orm import sessionmaker
@@ -42,6 +44,18 @@ from dimensigon.web.network import post
 
 logger = logging.getLogger('dm.deployment')
 
+
+def exec_safe(code, locals=None):
+    # TODO: redefine builtin scope
+    # byte_code = compile_restricted(code, '<string>', 'exec')
+    # safe_builtins.update(json=json)
+    # safe_builtins.update(yaml=yaml)
+    # safe_builtins.update(re=re)
+    # exec(byte_code, {'__builtins__': safe_builtins,
+    #                  '_write_': full_write_guard,
+    #                  '_getiter_': default_guarded_getiter},
+    #      locals)
+    exec(code, {}, locals)
 
 class ICommand(ABC):
 
@@ -159,11 +173,7 @@ class ImplementationCommand(ICommand):
         if self.pre_process_code:
             try:
                 local = dict(vc=self.var_context, cp=self._cp)
-                byte_code = compile_restricted(self.pre_process_code, '<inline>', 'exec')
-                safe_builtins.update(json=json)
-                safe_builtins.update(yaml=yaml)
-                safe_builtins.update(re=re)
-                exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
+                exec_safe(self.pre_process_code, local)
             except Exception as e:
                 self._cp = CompletedProcess(success=False, stderr=f"Pre-Process error: {format_exception(e)}")
 
@@ -229,9 +239,7 @@ class ImplementationCommand(ICommand):
         if self.post_process_code:
             try:
                 local = dict(vc=self.var_context, cp=self._cp)
-                byte_code = compile_restricted(self.post_process_code, '<inline>', 'exec')
-                safe_builtins.update(json=json, re=re)
-                exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x}, local)
+                exec_safe(self.post_process_code, local)
             except Exception as e:
                 self._cp.success = False
                 if self._cp.stderr:

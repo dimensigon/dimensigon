@@ -33,10 +33,7 @@ def status(node, detail=False):
     else:
         for n in node:
             dprint(f"### {n}:") if len(node) > 1 else None
-            if not is_valid_uuid(n):
-                node_id = name2id('api_1_0.serverlist', n)
-            else:
-                node_id = n
+            node_id = normalize2id(n)
             resp = ntwrk.get('root.healthcheck', view_data=view_data, headers={'D-Destination': node_id})
             dprint(resp)
 
@@ -344,8 +341,9 @@ def transfer_list(iden=None, status=None, like=None, last=None):
                     filtered_data.append(server)
         else:
             filtered_data = data
-        if last:
-            dprint(filtered_data[:last])
+        assert last is None or last > 0, f"Invalid value '{last}'"
+        if last is not None and last > 0:
+            dprint(filtered_data[-last:])
         else:
             dprint(filtered_data)
     else:
@@ -601,7 +599,7 @@ nested_dict = {
         'create': [{'argument': 'name'},
                    {'argument': 'action_type', 'choices': [at.name for at in ActionType if at.name != 'NATIVE']},
                    {'argument': '--prompt', 'action': "store_true",
-                    'help': 'does not ask for every action parameter one by one'},
+                    'help': 'prompts for every action parameter to be set by user'},
                    action_create],
         'copy': [{'argument': 'action_template_id', 'completer': action_completer},
                  action_copy],
@@ -698,9 +696,9 @@ nested_dict = {
                    "unignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
                                  'completer': server_completer},
                                 functools.partial(manager_locker_ignore, False)],
-                   'show': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, manager_locker_show],
+                   'show': [{'argument': 'node', 'nargs': '+', 'completer': server_name_completer}, manager_locker_show],
                    'unlock': [{'argument': 'scope', 'choices': [s.name for s in Scope]},
-                              {'argument': 'node', 'nargs': '+', 'completer': server_completer},
+                              {'argument': 'node', 'nargs': '+', 'completer': server_name_completer},
                               manager_locker_unlock]
                    },
         "token": [{'argument': 'expires_time', 'nargs': '?', 'metavar': 'MINUTES',
@@ -729,7 +727,7 @@ nested_dict = {
                  orch_load],
         'run': [{'argument': 'orchestration_id', 'completer': orch_completer},
                 {'argument': '--target', 'metavar': 'TARGET=VALUE', 'action': DictAction, 'nargs': "+", 'dest': 'hosts',
-                 'completer': merge_completers([server_completer, granule_completer]),
+                 'completer': merge_completers([server_name_completer, granule_completer]),
                  'help': "Run the orch agains the specified target. If no target specified, hosts will be added to "
                          "'all' target. Example: --target node1 node2 backend=node2,node3 "},
                 {'argument': '--param', 'dest': 'params', 'metavar': 'PARAM:VALUE', 'action': ParamAction, "nargs": "+",
@@ -740,7 +738,7 @@ nested_dict = {
                 {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
                 orch_run],
     },
-    'ping': [{'argument': 'node', 'nargs': '+', 'completer': server_completer}, ping],
+    'ping': [{'argument': 'node', 'nargs': '+', 'completer': server_name_completer}, ping],
     'server': {
         'list': [{'argument': '--detail', 'action': 'store_true'},
                  [{'argument': '--like'},
@@ -751,10 +749,10 @@ nested_dict = {
                  server_list
                  ],
         'delete': [
-            {'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+', 'completer': server_completer,
+            {'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+', 'completer': server_name_completer,
              'help': 'Node to be deleted'},
             server_delete],
-        'routes': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
+        'routes': [{'argument': 'node', 'nargs': '*', 'completer': server_name_completer},
                    {'argument': '--refresh', 'action': 'store_true'},
                    server_routes],
     },
@@ -780,7 +778,7 @@ nested_dict = {
                  {'argument': '--foreground', 'action': 'store_false', 'dest': 'background', 'default': True},
                  {'argument': '--force', 'action': 'store_true'},
                  software_send], },
-    'status': [{'argument': 'node', 'nargs': '*', 'completer': server_completer},
+    'status': [{'argument': 'node', 'nargs': '*', 'completer': server_name_completer},
                {'argument': '--detail', 'action': 'store_true'}, status],
     'sync': {
         'list': [{'argument': '--id', 'dest': 'ident', 'completer': file_completer},

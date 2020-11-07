@@ -5,15 +5,17 @@ import inspect
 import os
 import re
 import sqlite3
+import stat
 import sys
+import tempfile
 import time
 import typing as t
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 import flask
 import jinja2
 import requests
-from dataclasses import dataclass
 from flask import json
 from flask_jwt_extended import create_access_token, get_jwt_identity
 
@@ -81,7 +83,7 @@ class IOperationEncapsulation(ABC):
         return
 
     @abstractmethod
-    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         """
         StepExecution process
         Parameters
@@ -97,19 +99,55 @@ class IOperationEncapsulation(ABC):
             dataclass containing all the information from the result execution
         """
 
+    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
+        """
+        StepExecution wrapper
+        Parameters
+        ----------
+        properties:
+            properties passed to execute implementation
+        env:
+            environment variables
+
+        Returns
+        -------
+        StepExecution:
+            dataclass containing all the information from the result execution
+        """
+        start = get_now()
+        try:
+            return self._execute(params, timeout=timeout, context=context)
+        except Exception as e:
+            return CompletedProcess(success=False, stderr=f"Error creating execution: {str(e)}", start_time=start,
+                                    end_time=get_now())
+
     def rpl_params(self, params: Kwargs, env: Kwargs):
         template = jinja2.Template(self.code)
         return template.render(input=params, env=env)
 
-    def evaluate_result(self, cp: CompletedProcess):
+    def evaluate_result(self, cp: CompletedProcess, context=None):
         if cp.success is None:
             res = []
             if self.expected_stdout is not None:
                 if isinstance(cp.stdout, str):
-                    res.append(True) if re.search(self.expected_stdout, cp.stdout) else res.append(False)
+                    match = re.match(self.expected_stdout, cp.stdout)
+                    if match:
+                        res.append(True)
+                        if context:
+                            for k, v in match.groupdict().items():
+                                context.set(k, v)
+                    else:
+                        res.append(False)
             if self.expected_stderr is not None:
                 if isinstance(cp.stderr, str):
-                    res.append(True) if re.search(self.expected_stderr, cp.stderr) else res.append(False)
+                    match = re.match(self.expected_stderr, cp.stderr)
+                    if match:
+                        res.append(True)
+                        if context:
+                            for k, v in match.groupdict().items():
+                                context.set(k, v)
+                    else:
+                        res.append(False)
             if self.expected_rc is not None:
                 res.append(True) if self.expected_rc == cp.rc else res.append(False)
             cp.success = all(res)
@@ -151,7 +189,7 @@ class IOperationEncapsulation(ABC):
 
 class RequestOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         kwargs = json.loads(self.rpl_params(params, context.env))
         kwargs.update(self.system_kwargs)
         cp = CompletedProcess()
@@ -176,7 +214,7 @@ class RequestOperation(IOperationEncapsulation):
             cp.rc = resp.status_code
             cp.stdout = resp.text
         if exception is None:
-            self.evaluate_result(cp)
+            self.evaluate_result(cp, context)
         else:
             cp.success = False
             cp.stderr = str(exception) if str(exception) else exception.__class__.__name__
@@ -186,13 +224,13 @@ class RequestOperation(IOperationEncapsulation):
 
 class NativeOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context: Context = None):
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None):
         pass
 
 
 class NativeSoftwareSendOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         params_dict = dict(params)
         cp = CompletedProcess()
         cp.set_start_time()
@@ -273,7 +311,7 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
 
 class NativeWaitOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context: Context = None):
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None):
         start = time.time()
         found = []
         cp = CompletedProcess()
@@ -323,7 +361,7 @@ class NativeWaitOperation(IOperationEncapsulation):
 
 class NativeDmRunningOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context: Context = None):
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None):
         start = time.time()
         running = []
         cp = CompletedProcess()
@@ -368,7 +406,7 @@ class NativeDmRunningOperation(IOperationEncapsulation):
 
 class NativeDeleteOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context: Context = None):
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None):
         cp = CompletedProcess()
         cp.set_start_time()
         try:
@@ -480,30 +518,41 @@ class ShellOperation(IOperationEncapsulation):
     #     env.update(**os.environ)
     #     return env
 
-    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         tokens = self.rpl_params(params, context.env)
 
         system_kwargs = self.system_kwargs.copy()
 
-        timeout = system_kwargs.pop('timeout', 300)
+        shebang = system_kwargs.pop('shebang', '/bin/bash')
+        user = system_kwargs.pop('run_as', None)
+        timeout = system_kwargs.pop('timeout', None)
 
         cp = CompletedProcess()
         cp.set_start_time()
-
+        tmp = tempfile.NamedTemporaryFile('w', delete=False)
+        tmp.write(f"#!{shebang}\n")
+        tmp.write(tokens)
+        tmp.close()
+        os.chmod(tmp.name, stat.S_IEXEC | stat.S_IREAD | stat.S_IWRITE)
         r = None
+
+        if user:
+            cmd = f"sudo -niu {user} {tmp.name}"
+        else:
+            cmd = tmp.name
         try:
-            r = subprocess.run(tokens, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               **system_kwargs, timeout=timeout, env=os.environ)
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
             cp.stdout = r.stdout.decode() if isinstance(r.stdout, bytes) else r.stdout
             cp.stderr = r.stderr.decode() if isinstance(r.stderr, bytes) else r.stderr
             cp.rc = r.returncode
-        except (subprocess.TimeoutExpired, ValueError) as e:
-            cp.stderr = f"{e.__class__.__name__}{e.args}"
+        except subprocess.TimeoutExpired as e:
+            cp.stderr = str(e)
             cp.success = False
         finally:
+            os.remove(tmp.name)
             cp.set_end_time()
 
-        self.evaluate_result(cp)
+        self.evaluate_result(cp, context)
 
         return cp
 

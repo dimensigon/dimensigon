@@ -24,6 +24,8 @@ from dimensigon.web import db, errors, network as ntwrk, executor
 if t.TYPE_CHECKING:
     import flask
 
+forwarder_logger = logging.getLogger('dm.forwarder')
+dm_logger = logging.getLogger('dm')
 
 def save_if_hidden_ip(remote_addr: str, server: Server):
     ip = ipaddress.ip_address(remote_addr)
@@ -39,7 +41,6 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
         gate = [gate for gate in server.gates if ip in (gate.ip, get_ip(gate.dns))]
         if not gate:
-            logger = logging.getLogger('dm')
             try:
 
                 with lock_scope(Scope.CATALOG):
@@ -65,11 +66,9 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
                 executor.submit(background_new_gate)
 
             except errors.LockerError as e:
-
-                logger.error(f"Unable to lock catalog for saving {remote_addr} from {server}. Reason: {e}")
+                dm_logger.error(f"Unable to lock catalog for saving {remote_addr} from {server}. Reason: {e}")
             except Exception:
-                logger = logging.getLogger('dm')
-                logger.exception(f"Unable to save {remote_addr} from {server}")
+                dm_logger.exception(f"Unable to save {remote_addr} from {server}")
 
 
 def _proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:

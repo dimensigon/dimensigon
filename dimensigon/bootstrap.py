@@ -185,7 +185,16 @@ def _setup_dimensigon_config(run_config: RuntimeConfig, config: Config):
     config.refresh_interval = dt.timedelta(minutes=run_config.refresh_interval)
     config.force_scan = run_config.force_scan
 
+    if run_config.pid_file:
+        if not os.path.dirname(run_config.pid_file):
+            config.pidfile = config.path(run_config.pid_file)
+        else:
+            config.pidfile = os.path.abspath(run_config.pid_file)
+    else:
+        config.pidfile = config.path(defaults.PID_FILE)
+
     logconfig = deepcopy(default_logconfig_dict)
+
     for k, v in run_config.logconfig.items():
         if k in logconfig:
             logconfig[k].update(v)
@@ -234,7 +243,7 @@ def _setup_http_config(run_config: RuntimeConfig, config: Config):
         # Server Mechanics
         preload_app=True,
         # daemon=run_config.daemon,
-        pidfile=os.path.join(run_config.pid_file or config.config_dir, defaults.PID_FILE),
+        # pidfile=os.path.join(run_config.pid_file or config.config_dir, defaults.PID_FILE),
         # Server Socket
         bind=bind,
         # Worker Processes
@@ -311,12 +320,14 @@ def _write_default_config(config_dir: str) -> bool:
     log_folder_path = os.path.join(config_dir, defaults.LOG_FOLDER)
     log_sender_repo_path = os.path.join(config_dir, defaults.LOG_SENDER_REPO)
     ssl_path = os.path.join(config_dir, defaults.SSL_DIR)
+    offset_path = os.path.join(config_dir, defaults.OFFSET_DIR)
 
     try:
         os.makedirs(software_repo_path, exist_ok=True)
         os.makedirs(log_folder_path, exist_ok=True)
         os.makedirs(log_sender_repo_path, exist_ok=True)
         os.makedirs(ssl_path, exist_ok=True)
+        os.makedirs(offset_path, exist_ok=True)
     except OSError:
         print("Unable to create default configuration", config_dir)
         return False

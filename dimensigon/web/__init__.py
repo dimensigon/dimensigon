@@ -230,7 +230,7 @@ def _initialize_errorhandlers(app):
 
 
 def create_app(config_name):
-    app = DimensigonFlask('dimensigon')
+    app = DimensigonFlask('dm')
     if isinstance(config_name, t.Mapping):
         app.config.from_mapping(config_name)
     elif config_name in config_by_name:

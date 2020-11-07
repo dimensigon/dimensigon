@@ -356,7 +356,12 @@ def run(dm: Dimensigon):
     count = len(result.fetchall())
     if count == 0:
         exit("No dimension created. Create or join to a dimension")
-    dm.start()
+    try:
+        dm.start()
+    except RuntimeError as e:
+        print("\nError: %s\n" % e, file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(1)
 
 
 def get_arguments() -> argparse.Namespace:
@@ -372,9 +377,9 @@ def get_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--pid-file",
-        metavar="path_to_pid_file",
+        metavar="path_name_to_pid_file",
         default=None,
-        help="Path to PID file. If not set, default config path will be used",
+        help="Path and/or filename to PID file. If not set, default config path and default name will be used",
     )
     parser.add_argument(
         "--port",

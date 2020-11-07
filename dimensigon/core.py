@@ -7,6 +7,7 @@ import time
 import typing as t
 
 from gunicorn.app.base import Application
+from gunicorn.pidfile import Pidfile
 
 from dimensigon import defaults
 from dimensigon.exceptions import DimensigonError
@@ -69,6 +70,8 @@ class Dimensigon:
         self.engine = None  # set on setup_dm function
         self.get_session = None  # set on setup_dm function
         self.procs = []
+        self.pid = None
+        self.pidfile = None
 
     def _init_signals(self):
         signal_object = init_signals(self.shutdown_event, self.int_handler, self.term_handler)
@@ -123,6 +126,10 @@ class Dimensigon:
     def start(self):
         """starts dimensigon server"""
         _logger.info(f"Starting Dimensigon ({os.getpid()})")
+        self.pid = os.getpid()
+        pidname = self.config.pidfile
+        self.pidfile = Pidfile(pidname)
+        self.pidfile.create(self.pid)
         self.bootstrap()
         self.flask_app.bootstrap()
         self.cluster_manager.start()
@@ -185,6 +192,9 @@ class Config:
 
         # allow pass through security layer without encrypt packet with header D-Securizer: plain
         self.security_layer_antidote: bool = False
+
+        # pidfile name
+        self.pidfile: str = None
 
         # runs the scheduler
         self.scheduler: bool = True

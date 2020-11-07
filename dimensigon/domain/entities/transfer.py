@@ -19,6 +19,7 @@ class Status(Enum):
     CHECKSUM_ERROR = 4
     SIZE_ERROR = 5
     CANCELLED = 6
+    TRANSFER_ERROR = 7
 
 
 class Transfer(db.Model, UUIDEntityMixin, EntityReprMixin):
