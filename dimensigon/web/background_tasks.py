@@ -169,17 +169,21 @@ def update_catalog(data: t.Dict[Server, ntwrk.Response]):
 def process_catalog_route_table(app=None, upgrade_catalog=True):
     # app will be used for the run_as decorator
     from dimensigon.web.api_1_0.urls.use_cases import delete_old_temp_servers
-    delete_old_temp_servers()
-    asyncio.run(routing.async_update_routes_send(discover_new_neighbours=True, check_current_neighbours=True,
-                                                 max_num_discovery=3))
+    try:
+        delete_old_temp_servers()
+        asyncio.run(routing.async_update_routes_send(discover_new_neighbours=True, check_current_neighbours=True,
+                                                     max_num_discovery=3))
 
-    catalog_logger.debug("Starting check catalog from neighbours")
+        catalog_logger.debug("Starting check catalog from neighbours")
 
-    # cluster information
-    cluster_hearthbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
-    # check version upgrade before catalog upgrade to match database revision
-    if upgrade_catalog:
-        data = asyncio.run(_async_get_neighbour_catalog_data_mark(cluster_hearthbeat_id))
-        if not upgrade_version(data):
-            update_catalog(data)
-    db.session.commit()
+        # cluster information
+        cluster_hearthbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
+        # check version upgrade before catalog upgrade to match database revision
+        if upgrade_catalog:
+            data = asyncio.run(_async_get_neighbour_catalog_data_mark(cluster_hearthbeat_id))
+            if not upgrade_version(data):
+                update_catalog(data)
+        db.session.commit()
+    except:
+        db.session.rollback()
+        raise
