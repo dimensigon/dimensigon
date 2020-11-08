@@ -23,12 +23,12 @@ def home():
 
 
 @root_bp.route('/healthcheck', methods=['GET', 'POST'])
-@log_time('full')
+# @log_time('full')
 @forward_or_dispatch()
 @jwt_optional
 @securizer
 @validate_schema(POST=healthcheck_post)
-@log_time('after validation')
+# @log_time('after validation')
 def healthcheck():
     if request.method == 'POST' and isinstance(g.source, Server):
         try:

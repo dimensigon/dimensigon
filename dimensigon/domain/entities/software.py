@@ -58,7 +58,7 @@ class Software(db.Model, UUIDistributedEntityMixin):
     size = db.Column(db.Integer)
     checksum = db.Column(db.Text())
 
-    ssas: t.List[SoftwareServerAssociation]= db.relationship("SoftwareServerAssociation", back_populates="software")
+    ssas: t.List[SoftwareServerAssociation] = db.relationship("SoftwareServerAssociation", back_populates="software")
 
     __table_args__ = (
         db.UniqueConstraint('name', 'version', name='D_software_u01'),)

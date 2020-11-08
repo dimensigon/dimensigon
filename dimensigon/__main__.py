@@ -31,7 +31,7 @@ from dimensigon.domain.entities import *
 from dimensigon.web.network import pack_msg2, unpack_msg2
 from dimensigon.web import create_app, db
 from dimensigon.use_cases.use_cases import upgrade_catalog
-from dimensigon.utils.helpers import generate_symmetric_key, generate_dimension, get_now, str_resp
+from dimensigon.utils.helpers import generate_symmetric_key, generate_dimension, get_now
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
 
@@ -146,6 +146,11 @@ def app_context(f):
 
 
 def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = True, verify: bool = False):
+    def str_resp(resp: requests.Response):
+        try:
+            return resp.json()
+        except ValueError:
+            return resp.text
     logger = logging.getLogger('dm.join')
     dm.create_flask_instance()
     with dm.flask_app.app_context():

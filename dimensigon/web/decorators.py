@@ -363,7 +363,7 @@ def log_time(tag=''):
             r = f(*args, **kwargs)
             elapsed = time.time() - start
             logger.debug(
-                f"{getattr(f, '__name__', '')} {f'({tag})' if tag else ''} took {elapsed} seconds to complete")
+                f"{getattr(f, '__name__', '')}{f' ({tag}) ' if tag else ' '}took {elapsed} seconds to complete")
             return r
         return wrapper
 

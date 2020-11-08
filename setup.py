@@ -48,7 +48,8 @@ setup(
         "setuptools",
         "six",
         "tzlocal<3.0",
-        "watchdog"
+        "watchdog",
+        "pyperclip"
     ],
     classifiers=[
         "Programming Language :: Python :: 3.6",

@@ -71,7 +71,7 @@ def upgrade_catalog(catalog, check_mismatch=True):
 
 
 def upgrade_catalog_from_server(server):
-    with lock_scope(Scope.UPGRADE, [server, Server.get_current()]):
+    with lock_scope(Scope.UPGRADE, [Server.get_current()]):
         catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
         if catalog_ver:
             resp = get(server, 'api_1_0.catalog',

@@ -297,7 +297,7 @@ class ClusterManager(Process):
                                                 json=[{'id': e.id,
                                                        'keepalive': e.keepalive.strftime(defaults.DATEMARK_FORMAT),
                                                        'death': e.death} for e in
-                                                      temp_buffer.values()], auth=auth))
+                                                      temp_buffer.values()], auth=auth, securizer=False))
                 except Exception as e:
                     _logger.error(f"Unable to send cluster information to neighbours: "
                                   f"{format_exception(e)}")

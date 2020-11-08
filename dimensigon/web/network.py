@@ -253,10 +253,12 @@ def prepare_request(server: t.Union[Server, str], view_or_url, view_data, kwargs
 
     kwargs['headers'] = _prepare_headers(server, kwargs.get('headers'))
 
+    securizer = kwargs.pop('securizer', True)
+
     if 'auth' in kwargs and kwargs['auth'] is not None:
         kwargs['auth'](kwargs)
 
-    if 'json' in kwargs and kwargs['json']:
+    if 'json' in kwargs and kwargs['json'] and securizer:
         kwargs['json'] = pack_msg(kwargs['json'])
 
     return url

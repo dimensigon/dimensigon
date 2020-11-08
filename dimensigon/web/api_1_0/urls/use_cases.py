@@ -366,9 +366,9 @@ _cluster_logger = logging.getLogger('dm.cluster')
 # @log_time('full')
 # @forward_or_dispatch()
 @jwt_required
-@securizer
+# @securizer
 # @log_time('after securizer')
-@validate_schema(cluster_post)
+# @validate_schema(cluster_post)
 # @log_time('after validation')
 def cluster():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
