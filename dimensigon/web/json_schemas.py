@@ -115,16 +115,6 @@ software_post = {
     "additionalProperties": False
 }
 
-software_patch = {
-    "type": "object",
-    "properties": {
-        "server_id": Id,
-        "path": {"type": "string"},
-    },
-    "required": ["server_id", "path"],
-    "additionalProperties": False
-}
-
 software_servers_put = {
     "type": "array",
     "items": {
@@ -135,6 +125,14 @@ software_servers_put = {
         },
         "required": ["server_id", "path"]
     },
+    "additionalProperties": False
+}
+
+software_servers_patch = software_servers_put
+
+software_servers_delete = {
+    "type": "array",
+    "items": Id,
     "additionalProperties": False
 }
 

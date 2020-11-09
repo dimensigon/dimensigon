@@ -279,6 +279,12 @@ def software_add(name, version, file, family=None):
     dprint(resp)
 
 
+def software_delete(software_id):
+    kwargs = {}
+    resp = ntwrk.delete(view='api_1_0.softwareresource', view_data={'software_id': software_id}, **kwargs)
+    dprint(resp)
+
+
 def software_send(dest_server_id, software_id=None, software=None, version=None, file=None, dest_path=None,
                   background=True, force=False):
     kwargs = {}
@@ -763,6 +769,8 @@ nested_dict = {
                 {'argument': 'file'},
                 {'argument': '--family', 'completer': software_family_completer},
                 software_add],
+        'delete': [{'argument': 'software_id', 'completer': software_completer},
+                   software_delete],
         'list': [{'argument': '--version', 'action': 'store', 'type': int,
                   'completer': software_ver_completer},
                  {'argument': '--detail', 'action': 'store_true'},

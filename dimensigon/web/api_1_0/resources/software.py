@@ -9,7 +9,8 @@ from dimensigon.utils.helpers import md5
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
 from dimensigon.web.helpers import filter_query, check_param_in_uri
-from dimensigon.web.json_schemas import software_post, software_patch
+from dimensigon.web.json_schemas import software_post, software_servers_put, software_servers_patch, \
+    software_servers_delete
 
 
 def set_software_server(soft, server, path, recalculate_data=False):
@@ -34,7 +35,7 @@ class SoftwareList(Resource):
     @forward_or_dispatch()
     def get(self):
         query = filter_query(Software, request.args)
-        return [soft.to_json(servers=check_param_in_uri('servers')) for soft in query.all()]
+        return [soft.to_json(servers=check_param_in_uri('servers'), no_delete=True) for soft in query.all()]
 
     @forward_or_dispatch()
     @jwt_required
@@ -66,7 +67,16 @@ class SoftwareResource(Resource):
     @securizer
     @forward_or_dispatch()
     def get(self, software_id):
-        return Software.query.get_or_raise(software_id).to_json()
+        return Software.query.get_or_raise(software_id).to_json(no_delete=True)
+
+    @jwt_required
+    @securizer
+    @forward_or_dispatch()
+    def delete(self, software_id):
+        s = Software.query.get_or_raise(software_id)
+        s.delete()
+        db.session.commit()
+        return {}, 204
 
 
 # software/<software_id>/servers
@@ -76,41 +86,63 @@ class SoftwareServersResource(Resource):
     @forward_or_dispatch()
     def get(self, software_id):
         soft = Software.query.get_or_raise(software_id)
-        return [ssa.server.to_json() for ssa in soft.ssas]
-
-    # @forward_or_dispatch()
-    # @jwt_required
-    # @securizer
-    # @validate_schema(software_servers_put)
-    # @lock_catalog
-    # def put(self, software_id):
-    #     json = request.get_json()
-    #
-    #     soft = Software.query.get_or_raise(software_id)
-    #
-    #     # delete all associations
-    #     soft.ssas = []
-    #
-    #     for ssa_json in json:
-    #         server = Server.query.get_or_raise(ssa_json['server_id'])
-    #         ssa = SoftwareServerAssociation(software=soft, server=server, path=ssa_json['path'])
-    #         db.session.add(ssa)
-    #
-    #     db.session.commit()
-    #     return
+        return [ssa.server.to_json(no_delete=True) for ssa in soft.ssas]
 
     @forward_or_dispatch()
     @jwt_required
     @securizer
-    @validate_schema(software_patch)
+    @validate_schema(software_servers_put)
+    @lock_catalog
+    def put(self, software_id):
+        json = request.get_json()
+
+        soft = Software.query.get_or_raise(software_id)
+
+        # delete all associations
+        for ssa in soft.ssas:
+            ssa.delete()
+
+        for ssa_json in json:
+            server = Server.query.get_or_raise(ssa_json['server_id'])
+            ssa = SoftwareServerAssociation(software=soft, server=server, path=ssa_json['path'])
+            db.session.add(ssa)
+
+        db.session.commit()
+        return {}, 204
+
+    @forward_or_dispatch()
+    @jwt_required
+    @securizer
+    @validate_schema(software_servers_patch)
     @lock_catalog
     def patch(self, software_id):
         json = request.get_json()
 
         soft = Software.query.get_or_raise(software_id)
-        server = Server.query.get_or_raise(json['server_id'])
+        server = Server.query.get_or_raise()
 
         ssa = set_software_server(soft, server, json['path'], recalculate_data=json.get('recalculate_data', False))
         db.session.add(ssa)
+        db.session.commit()
+        return {}, 204
+
+    @forward_or_dispatch()
+    @jwt_required
+    @securizer
+    @validate_schema(software_servers_delete)
+    @lock_catalog
+    def delete(self, software_id):
+        data = request.get_json()
+
+        if Software.query.filter_by(id=software_id).count() == 0:
+            raise errors.EntityNotFound('Software', software_id)
+
+        for server_id in data:
+            ssa = SoftwareServerAssociation.query.filter_by(software_id=software_id, server_id=server_id)
+            if not ssa:
+                raise errors.EntityNotFound('SoftwareServerAssociation', (software_id, server_id),
+                                            ['software_id', 'server_id'])
+            ssa.delete()
+
         db.session.commit()
         return {}, 204

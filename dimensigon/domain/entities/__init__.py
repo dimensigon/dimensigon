@@ -30,7 +30,7 @@ from .step import Step
 from .transfer import Transfer, Status as TransferStatus
 from .user import User
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _LOGGER = logging.getLogger('dm.catalog')
 
