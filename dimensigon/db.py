@@ -371,10 +371,9 @@ def _apply_update(engine, new_version, old_version):
                                            "max_senders": {"type": "integer"},
                                            },
                                  "required": ["software_id", "server_id"],
-                                 "output": {"file": {"type": "string",
-                                                     "description": "absolute path file name"}}
+                                 "output": ["file"]
                                  })
-            post_process = 'if cp.success:\n  json_data=json.loads(cp.stdout)\n  vc.set("file", json_data.get("file"))'
+            post_process = 'import json\nif cp.success:\n  json_data=json.loads(cp.stdout)\n  vc.set("file", json_data.get("file"))'
             code = '{"method": "post",' \
                    '"view":"api_1_0.send",' \
                    '"json": {"software_id": "{{input[\'software_id\']}}", ' \

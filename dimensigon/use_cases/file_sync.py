@@ -22,6 +22,7 @@ from dimensigon.use_cases.cluster import NewEvent, AliveEvent
 from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.use_cases.mptools import MPQueue, TimerWorker
 from dimensigon.utils import asyncio
+from dimensigon.utils.helpers import remove_root
 from dimensigon.utils.pygtail import Pygtail
 from dimensigon.utils.typos import Id
 from dimensigon.web import network as ntwrk
@@ -394,7 +395,10 @@ class FileSync(TimerWorker):
             if len(pytail_list) == 0:
                 filename = '.' + os.path.basename(log.target) + '.offset'
                 path = os.path.dirname(log.target)
-                offset_file = os.path.join(path, filename)
+                offset_file = self.dm.config.path(defaults.OFFSET_DIR, remove_root(path), filename)
+                if not os.path.exists(offset_file):
+                    _log_logger.debug(f"creating offset file {offset_file}")
+                    os.makedirs(os.path.dirname(offset_file), exist_ok=True)
                 pytail_list.append(
                     _PygtailBuffer(file=log.target, offset_mode='manual', offset_file=offset_file))
         else:

@@ -3,6 +3,7 @@ import multiprocessing as mp
 import os
 import signal
 import sys
+import threading
 
 from dataclasses import dataclass
 from sqlalchemy.orm import sessionmaker
@@ -72,7 +73,8 @@ class Process:
 
     def _run(self):
         self._logger.info(f'Starting {self.name} ({os.getpid()})')
-        self._init_signals()
+        if isinstance(self.process, mp.Process):
+            self._init_signals()
         try:
             self._main()
         except (TerminateInterrupt, KeyboardInterrupt):

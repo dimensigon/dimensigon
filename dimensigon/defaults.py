@@ -32,7 +32,7 @@ DEFAULT_DB_URL = f"{DB_PREFIX}{{db_file}}"
 DEFAULT_DB_FILE = "dimensigon.db"
 
 # Dimensigon Defaults
-MAX_WAITING_TIME = 300  # time in seconds waiting tasks to finish
+STEP_TIMEOUT = 300  # time in seconds waiting tasks to finish
 MAX_TIME_WAITING_SERVERS = 600  # max time waiting for servers to be created
 JOIN_TOKEN_EXPIRE_TIME = 15  # join token expire time in minutes
 ROUTE_REFRESH_PERIOD = 60  # route table refresh process
@@ -66,5 +66,6 @@ SOFTWARE_REPO = 'software'
 DIMENSIGON_DIR = os.path.join(SOFTWARE_REPO, 'dimensigon')
 LOG_FOLDER = 'logs'
 LOG_SENDER_REPO = 'logfed'
+OFFSET_DIR = 'offset'
 
 

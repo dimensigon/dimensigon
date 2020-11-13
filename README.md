@@ -21,3 +21,11 @@ All these functionality makes **Dimensigon (DM)** a good standard for companies 
 
 **REAL Open Source** => No Freemium or Enterprise versions would be available in the future
 
+```shell script
+echo "1245 root p_mon_DWCH_2 " |
+while read PID PUSER PARGS RESTVAR; do
+    DBNAME_LENGTH=${#PARGS} && DBNAME=${PARGS:9:DBNAME_LENGTH}
+    ORACLE_HOME=`echo $PID`
+    echo "$PUSER:$ORACLE_HOME:$DBNAME"    
+done
+```

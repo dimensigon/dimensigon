@@ -76,7 +76,7 @@ class LogResource(Resource):
             try:
                 os.makedirs(os.path.dirname(file))
             except PermissionError:
-                raise errors.GenericError(f"Permission denied creating '{os.makedirs(os.path.dirname(file))}'", 500)
+                raise errors.GenericError(f"Permission denied creating '{os.path.dirname(file)}'", 500)
         try:
             with open(file, 'ab') as fh:
                 fh.write(data_log)
