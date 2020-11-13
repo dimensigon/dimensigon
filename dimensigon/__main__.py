@@ -20,6 +20,7 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon import defaults
 from dimensigon.core import Dimensigon
+from dimensigon.use_cases.catalog import CatalogManager
 from dimensigon.use_cases.helpers import get_root_auth
 
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -152,7 +153,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
             return resp.text
     logger = logging.getLogger('dm.join')
     dm.create_flask_instance()
-    dm.create_processes()
+    dm.set_catalog_manager()
     with dm.flask_app.app_context():
         Server.set_initial()
         db.session.commit()
@@ -251,7 +252,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 for c in Catalog.query.all():
                     db.session.delete(c)
                 try:
-                    dm.catalog.update_catalog(resp_data['catalog']) # implicit commit
+                    dm.catalog_manager.db_update_catalog(resp_data['catalog']) # implicit commit
                 except Exception as e:
                     logger.exception(f"Unable to upgrade catalog.")
                     exit(1)
@@ -335,6 +336,7 @@ def token(dm: Dimensigon, dimension_id_or_name: str, applicant=None, expire_time
 def catalog(dm: Dimensigon, ip, port, http=False):
     import dimensigon.dshell.network as dshell_ntwrk
     dm.create_flask_instance()
+    dm.set_catalog_manager()
     with dm.flask_app.app_context():
         print("Updating catalog...")
         catalog_datamark = Catalog.max_catalog(str)
@@ -346,9 +348,8 @@ def catalog(dm: Dimensigon, ip, port, http=False):
                                                                      scheme='http' if http else 'https'),
                                     auth=get_root_auth())
         if resp.ok:
-
             try:
-                upgrade_catalog(resp.msg)
+                dm.catalog_manager.catalog_update(resp.msg)
             except Exception as e:
                 exit(f"Unable to upgrade data. Exception: {e}")
         else:

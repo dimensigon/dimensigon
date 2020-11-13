@@ -41,9 +41,6 @@ def healthcheck():
     catalog_ver = Catalog.max_catalog()
     data = {"version": dimensigon.__version__,
             "catalog_version": catalog_ver.strftime(defaults.DATEMARK_FORMAT) if catalog_ver else None,
-            "scheduler": "running" if getattr(current_app.extensions.get('scheduler'), 'running',
-                                              None) else "stopped",
-
             "services": [],
 
             }

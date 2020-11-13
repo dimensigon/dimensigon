@@ -36,7 +36,6 @@ class CatalogManager(mpt.TimerWorker):
     def main_func(self):
         try:
             with self.dm.flask_app.app_context():
-                self.session = self.Session()
                 self.logger.debug("Starting check catalog from neighbours")
                 # cluster information
                 cluster_hearthbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
@@ -44,7 +43,6 @@ class CatalogManager(mpt.TimerWorker):
                 data = asyncio.run(self._async_get_neighbour_catalog_data_mark(cluster_hearthbeat_id))
                 if not self.upgrade_version(data):
                     self.catalog_update(data)
-                self.session.close()
                 self._catalog_ver = None
         except Exception as e:
             self.logger.exception("Exception while trying to execute catalog update")
@@ -65,16 +63,22 @@ class CatalogManager(mpt.TimerWorker):
     ##############################
     # INNER methods & attributes #
 
+    # @property
+    # def session(self):
+    #     if not hasattr(self, '_session') or self._session is None:
+    #         self._session = self.Session()
+    #     return self._session
+
     @property
     def server(self) -> Server:
         if self._server is None:
-            self._server = self.session.query(Server).get(self.dm.server_id)
+            self._server = Server.query.get(self.dm.server_id)
         return self._server
 
     @property
     def catalog_ver(self) -> dt.datetime:
         if self._catalog_ver is None:
-            self._catalog_ver = self.session.query(db.func.max(Catalog.last_modified_at)).scalar()
+            self._catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
         return self._catalog_ver
 
     def upgrade_version(self, data: t.Dict[Server, ntwrk.Response]):
@@ -97,7 +101,7 @@ class CatalogManager(mpt.TimerWorker):
         Server, ntwrk.Response]:
 
         server_responses = {}
-        servers = Server.get_neighbours(session=self.session)
+        servers = Server.get_neighbours()
         self.logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
 
         auth = get_root_auth()
@@ -155,7 +159,7 @@ class CatalogManager(mpt.TimerWorker):
             if self.catalog_ver:
                 resp = ntwrk.get(server, 'api_1_0.catalog',
                                  view_data=dict(data_mark=self.catalog_ver.strftime(defaults.DATEMARK_FORMAT)),
-                                 auth=self.auth)
+                                 auth=get_root_auth())
 
                 if resp.code and 199 < resp.code < 300:
                     delta_catalog = resp.msg

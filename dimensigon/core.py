@@ -55,20 +55,19 @@ class GunicornApp(Application):
 
 
 class Dimensigon:
-    MAX_TERMINATE_CALLED = 3
-    int_handler = staticmethod(default_signal_handler)
-    term_handler = staticmethod(default_signal_handler)
-    _logger = _logger
-
     def __init__(self):
         self.flask_app: t.Optional[DimensigonFlask] = None
         self.gunicorn: t.Optional[GunicornApp] = None
         self.server: t.Optional[mp.Process] = None
         self.config = Config(self)
-        self.manager = mp.Manager()
+
+        # processes
+        self.manager = mp.Manager()  # shared memory between processes
         self.cluster_manager: t.Optional[ClusterManager] = None
         self.file_sync: t.Optional[FileSync] = None
-        # self.log_sender: t.Optional[LogSender] = None  # log sender embedded in file_sync process
+        self.route_manager: t.Optional[RouteManager] = None
+        self.catalog_manager: t.Optional[CatalogManager] = None
+
         self.STOP_WAIT_SECS = 90
         self.engine = None  # set on setup_dm function
         self.get_session = None  # set on setup_dm function
@@ -86,6 +85,10 @@ class Dimensigon:
         if self.gunicorn is None:
             self.gunicorn = GunicornApp(self.flask_app, self.config.http_conf)
             self.gunicorn.dm = self
+
+    def set_catalog_manager(self):
+        if self.catalog_manager is None:
+            self.catalog_manager = CatalogManager(None, None, None, None, None, self)
 
     def create_processes(self):
         self.cluster_manager = self._main_ctx.Proc(ClusterManager, self)
@@ -130,6 +133,7 @@ class Dimensigon:
     def start(self):
         """starts dimensigon server"""
         _logger.info(f"Starting Dimensigon ({os.getpid()})")
+        self._main_ctx.init_signals()
         self.pid = os.getpid()
         pidname = self.config.pidfile
         self.pidfile = Pidfile(pidname)
