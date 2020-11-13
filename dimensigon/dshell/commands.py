@@ -124,7 +124,7 @@ def server_routes(node, refresh=False):
         if refresh:
             resp = ntwrk.post('api_1_0.routes', json={"discover_new_neighbours": True,
                                                       "check_current_neighbours": True}, **kwargs)
-        if resp is None or (resp and resp.ok):
+        else:
             resp = ntwrk.get('api_1_0.routes', view_data={'params': 'human'}, **kwargs)
         dprint(resp)
 

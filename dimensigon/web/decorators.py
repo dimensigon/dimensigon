@@ -11,7 +11,7 @@ import requests
 import rsa
 from flask import current_app, url_for, g, request
 from flask_jwt_extended import get_jwt_claims
-from jsonschema import validate, SchemaError
+from jsonschema import validate
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate
@@ -196,11 +196,11 @@ def securizer(func):
                     pass
                 else:
                     g.original_json = request.get_json()
-                    cipher_key = base64.b64decode(request.json.get('key')) if 'key' in request.json else cipher_key
+                    cipher_key = base64.b64decode(request.get_json().get('key')) if 'key' in request.get_json() else cipher_key
                     # session['cipher_key'] = cipher_key
                     try:
                         if request.path in url_for('api_1_0.join'):
-                            temp_pub_key = rsa.PublicKey.load_pkcs1(request.json.pop('my_pub_key').encode('ascii'))
+                            temp_pub_key = rsa.PublicKey.load_pkcs1(request.get_json().pop('my_pub_key').encode('ascii'))
                             data = ntwrk.unpack_msg2(data=request.get_json(),
                                                      pub_key=temp_pub_key,
                                                      priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
@@ -213,10 +213,10 @@ def securizer(func):
                     if current_app.config.get('SECURIZER', None):
                         # if data and isinstance(data, dict):
                         #     # fill json request with unpacked data
-                        #     for key in list(request.json.keys()):
-                        #         request.json.pop(key)
+                        #     for key in list(request.get_json().keys()):
+                        #         request.get_json().pop(key)
                         #     for key, val in data.items():
-                        #         request.json[key] = val
+                        #         request.get_json()[key] = val
                         # else:
                         request._cached_data = json.dumps(data)
                         request._cached_json = (data, data)
@@ -270,7 +270,7 @@ def validate_schema(schema_name=None, **methods):
         def wrapper(*args, **kw):
             schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
             if schema:
-                validate(request.json, schema)
+                validate(request.get_json(), schema)
             return f(*args, **kw)
         return wrapper
     return decorator

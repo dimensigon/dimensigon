@@ -12,7 +12,7 @@ from dimensigon import defaults
 from dimensigon.domain.entities import User, ActionTemplate, ActionType, Orchestration, \
     OrchExecution, \
     StepExecution
-from dimensigon.use_cases.use_cases import upgrade_catalog
+from dimensigon.use_cases.catalog import upgrade_catalog
 from dimensigon.web import db
 from tests.base import TwoNodeMixin
 from tests.helpers import set_callbacks, request_scope

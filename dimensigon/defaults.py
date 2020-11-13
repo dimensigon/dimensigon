@@ -35,13 +35,16 @@ DEFAULT_DB_FILE = "dimensigon.db"
 MAX_WAITING_TIME = 300  # time in seconds waiting tasks to finish
 MAX_TIME_WAITING_SERVERS = 600  # max time waiting for servers to be created
 JOIN_TOKEN_EXPIRE_TIME = 15  # join token expire time in minutes
-REFRESH_PERIOD = 5  # Run route table, catalog and cluster refresh every minutes
-COMA_NODE_FACTOR = 2  # multiply factor to decide if a node is in coma state. In time: COMA_NODE_FACTOR x REFRESH_PERIOD
+ROUTE_REFRESH_PERIOD = 60  # route table refresh process
+ROUTE_SEND_PERIOD = 10  # send changed routes every ROUTE_SEND_PERIOD seconds
+CATALOG_REFRESH_PERIOD = 60  # catalog table refresh process
+ZOMBIE_NODE = CATALOG_REFRESH_PERIOD * 2  # a node is considered zombie if we do not get a keepalive after ZOMBIE_NODE
+CLUSTER_SEND_PERIOD = 10  # send cluster changes every CLUSTER_SEND_PERIOD seconds
+FILE_SYNC_PERIOD = 5  # sync files every FILE_SYNC_PERIOD seconds
 
 # quorum algorithm
 ADULT_NODES = dt.timedelta(hours=24)  # age of a node to be selectable for the quorum
-MAJORITY = 0.51  # ratio of servers to be selectable from old population in order to perform a lock
-
+MAJORITY = 0.51  # ratio of servers to be selectable from selectable population in order to perform a lock
 
 TIMEOUT_REQUEST = 60
 TIMEOUT_PREVENTING_LOCK = 60  # max time in seconds locker will be in PREVENTING_LOCK before returning to UNLOCK

@@ -86,7 +86,7 @@ def populate_initial_data(dm: Dimensigon):
         gates = dm.config.http_conf.get('binds', None)
 
         SchemaChanges.set_initial(session)
-        Server.set_initial(session, gates)
+        dm.server_id = Server.set_initial(session, gates)
 
         Locker.set_initial(session)
         ActionTemplate.set_initial(session)

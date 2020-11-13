@@ -1,11 +1,7 @@
-import datetime as dt
-import json
-import logging
-import os
+import time
 import time
 import typing as t
 
-from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, g
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
@@ -16,9 +12,7 @@ from dimensigon.web import errors, threading
 from dimensigon.web.config import config_by_name
 from .extensions.flask_executor.executor import Executor
 from .helpers import BaseQueryJSON, run_in_background
-from .. import defaults
-from ..utils import asyncio
-from ..utils.helpers import get_now, bind2gate
+from ..utils.helpers import bind2gate
 
 if t.TYPE_CHECKING:
     from ..core import Dimensigon
@@ -45,30 +39,13 @@ class DimensigonFlask(Flask):
         """ bootstraps the application. Gunicorn is still not listening on sockets
         """
         with self.app_context():
-            from dimensigon.domain.entities import Server, Parameter, Route
+            from dimensigon.domain.entities import Server, Parameter
             import dimensigon.web.network as ntwrk
             from dimensigon.use_cases.helpers import get_root_auth
-            from dimensigon.use_cases import routing
             from dimensigon.domain.entities import Locker
 
             # reset scopes
             Locker.set_initial(unlock=True)
-
-            last_shutdown = Parameter.get('last_graceful_shutdown', defaults.INITIAL_DATEMARK) - dt.timedelta(hours=1)
-
-            if self.dm.config.force_scan or last_shutdown < get_now() - self.dm.config.refresh_interval:
-                scan = True
-            else:
-                scan = False
-            asyncio.run(
-                routing.async_update_routes_send(discover_new_neighbours=scan, check_current_neighbours=scan,
-                                                 send=False))
-
-            route_table = []
-            for route in Route.query.join(Server.route).order_by(
-                    Server.name).filter(Server.deleted == False).all():
-                route_table.append(route.to_json(human=True))
-            routing.logger.debug("Routing table: " + json.dumps(route_table, indent=2))
 
             # check gates
             me = Server.get_current()
@@ -142,68 +119,7 @@ class DimensigonFlask(Flask):
                     if resp and not resp.ok:
                         self.logger.warning(f"Remote servers may not connect with {me}. ")
                 db.session.commit()
-        self.start_background_tasks()
 
-    def start_background_tasks(self):
-        from ..use_cases.log_sender import LogSender
-        from dimensigon.web.background_tasks import process_catalog_route_table
-        if not self.config['TESTING'] or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
-            if self.extensions.get('scheduler') is None and self.config['SCHEDULER']:
-                # passing timezone="UTC" to solve problems with systems where get_localzone() returns an object with
-                # local zone
-                bs = self.extensions['scheduler'] = BackgroundScheduler(timezone="UTC", daemon=False)
-                bs.start()
-
-                # if self.config.get('AUTOUPGRADE'):
-                # bs.add_job(func=process_get_new_version_from_gogs, args=(self,), trigger="interval",
-                #            id='upgrader',
-                #            hours=6)
-                if self.dm.config.refresh_interval:
-                    bs.add_job(func=process_catalog_route_table, name="catalog & route upgrade",
-                               args=(self,),
-                               id='routing_cluster_catalog_refresh',
-                               trigger="interval", minutes=self.dm.config.refresh_interval.seconds / 60)
-
-
-    def stop_background_tasks(self):
-        bs = self.extensions.get('scheduler')
-        if bs:
-            bs.shutdown(wait=False)
-        executor.shutdown(wait=False)
-        # ls = self.extensions.get('log_sender')
-        # if ls:
-        #     ls.stop()
-        # fs = self.extensions.get('file_sync')
-        # if fs:
-        #     fs.stop()
-
-
-    def shutdown(self):
-        with self.app_context():
-            from dimensigon.domain.entities import Server, Parameter
-            import dimensigon.web.network as ntwrk
-            from dimensigon.use_cases.helpers import get_root_auth
-
-            self.stop_background_tasks()
-
-            Parameter.set('last_graceful_shutdown', get_now())
-            db.session.commit()
-            servers = Server.get_neighbours()
-            if servers:
-                self.logger.debug(f"Sending shutdown to {', '.join([s.name for s in servers])}")
-            else:
-                self.logger.debug("No server to send shutdown information")
-            if servers:
-                responses = asyncio.run(
-                    ntwrk.parallel_requests(servers, 'post',
-                                            view_or_url='api_1_0.cluster_out',
-                                            view_data=dict(server_id=str(Server.get_current().id)),
-                                            json={'death': get_now().strftime(defaults.DATEMARK_FORMAT)},
-                                            timeout=2, auth=get_root_auth()))
-                if self.logger.level <= logging.DEBUG:
-                    for r in responses:
-                        if not r.ok:
-                            self.logger.warning(f"Unable to send data to {r.server}: {r}")
 
     def run(self, host=None, port=None, debug=None, **options):
         super(DimensigonFlask, self).run(host=host, port=port, debug=debug, use_reloader=False, **options)

@@ -238,11 +238,13 @@ def get_auth_from_request():
 
 
 @contextmanager
-def transaction():
+def transaction(session=None):
     from dimensigon.web import db
+    if not session:
+        session = db.session
     try:
         yield
-        db.session.commit()
+        session.commit()
     except Exception:
-        db.session.rollback()
+        session.rollback()
         raise
