@@ -1,4 +1,3 @@
-import logging
 import typing as t
 
 from dimensigon.network.low_level import check_host
@@ -7,9 +6,6 @@ from dimensigon.web import db, errors
 
 if t.TYPE_CHECKING:
     from dimensigon.domain.entities import Server, Gate
-
-
-logger = logging.getLogger('dm.route')
 
 
 class RouteContainer:
@@ -50,9 +46,9 @@ class Route(db.Model):
     gate_id = db.Column(UUID, db.ForeignKey('D_gate.id'))
     cost = db.Column(db.Integer)
 
-    destination = db.relationship("Server", foreign_keys=[destination_id], back_populates="route")
-    proxy_server = db.relationship("Server", foreign_keys=[proxy_server_id])
-    gate = db.relationship("Gate", foreign_keys=[gate_id])
+    destination = db.relationship("Server", foreign_keys=[destination_id], back_populates="route", lazy='joined')
+    proxy_server = db.relationship("Server", foreign_keys=[proxy_server_id], lazy='joined')
+    gate = db.relationship("Gate", foreign_keys=[gate_id], lazy='joined')
 
     def __init__(self, destination: 'Server', proxy_server_or_gate: t.Union['Server', 'Gate'] = None, cost: int = None):
         # avoid cycle import
@@ -103,6 +99,8 @@ class Route(db.Model):
         if rc.proxy_server:
             if not (rc.gate is None and rc.cost > 0):
                 raise errors.InvalidRoute(self.destination, rc)
+            if rc.proxy_server._me:
+                raise errors.InvalidRoute(self.destination, rc)
         elif rc.gate:
             if not rc.cost == 0:
                 raise errors.InvalidRoute(self.destination, rc)
@@ -111,7 +109,6 @@ class Route(db.Model):
                 raise errors.InvalidRoute(self.destination, rc)
 
     def set_route(self, rc: RouteContainer):
-        logger.debug(f"Changing route from {self.destination}: {rc}")
         self.validate_route(rc)
         self.proxy_server, self.gate, self.cost = rc
 
@@ -132,7 +129,7 @@ class Route(db.Model):
                     'gate': str(self.gate) if self.gate else None,
                     'cost': self.cost}
         else:
-            return {'destination_id': str(getattr(self.destination, 'id', '')) or None,
-                'proxy_server_id': str(getattr(self.proxy_server, 'id', '')) or None,
-                'gate_id': str(getattr(self.gate, 'id', '')) or None,
-                'cost': self.cost}
+            return {'destination_id': self.destination_id,
+                    'proxy_server_id': self.proxy_server_id,
+                    'gate_id': self.gate_id,
+                    'cost': self.cost}

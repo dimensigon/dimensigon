@@ -1,5 +1,3 @@
-import datetime
-import json
 import logging
 import typing as t
 
@@ -7,14 +5,11 @@ from pkg_resources import parse_version
 
 import dimensigon.use_cases.routing as routing
 import dimensigon.web.network as ntwrk
-from dimensigon import __version__ as dm_version, defaults
-from dimensigon.domain.entities import Server, Catalog
+from dimensigon import __version__ as dm_version
+from dimensigon.domain.entities import Server
 from dimensigon.use_cases.helpers import get_root_auth
-from dimensigon.use_cases.use_cases import run_elevator, get_software, upgrade_catalog_from_server
+from dimensigon.use_cases.use_cases import run_elevator, get_software
 from dimensigon.utils import asyncio
-from dimensigon.utils.asyncio import create_task
-from dimensigon.utils.helpers import get_now
-from dimensigon.web import db, errors
 from dimensigon.web.decorators import run_as
 
 logger = logging.getLogger('dm.background')
@@ -89,36 +84,6 @@ upgrader_logger = logging.getLogger('dm.upgrader')
 #         upgrader_logger.debug(f"No version to upgrade")
 
 
-async def _async_get_neighbour_catalog_data_mark(cluster_heartbeat_id: str = None) -> t.Dict[Server, ntwrk.Response]:
-    server_responses = {}
-    servers = Server.get_neighbours()
-    catalog_logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
-    auth = get_root_auth()
-
-    if cluster_heartbeat_id is None:
-        cluster_heartbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
-    for server in servers:
-        server_responses[server] = create_task(ntwrk.async_post(server, 'root.healthcheck', auth=auth,
-                                                                json={'exclude': [s.id for s in servers],
-                                                                      'heartbeat': cluster_heartbeat_id}))
-
-    for server, future in server_responses.items():
-        server_responses[server] = await future
-        if server_responses[server].ok:
-            id_response = server_responses[server].msg.get('server', {}).get('id', '')
-            if id_response and str(server.id) != id_response:
-                server_responses[server].exception = errors.HealthCheckMismatch(
-                    expected={'id': str(server.id), 'name': server.name},
-                    actual=server_responses[server].msg.get('server', {}))
-                server_responses[server].msg = None
-                server_responses[server].code = None
-
-        catalog_logger.log(1,
-            f"Response from server {server.name}: {json.dumps(server_responses[server].to_dict(), indent=4)}")
-
-    return server_responses
-
-
 def upgrade_version(data: t.Dict[Server, ntwrk.Response]):
     mayor_version, mayor_server = None, None
     for server, response in data.items():
@@ -136,54 +101,13 @@ def upgrade_version(data: t.Dict[Server, ntwrk.Response]):
     return False
 
 
-def update_catalog(data: t.Dict[Server, ntwrk.Response]):
-    reference_server = None
-    catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
-    if catalog_ver:
-        for server, response in data.items():
-            if response.code == 200 and 'catalog_version' in response.msg:
-                new_catalog_ver = datetime.datetime.strptime(response.msg['catalog_version'],
-                                                             defaults.DATEMARK_FORMAT)
-                if new_catalog_ver > catalog_ver:
-                    if response.msg['version'] == dm_version:
-                        reference_server = server
-                        catalog_ver = new_catalog_ver
-                    else:
-                        catalog_logger.debug(
-                            f"Server {server} has different software version {response.msg['version']}")
-            else:
-                msg = f"Error while trying to get healthcheck from server {server.name}. "
-                if response.code:
-                    msg = msg + f"Response from server (code {response.code}): {response.msg}"
-                else:
-                    msg = msg + f"Exception: {response.code}"
-                catalog_logger.warning(msg)
-        if reference_server:
-            catalog_logger.info(f"New catalog found from server {reference_server.name}: {catalog_ver}")
-            upgrade_catalog_from_server(reference_server)
-        else:
-            catalog_logger.debug(f"No server with higher catalog found")
-
 
 @run_as('root')  # takes the app argument and pushes the context
 def process_catalog_route_table(app=None, upgrade_catalog=True):
     # app will be used for the run_as decorator
     from dimensigon.web.api_1_0.urls.use_cases import delete_old_temp_servers
-    try:
-        delete_old_temp_servers()
-        asyncio.run(routing.async_update_routes_send(discover_new_neighbours=True, check_current_neighbours=True,
-                                                     max_num_discovery=3))
+    delete_old_temp_servers()
+    asyncio.run(routing.async_update_routes_send(discover_new_neighbours=True, check_current_neighbours=True,
+                                                 max_num_discovery=3))
 
-        catalog_logger.debug("Starting check catalog from neighbours")
 
-        # cluster information
-        cluster_hearthbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
-        # check version upgrade before catalog upgrade to match database revision
-        if upgrade_catalog:
-            data = asyncio.run(_async_get_neighbour_catalog_data_mark(cluster_hearthbeat_id))
-            if not upgrade_version(data):
-                update_catalog(data)
-        db.session.commit()
-    except:
-        db.session.rollback()
-        raise

@@ -30,7 +30,6 @@ PLATFORM = platform.system()
 from dimensigon.domain.entities import *
 from dimensigon.web.network import pack_msg2, unpack_msg2
 from dimensigon.web import create_app, db
-from dimensigon.use_cases.use_cases import upgrade_catalog
 from dimensigon.utils.helpers import generate_symmetric_key, generate_dimension, get_now
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
@@ -153,6 +152,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
             return resp.text
     logger = logging.getLogger('dm.join')
     dm.create_flask_instance()
+    dm.create_processes()
     with dm.flask_app.app_context():
         Server.set_initial()
         db.session.commit()
@@ -251,7 +251,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 for c in Catalog.query.all():
                     db.session.delete(c)
                 try:
-                    upgrade_catalog(resp_data['catalog']) # implicit commit
+                    dm.catalog.update_catalog(resp_data['catalog']) # implicit commit
                 except Exception as e:
                     logger.exception(f"Unable to upgrade catalog.")
                     exit(1)
@@ -439,12 +439,12 @@ def get_arguments() -> argparse.Namespace:
         type=argparse.FileType('r'),
         help="The log configuration in yaml format to load.",
     )
-    parser.add_argument(
-        "--dm-refresh-interval",
-        help="Period time in minutes to execute the routing and catalog refresh.",
-        default=defaults.REFRESH_PERIOD,
-        type=int
-    )
+    # parser.add_argument(
+    #     "--dm-refresh-interval",
+    #     help="Period time in minutes to execute the routing and catalog refresh.",
+    #     default=defaults.REFRESH_PERIOD,
+    #     type=int
+    # )
     parser.add_argument(
         "--force-scan",
         help="forces the process to check current and scan for new neighbours.",
@@ -538,7 +538,7 @@ class RuntimeConfig:
     errorlog: str = None
     logconfig: dict = None
     flask: bool = None
-    refresh_interval: int = None
+    # refresh_interval: int = None
     force_scan: bool = None
 
 
@@ -561,7 +561,7 @@ def main():
                                           logconfig=yaml.load(args.logconfig_file,
                                                               Loader=yaml.FullLoader) if args.logconfig_file else {},
                                           flask=args.flask,
-                                          refresh_interval=args.dm_refresh_interval,
+                                          # refresh_interval=args.dm_refresh_interval,
                                           force_scan=args.force_scan))
 
     if args.command is None:

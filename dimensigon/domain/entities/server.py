@@ -152,7 +152,10 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         ConnectionError:
             if server is unreachable
         """
-        scheme = 'http' if current_app.dm and 'keyfile' not in current_app.dm.config.http_conf else 'https'
+        try:
+            scheme = 'http' if current_app.dm and 'keyfile' not in current_app.dm.config.http_conf else 'https'
+        except:
+            scheme = 'https'
         gate = None
         route = self.route
         if self._me and (route is None or route.cost is None):
@@ -193,7 +196,7 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
         """
         if session:
-            query = session.query(cls)
+            query = session.query(cls).filter_by(deleted=0)
         else:
             query = cls.query
         query = query.join(cls.route).filter(Route.cost == 0)
@@ -216,7 +219,7 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     @classmethod
     def get_not_neighbours(cls, session=None) -> t.List['Server']:
         if session:
-            query = session.query(cls)
+            query = session.query(cls).filter_by(deleted=0)
         else:
             query = cls.query
         return query.outerjoin(cls.route).filter(
@@ -296,7 +299,7 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         return query.filter_by(_me=True).filter_by(deleted=False).one()
 
     @staticmethod
-    def set_initial(session=None, gates=None):
+    def set_initial(session=None, gates=None) -> Id:
         logger = logging.getLogger('dm.db')
         if session is None:
             session = db.session
@@ -316,6 +319,7 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
             session.add(server)
         elif len(server) > 1:
             raise ValueError('Multiple servers found as me.')
+        return server[0].id
 
     def ignore_on_lock(self, value: bool):
         if value != self.l_ignore_on_lock:

@@ -1,8 +1,6 @@
-import datetime as dt
 import logging
 import multiprocessing as mp
 import os
-import signal
 import time
 import typing as t
 
@@ -12,9 +10,14 @@ from gunicorn.pidfile import Pidfile
 from dimensigon import defaults
 from dimensigon.exceptions import DimensigonError
 from dimensigon.use_cases.base import default_signal_handler, init_signals, TerminateInterrupt
-from dimensigon.use_cases.clustering import ClusterManager
+from dimensigon.use_cases.catalog import CatalogManager
+from dimensigon.use_cases.cluster import ClusterManager
 from dimensigon.use_cases.file_sync import FileSync
 # from dimensigon.use_cases.log_sender import LogSender
+from dimensigon.use_cases.mptools import MainContext
+from dimensigon.use_cases.mptools_events import EventMessage
+from dimensigon.use_cases.routing import RouteManager
+from dimensigon.utils.typos import Id
 from dimensigon.web import DimensigonFlask, create_app, threading
 
 _logger = logging.getLogger("dm")
@@ -62,20 +65,17 @@ class Dimensigon:
         self.gunicorn: t.Optional[GunicornApp] = None
         self.server: t.Optional[mp.Process] = None
         self.config = Config(self)
+        self.manager = mp.Manager()
         self.cluster_manager: t.Optional[ClusterManager] = None
         self.file_sync: t.Optional[FileSync] = None
         # self.log_sender: t.Optional[LogSender] = None  # log sender embedded in file_sync process
-        self.shutdown_event = mp.Event()
         self.STOP_WAIT_SECS = 90
         self.engine = None  # set on setup_dm function
         self.get_session = None  # set on setup_dm function
-        self.procs = []
+        self._main_ctx = MainContext()
+        self.server_id: t.Optional[Id] = None
         self.pid = None
         self.pidfile = None
-
-    def _init_signals(self):
-        signal_object = init_signals(self.shutdown_event, self.int_handler, self.term_handler)
-        return signal_object
 
     def create_flask_instance(self):
         if self.flask_app is None:
@@ -88,15 +88,18 @@ class Dimensigon:
             self.gunicorn.dm = self
 
     def create_processes(self):
-        self.cluster_manager = ClusterManager(self,
-                                              zombie_threshold=defaults.COMA_NODE_FACTOR * defaults.REFRESH_PERIOD * 60)
-        self.file_sync = FileSync(self)
+        self.cluster_manager = self._main_ctx.Proc(ClusterManager, self)
+        self.cluster_manager.SHUTDOWN_WAIT_SECS = 90
+
+        self.route_manager = self._main_ctx.Proc(RouteManager, self)
+        self.file_sync = self._main_ctx.Proc(FileSync, self)
+        self.catalog_manager = self._main_ctx.Thread(CatalogManager, self)
         # self.log_sender = LogSender(self)  # log sender embedded in file_sync process
         if self.config.flask:
-            self.server = mp.Process(target=self.flask_app.run, name="Flask server",
-                                     kwargs=dict(host='0.0.0.0', port=defaults.DEFAULT_PORT, ssl_context='adhoc'))
+            self.http_server = mp.Process(target=self.flask_app.run, name="Flask server",
+                                          kwargs=dict(host='0.0.0.0', port=defaults.DEFAULT_PORT, ssl_context='adhoc'))
         else:
-            self.server = mp.Process(target=self.gunicorn.run, name="Gunicorn server")
+            self.http_server = mp.Process(target=self.gunicorn.run, name="Gunicorn server")
 
     def bootstrap(self):
         self.create_flask_instance()
@@ -112,16 +115,17 @@ class Dimensigon:
             while True:
                 resp = ntwrk.get(Server.get_current(), 'root.home', timeout=1)
                 if not resp.ok and time.time() - start < 30:
-                    time.sleep(2)
+                    time.sleep(0.5)
                 else:
                     break
+            self._main_ctx.publish_q.safe_put(EventMessage("Listening", source="Dimensigon"))
 
     def start_server(self):
-        if hasattr(self.cluster_manager, 'notify_cluster'):
-            self.flask_app.before_first_request(self.cluster_manager.notify_cluster)
+        # if hasattr(self.cluster_manager, 'notify_cluster'):
+        #     self.flask_app.before_first_request(self.cluster_manager.notify_cluster)
         th = threading.Timer(interval=4, function=self.make_first_request)
         th.start()
-        self.server.start()
+        self.http_server.start()
 
     def start(self):
         """starts dimensigon server"""
@@ -132,48 +136,26 @@ class Dimensigon:
         self.pidfile.create(self.pid)
         self.bootstrap()
         self.flask_app.bootstrap()
-        self.cluster_manager.start()
-        self.file_sync.start()
+
+        # self.cluster_manager.start()
+        # self.file_sync.start()
         # self.log_sender.start() # log sender embedded in file_sync process
         self.start_server()
         try:
-            while not self.shutdown_event.is_set():
-                time.sleep(0.2)
+            while not self._main_ctx.shutdown_event.is_set():
+                self._main_ctx.forward_events()
         except (TerminateInterrupt, KeyboardInterrupt):
             pass
         self.shutdown()
 
     def shutdown(self):
         _logger.info(f"Shutting down Dimensigon")
-        self.flask_app.shutdown()
-        self.shutdown_event.set()
-        os.kill(self.server.pid, signal.SIGTERM)
-
-        procs = []
-        # procs.append(self.log_sender.process)  # log sender embedded in file_sync process
-        procs.append(self.file_sync.process)
-        procs.append(self.cluster_manager.process)
-        procs.append(self.server)
-        end_time = time.time() + self.STOP_WAIT_SECS
-
-        for proc in procs:
-            _logger.debug(f"Joining process {proc.name}")
-            join_secs = _sleep_secs(self.STOP_WAIT_SECS, end_time)
-            proc.join(join_secs)
-
-        still_running = []
-        while procs:
-            proc = procs.pop()
-            if proc.exitcode is None:
-                _logger.debug(f"{proc.name} still alive. Terminating...")
-                if not proc.terminate():
-                    still_running.append(proc)
-            else:
-                exitcode = proc.exitcode
-                if exitcode:
-                    _logger.error(f"Process {proc.name} ended with exitcode {exitcode}")
-                else:
-                    _logger.debug(f"Process {proc.name} stopped successfully")
+        self.http_server.terminate()
+        self.http_server.terminate()
+        self._main_ctx.stop()
+        self.http_server.join(90)
+        if self.http_server.is_alive():
+            self.http_server.kill()
 
 
 class Config:
@@ -219,7 +201,7 @@ class Config:
         self.force_scan: bool = False
 
         # Run route table, catalog and cluster refresh every minutes
-        self.refresh_interval: dt.timedelta = defaults.REFRESH_PERIOD
+        # self.refresh_interval: dt.timedelta = defaults.
 
     def path(self, *path: str) -> str:
         """Generate path to the file within the configuration directory.

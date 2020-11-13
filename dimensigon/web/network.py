@@ -7,7 +7,7 @@ import typing as t
 import aiohttp
 import requests
 import rsa
-from aiohttp import ContentTypeError
+from aiohttp import ContentTypeError, ClientConnectorError
 from flask import current_app as __ca, current_app, url_for, json
 from requests.exceptions import Timeout
 
@@ -178,8 +178,9 @@ def unpack_msg2(data, *args, **kwargs):
             return data
 
 
-def ping(dest: t.Union[Server, Gate], retries=3, timeout=30, verify=False):
-    return _ping(dest=dest, source=Server.get_current(), retries=retries, timeout=timeout, verify=verify)
+def ping(dest: t.Union[Server, Gate], retries=3, timeout=30, verify=False, session=None):
+    server = Server.get_current(session=session)
+    return _ping(dest=dest, source=server, retries=retries, timeout=timeout, verify=verify)
 
 
 def _ping(dest: t.Union[Server, Gate], source: Server, retries=None, timeout=None, verify=False):
@@ -190,7 +191,10 @@ def _ping(dest: t.Union[Server, Gate], source: Server, retries=None, timeout=Non
 
     if isinstance(dest, Gate):
         server = dest.server
-        schema = current_app.config['PREFERRED_URL_SCHEME'] or 'https'
+        try:
+            schema = current_app.config['PREFERRED_URL_SCHEME'] or 'https'
+        except:
+            schema = 'https'
         url = f"{schema}://{dest}/{url_for('root.ping', _external=False)}"
     else:
         server = dest
@@ -228,7 +232,10 @@ def _prepare_url(server: t.Union[Server, str], view_or_url: str, view_data=None)
             view_data = view_data or {}
             url = server.url(view_or_url, **view_data)
     else:
-        scheme = 'http' if current_app.dm and 'keyfile' not in current_app.dm.config.http_conf else 'https'
+        try:
+            scheme = 'http' if current_app.dm and 'keyfile' not in current_app.dm.config.http_conf else 'https'
+        except:
+            scheme = 'https'
         root_path = f"{scheme}://{server}"
         if view_or_url.startswith('/'):
             url = root_path + view_or_url
@@ -291,7 +298,7 @@ def request(method: str, server: t.Union[Server, str], view_or_url: str, view_da
     if 'timeout' not in kwargs:
         kwargs['timeout'] = defaults.TIMEOUT_REQUEST
 
-    kwargs['verify'] = current_app.config['SSL_VERIFY']
+    kwargs['verify'] = False
     start = time.time()
     try:
         resp: requests.Response = func(url, **kwargs)
@@ -395,7 +402,7 @@ async def async_request(method: str, server: t.Union[Server, str], view_or_url: 
                 raise
             return Response(exception=e, server=server)
 
-        kwargs['ssl'] = current_app.config['SSL_VERIFY']
+        kwargs['ssl'] = False
 
         if 'timeout' in kwargs and isinstance(kwargs['timeout'], (int, float)):
             kwargs['timeout'] = aiohttp.ClientTimeout(total=kwargs['timeout'])
@@ -413,7 +420,10 @@ async def async_request(method: str, server: t.Union[Server, str], view_or_url: 
                     content = await resp.text()
         except (concurrent.futures.TimeoutError, asyncio.TimeoutError) as e:
             exception = TimeoutError(f"Socket timeout reached while trying to connect to {url} "
-                      f"for {kwargs.get('timeout').total or _session._timeout.total} seconds")
+                                     f"for {kwargs.get('timeout').total or _session._timeout.total} seconds")
+        except ClientConnectorError as e:
+            exception = ConnectionRefusedError(
+                f"Cannot connect to host {e.host}:{e.port} ssl:{e.ssl if e.ssl is not None else 'default'}")
         except Exception as e:
             exception = e
     finally:

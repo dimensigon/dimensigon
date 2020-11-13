@@ -31,12 +31,12 @@ def home():
 # @log_time('after validation')
 def healthcheck():
     if request.method == 'POST' and isinstance(g.source, Server):
+        data = request.get_json()
         try:
-            heartbeat = dt.datetime.strptime(request.get_json()['heartbeat'], defaults.DATETIME_FORMAT)
+            heartbeat = dt.datetime.strptime(data['heartbeat'], defaults.DATETIME_FORMAT)
         except:
-            raise errors.InvalidDateFormat(request.get_json()['heartbeat'], defaults.DATETIME_FORMAT)
-        exclude = request.get_json().get('exclude', [])
-        current_app.dm.cluster_manager.put(g.source.id, heartbeat)
+            raise errors.InvalidDateFormat(data['heartbeat'], defaults.DATETIME_FORMAT)
+        current_app.dm.cluster_manager.put(data['me'], heartbeat)
 
     catalog_ver = Catalog.max_catalog()
     data = {"version": dimensigon.__version__,
@@ -66,7 +66,7 @@ def healthcheck():
 @root_bp.route('/ping', methods=['POST'])
 @forward_or_dispatch()
 def ping():
-    req_data = request.json
+    req_data = request.get_json()
     if req_data:
         req_data.update(dest_time=get_now().strftime(defaults.DATETIME_FORMAT))
         if 'servers' not in req_data:
@@ -80,8 +80,8 @@ def ping():
 @forward_or_dispatch()
 @validate_schema(login_post)
 def login():
-    user = User.get_by_user(user=request.json.get('username', None))
-    password = request.json.get('password', None)
+    user = User.get_by_user(user=request.get_json().get('username', None))
+    password = request.get_json().get('password', None)
     try:
         if not user or not user.verify_password(password):
             return {"error": "Bad username or password"}, 401
@@ -113,8 +113,8 @@ def refresh():
 @forward_or_dispatch()
 @validate_schema(login_post)
 def fresh_login():
-    username = request.json.get('username', None)
-    password = request.json.get('password', None)
+    username = request.get_json().get('username', None)
+    password = request.get_json().get('password', None)
     if username != 'test' or password != 'test':
         return jsonify({"msg": "Bad username or password"}), 401
 

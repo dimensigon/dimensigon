@@ -4,7 +4,7 @@ import time
 from functools import partial
 from unittest import TestCase, mock
 
-from dimensigon.use_cases.clustering import ClusterManager, NewEvent, DeathEvent, ZombieEvent, AliveEvent, _Entry, \
+from dimensigon.use_cases.cluster import ClusterManager, NewEvent, DeathEvent, ZombieEvent, AliveEvent, _Entry, \
     KeepAliveEvent
 
 now = dt.datetime(1, 1, 1, 0, 10, 0)

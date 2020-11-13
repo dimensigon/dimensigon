@@ -44,7 +44,7 @@ class FileServerAssociationList(Resource):
     @validate_schema(file_server_associations_patch)
     @lock_catalog
     def patch(self, file_id):
-        destinations = request.json()
+        destinations = request.get_json()
         if isinstance(destinations, dict):
             destinations = [destinations]
         new_fsas = change_destinations(File.query.get_or_raise(file_id), destinations)

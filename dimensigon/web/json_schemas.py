@@ -22,11 +22,10 @@ login_post = {
 healthcheck_post = {
     "type": "object",
     "properties": {
-        "exclude": {"type": "array",
-                    "items": Id},
+        "me": Id,
         "heartbeat": {"type": "string"},
     },
-    "required": ["exclude", "heartbeat"],
+    "required": ["me", "heartbeat"],
     "additionalProperties": False
 }
 
@@ -377,9 +376,8 @@ routes_post = {
     "properties": {
         "discover_new_neighbours": {"type": "boolean"},
         "check_current_neighbours": {"type": "boolean"},
-        "retries": {"type": "integer", "minimum": 1},
-        "timeout": {"type": "number", "minimum": 0},
-        "background": {"type": "boolean"}
+        "max_num_discovery": {"type": ["integer", "null"],
+                              "minimum": 1}
     },
     "additionalProperties": False
 }
