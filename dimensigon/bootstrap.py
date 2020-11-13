@@ -125,7 +125,7 @@ default_logconfig_dict = {
     'handlers': {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "generic",
+            "formatter": "detailed",
             "stream": "ext://sys.stdout"
         },
         "error_file": {
@@ -158,7 +158,7 @@ default_logconfig_dict = {
             "class": "logging.Formatter"
         },
         "detailed": {
-            "format": "%(asctime)s [%(thread)-8s] %(levelname)-8s %(name)-30s %(message)s",
+            "format": "%(asctime)s %(processName)-20s %(levelname)-8s %(name)-30s %(message)s",
             "datefmt": "[%Y-%m-%d %H:%M:%S %z]",
             "class": "logging.Formatter"
         },
@@ -182,7 +182,7 @@ def _setup_dimensigon_config(run_config: RuntimeConfig, config: Config):
 
     config.debug = run_config.debug
     config.flask = run_config.flask
-    config.refresh_interval = dt.timedelta(minutes=run_config.refresh_interval)
+    # config.refresh_interval = dt.timedelta(minutes=run_config.refresh_interval)
     config.force_scan = run_config.force_scan
 
     if run_config.pid_file:

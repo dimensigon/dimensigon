@@ -6,7 +6,7 @@ from unittest.mock import patch
 import responses
 
 from dimensigon.domain.entities import Server, ActionTemplate, ActionType, Catalog, Gate, Route, Locker
-from dimensigon.use_cases.use_cases import upgrade_catalog_from_server
+from dimensigon.use_cases.catalog import upgrade_catalog_from_server
 from dimensigon.web import create_app, db, errors
 
 

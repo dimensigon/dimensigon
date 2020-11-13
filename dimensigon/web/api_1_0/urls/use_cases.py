@@ -23,13 +23,11 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_tok
 from pkg_resources import parse_version
 
 import dimensigon
-import dimensigon.use_cases.clustering
-import dimensigon.use_cases.routing as routing
+import dimensigon.use_cases.cluster
 import dimensigon.web.network as ntwrk
 from dimensigon import defaults as d, defaults
 from dimensigon.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
-    Orchestration, OrchExecution, User, ActionTemplate, ActionType, Gate
-from dimensigon.domain.entities.route import RouteContainer
+    Orchestration, OrchExecution, User, ActionTemplate, ActionType
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.use_cases.deployment import deploy_orchestration, validate_input_chain
 from dimensigon.utils import asyncio, subprocess
@@ -40,9 +38,6 @@ from dimensigon.utils.var_context import Context
 from dimensigon.web import db, executor, errors, threading
 from dimensigon.web.api_1_0 import api_bp
 from dimensigon.web.async_functions import async_send_file
-from dimensigon.web.background_tasks import _async_get_neighbour_catalog_data_mark, \
-    upgrade_version, \
-    update_catalog
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog, log_time
 from dimensigon.web.helpers import check_param_in_uri, normalize_hosts, search, get_auth_from_request
 from dimensigon.web.json_schemas import launch_command_post, routes_post, routes_patch, \
@@ -317,13 +312,8 @@ def software_dimensigon():
 @jwt_required
 @securizer
 def catalog_update():
-
-    data = asyncio.run(_async_get_neighbour_catalog_data_mark(get_now().strftime(defaults.DATETIME_FORMAT)))
-    # check version upgrade before catalog upgrade to match database revision
-    if not upgrade_version(data):
-        update_catalog(data)
-    db.session.commit()
-    return {}, 204
+    current_app.dm.catalog_manager.force_catalog_update()
+    return {}, 202
 
 
 @api_bp.route('/catalog/<string:data_mark>', methods=['GET', 'POST'])
@@ -385,46 +375,6 @@ def cluster():
     else:
         raise errors.UserForbiddenError
 
-async def background_cluster_in(server_id, routes, auth):
-    server = Server.query.get(server_id)
-    servers = Server.get_neighbours(exclude=server)
-    # cluster information
-    # if cr:
-    #     tasks.append(clustering.send_cluster_register(cr, servers=servers, auth=auth))
-
-    # route information
-    changed_routes = {}
-
-    # server might be sent cluster in message but not created in database
-    if server:
-        new_route = await routing.async_check_gates(server, timeout=5, retries=3, delay=2)
-        if new_route and isinstance(new_route, RouteContainer):
-            routing.logger.debug(f'cluster IN: New neighbour {server} found through {new_route.gate}')
-            routing.set_route(server, new_route)
-            changed_routes.update({server: new_route})
-        else:
-            routing.logger.debug(f"cluster IN: {server} is not a neighbour")
-    try:
-        changed_routes.update(
-            routing.update_route_table_from_data({'server_id': server_id, 'route_list': routes}, auth))
-    except errors.InvalidRoute as e:
-        debug_new_routes = []
-        routes.sort(key=lambda x: x.get('cost') or routing.MAX_COST, reverse=True)
-        for new_route in routes:
-            target_server = Server.query.get(new_route.get('destination_id'))
-            proxy_server = Server.query.get(new_route.get('proxy_server_id'))
-            gate = Gate.query.get(new_route.get('gate_id'))
-            debug_new_route = dict(destination=getattr(target_server, 'name', new_route.get('destination_id')),
-                                   proxy_server=getattr(proxy_server, 'name', new_route.get('proxy_server_id')),
-                                   gate=str(gate) if gate else new_route.get('gate_id'),
-                                   cost=new_route.get('cost'))
-            debug_new_routes.append(debug_new_route)
-            routing.logger.exception(
-                "Error setting routes from following data: " + json.dumps(debug_new_routes, indent=4))
-        raise
-
-    if changed_routes:
-        await routing.async_send_routes(changed_routes, auth=auth, servers=servers, exclude=server)
 
 
 @api_bp.route('/cluster/in/<server_id>', methods=['POST'])
@@ -442,23 +392,13 @@ def cluster_in(server_id):
         _cluster_logger.debug(
             f"{getattr(Server.query.get(server_id), 'name', server_id) or server_id} is a new alive server")
 
-        # run background execution to check routes
-        executor.submit(asyncio.run, background_cluster_in(server_id, data['routes'], get_auth_from_request()))
+        current_app.dm.route_manager.new_node_in_cluster(server_id, data['routes'])
 
         return {'cluster': current_app.dm.cluster_manager.get_cluster(defaults.DATEMARK_FORMAT),
                 'neighbours': [s.id for s in Server.get_neighbours()]}, 200
 
     else:
         raise errors.UserForbiddenError
-
-
-async def background_cluster_out(server_id, auth):
-    servers = Server.get_neighbours(exclude=server_id)
-    tasks = []
-
-    # route information
-    tasks.append(routing.async_remove_neighbour_send(server_id, auth=auth, servers=servers))
-    await asyncio.gather(*tasks)
 
 
 @api_bp.route('/cluster/out/<server_id>', methods=['POST'])
@@ -477,12 +417,11 @@ def cluster_out(server_id):
         else:
             death = None
         current_app.dm.cluster_manager.put(server_id, keepalive=death, death=True)
-        _cluster_logger.debug(f"{Server.query.get(server_id).name or server_id} is a death server")
 
         # run background route
-        executor.submit(asyncio.run, background_cluster_out(server_id, get_auth_from_request()))
+        current_app.dm.route_manager.remove_node_from_cluster(server_id)
 
-        return {}, 204
+        return {}, 202
     else:
         raise errors.UserForbiddenError
 
@@ -513,37 +452,21 @@ def cluster_out(server_id):
 def routes():
     if request.method == 'GET':
         route_table = []
-        for route in Route.query.join(Server.route).order_by(
-                Server.name).filter(Server.deleted == False).all():
+        for route in Route.query.join(Server.route).order_by(Server.name).filter(Server.deleted == False).all():
             route_table.append(route.to_json(human=check_param_in_uri('human')))
         data = {'route_list': route_table}
         data.update(server=dict(name=g.server.name, id=str(g.server.id)))
         return data
 
     elif request.method == 'POST':
-        async def job(msg, auth):
-            new_routes = await routing.async_update_route_table_cost(**msg)
-            if len(new_routes) > 0:
-                await routing.async_send_routes(auth=auth)
-            return new_routes
-
-        msg = request.get_json()
-        if msg.get('background', False):
-            executor.submit(asyncio.run, job(msg, get_auth_from_request()))
-        else:
-            asyncio.run(job(msg, HTTPBearerAuth(request.headers['Authorization'].split()[1])))
+        data = request.get_json()
+        current_app.dm.route_manager.refresh_table(discover_new_neighbours=data.get('discover_new_neighbours', False),
+                                                  check_current_neighbours=data.get('check_current_neighbours', False),
+                                                  max_num_discovery=data.get('max_num_discovery', 5))
         return {}, 204
 
     elif request.method == 'PATCH':
-        def job(msg, auth):
-            new_routes = routing.update_route_table_from_data(msg, auth)
-            if len(new_routes) > 0:
-                exclude = msg.get('exclude', [])
-                exclude.append(msg.get('server_id'))
-                asyncio.run(routing.async_send_routes(new_routes, auth, exclude=exclude))
-
-        executor.submit(job, request.get_json(), HTTPBearerAuth(request.headers['Authorization'].split()[1]))
-
+        current_app.dm.route_manager.new_routes(request.get_json())
         return {}, 204
 
 
