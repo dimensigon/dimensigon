@@ -451,3 +451,6 @@ def _apply_update(engine, new_version, old_version):
         _rename_table(engine, 'D_software_server', 'D_software_server_association')
         _add_columns(engine, 'D_software_server_association', ['deleted BOOLEAN'])
         _add_columns(engine, 'D_software', ['deleted BOOLEAN', '"$$name"  VARCHAR(80)'])
+
+        with engine.connect() as connection:
+            connection.execute(text("UPDATE L_parameter SET dump = null, load= null"))
