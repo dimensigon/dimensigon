@@ -30,23 +30,14 @@ class ServerList(Resource):
     @lock_catalog
     def delete(self):
         servers = [Server.query.get_or_raise(s_id) for s_id in request.get_json()['server_ids']]
-        acquired = routing._lock.acquire(timeout=15)
-        if acquired:
-            current_app.logger.debug(f"Routing Lock acquired for deletion of servers {servers}")
-        else:
-            current_app.logger.debug(f"Unable to lock Routing Lock. Force deletion of servers {servers}")
-        try:
-            for server in servers:
-                if server == g.server:
-                    raise errors.ServerDeleteError
-                # remove associated routes
-                if server.route:
-                    db.session.delete(server.route)
-                server.delete()
-            db.session.commit()
-        finally:
-            if acquired:
-                routing._lock.release()
+        for server in servers:
+            if server == g.server:
+                raise errors.ServerDeleteError
+            # remove associated routes
+            if server.route:
+                db.session.delete(server.route)
+            server.delete()
+        db.session.commit()
 
         return {}, 204
 
@@ -92,23 +83,12 @@ class ServerResource(Resource):
     @lock_catalog
     def delete(self, server_id):
         server = Server.query.get_or_raise(server_id)
-        acquired = routing._lock.acquire(timeout=15)
-        if acquired:
-            current_app.logger.debug(f"Routing Lock acquired for deletion of server {server}")
-        else:
-            current_app.logger.debug(f"Unable to lock Routing Lock. Force deletion of server {server}")
-        try:
-            if server == g.server:
-                raise errors.ServerDeleteError
-            # remove associated routes
-            db.session.delete(server.route)
-            server.delete()
-            db.session.commit()
-        except:
-            raise
-        finally:
-            if acquired:
-                routing._lock.release()
+        if server == g.server:
+            raise errors.ServerDeleteError
+        # remove associated routes
+        db.session.delete(server.route)
+        server.delete()
+        db.session.commit()
 
         return {}, 204
 
