@@ -32,8 +32,8 @@ class Log(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     recursive = db.Column(db.Boolean, default=False)
     _old_target = db.Column("$$target", db.Text)
 
-    source_server = db.relationship("Server", foreign_keys=[src_server_id])
-    destination_server = db.relationship("Server", foreign_keys=[dst_server_id])
+    source_server = db.relationship("Server", foreign_keys=[src_server_id], back_populates="log_sources")
+    destination_server = db.relationship("Server", foreign_keys=[dst_server_id], back_populates="log_destinations")
 
     __table_args__ = (db.UniqueConstraint('src_server_id', 'target', 'dst_server_id'),)
 

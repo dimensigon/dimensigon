@@ -3,13 +3,14 @@ import os
 import typing as t
 
 from dimensigon.domain.entities import Server
-from dimensigon.domain.entities.base import DistributedEntityMixin, UUIDistributedEntityMixin
+from dimensigon.domain.entities.base import DistributedEntityMixin, UUIDistributedEntityMixin, SoftDeleteMixin
 from dimensigon.utils.typos import UUID
 from dimensigon.web import db
+from dimensigon.web.helpers import QueryWithSoftDelete
 
 
-class SoftwareServerAssociation(db.Model, DistributedEntityMixin):
-    __tablename__ = "D_software_server"
+class SoftwareServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixin):
+    __tablename__ = "D_software_server_association"  # changed name in SCHEMA_VERSION = 7
     order = 30
 
     software_id = db.Column(UUID, db.ForeignKey("D_software.id"), primary_key=True, nullable=False)
@@ -18,6 +19,8 @@ class SoftwareServerAssociation(db.Model, DistributedEntityMixin):
 
     software = db.relationship("Software", back_populates="ssas", uselist=False)
     server = db.relationship("Server", backref="software_list", uselist=False)
+
+    query_class = QueryWithSoftDelete
 
     def to_json(self):
         data = super().to_json()
@@ -47,21 +50,25 @@ class SoftwareServerAssociation(db.Model, DistributedEntityMixin):
         return os.path.join(self.path or '', self.software.filename or '')
 
 
-class Software(db.Model, UUIDistributedEntityMixin):
+class Software(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     __tablename__ = "D_software"
     order = 20
 
     name = db.Column(db.String(80), nullable=False)
     version = db.Column(db.String(40), nullable=False)
+
     family = db.Column(db.String(50))
     filename = db.Column(db.String(256))
     size = db.Column(db.Integer)
     checksum = db.Column(db.Text())
+    _old_name = db.Column("$$name", db.String(255))  # added in SCHEMA_VERSION 7
 
-    ssas: t.List[SoftwareServerAssociation]= db.relationship("SoftwareServerAssociation", back_populates="software")
+    ssas: t.List[SoftwareServerAssociation] = db.relationship("SoftwareServerAssociation", back_populates="software")
 
     __table_args__ = (
         db.UniqueConstraint('name', 'version', name='D_software_u01'),)
+
+    query_class = QueryWithSoftDelete
 
     def __init__(self, name, version, filename, family=None, size=None, checksum=None, **kwargs):
         UUIDistributedEntityMixin.__init__(self, **kwargs)
@@ -91,3 +98,10 @@ class Software(db.Model, UUIDistributedEntityMixin):
 
     def __str__(self):
         return f"{self.name}.{self.version}"
+
+    def delete(self):
+        super().delete()
+        for ssa in self.ssas:
+            ssa.delete()
+
+

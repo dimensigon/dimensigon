@@ -40,7 +40,8 @@ class ServerList(Resource):
                 if server == g.server:
                     raise errors.ServerDeleteError
                 # remove associated routes
-                db.session.delete(server.route)
+                if server.route:
+                    db.session.delete(server.route)
                 server.delete()
             db.session.commit()
         finally:

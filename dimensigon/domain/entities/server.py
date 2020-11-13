@@ -36,6 +36,13 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
                                                back_populates="destination", cascade="all, delete-orphan")
     gates: t.List[Gate] = db.relationship("Gate", back_populates="server", cascade="all, delete-orphan")
 
+    log_sources = db.relationship("Log", primaryjoin="Server.id==Log.src_server_id", back_populates="source_server")
+    log_destinations = db.relationship("Log", primaryjoin="Server.id==Log.dst_server_id",
+                                       back_populates="destination_server")
+    files = db.relationship("File", back_populates="source_server")
+    file_server_associations = db.relationship("FileServerAssociation", back_populates="destination_server")
+    software_server_associations = db.relationship("SoftwareServerAssociation", back_populates="server")
+
     # software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
 
     query_class = QueryWithSoftDelete
@@ -335,3 +342,13 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         super().delete()
         for g in self.gates:
             g.delete()
+        for l in self.log_sources:
+            l.delete()
+        for l in self.log_destinations:
+            l.delete()
+        for ssa in self.software_server_associations:
+            ssa.delete()
+        for fsa in self.file_server_associations:
+            fsa.delete()
+        for f in self.files:
+            f.delete()

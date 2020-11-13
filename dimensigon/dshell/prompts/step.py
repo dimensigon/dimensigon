@@ -17,7 +17,6 @@ from dimensigon.dshell.argparse_raise import ArgumentParserRaise
 from dimensigon.dshell.completer import granule_completer, server_name_completer, action_completer
 from dimensigon.dshell.helpers import get_history, exit_dshell
 from dimensigon.dshell.output import dprint
-from dimensigon.dshell.prompts.action_template import code_lexer
 from dimensigon.dshell.prompts.utils import prompt_parameter, code_extension
 
 form = {
@@ -29,8 +28,7 @@ form = {
     "undo_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
     "action_type": dict(validator=v.Choice([at.name for at in ActionType if at.name != 'NATIVE']),
                         history=InMemoryHistory()),
-    "code": dict(edit=code_extension, mouse_support=True, lexer=code_lexer, history=InMemoryHistory(),
-                 converter=c.MultiLine),
+    "code": dict(edit=code_extension, history=InMemoryHistory(), converter=c.MultiLine),
     "expected_stdout": dict(multiline=True, mouse_support=True, history=InMemoryHistory(),
                             converter=c.MultiLine),
     "expected_stderr": dict(multiline=True, mouse_support=True, history=InMemoryHistory(),

@@ -140,6 +140,9 @@ def _add_columns(engine, table_name, columns_def):
                     table_name,
                 )
 
+def _rename_table(engine, old_table_name, new_table_name):
+    with engine.connect() as connection:
+        connection.execute(f"ALTER TABLE {old_table_name} RENAME TO {new_table_name}")
 
 def _rename_columns(engine, table_name, column_renames: t.List[t.Tuple[str, str]]):
     temp_table_name = table_name + '_temp'
@@ -444,3 +447,7 @@ def _apply_update(engine, new_version, old_version):
             _LOGGER.warning("After this database release, attribute 'parameters' from Step and ActionTemplate are "
                             "deprecated. You need to recreate all user actions and orchestrations using the schema "
                             "attribute. See documentation for more information.")
+    elif new_version == 7:
+        _rename_table(engine, 'D_software_server', 'D_software_server_association')
+        _add_columns(engine, 'D_software_server_association', ['deleted BOOLEAN'])
+        _add_columns(engine, 'D_software', ['deleted BOOLEAN', '"$$name"  VARCHAR(80)'])

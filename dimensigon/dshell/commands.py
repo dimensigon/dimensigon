@@ -200,17 +200,18 @@ def orch_load(file):
     try:
         orch = json.load(file)
     except Exception as e:
-        print(e)
+        dprint(e)
     else:
         orch_prompt(orch, parent_prompt='Δ ')
 
 
 def orch_run(orchestration_id, **params):
     if not params['hosts']:
-        exit('No target specified')
-    resp = ntwrk.post('api_1_0.launch_orchestration',
-                      view_data={'orchestration_id': orchestration_id, 'params': 'human'}, json=params)
-    dprint(resp)
+        dprint('No target specified')
+    else:
+        resp = ntwrk.post('api_1_0.launch_orchestration',
+                          view_data={'orchestration_id': orchestration_id, 'params': 'human'}, json=params)
+        dprint(resp)
 
 
 def action_list(ident=None, name=None, version=None, like: str = None, last: int = None):
@@ -275,6 +276,12 @@ def software_add(name, version, file, family=None):
     if family is not None:
         json_data.update(family=family)
     resp = ntwrk.post(view='api_1_0.softwarelist', json=json_data, **kwargs)
+    dprint(resp)
+
+
+def software_delete(software_id):
+    kwargs = {}
+    resp = ntwrk.delete(view='api_1_0.softwareresource', view_data={'software_id': software_id}, **kwargs)
     dprint(resp)
 
 
@@ -762,6 +769,8 @@ nested_dict = {
                 {'argument': 'file'},
                 {'argument': '--family', 'completer': software_family_completer},
                 software_add],
+        'delete': [{'argument': 'software_id', 'completer': software_completer},
+                   software_delete],
         'list': [{'argument': '--version', 'action': 'store', 'type': int,
                   'completer': software_ver_completer},
                  {'argument': '--detail', 'action': 'store_true'},

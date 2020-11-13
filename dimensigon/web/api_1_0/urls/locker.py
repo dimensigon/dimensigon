@@ -30,11 +30,12 @@ def locker():
 
 def revert_preventing(app, scope, applicant):
     with app.app_context():
-        l = Locker.query.with_for_update().get(scope)
-        if l.state == State.PREVENTING and l.applicant == applicant:
-            l.state = State.UNLOCKED
-            l.applicant = None
         try:
+            l = Locker.query.with_for_update().get(scope)
+            if l.state == State.PREVENTING and l.applicant == applicant:
+                l.state = State.UNLOCKED
+                l.applicant = None
+
             db.session.commit()
         except OperationalError as e:
             db.session.rollback()
@@ -124,8 +125,9 @@ def locker_unlock():
         if get_jwt_identity() != '00000000-0000-0000-0000-000000000001':
             raise errors.UserForbiddenError()
         else:
-            l.state = State.UNLOCKED
-            l.applicant = None
+            with transaction():
+                l.state = State.UNLOCKED
+                l.applicant = None
             return {json_data['scope']: 'UNLOCKED'}, 200
 
     if Scope[json_data['scope']] == Scope.ORCHESTRATION and l.state == State.UNLOCKED:
