@@ -1,3 +1,4 @@
+import multiprocessing as mp
 import logging
 import threading
 from datetime import datetime
@@ -52,10 +53,12 @@ def locker_prevent():
     logger.debug(f"PreventLock requested on {json_data.get('scope')} from {g.source}")
 
     # when orchestration scope check if applicant is the same as the current
-    if Scope[json_data['scope']] == Scope.ORCHESTRATION \
+    if l.scope == Scope.ORCHESTRATION \
             and l.state in (State.PREVENTING, State.LOCKED) \
             and l.applicant == json_data.get('applicant'):
-        return {'message': f"{Scope[json_data['scope']].name} already in {l.state.name} state"}, 210
+        return {'message': f"{l.scope.name} already in {l.state.name} state"}, 210
+    elif l.scope == Scope.UPGRADE and l.state in (State.PREVENTING, State.LOCKED):
+        return {'message': f"{l.scope.name} already in {l.state.name} state"}, 210
 
     # check status from current scope
     if l.state == State.UNLOCKED:
@@ -83,6 +86,7 @@ def locker_prevent():
     else:
         raise errors.StatusLockerError(l.scope, 'P', l.state)
 
+counter = mp.Value('i', 0)
 
 @api_bp.route('/locker/lock', methods=['POST'])
 @forward_or_dispatch()
@@ -98,11 +102,18 @@ def locker_lock():
             and l.state == State.LOCKED \
             and l.applicant == json_data.get('applicant'):
         return {'message': f"{json_data['scope']} already in {l.state} state"}, 210
+    elif l.scope == Scope.UPGRADE and l.state == State.LOCKED:
+        with counter.get_lock():
+            counter.value += 1
+        return {'message': f"{l.scope.name} already in {l.state.name} state"}, 210
 
     if l.state == State.PREVENTING:
         if l.applicant == json_data['applicant']:
             with transaction():
                 l.state = State.LOCKED
+            if l.scope == Scope.UPGRADE:
+                with counter.get_lock():
+                    counter.value += 1
             logger.debug(f"Lock from {g.source} on {l.scope.name} acquired")
             return {json_data['scope']: 'LOCKED'}, 200
         else:
@@ -128,12 +139,25 @@ def locker_unlock():
             with transaction():
                 l.state = State.UNLOCKED
                 l.applicant = None
+            if l.scope == Scope.UPGRADE:
+                with counter.get_lock():
+                    counter.value = 0
             return {json_data['scope']: 'UNLOCKED'}, 200
 
-    if Scope[json_data['scope']] == Scope.ORCHESTRATION and l.state == State.UNLOCKED:
+    if l.scope == Scope.ORCHESTRATION and l.state == State.UNLOCKED:
         return {'message': f"{json_data['scope']} already in {l.state} state"}, 210
-
-    if l.state == State.PREVENTING or l.state == State.LOCKED:
+    elif l.scope == Scope.UPGRADE and l.state == State.LOCKED:
+        with counter.get_lock():
+            counter.value -= 1
+            if counter.value == 0:
+                with transaction():
+                    l.state = State.UNLOCKED
+                    l.applicant = None
+                logger.debug(f"Lock on {l.scope.name} released")
+                return {json_data['scope']: 'UNLOCKED'}, 200
+            else:
+                return {'message': 'Pending upgrades'}, 210
+    elif l.state == State.PREVENTING or l.state == State.LOCKED:
         if l.applicant == json_data['applicant']:
             with transaction():
                 l.state = State.UNLOCKED
