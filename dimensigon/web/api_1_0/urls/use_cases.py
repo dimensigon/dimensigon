@@ -41,7 +41,7 @@ from dimensigon.web.async_functions import async_send_file
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog, log_time
 from dimensigon.web.helpers import check_param_in_uri, normalize_hosts, search, get_auth_from_request
 from dimensigon.web.json_schemas import launch_command_post, routes_post, routes_patch, \
-    launch_orchestration_post, send_post, orchestration_full, manager_server_ignore_lock_post, cluster_post
+    launch_orchestration_post, send_post, orchestration_full, manager_server_ignore_lock_post
 
 if t.TYPE_CHECKING:
     from dimensigon.use_cases.operations import IOperationEncapsulation
@@ -312,11 +312,19 @@ def software_dimensigon():
 @jwt_required
 @securizer
 def catalog_update():
-    current_app.dm.catalog_manager.force_catalog_update()
-    return {}, 202
+    catalog_ver = Catalog.max_catalog()
+    new_catalog_ver = current_app.dm.catalog_manager.force_catalog_update()
+    if new_catalog_ver:
+        if new_catalog_ver > catalog_ver:
+            return {'message': "New catalog found",
+                    'catalog_version': new_catalog_ver.strftime(defaults.DATEMARK_FORMAT)}, 200
+        else:
+            return {'message': "No new catalog found"}, 204
+    else:
+        return {'message': "Catalog upgrade already running"}, 202
 
 
-@api_bp.route('/catalog/<string:data_mark>', methods=['GET', 'POST'])
+@api_bp.route('/catalog/<string:data_mark>', methods=['GET'])
 @forward_or_dispatch()
 @jwt_required
 @securizer

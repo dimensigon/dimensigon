@@ -292,10 +292,9 @@ def proc_worker_wrapper(proc_worker_class, name, startup_evt, shutdown_evt, publ
     return proc_worker.run()
 
 
-
 class Proc:
-    STARTUP_WAIT_SECS = 120
-    SHUTDOWN_WAIT_SECS = 3.0
+    STARTUP_WAIT_SECS = 3
+    SHUTDOWN_WAIT_SECS = 90
 
     def __init__(self, name: str, worker_class: t.Type[Worker], shutdown_event: mp.Event, publish_q: MPQueue,
                  event_q: MPQueue, async_loop=False, *args, **kwargs):
@@ -339,16 +338,11 @@ class Proc:
         else:
             self.logger.info(f"Terminated {self.name} after {NUM_TRIES - tries} attempt(s)")
             return True
-    #
-    # def __enter__(self):
-    #     return self
-    #
-    # def __exit__(self, exc_type, exc_val, exc_tb):
-    #     self.full_stop()
-    #     return not exc_type
+
 
 class Thread(Proc):
-    SHUTDOWN_WAIT_SECS = 3.0
+    SHUTDOWN_WAIT_SECS = 90
+
     def __init__(self, name: str, worker_class: t.Type[Worker], shutdown_event: mp.Event, publish_q: MPQueue,
                  event_q: MPQueue, async_loop=False, *args, **kwargs):
         self.name = name
@@ -388,7 +382,6 @@ class MainContext:
         self.queues: t.List[MPQueue] = []
         self.shutdown_event = mp.Event()
         self.publish_q = MPQueue()
-        self._init_signals()
 
     def forward_events(self):
         item = True
@@ -400,7 +393,7 @@ class MainContext:
                     break
                 [q.safe_put(item) for q in self.queues]
 
-    def _init_signals(self):
+    def init_signals(self):
         return init_signals(self.shutdown_event, default_signal_handler, default_signal_handler)
 
     def start(self):
@@ -412,6 +405,7 @@ class MainContext:
         self._stopped_queues_result = self.stop_queues()
 
     def __enter__(self):
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):

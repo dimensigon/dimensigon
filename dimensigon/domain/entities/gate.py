@@ -22,7 +22,8 @@ class Gate(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     port = db.Column(db.Integer, nullable=False)
     hidden = db.Column(db.Boolean, default=False)
 
-    __table_args__ = (db.UniqueConstraint('server_id', 'ip', 'dns'),)
+    __table_args__ = (db.UniqueConstraint('server_id', 'ip'),
+                      db.UniqueConstraint('server_id', 'dns'))  # modified in SCHEMA_VERSION 8
 
     server = db.relationship("Server", back_populates="gates")
 

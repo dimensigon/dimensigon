@@ -317,9 +317,11 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
                             me=True)
             logger.info(f'Creating Server {server.name} with the following gates: {gates}')
             session.add(server)
+            return server.id
         elif len(server) > 1:
             raise ValueError('Multiple servers found as me.')
-        return server[0].id
+        else:
+            return server[0].id
 
     def ignore_on_lock(self, value: bool):
         if value != self.l_ignore_on_lock:

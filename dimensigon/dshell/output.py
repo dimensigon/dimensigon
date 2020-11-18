@@ -15,7 +15,8 @@ logger = logging.getLogger('dshell')
 
 def dprint(msg):
     if isinstance(msg, str):
-        print(msg)
+        if msg not in ('\n', None, ''):
+            print(msg)
     elif isinstance(msg, Response):
         if msg.code:
             dprint(msg.msg)

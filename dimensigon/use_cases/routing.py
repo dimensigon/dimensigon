@@ -223,6 +223,7 @@ class RouteManager(Worker):
                 self._next_send = time.time() + self.send_interval
         except Exception as e:
             self.logger.exception(f"Error processing item {item}")
+            self.session.rollback()
 
     # END Class Inheritance #
     #########################
@@ -396,7 +397,8 @@ class RouteManager(Worker):
             changed_routes[route.destination] = rc
         self.session.commit()
 
-        # update neighbour list
+        # update neighbour lis
+
         neighbours = list(set(neighbours).union(set(new_neighbours)) - set(not_neighbours_anymore))
 
         if neighbours:

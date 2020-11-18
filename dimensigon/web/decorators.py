@@ -6,7 +6,7 @@ import logging
 import socket
 import time
 import typing as t
-
+import multiprocessing as mp
 import requests
 import rsa
 from flask import current_app, url_for, g, request
@@ -14,7 +14,7 @@ from flask_jwt_extended import get_jwt_claims
 from jsonschema import validate
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate
+from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate, bypass_datamark_update
 from dimensigon.network.exceptions import NotValidMessage
 from dimensigon.use_cases.helpers import get_servers_from_scope, get_root_auth
 from dimensigon.use_cases.lock import lock_scope
@@ -27,7 +27,14 @@ if t.TYPE_CHECKING:
 forwarder_logger = logging.getLogger('dm.forwarder')
 dm_logger = logging.getLogger('dm')
 
+
 def save_if_hidden_ip(remote_addr: str, server: Server):
+    """
+
+    :param remote_addr: remote_addr to save
+    :param server: server who has the remote_addr
+    :return:
+    """
     ip = ipaddress.ip_address(remote_addr)
     if not ip.is_loopback:
         def get_ip(dns: str):
@@ -54,14 +61,21 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
                     gates = [dict(dns_or_ip=remote_addr, port=port, hidden=True) for port in
                              set([gate.port for gate in server.gates])]
                     for port in set([gate.port for gate in server.gates]):
-                        resp = ntwrk.patch(f"{remote_addr}:{port}", 'api_1_0.serverresource', json=dict(gates=gates),
+                        resp = ntwrk.patch(f"{remote_addr}:{port}", 'api_1_0.serverresource',
+                                           view_data=dict(server_id=server.id),
+                                           json=dict(gates=gates),
                                            auth=get_root_auth(), timeout=30)
                         if resp.ok:
                             break
                     else:
-                        logger.error(f"Unable to lock catalog for saving {remote_addr} from {server}." 
+                        logger.error(f"Unable to create external gate {server}->{remote_addr}." 
                                      f" Reason: {resp}" if resp else "")
-
+                    # create local to be able to contact node in case needed
+                    # with bypass_datamark_update():
+                    #     for g in gates:
+                    #         gate = server.add_new_gate(**g)
+                    #         gate.last_modified_at = defaults.INITIAL_DATEMARK
+                    #     db.session.commit()
 
                 executor.submit(background_new_gate)
 
