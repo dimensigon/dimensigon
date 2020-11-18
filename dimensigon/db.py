@@ -226,6 +226,9 @@ def _create_table(engine, table_name):
     with engine.connect() as connection:
         connection.execute(ddl)
 
+def _recreate_table(engine, table_name):
+    _rename_columns(engine, table_name, [])
+
 def _create_index(engine, table_name, index_name):
     """Create an index for the specified table.
     The index name should match the name given for the index
@@ -335,6 +338,8 @@ def _drop_index(engine, table_name, index_name):
             index_name,
             table_name,
         )
+
+
 
 def _apply_update(engine, new_version, old_version):
     if new_version == 2:
@@ -454,3 +459,5 @@ def _apply_update(engine, new_version, old_version):
 
         with engine.connect() as connection:
             connection.execute(text("UPDATE L_parameter SET dump = null, load= null"))
+    elif new_version == 8:
+        _recreate_table(engine, 'D_gate')

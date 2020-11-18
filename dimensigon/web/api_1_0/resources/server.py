@@ -59,23 +59,32 @@ class ServerResource(Resource):
     @lock_catalog
     def patch(self, server_id):
         json_data = request.get_json()
+        resp_data = {}
 
         server = Server.query.get_or_raise(server_id)
-        new_granules = json_data.get('granules', [])
-        if 'all' in new_granules:
+        if 'all' in json_data.get('granules', []):
             raise errors.KeywordReserved("'all' is a reserved granule")
 
-        server.granules = list(set(server.granules) | set(new_granules))
+        new_granules = set(json_data.get('granules', [])) - set(server.granules)
+        if new_granules:
+            server.granules.extend(set(new_granules) - set(server.granules))
 
+        new_gate_ids = []
         for gate in json_data.get('gates'):
-            server.add_new_gate(gate['dns_or_ip'], gate['port'], gate.get('hidden'))
+            g = server.add_new_gate(gate['dns_or_ip'], gate['port'], gate.get('hidden'))
+            new_gate_ids.append(g.id)
+        if new_gate_ids:
+            resp_data.update(gate_ids=new_gate_ids)
 
         if 'ignore_on_lock' in json_data:
             server.l_ignore_on_lock = json_data.get('ignore_on_lock')
 
         db.session.commit()
 
-        return {}, 204
+        if resp_data:
+            return resp_data, 200
+        else:
+            return {}, 204
 
     @forward_or_dispatch()
     @jwt_required

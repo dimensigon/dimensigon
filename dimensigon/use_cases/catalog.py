@@ -1,3 +1,4 @@
+import multiprocessing as mp
 import datetime as dt
 import json
 import time
@@ -13,6 +14,7 @@ from dimensigon.domain.entities import bypass_datamark_update, Scope, Server, Ca
 from dimensigon.use_cases import mptools as mpt
 from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.use_cases.lock import lock_scope
+from dimensigon.use_cases.mptools import TerminateInterrupt
 from dimensigon.utils import asyncio
 from dimensigon.utils.helpers import get_distributed_entities, get_now
 from dimensigon.web import errors, db
@@ -32,20 +34,27 @@ class CatalogManager(mpt.TimerWorker):
         self.Session = sessionmaker(bind=self.dm.engine)
         self.INTERVAL_SECS = interval_secs
         self._catalog_ver = None
+        self._updating = mp.Event()
+        self._update_lock = mp.Lock()
 
     def main_func(self):
-        try:
-            with self.dm.flask_app.app_context():
-                self.logger.debug("Starting check catalog from neighbours")
-                # cluster information
-                cluster_hearthbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
-                # check version update before catalog update to match database revision
-                data = asyncio.run(self._async_get_neighbour_catalog_data_mark(cluster_hearthbeat_id))
-                if not self.upgrade_version(data):
-                    self.catalog_update(data)
-                self._catalog_ver = None
-        except Exception as e:
-            self.logger.exception("Exception while trying to execute catalog update")
+        with self._update_lock:
+            self._updating.set()
+            try:
+                with self.dm.flask_app.app_context():
+                    self.logger.debug("Starting check catalog from neighbours")
+                    # cluster information
+                    cluster_hearthbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
+                    # check version update before catalog update to match database revision
+                    data = asyncio.run(self._async_get_neighbour_catalog_data_mark(cluster_hearthbeat_id))
+                    if not self.upgrade_version(data):
+                        self.catalog_update(data)
+            except Exception as e:
+                self.logger.exception("Exception while trying to execute catalog update")
+            except (KeyboardInterrupt, TerminateInterrupt):
+                pass
+            finally:
+                self._updating.clear()
 
     # END Class Inheritance #
     #########################
@@ -53,9 +62,13 @@ class CatalogManager(mpt.TimerWorker):
     ############################
     # INIT Interface functions #
     def force_catalog_update(self):
-        self.next_time = None
-        self.main_func()
-        self.next_time = time.time() + self.INTERVAL_SECS
+        if self._updating.is_set():
+            return None
+        else:
+            self.next_time = None
+            self.main_func()
+            self.next_time = time.time() + self.INTERVAL_SECS
+            return self.catalog_ver
 
     # END Interface functions  #
     ############################
@@ -77,9 +90,7 @@ class CatalogManager(mpt.TimerWorker):
 
     @property
     def catalog_ver(self) -> dt.datetime:
-        if self._catalog_ver is None:
-            self._catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
-        return self._catalog_ver
+        return db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
 
     def upgrade_version(self, data: t.Dict[Server, ntwrk.Response]):
         mayor_version, mayor_server = None, None
@@ -102,7 +113,7 @@ class CatalogManager(mpt.TimerWorker):
 
         server_responses = {}
         servers = Server.get_neighbours()
-        self.logger.debug(f"Neighbour servers to check: {[s.name for s in servers]}")
+        self.logger.debug(f"Neighbour servers to check: {', '.join([s.name for s in servers])}")
 
         auth = get_root_auth()
         if cluster_heartbeat_id is None:
@@ -137,7 +148,6 @@ class CatalogManager(mpt.TimerWorker):
                     if new_catalog_ver > self.catalog_ver:
                         if response.msg['version'] == __version__:
                             reference_server = server
-                            catalog_ver = new_catalog_ver
                         else:
                             self.logger.debug(
                                 f"Server {server} has different software version {response.msg['version']}")
@@ -156,16 +166,15 @@ class CatalogManager(mpt.TimerWorker):
 
     def _update_catalog_from_server(self, server):
         with lock_scope(Scope.UPGRADE, [self.server]):
-            if self.catalog_ver:
-                resp = ntwrk.get(server, 'api_1_0.catalog',
-                                 view_data=dict(data_mark=self.catalog_ver.strftime(defaults.DATEMARK_FORMAT)),
-                                 auth=get_root_auth())
+            resp = ntwrk.get(server, 'api_1_0.catalog',
+                             view_data=dict(data_mark=self.catalog_ver.strftime(defaults.DATEMARK_FORMAT)),
+                             auth=get_root_auth())
 
-                if resp.code and 199 < resp.code < 300:
-                    delta_catalog = resp.msg
-                    self.db_update_catalog(delta_catalog)
-                else:
-                    self.logger.error(f"Unable to get a valid response from server {server}: {resp}")
+            if resp.code and 199 < resp.code < 300:
+                delta_catalog = resp.msg
+                self.db_update_catalog(delta_catalog)
+            else:
+                self.logger.error(f"Unable to get a valid response from server {server}: {resp}")
 
     def db_update_catalog(self, catalog, check_mismatch=True):
         de = get_distributed_entities()

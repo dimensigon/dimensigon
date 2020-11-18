@@ -156,10 +156,11 @@ class Dimensigon:
         _logger.info(f"Shutting down Dimensigon")
         self.http_server.terminate()
         self.http_server.terminate()
-        self._main_ctx.stop()
         self.http_server.join(90)
         if self.http_server.is_alive():
             self.http_server.kill()
+        self._main_ctx.stop()
+
 
 
 class Config:
