@@ -614,7 +614,10 @@ def vault_list_vars(scope='global'):
 
 def vault_read(variable, scope='global'):
     resp = ntwrk.get('api_1_0.vaultresource', dict(name=variable, scope=scope))
-    dprint(resp)
+    if resp.ok:
+        dprint(resp['value'])
+    else:
+        dprint(resp)
 
 
 def vault_write(variable, value, scope='global'):

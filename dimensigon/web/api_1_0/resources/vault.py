@@ -27,7 +27,7 @@ class VaultList(Resource):
         else:
             query = filter_query(Vault, request.args, exclude=["user_id", "value"]).filter_by(
                 user_id=get_jwt_identity())
-            return [vault.to_json() for vault in query.all()]
+            return [vault.to_json(no_delete=True) for vault in query.all()]
 
     @forward_or_dispatch()
     @jwt_required
@@ -52,7 +52,8 @@ class VaultResource(Resource):
     @jwt_required
     @securizer
     def get(self, name, scope='global'):
-        return Vault.query.get_or_raise((get_jwt_identity(), scope, name)).to_json(human=check_param_in_uri('human'))
+        return Vault.query.get_or_raise((get_jwt_identity(), scope, name)).to_json(human=check_param_in_uri('human'),
+                                                                                   no_delete=True)
 
     @forward_or_dispatch()
     @jwt_required
