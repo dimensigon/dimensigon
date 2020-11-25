@@ -190,15 +190,16 @@ def get_parameters_from_path(view):
 
 
 def _replace_path_args(path, args):
-    match_iterator = re.finditer(r'\<((\w+:)?([\w_]+))\>', path)
     replaced_path = path
-    for match in match_iterator:
+    match = re.search(r'\<((\w+:)?([\w_]+))\>', path)
+    while match:
         text = match.groups()[2]
         assert text in args
         value = args.pop(text)
         if not value:
             raise ValueError(f"No value specified for '{text}' in URL {path}")
         replaced_path = "{}{}{}".format(replaced_path[:match.start()], value, replaced_path[match.end():])
+        match = re.search(r'\<((\w+:)?([\w_]+))\>', replaced_path)
 
     params = []
     if args:
