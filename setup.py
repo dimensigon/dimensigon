@@ -20,6 +20,7 @@ setup(
     install_requires=[
         "PyYAML",
         "RestrictedPython",
+        "pyperclip",
         "aiohttp",
         "apscheduler",
         "click",

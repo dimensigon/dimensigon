@@ -4,7 +4,6 @@ from unittest import TestCase, mock
 
 from flask_jwt_extended import create_access_token
 
-from tests import base
 from dimensigon import defaults
 from dimensigon.domain.entities import ActionTemplate, ActionType, Orchestration, Server
 from dimensigon.network.auth import HTTPBearerAuth
@@ -12,6 +11,7 @@ from dimensigon.use_cases.deployment import UndoCommand, CompositeCommand, Compl
     create_cmd_from_orchestration, ProxyCommand, ProxyUndoCommand, validate_input_chain
 from dimensigon.utils.var_context import Context
 from dimensigon.web import create_app, db, errors
+from tests import base
 
 START = defaults.INITIAL_DATEMARK
 END = defaults.INITIAL_DATEMARK + datetime.timedelta(seconds=1)
@@ -500,7 +500,7 @@ class TestValidateInputChain(base.OneNodeMixin, TestCase):
         with self.assertRaises(errors.MissingParameters) as e:
             validate_input_chain(o, params=dict(input={'param1'}))
 
-        self.assertEqual({'param4'}, e.exception.parameters)
+        self.assertEqual(['input.param4'], e.exception.parameters)
 
     def test_validate_input_chain_mapping_constant_value(self):
         o = Orchestration("test", 1)
@@ -518,15 +518,14 @@ class TestValidateInputChain(base.OneNodeMixin, TestCase):
         with self.assertRaises(errors.MissingParameters) as e:
             validate_input_chain(o, params=dict(input={'param1', 'param4'}))
 
-        self.assertEqual({'param5'}, e.exception.parameters)
+        self.assertEqual(['input.param5'], e.exception.parameters)
 
     def test_validate_input_chain_mapping_action_template(self):
         o = Orchestration("test", 1)
         at = ActionTemplate("action", 1, action_type=ActionType.SHELL, code='', schema={'input': {'param1': {}},
                                                                                         'required': ['param1']})
 
-        s1 = o.add_step(undo=False, action_template_id=at, schema={'mapping': {'param1': "value"}},
-                        action_type=ActionType.SHELL, code='')
+        s1 = o.add_step(undo=False, action_template=at, schema={'mapping': {'param1': "value"}})
         s2 = o.add_step(undo=False, action_type=ActionType.SHELL, schema={'input': {'param2': {}},
                                                                           'required': ['param2']})
 
@@ -535,7 +534,7 @@ class TestValidateInputChain(base.OneNodeMixin, TestCase):
         with self.assertRaises(errors.MissingParameters) as e:
             validate_input_chain(o, params=dict(input={'param1'}))
 
-        self.assertEqual({'param2'}, e.exception.parameters)
+        self.assertEqual(['input.param2'], e.exception.parameters)
 
     def test_validate_input_chain_mapping_with_orch(self):
         o = Orchestration('Schema Orch', 1, id='00000000-0000-0000-0000-000000000001')
@@ -568,6 +567,42 @@ class TestValidateInputChain(base.OneNodeMixin, TestCase):
                                  'mapping': {"1": {'from': '1_c'}}})
 
         validate_input_chain(o2, params=dict(input={'hosts', '1_b', '2_a'}))
+
+    def test_validate_input_chain_mapping_default_value(self):
+        o = Orchestration("test", 1)
+        at1 = ActionTemplate("action1", 1, action_type=ActionType.SHELL, code='', schema={'input': {'input1': {},
+                                                                                                    'input2': {
+                                                                                                        'default': 1}},
+                                                                                          'required': ['input1'],
+                                                                                          'output': ['out1', 'out2']})
+        at2 = ActionTemplate("action2", 1, action_type=ActionType.SHELL, code='', schema={'input': {'out1': {},
+                                                                                                    'out2': {},
+                                                                                                    'input2': {}},
+                                                                                          'required': ['out1', 'out2',
+                                                                                                       'input2'],
+                                                                                          'output': []})
+
+        s1 = o.add_step(undo=False, action_template=at1, schema={})
+        s2 = o.add_step(undo=False, action_template=at2, schema={}, parents=[s1])
+
+        with self.assertRaises(errors.MissingParameters) as e:
+            validate_input_chain(o, params=dict(input={'input1'}))
+
+        self.assertEqual(['input.input2'], e.exception.parameters)
+
+    def test_validate_input_chain_vault_container(self):
+        o = Orchestration("test", 1)
+        at1 = ActionTemplate("action1", 1, action_type=ActionType.SHELL, code='', schema={'input': {'vault.var': {}},
+                                                                                          'required': ['vault.var']})
+
+        s1 = o.add_step(undo=False, action_template=at1, schema={})
+
+        validate_input_chain(o, params=dict(vault={'var'}))
+
+        with self.assertRaises(errors.MissingParameters) as e:
+            validate_input_chain(o, params=dict())
+
+        self.assertEqual(['vault.var'], e.exception.parameters)
 
 
 class TestImplementationCommand(TestCase):

@@ -1014,7 +1014,12 @@ def validate_input_chain(validatable: t.Union[Orchestration, Step], params: t.Di
                 else:
                     current_params['input'].add(dest)
 
-        missing = required_input_params - set(input_params) - set(constant_params) - set(env_params)
+        # add default values into current_params
+        for k, v in step.schema.get('input', {}).items():
+            if 'default' in v:
+                current_params['input'].add(k)
+
+        missing = required_params - current_params
         if missing:
             raise errors.MissingParameters(list(missing), step)
 

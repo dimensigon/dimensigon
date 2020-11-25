@@ -65,7 +65,7 @@ style = Style.from_dict({
 
 def interactive():
     session = PromptSession(completer=DshellCompleter.from_nested_dict(nested_dict),
-                            history=get_history('main', InMemoryHistory()),
+                            history=get_history('main', InMemoryHistory()), clipboard=PyperclipClipboard(),
                             enable_history_search=True, enable_suspend=True)
 
     parser = ArgumentParserRaise(allow_abbrev=False, prog='')
