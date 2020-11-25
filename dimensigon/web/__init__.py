@@ -1,11 +1,10 @@
 import time
-import time
 import typing as t
 
 from flask import Flask, g
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, event
 
 from dimensigon.utils.event_handler import EventHandler
 from dimensigon.web import errors, threading
@@ -26,11 +25,12 @@ meta = MetaData(naming_convention={
 })
 
 db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta,
-                engine_options={'connect_args': {'check_same_thread': True}})
+                engine_options={'connect_args': {'check_same_thread': False}, 'isolation_level': 'READ UNCOMMITTED'})
 # db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta)
 # db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
 executor = Executor()
+
 
 class DimensigonFlask(Flask):
     dm: t.ClassVar['Dimensigon'] = None
@@ -120,7 +120,6 @@ class DimensigonFlask(Flask):
                         self.logger.warning(f"Remote servers may not connect with {me}. ")
                 db.session.commit()
 
-
     def run(self, host=None, port=None, debug=None, **options):
         super(DimensigonFlask, self).run(host=host, port=port, debug=debug, use_reloader=False, **options)
 
@@ -163,6 +162,18 @@ def create_app(config_name):
     executor.init_app(app)
     app.events = EventHandler()
 
+    # with app.app_context():
+    #     def do_connect(dbapi_connection, connection_record):
+    #         # disable pysqlite's emitting of the BEGIN statement entirely.
+    #         # also stops it from emitting COMMIT before any DDL.
+    #         dbapi_connection.isolation_level = None
+    #
+    #     def do_begin(conn):
+    #         # emit our own BEGIN
+    #         conn.execute("BEGIN")
+    #     event.listen(db.get_engine(), "connect", do_connect)
+    #     event.listen(db.get_engine(), "begin", do_begin)
+
     app.before_request(load_global_data_into_context)
     # if not app.config['TESTING']:
     # app.before_first_request(app.dm.cluster_manager.notify_cluster)
@@ -172,7 +183,6 @@ def create_app(config_name):
     _initialize_errorhandlers(app)
 
     return app
-
 
 
 # @jwt.user_loader_callback_loader
@@ -188,3 +198,5 @@ def load_global_data_into_context():
     set_source()
     g.server = Server.get_current()
     g.dimension = Dimension.get_current()
+
+

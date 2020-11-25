@@ -11,6 +11,7 @@ from dimensigon.utils.typos import Id
 
 date_format = "%m/%d/%Y, %H:%M:%S %z"
 
+
 @dataclass
 class _ClusterRegister:
     id: Id
@@ -269,7 +270,6 @@ class ClusterCoordinator(Cluster):
                     data.append(self._cluster[self.get_oldest_coordinator()].to_dict())
             return data
 
-
     @property
     def coordinators(self) -> t.List[_ClusterRegister]:
         with self._lock:
@@ -443,5 +443,3 @@ class ClusterSession(Cluster):
                     self._cluster[in_cr.id] = in_cr
                     updated = True
             return updated
-
-

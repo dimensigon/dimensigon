@@ -31,7 +31,7 @@ class EventMessage:
         if self.args:
             s += str(self.args)[1:-1]
         if self.kwargs:
-            s += ', '+str(self.kwargs)[1:-1]
+            s += ', ' + str(self.kwargs)[1:-1]
         s += ')'
         return s
 

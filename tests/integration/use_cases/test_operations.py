@@ -25,7 +25,7 @@ class TestRequestOperation(TestCase):
         db.create_all()
         set_initial(user=True, action_template=True)
         self.server = Server.get_current()
-        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+        self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
 
     def tearDown(self) -> None:
         db.session.remove()
@@ -146,7 +146,7 @@ class TestRequestOperation(TestCase):
 
         mock_request.assert_called_once_with('post', node1, 'api_1_0.send',
                                              json=dict(software_id=str(soft.id), dest_server_id=str(node1.id),
-                                                       background=False,  include_transfer_data=True, force=True),
+                                                       background=False, include_transfer_data=True, force=True),
                                              auth=HTTPBearerAuth(1))
         self.assertFalse(cp.success)
         self.assertEqual(flask.json.dumps(mock_request.return_value.msg), cp.stdout)
@@ -215,7 +215,7 @@ class TestNativeWaitOperation(TestCase):
         db.create_all()
         set_initial(action_template=True)
         self.server = Server.get_current()
-        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+        self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
 
     def tearDown(self) -> None:
         db.session.remove()

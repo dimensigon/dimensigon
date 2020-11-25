@@ -8,7 +8,6 @@ from tests.base import TestDimensigonBase
 
 class TestRoutes(TestDimensigonBase):
 
-
     def test_routes_get(self):
         s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='server1', me=True)
         g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
@@ -684,5 +683,3 @@ class TestRoutes(TestDimensigonBase):
     #                                                     'cost': 1}
     #                                                ]},
     #                                       'headers': self.headers}), kwargs)
-
-

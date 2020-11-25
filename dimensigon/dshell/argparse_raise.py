@@ -1,7 +1,6 @@
 import argparse
 import ast
 import functools
-import os
 import re
 import sys
 import types
@@ -18,6 +17,7 @@ if sys.version_info < (3, 7):
             return items[:]
         import copy
         return copy.copy(items)
+
 
     class _AppendAction(argparse.Action):
 
@@ -58,6 +58,7 @@ if sys.version_info < (3, 7):
 else:
     _copy_items = argparse._copy_items
     _AppendAction = argparse._AppendAction
+
 
 class ArgumentParserRaise(argparse.ArgumentParser):
 
@@ -359,6 +360,7 @@ class DictAction(argparse.Action):
                 else:
                     container['all'].append(value)
 
+
 class ExtendAction(_AppendAction):
     def __call__(self, parser, namespace, values, option_string=None):
         items = getattr(namespace, self.dest, None)
@@ -366,8 +368,9 @@ class ExtendAction(_AppendAction):
         items.extend(values)
         setattr(namespace, self.dest, items)
 
+
 class ParamAction(argparse.Action):
-    exp = re.compile(r"^([\"']?)([\w\-_]+):(.*?)\1$", re.MULTILINE|re.DOTALL)
+    exp = re.compile(r"^([\"']?)([\w\-_]+):(.*?)\1$", re.MULTILINE | re.DOTALL)
 
     def __init__(self, option_strings, dest, **kwargs):
         super().__init__(option_strings, dest, **kwargs)

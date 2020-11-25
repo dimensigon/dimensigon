@@ -28,20 +28,20 @@ class TestDeployOrchestration(TestCaseLockBypass):
                 User.set_initial()
                 at1 = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001', name='create dir', version=1,
                                      action_type=ActionType.SHELL, code='useradd {{user}}; mkdir {{dir}}',
-                                     parameters={}, expected_stdout='',
+                                     expected_stdout='',
                                      expected_rc=0, system_kwargs={})
                 at2 = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0002', name='rm dir', version=1,
                                      action_type=ActionType.SHELL, code='rmuser {{user}}',
-                                     parameters={}, expected_stdout='',
+                                     expected_stdout='',
                                      expected_rc=0, system_kwargs={})
                 at3 = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0003', name='untar', version=1,
                                      action_type=ActionType.SHELL, code='tar -xf {{dir}}',
-                                     parameters={}, expected_stdout='',
+                                     expected_stdout='',
                                      expected_rc=0, system_kwargs={})
                 at4 = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0004', name='install tibero',
                                      version=1,
                                      action_type=ActionType.SHELL, code='{{home}}/install_tibero.sh',
-                                     parameters={}, expected_stdout='',
+                                     expected_stdout='',
                                      expected_rc=0, system_kwargs={})
 
                 o = Orchestration('Test Orchestration', 1, 'description',
@@ -119,7 +119,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             self.assertDictEqual(
                 {'all': [str(me.id), str(remote.id)], 'frontend': [str(me.id)], 'backend': [str(remote.id)]}, oe.target)
             self.assertDictEqual(dict(self.vs), oe.params)
-            self.assertEqual(User.get_by_user('root'), oe.executor)
+            self.assertEqual(User.get_by_name('root'), oe.executor)
             self.assertIsNone(oe.service)
             self.assertTrue(oe.success)
             self.assertIsNone(oe.undo_success)
@@ -154,7 +154,7 @@ class TestDeployOrchestration(TestCaseLockBypass):
             self.assertDictEqual(
                 {'all': [str(me.id), str(remote.id)], 'frontend': [str(me.id)], 'backend': [str(remote.id)]}, oe.target)
             self.assertDictEqual(dict(self.vs), oe.params)
-            self.assertEqual(User.get_by_user('root'), oe.executor)
+            self.assertEqual(User.get_by_name('root'), oe.executor)
             self.assertIsNone(oe.service)
             # self.assertTrue(oe.success)
             # self.assertIsNone(oe.undo_success)
@@ -703,7 +703,6 @@ class TestDeployOrchestration(TestCaseLockBypass):
             e = StepExecution.query.filter_by(step_id='dddddddd-1234-5678-1234-dddddddd0009').filter_by(
                 server_id='cccccccc-1234-5678-1234-cccccccc0002').one()
             self.assertTrue(e.success)
-
 
         with self.app2.app_context():
             self.assertEqual(1, StepExecution.query.count())

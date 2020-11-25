@@ -7,7 +7,7 @@ from dimensigon.utils.typos import UUID, Kwargs, UtcDateTime
 from dimensigon.web import db
 
 
-class ServiceOrchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
+class ServiceOrchestration(EntityReprMixin, DistributedEntityMixin, db.Model):
     __tablename__ = 'D_service_orchestration'
     order = 50
     id = db.Column(UUID, primary_key=True)
@@ -16,7 +16,7 @@ class ServiceOrchestration(db.Model, EntityReprMixin, DistributedEntityMixin):
     execution_time = db.Column(UtcDateTime(), default=get_now)
 
 
-class Service(db.Model, EntityReprMixin, DistributedEntityMixin):
+class Service(EntityReprMixin, DistributedEntityMixin, db.Model):
     __tablename__ = 'D_service'
     order = 40
 
@@ -27,11 +27,12 @@ class Service(db.Model, EntityReprMixin, DistributedEntityMixin):
     last_ping = db.Column(UtcDateTime(timezone=True))
     status = db.Column(db.String(40))
 
-    orchestrations = db.relationship("Orchestration", secondary="D_service_orchestration", order_by="ServiceOrchestration.execution_time")
+    orchestrations = db.relationship("Orchestration", secondary="D_service_orchestration",
+                                     order_by="ServiceOrchestration.execution_time")
 
     def __init__(self, name: str, details: Kwargs, status: str, created_on: datetime = get_now(),
                  last_ping: datetime = None, id: uuid.UUID = None, **kwargs):
-        DistributedEntityMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.id = id
         self.name = name
         self.details = details

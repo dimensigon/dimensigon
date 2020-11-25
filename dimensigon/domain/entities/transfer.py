@@ -22,7 +22,7 @@ class Status(Enum):
     TRANSFER_ERROR = 7
 
 
-class Transfer(db.Model, UUIDEntityMixin, EntityReprMixin):
+class Transfer(UUIDEntityMixin, EntityReprMixin, db.Model):
     __tablename__ = "L_transfer"
 
     software_id = db.Column(db.ForeignKey('D_software.id'))
@@ -41,7 +41,7 @@ class Transfer(db.Model, UUIDEntityMixin, EntityReprMixin):
     def __init__(self, software: t.Union[Software, str], dest_path: str, num_chunks: int, status: Status = None,
                  size: int = None, checksum: str = None, created_on=None,
                  **kwargs):
-        UUIDEntityMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         if isinstance(software, Software):
             self.software = software
         else:
@@ -95,9 +95,9 @@ class Transfer(db.Model, UUIDEntityMixin, EntityReprMixin):
         else:
             return self._checksum
 
-    def wait_transfer(self, timeout=None, refresh_interval: float = None) -> Status:
+    def wait_transfer(self, timeout=None, refresh_interval: float = 0.02) -> Status:
         timeout = timeout or 300
-        refresh_interval = refresh_interval or 1
+        refresh_interval = refresh_interval
         start = time.time()
         db.session.refresh(self)
         delta = 0

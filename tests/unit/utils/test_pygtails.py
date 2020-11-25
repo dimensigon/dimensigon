@@ -29,7 +29,6 @@ class PygtailTest(TestCase):
         self.logfile.close()
         self.addCleanup(self.tearDown)
 
-
     def append(self, str):
         # append the give string to the temp logfile
         with open(self.logfile.name, "ab") as fh:
@@ -50,7 +49,6 @@ class PygtailTest(TestCase):
                     os.remove(tmpfile)
                 except PermissionError:
                     pass
-
 
     def test_read(self):
         pygtail = Pygtail(self.logfile.name)
@@ -355,7 +353,6 @@ class PygtailTest(TestCase):
         pygtail = Pygtail(self.logfile.name, offset_mode='manual')
         self.assertEqual(pygtail.readlines(), self.test_lines)
 
-
     def test_endfile_offset_mode(self):
         pygtail = Pygtail(self.logfile.name, offset_mode='endfile')
 
@@ -383,7 +380,7 @@ class PygtailTest(TestCase):
         def record_update():
             updates[0] += 1
 
-        pygtail = Pygtail(self.logfile.name,  offset_mode='paranoid',
+        pygtail = Pygtail(self.logfile.name, offset_mode='paranoid',
                           on_update=record_update)
 
         self.assertEqual(updates[0], 0)
@@ -418,7 +415,7 @@ class PygtailTest(TestCase):
             self.assertEqual(previous_lines, expected[updates[0]])
             updates[0] += 1
 
-        pygtail = Pygtail(self.logfile.name,  offset_mode='every', every_n=2, on_update=record_update)
+        pygtail = Pygtail(self.logfile.name, offset_mode='every', every_n=2, on_update=record_update)
 
         self.assertEqual(updates[0], 0)
         for line in pygtail:

@@ -1,11 +1,9 @@
-import itertools
 import typing as t
 
-import jinja2
 from sqlalchemy import orm
 
-from dimensigon.domain.entities.base import UUIDistributedEntityMixin
 from dimensigon.domain.entities import ActionType
+from dimensigon.domain.entities.base import UUIDistributedEntityMixin
 from dimensigon.utils.dag import DAG
 from dimensigon.web import db, errors
 from .step import Step
@@ -18,7 +16,7 @@ if t.TYPE_CHECKING:
 Tdependencies = t.Union[t.Dict[Step, t.Iterable[Step]], t.Iterable[t.Tuple[Step, Step]]]
 
 
-class Orchestration(db.Model, UUIDistributedEntityMixin):
+class Orchestration(UUIDistributedEntityMixin, db.Model):
     __tablename__ = 'D_orchestration'
     order = 20
 
@@ -28,7 +26,6 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     stop_on_error = db.Column(db.Boolean)
     stop_undo_on_error = db.Column(db.Boolean)
     undo_on_error = db.Column(db.Boolean)
-    parameters = db.Column("parameters", db.JSON)
     created_at = db.Column(UtcDateTime(timezone=True), default=get_now)
 
     steps = db.relationship("Step", primaryjoin="Step.orchestration_id==Orchestration.id",
@@ -38,10 +35,8 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
 
     def __init__(self, name: str, version: int, description: t.Optional[str] = None, steps: t.List[Step] = None,
                  stop_on_error: bool = True, stop_undo_on_error: bool = True, undo_on_error: bool = True,
-                 parameters=None,
                  dependencies: Tdependencies = None, created_at=None, **kwargs):
-
-        UUIDistributedEntityMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
         self.name = name
         self.version = version
@@ -53,7 +48,6 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         self.stop_undo_on_error = stop_undo_on_error
         assert isinstance(undo_on_error, bool)
         self.undo_on_error = undo_on_error
-        self.parameters = parameters or {}
         self.created_at = created_at or get_now()
 
         if dependencies:
@@ -63,7 +57,6 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
 
     @orm.reconstructor
     def init_on_load(self):
-        self.parameters = self.parameters or {}
         self._graph = DAG()
         for step in self.steps:
             if step.parents:
@@ -117,13 +110,6 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
             if step.undo is False:
                 target.update(step.target)
         return target
-
-    @property
-    def user_parameters(self) -> t.Set['str']:
-        params = set()
-        for s in self.steps:
-            params = params.union(s.user_parameters)
-        return params - set(self.parameters.keys()) - set(itertools.chain(*[list(s.parameters.keys()) for s in self.steps]))
 
     def _step_exists(self, step: t.Union[t.List[Step], Step]):
         """Checks if all the steps belong to the current orchestration
@@ -240,7 +226,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         Examples
         --------
         >>> at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
-                                parameters={'param1': 'test'}, expected_output='',
+                                expected_output='',
                                 expected_rc=0, system_kwargs={})
         >>> o = Orchestration('Test Orchestration', 1, DAG(), 'description')
         >>> s1 = o.add_step(undo=False, action_template=at, parents=[], children=[], stop_on_error=False)
@@ -277,7 +263,7 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         Examples
         --------
         >>> at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
-                                parameters={'param1': 'test'}, expected_output='',
+                                expected_output='',
                                 expected_rc=0, system_kwargs={})
         >>> o = Orchestration('Test Orchestration', 1, DAG(), 'description')
         >>> s1 = o.add_step(undo=False, action_template=at, parents=[], children=[], stop_on_error=False)
@@ -313,7 +299,6 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
         Examples
         --------
         >>> at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
-                                parameters={'param1': 'test'}, expected_output='',
                                 expected_rc=0, system_kwargs={})
         >>> o = Orchestration('Test Orchestration', 1, DAG(), 'description')
         >>> s1 = o.add_step(undo=False, action_template=at, parents=[], children=[], stop_on_error=False)
@@ -396,7 +381,8 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
     def subtree(self, steps: t.Union[t.List[Step], t.Iterable[Step]]) -> t.Dict[Step, t.List[Step]]:
         return self._graph.subtree(steps)
 
-    def to_json(self, add_target=False, add_params=False, add_steps=False, add_action=False, split_lines=False):
+    def to_json(self, add_target=False, add_params=False, add_steps=False, add_action=False, split_lines=False,
+                add_schema=False):
         data = super().to_json()
         data.update(name=self.name, version=self.version, stop_on_error=self.stop_on_error,
                     undo_on_error=self.undo_on_error, stop_undo_on_error=self.stop_undo_on_error)
@@ -409,6 +395,8 @@ class Orchestration(db.Model, UUIDistributedEntityMixin):
                 json_step.pop('orchestration_id')
                 json_steps.append(json_step)
             data['steps'] = json_steps
+        if add_schema:
+            data['schema'] = self.schema
         return data
 
     @classmethod

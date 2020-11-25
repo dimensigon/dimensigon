@@ -6,5 +6,3 @@ __version__ = "0.2.6.post3"
 __maintainer__ = "Joan Prat"
 __email__ = "joan.prat@dimensigon.com"
 __status__ = "development"
-
-

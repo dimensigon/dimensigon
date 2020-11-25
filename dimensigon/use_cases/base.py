@@ -3,10 +3,8 @@ import multiprocessing as mp
 import os
 import signal
 import sys
-import threading
 
 from dataclasses import dataclass
-from sqlalchemy.orm import sessionmaker
 
 
 @dataclass

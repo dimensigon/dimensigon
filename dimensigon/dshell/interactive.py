@@ -1,9 +1,9 @@
 import argparse
 import inspect
-import os
 import shlex
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.clipboard.pyperclip import PyperclipClipboard
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.styles import Style
 
@@ -50,15 +50,16 @@ def call_func_with_signature(cmd_params):
     except Exception as e:
         dprint(e)
 
+
 style = Style.from_dict({
     # User input (default text).
     # '':          '#ff0066',
 
     # Prompt.
     'username': 'green',
-    'at':       '#884444',
-    'host':     'green bold',
-    'path':     'ansicyan',
+    'at': '#884444',
+    'host': 'green bold',
+    'path': 'ansicyan',
 })
 
 

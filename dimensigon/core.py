@@ -9,7 +9,7 @@ from gunicorn.pidfile import Pidfile
 
 from dimensigon import defaults
 from dimensigon.exceptions import DimensigonError
-from dimensigon.use_cases.base import default_signal_handler, init_signals, TerminateInterrupt
+from dimensigon.use_cases.base import TerminateInterrupt
 from dimensigon.use_cases.catalog import CatalogManager
 from dimensigon.use_cases.cluster import ClusterManager
 from dimensigon.use_cases.file_sync import FileSync
@@ -160,7 +160,6 @@ class Dimensigon:
         if self.http_server.is_alive():
             self.http_server.kill()
         self._main_ctx.stop()
-
 
 
 class Config:

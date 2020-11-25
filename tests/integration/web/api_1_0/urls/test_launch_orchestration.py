@@ -94,7 +94,7 @@ class TestLaunchOrchestration(base.TestDimensigonBase, base.ValidateResponseMixi
         mock_var_context.assert_called_once_with(data['params'],
                                                  dict(execution_id=None, parent_orch_execution_id=None,
                                                       orch_execution_id='1',
-                                                      executor_id=str(User.get_by_user('root').id)))
+                                                      executor_id=str(User.get_by_name('root').id)))
         mock_deploy.assert_called_once_with(execution='1', orchestration=self.o.id, var_context=MockVarContext,
                                             hosts={'all': [str(Server.get_current().id)]})
 

@@ -4,7 +4,6 @@ import os
 import time
 import typing as t
 import zlib
-from concurrent.futures.thread import ThreadPoolExecutor
 
 from sqlalchemy.orm import sessionmaker
 

@@ -12,6 +12,7 @@ from dimensigon.web.network import get
 
 catalog_logger = logging.getLogger('dm.catalog')
 
+
 def run_elevator(file, new_version, logger):
     logger.info(f"Upgrading to version {new_version}")
     stdout = open('elevator.out', 'a')
@@ -32,5 +33,3 @@ def get_software(server: Server, auth) -> t.Tuple[str, str]:
         return file, resp.get('version')
     else:
         return None, None
-
-

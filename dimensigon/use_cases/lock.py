@@ -20,6 +20,7 @@ from dimensigon.web.network import async_post, Response
 
 logger = logging.getLogger('dm.lock')
 
+
 async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope, applicant, auth=None,
                          datemark=None) -> t.List[Response]:
     tasks = []
@@ -82,7 +83,8 @@ def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=No
         action = 'P'
         catalog_ver = Catalog.max_catalog(str)
         pool_responses = run(
-            request_locker(servers=servers, scope=scope, action='prevent', applicant=applicant, datemark=catalog_ver, auth=auth))
+            request_locker(servers=servers, scope=scope, action='prevent', applicant=applicant, datemark=catalog_ver,
+                           auth=auth))
 
         if len(servers) == len([r for r in pool_responses if r.code in (200, 210)]):
             action = 'L'
@@ -142,7 +144,7 @@ def lock(scope: Scope, servers: t.List[Server] = None, applicant=None, retries=0
     return applicant
 
 
-def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]] =None):
+def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]] = None):
     """
     unlocks the Locker if allowed
     Parameters

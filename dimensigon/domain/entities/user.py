@@ -10,24 +10,29 @@ from dimensigon.utils.helpers import get_now
 from dimensigon.utils.typos import ScalarListType, UtcDateTime
 from dimensigon.web import db
 
+ROOT = '00000000-0000-0000-0000-000000000001'
+OPS = '00000000-0000-0000-0000-000000000002'
+REPORTER = '00000000-0000-0000-0000-000000000003'
+JOIN = '00000000-0000-0000-0000-000000000004'
 
-class User(db.Model, UUIDistributedEntityMixin):
+
+class User(UUIDistributedEntityMixin, db.Model):
     __tablename__ = 'D_user'
 
-    user = db.Column(db.String(30), nullable=False)
+    name = db.Column(db.String(30), nullable=False)  # changed in SCHEMA VERSION 8
     _password = db.Column('password', db.String(256))
     email = db.Column(db.String)
     created_at = db.Column(UtcDateTime)
     active = db.Column('is_active', db.Boolean(), nullable=False)
     groups = db.Column(ScalarListType(str))
 
-    __table_args__ = (db.UniqueConstraint('user', name='D_user_uq01'),)
+    __table_args__ = (db.UniqueConstraint('name'),)
 
-    def __init__(self, user, password=None, email=None, created_at=None, active=True, groups: t.Union[str, t.List[str]] = None,
+    def __init__(self, name, password=None, email=None, created_at=None, active=True,
+                 groups: t.Union[str, t.List[str]] = None,
                  **kwargs):
-
-        UUIDistributedEntityMixin.__init__(self, **kwargs)
-        self.user = user
+        super().__init__(**kwargs)
+        self.name = name
         self._password = password or kwargs.get('_password', None)
         self.email = email
         self.created_at = created_at or get_now()
@@ -38,8 +43,8 @@ class User(db.Model, UUIDistributedEntityMixin):
             self.groups = groups or []
 
     @classmethod
-    def get_by_user(cls, user):
-        return cls.query.filter_by(user=user).one_or_none()
+    def get_by_name(cls, name):
+        return cls.query.filter_by(name=name).one_or_none()
 
     @classmethod
     def get_by_group(cls, group):
@@ -58,7 +63,7 @@ class User(db.Model, UUIDistributedEntityMixin):
 
     def to_json(self, password=False) -> dict:
         data = super().to_json()
-        data.update(user=self.user, email=self.email, created_at=self.created_at.strftime(defaults.DATETIME_FORMAT),
+        data.update(name=self.name, email=self.email, created_at=self.created_at.strftime(defaults.DATETIME_FORMAT),
                     active=self.active, groups=','.join(self.groups))
         if password:
             data.update(_password=self._password)
@@ -86,34 +91,33 @@ class User(db.Model, UUIDistributedEntityMixin):
             session = db.session
 
         with bypass_datamark_update(session):
-            root = session.query(cls).filter_by(user='root').one_or_none()
+            root = session.query(cls).filter_by(name='root').one_or_none()
             if not root:
-                root = User(id='00000000-0000-0000-0000-000000000001', user='root', groups=['administrator'],
+                root = User(id=ROOT, name='root', groups=['administrator'],
                             last_modified_at=defaults.INITIAL_DATEMARK)
                 session.add(root)
-            ops = session.query(cls).filter_by(user='ops').one_or_none()
+            ops = session.query(cls).filter_by(name='ops').one_or_none()
             if not ops:
-                ops = User(id='00000000-0000-0000-0000-000000000002', user='ops', groups=['operator', 'deployer'],
+                ops = User(id=OPS, name='ops', groups=['operator', 'deployer'],
                            last_modified_at=defaults.INITIAL_DATEMARK)
                 session.add(ops)
-            reporter = session.query(cls).filter_by(user='reporter').one_or_none()
+            reporter = session.query(cls).filter_by(name='reporter').one_or_none()
             if not reporter:
-                reporter = User(id='00000000-0000-0000-0000-000000000003', user='reporter', groups=['readonly'],
+                reporter = User(id=REPORTER, name='reporter', groups=['readonly'],
                                 last_modified_at=defaults.INITIAL_DATEMARK)
                 session.add(reporter)
-            join = session.query(cls).filter_by(user='join').one_or_none()
+            join = session.query(cls).filter_by(name='join').one_or_none()
             if not join:
-                join = User(id='00000000-0000-0000-0000-000000000004', user='join', groups=[''],
-                                last_modified_at=defaults.INITIAL_DATEMARK)
+                join = User(id=JOIN, name='join', groups=[''],
+                            last_modified_at=defaults.INITIAL_DATEMARK)
                 session.add(join)
-
 
     @classmethod
     def get_current(cls):
         return cls.query.get(get_jwt_identity())
 
     def __repr__(self):
-        return f"{self.id}.{self.user}"
+        return f"{self.id}.{self.name}"
 
     def __str__(self):
-        return self.user
+        return self.name

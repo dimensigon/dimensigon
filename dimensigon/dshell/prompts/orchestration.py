@@ -7,21 +7,20 @@ from pprint import pprint
 
 from prompt_toolkit import prompt
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.filters import in_paste_mode, is_multiline
 from prompt_toolkit.history import InMemoryHistory
-from prompt_toolkit.key_binding import KeyBindings
 
 import dimensigon.dshell.network as ntwrk
+from dimensigon.dshell import validators as v, converters as c
 from dimensigon.dshell.argparse_raise import ArgumentParserRaise
 from dimensigon.dshell.helpers import get_history, exit_dshell
 from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.step import subprompt as step_subprompt
 from dimensigon.dshell.prompts.utils import prompt_parameter, prompt_continuation
-from dimensigon.dshell import validators as v, converters as c
 
 form = {
     "name": dict(history=InMemoryHistory()),
-    "description": dict(multiline=True, history=InMemoryHistory(), mouse_support=True, prompt_continuation=prompt_continuation,
+    "description": dict(multiline=True, history=InMemoryHistory(), mouse_support=True,
+                        prompt_continuation=prompt_continuation,
                         converter=c.MultiLine),
     "stop_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),
     "stop_undo_on_error": dict(validator=v.Bool, converter=c.Bool, history=InMemoryHistory()),

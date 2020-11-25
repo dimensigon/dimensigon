@@ -7,6 +7,7 @@ Id_or_null = {"type": ["string", "null"],
               "pattern": UUID_pattern}
 Multiline = {"type": ["string", "array", "null"],
              "items": {"type": "string"}}
+Any = ["string", "integer", "number", "object", "array", "boolean", "null"]
 
 login_post = {
     "type": "object",
@@ -472,7 +473,8 @@ launch_orchestration_post = {
                   },
         "params": {"type": ["object", "null"]},
         "background": {"type": "boolean"},
-        "input_validation": {"type": "boolean"}
+        "skip_validation": {"type": "boolean"},
+        "scope": {"type": "string"}
     },
     "required": ["hosts"],
     "additionalProperties": False,
@@ -588,10 +590,10 @@ launch_command_post = {
     "properties": {
         "command": {"type": "string"},
         "target": {"anyOf": [{"type": "string"},
-                            {"type": "array",
-                             "items": {"type": "string"}},
-                            ]
-                  },
+                             {"type": "array",
+                              "items": {"type": "string"}},
+                             ]
+                   },
         "timeout": {"type": "integer",
                     "minimum": 1},
         "input": {"type": "string"},
@@ -727,3 +729,25 @@ file_server_associations_post = {
 file_server_associations_patch = file_server_associations_post
 
 file_server_associations_delete = file_server_associations_post
+
+vaults_post = {
+    "type": "object",
+    "properties": {
+        "scope": {"type": "string"},
+        "name": {"type": "string"},
+        "value": {"type": Any},
+
+    },
+    "required": ["name", "value"]
+}
+
+vault_post = {
+    "type": "object",
+    "properties": {
+        "value": {"type": Any},
+
+    },
+    "required": ["value"]
+}
+
+vault_put = vault_post

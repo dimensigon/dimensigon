@@ -20,13 +20,11 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon import defaults
 from dimensigon.core import Dimensigon
-from dimensigon.use_cases.catalog import CatalogManager
 from dimensigon.use_cases.helpers import get_root_auth
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 PLATFORM = platform.system()
-
 
 from dimensigon.domain.entities import *
 from dimensigon.web.network import pack_msg2, unpack_msg2
@@ -98,10 +96,10 @@ def new(dm: Dimensigon, name: str):
 
         db.session.commit()
 
-        user = User.get_by_user('root')
+        user = User.get_by_name('root')
         if user is None:
             User.set_initial()
-            user = User.get_by_user('root')
+            user = User.get_by_name('root')
 
         p = False
         p2 = True
@@ -151,6 +149,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
             return resp.json()
         except ValueError:
             return resp.text
+
     logger = logging.getLogger('dm.join')
     dm.create_flask_instance()
     dm.set_catalog_manager()
@@ -252,7 +251,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 for c in Catalog.query.all():
                     db.session.delete(c)
                 try:
-                    dm.catalog_manager.db_update_catalog(resp_data['catalog']) # implicit commit
+                    dm.catalog_manager.db_update_catalog(resp_data['catalog'])  # implicit commit
                 except Exception as e:
                     logger.exception(f"Unable to upgrade catalog.")
                     exit(1)
@@ -324,7 +323,7 @@ def token(dm: Dimensigon, dimension_id_or_name: str, applicant=None, expire_time
             if dm.flask_app.config['SECRET_KEY'] != dim.id:
                 exit('Secret key mismatch')
 
-        join_user = User.get_by_user('join')
+        join_user = User.get_by_name('join')
         if not join_user:
             exit("Unable to create join token. Populate database first.")
         print(create_access_token(join_user.id,
@@ -486,7 +485,6 @@ def get_arguments() -> argparse.Namespace:
         help="verifies certificate",
         action='store_true'
     )
-
 
     new_parser = subparser.add_parser('new', help="Creates a new dimension")
     new_parser.add_argument('dimension', nargs='?', default=None, help="name of the dimension")

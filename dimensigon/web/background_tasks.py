@@ -101,7 +101,6 @@ def upgrade_version(data: t.Dict[Server, ntwrk.Response]):
     return False
 
 
-
 @run_as('root')  # takes the app argument and pushes the context
 def process_catalog_route_table(app=None, upgrade_catalog=True):
     # app will be used for the run_as decorator
@@ -109,5 +108,3 @@ def process_catalog_route_table(app=None, upgrade_catalog=True):
     delete_old_temp_servers()
     asyncio.run(routing.async_update_routes_send(discover_new_neighbours=True, check_current_neighbours=True,
                                                  max_num_discovery=3))
-
-

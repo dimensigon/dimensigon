@@ -101,7 +101,7 @@ class TestInit(TestCase):
 
         mock_now.return_value = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
 
-        s.route = Route(destination=d, gate=d.gates[0], cost=0)
+        s.route = Route(destination=d, proxy_server_or_gate=d.gates[0], cost=0)
         db.session.commit()
         self.assertEqual(dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc), s.last_modified_at)
 

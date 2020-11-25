@@ -117,4 +117,3 @@ class TestFile(TestCase):
         self.assertEqual(0, len(log_list))
         f = db.session.query(File).filter_by(id='11111111-2222-3333-4444-111111110001').one()
         self.assertTrue(all([d.deleted for d in f.destinations]))
-

@@ -272,27 +272,28 @@ class DshellCompleter(Completer):
                         # special case for DictAction
                         for dest, arg_def in dest_args.items():
                             if 'action' in arg_def and arg_def['action'] == DictAction and values[dest]:
-                                    for k, v in values[dest].items():
-                                        # target
-                                        if k == current_word:
-                                            resp = ntwrk.get('api_1_0.orchestrationresource',
-                                                             view_data={'orchestration_id': values['orchestration_id']})
-                                            if resp.ok:
-                                                needed_target = resp.msg['target']
-                                                completer = DshellWordCompleter(
-                                                    [target for target in needed_target if target not in values[dest].keys()])
-                                                for c in completer.get_completions(document, complete_event):
-                                                    yield c
-                                                return
-
-                                        elif current_word in v:
-                                            completer = arg_def.get('completer', None)
+                                for k, v in values[dest].items():
+                                    # target
+                                    if k == current_word:
+                                        resp = ntwrk.get('api_1_0.orchestrationresource',
+                                                         view_data={'orchestration_id': values['orchestration_id']})
+                                        if resp.ok:
+                                            needed_target = resp.msg['target']
+                                            completer = DshellWordCompleter(
+                                                [target for target in needed_target if
+                                                 target not in values[dest].keys()])
                                             for c in completer.get_completions(document, complete_event):
-                                                if c.text not in v:
-                                                    yield c
-                                            if len(v) == 0 or len(v) == 1 and v[0] == finder:
-                                                return
-                                    k = None
+                                                yield c
+                                            return
+
+                                    elif current_word in v:
+                                        completer = arg_def.get('completer', None)
+                                        for c in completer.get_completions(document, complete_event):
+                                            if c.text not in v:
+                                                yield c
+                                        if len(v) == 0 or len(v) == 1 and v[0] == finder:
+                                            return
+                                k = None
                         # get source     value
                         if k:
                             # completing an option argument value
@@ -367,7 +368,8 @@ logfed_completer = ResourceCompleter('api_1_0.loglist', resource_params={'params
                                                       "<i>{dst_server}</i>")
 file_completer = ResourceCompleter('api_1_0.filelist', resource_params={'params': 'human'},
                                    meta_html_format="{src_server}:<b>{target}</b>", )
-file_dest_completer = ResourceCompleter('api_1_0.fileserverassociationlist', 'version', resource_params={'params': 'human'},
+file_dest_completer = ResourceCompleter('api_1_0.fileserverassociationlist', 'version',
+                                        resource_params={'params': 'human'},
                                         filters=['file_id'])
 
 logger_completer = DshellWordCompleter([l for l in logging.root.manager.loggerDict.keys() if l.startswith('dshell')])

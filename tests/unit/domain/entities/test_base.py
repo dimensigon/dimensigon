@@ -10,19 +10,18 @@ from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.web import create_app, db
 
 
-class EntityWithSoftDelete(db.Model, SoftDeleteMixin):
+class EntityWithSoftDelete(SoftDeleteMixin, db.Model):
     __tablename__ = 'E'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.Text)
     _old_name = db.Column(db.Text)
 
 
-class DistEntityWithSoftDelete(db.Model, DistributedEntityMixin, SoftDeleteMixin):
+class DistEntityWithSoftDelete(DistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = 'DE'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.Text)
     _old_name = db.Column(db.Text)
-
 
     def to_json(self):
         data = super().to_json()
@@ -40,7 +39,7 @@ class Test(TestCase):
         self.client = self.app.test_client()
         db.create_all()
         set_initial()
-        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+        self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
 
     def tearDown(self) -> None:
         db.session.remove()
@@ -70,7 +69,6 @@ class Test(TestCase):
 
     @mock.patch('dimensigon.domain.entities.base.random.choices')
     def test_create_distributed_entity_and_delete(self, mock_choices):
-
         mock_choices.return_value = list('abc')
         e = DistEntityWithSoftDelete(id=1, name='first', last_modified_at=defaults.INITIAL_DATEMARK)
 
@@ -100,5 +98,3 @@ class Test(TestCase):
         entities = EntityWithSoftDelete.query.all()
 
         self.assertEqual(0, len(entities))
-
-

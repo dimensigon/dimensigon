@@ -196,6 +196,7 @@ def orch_copy(**params):
     else:
         dprint(resp)
 
+
 def orch_load(file):
     try:
         orch = json.load(file)
@@ -205,12 +206,19 @@ def orch_load(file):
         orch_prompt(orch, parent_prompt='Δ ')
 
 
-def orch_run(orchestration_id, **params):
-    if not params['hosts']:
+def orch_run(orchestration_id, target, params=None, background=False, scope=None, skip_validation=False):
+    data = {}
+    data.update(target=target, params=params, background=background)
+    if scope:
+        data.update(scope=scope)
+    if skip_validation:
+        data.update(skip_validation=skip_validation)
+
+    if not target:
         dprint('No target specified')
     else:
         resp = ntwrk.post('api_1_0.launch_orchestration',
-                          view_data={'orchestration_id': orchestration_id, 'params': 'human'}, json=params)
+                          view_data={'orchestration_id': orchestration_id, 'params': 'human'}, json=data)
         dprint(resp)
 
 
@@ -461,7 +469,6 @@ def manager_locker_ignore(ignore: bool, server_ids):
     dprint(resp)
 
 
-
 # def locker_lock(**params):
 #     pass
 #
@@ -486,18 +493,19 @@ def manager_token(raw=False, expires_time=None):
         else:
             dprint(resp)
 
-def manager_login(username=None, password=None):
+
+def login(username=None, password=None, save=False):
     try:
         ntwrk.login(username, password)
     except requests.exceptions.ConnectionError as e:
         dprint(f"Unable to contact with {environ.get('SCHEME')}://{environ.get('SERVER')}:{environ.get('PORT')}/")
     except Exception as e:
         dprint(str(e))
-
-
-def manager_save_login():
-    save_config_file(os.path.expanduser(env.get('CONFIG_FILE', None)), username=env._username, token=env._refresh_token,
-                     server=env.get('SERVER'), port=env.get('PORT'))
+    else:
+        if save:
+            save_config_file(os.path.expanduser(env.get('CONFIG_FILE', None)), username=env._username,
+                             token=env._refresh_token,
+                             server=env.get('SERVER'), port=env.get('PORT'))
 
 
 def logging_cmd(logger, level):
@@ -591,6 +599,31 @@ def sync_list(ident, source_server, detail):
     else:
         view_data.update({'params': ['human']})
     resp = ntwrk.get('api_1_0.filelist', view_data=view_data, **kwargs)
+    dprint(resp)
+
+
+def vault_list_scopes():
+    resp = ntwrk.get('api_1_0.vaultlist', dict(params='scopes'))
+    dprint(resp)
+
+
+def vault_list_vars(scope='global'):
+    resp = ntwrk.get('api_1_0.vaultlist', dict(params='vars', scope=scope))
+    dprint(resp)
+
+
+def vault_read(variable, scope='global'):
+    resp = ntwrk.get('api_1_0.vaultresource', dict(name=variable, scope=scope))
+    dprint(resp)
+
+
+def vault_write(variable, value, scope='global'):
+    resp = ntwrk.put('api_1_0.vaultresource', dict(name=variable, scope=scope), json={'value': value})
+    dprint(resp)
+
+
+def vault_delete(variable, value, scope='global'):
+    resp = ntwrk.delete('api_1_0.vaultresource', dict(name=variable, scope=scope), json={'value': value})
     dprint(resp)
 
 
@@ -695,6 +728,9 @@ nested_dict = {
     "logging": [{'argument': 'logger', 'completer': logger_completer},
                 {'argument': 'level', 'choices': ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']},
                 logging_cmd],
+    "login": [{'argument': 'username', 'nargs': '?'},
+              {'argument': '--save', 'action': 'store_true'},
+              login],
     "manager": {
         "catalog": {"refresh": [manager_catalog_refresh]},
         "locker": {"ignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
@@ -703,7 +739,8 @@ nested_dict = {
                    "unignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
                                  'completer': server_completer},
                                 functools.partial(manager_locker_ignore, False)],
-                   'show': [{'argument': 'node', 'nargs': '+', 'completer': server_name_completer}, manager_locker_show],
+                   'show': [{'argument': 'node', 'nargs': '+', 'completer': server_name_completer},
+                            manager_locker_show],
                    'unlock': [{'argument': 'scope', 'choices': [s.name for s in Scope]},
                               {'argument': 'node', 'nargs': '+', 'completer': server_name_completer},
                               manager_locker_unlock]
@@ -711,39 +748,45 @@ nested_dict = {
         "token": [{'argument': 'expires_time', 'nargs': '?', 'metavar': 'MINUTES',
                    'help': 'Join token expire time in minutes'},
                   {'argument': '--raw', 'action': 'store_true'},
-                  manager_token],
-        "save": {"login": [manager_save_login]},
-        "login": [{'argument': 'username', 'nargs': '?'},
-                  manager_login], },
+                  manager_token], },
     'orch': {
-        'list': [{'argument': '--version', 'action': 'store', 'type': int,
-                  'completer': orch_ver_completer},
-                 {'argument': '--detail', 'action': 'store_true'},
-                 [{'argument': '--like'},
-                  {'argument': '--id', 'dest': 'ident', 'completer': orch_completer},
-                  {'argument': '--name', 'completer': orch_name_completer}],
-                 orch_list
-                 ],
-        'create': [{'argument': 'name'},
-                   {'argument': '--prompt', 'action': "store_true",
-                    'help': 'ask for every orch parameter one by one'},
-                   orch_create],
-        'copy': [{'argument': 'orchestration_id', 'completer': orch_completer},
-                 orch_copy],
-        'load': [{'argument': 'file', 'type': argparse.FileType('r')},
-                 orch_load],
-        'run': [{'argument': 'orchestration_id', 'completer': orch_completer},
-                {'argument': '--target', 'metavar': 'TARGET=VALUE', 'action': DictAction, 'nargs': "+", 'dest': 'hosts',
-                 'completer': merge_completers([server_name_completer, granule_completer]),
-                 'help': "Run the orch agains the specified target. If no target specified, hosts will be added to "
-                         "'all' target. Example: --target node1 node2 backend=node2,node3 "},
-                {'argument': '--param', 'dest': 'params', 'metavar': 'PARAM:VALUE', 'action': ParamAction, "nargs": "+",
-                 'help': 'Parameters passed to the orchestration. Param must start with a lowercase character and ' \
-                         'contain only hyphens (-), underscores (_), lowercase characters, and numbers. ' \
-                         'Example: --params="string-key:\'string-value\'" --param="integer-key:12345" ' \
-                         '--param="list-key:[1,2,3]" --param="dict-key:{\'foo\': 1}"'},
-                {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
-                orch_run],
+        'list': [
+            {'argument': '--version', 'action': 'store', 'type': int,
+             'completer': orch_ver_completer},
+            {'argument': '--detail', 'action': 'store_true'},
+            [{'argument': '--like'},
+             {'argument': '--id', 'dest': 'ident', 'completer': orch_completer},
+             {'argument': '--name', 'completer': orch_name_completer}],
+            orch_list
+        ],
+        'create': [
+            {'argument': 'name'},
+            {'argument': '--prompt', 'action': "store_true",
+             'help': 'ask for every orch parameter one by one'},
+            orch_create],
+        'copy': [
+            {'argument': 'orchestration_id', 'completer': orch_completer},
+            orch_copy],
+        'load': [
+            {'argument': 'file', 'type': argparse.FileType('r')},
+            orch_load],
+        'run': [
+            {'argument': 'orchestration_id', 'completer': orch_completer},
+            {'argument': '--target', 'metavar': 'TARGET=VALUE', 'action': DictAction, 'nargs': "+", 'dest': 'hosts',
+             'completer': merge_completers([server_name_completer, granule_completer]),
+             'help': "Run the orch agains the specified target. If no target specified, hosts will be added to "
+                     "'all' target. Example: --target node1 node2 backend=node2,node3 "},
+            {'argument': '--param', 'dest': 'params', 'metavar': 'PARAM:VALUE', 'action': ParamAction, "nargs": "+",
+             'help': 'Parameters passed to the orchestration. Param must start with a lowercase character and ' \
+                     'contain only hyphens (-), underscores (_), lowercase characters, and numbers. ' \
+                     'Example: --params="string-key:\'string-value\'" --param="integer-key:12345" ' \
+                     '--param="list-key:[1,2,3]" --param="dict-key:{\'foo\': 1}"'},
+            {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
+            {'argument': '--skip-validation', 'action': 'store_false',
+             'help': 'skips input validation and runs orchestration regardless of schema definition'},
+            {'argument': '--vault-scope', 'dest': 'scope',
+             'help': 'scope used for fetching vault data. defaults to \'global\''},
+            orch_run],
     },
     'ping': [{'argument': 'node', 'nargs': '+', 'completer': server_name_completer}, ping],
     'server': {
@@ -824,5 +867,20 @@ nested_dict = {
              {'argument': '--last', 'action': 'store', 'type': int}, ],
             transfer_list
         ]},
+    'vault': {
+        'list': {'scopes': [vault_list_scopes],
+                 'vars': [{'argument': '--scope'}, vault_list_vars]},
+        'read': [{'argument': 'variable'},
+                 {'argument': ['--scope', '-s'], 'default': 'global'},
+                 vault_read],
+        'write': [{'argument': 'variable'},
+                  {'argument': 'value'},
+                  {'argument': ['--scope', '-s'], 'default': 'global'},
+                  vault_write],
+        'delete': [{'argument': 'variable'},
+                   {'argument': ['--scope', '-s'], 'default': 'global'},
+                   vault_delete]
+
+    }
 
 }

@@ -368,10 +368,6 @@ class FileSync(TimerWorker):
                     # add for sending file for first time
                     self._add(file_id, None)
 
-
-
-
-
     @property
     def my_logs(self):
         return self.session.query(Log).filter_by(source_server=Server.get_current(session=self.session)).all()

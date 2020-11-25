@@ -191,4 +191,3 @@ class TestAsyncSendFile(TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.dest_path, self.filename)))
         self.assertEqual(self.size, os.path.getsize(os.path.join(self.dest_path, self.filename)))
         self.assertEqual(self.checksum, md5(os.path.join(self.dest_path, self.filename)))
-

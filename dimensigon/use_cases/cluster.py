@@ -111,6 +111,7 @@ class AliveEvent(ClusterEvent):
 class NotifyClusterEnded(ClusterEvent):
     """Notify Cluster Process Ended"""
 
+
 @dataclass
 class _Entry:
     id: Id

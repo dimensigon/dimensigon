@@ -17,14 +17,11 @@ from dimensigon.web.network import Response
 logger = logging.getLogger('dshell.network')
 
 
-
-
 def exists_refresh_token():
     return bool(env._refresh_token)
 
 
 def bootstrap_auth(username=None, password=None, refresh_token=None):
-
     if username:
         env._username = username
     if refresh_token:
@@ -46,7 +43,6 @@ def bootstrap_auth(username=None, password=None, refresh_token=None):
 
 
 def login(username=None, password=None):
-
     if not username:
         if not env._username:
             try:
@@ -117,7 +113,7 @@ def request(method, url, session=None, token_refreshed=False, login=True, **kwar
                 refresh_access_token(login_=login)
             except requests.exceptions.ConnectionError as e:
                 return Response(exception=ConnectionError(f"Unable to contact with {env.get('SCHEME')}://"
-                                                     f"{env.get('SERVER')}:{env.get('PORT')}/refresh"),
+                                                          f"{env.get('SERVER')}:{env.get('PORT')}/refresh"),
                                 url=url)
             except Exception as e:
                 return Response(exception=e, url=url)
@@ -161,7 +157,7 @@ def request(method, url, session=None, token_refreshed=False, login=True, **kwar
                     refresh_access_token()
                 except requests.exceptions.ConnectionError as e:
                     return Response(exception=ConnectionError(f"Unable to contact with {env.get('SCHEME')}://"
-                                                         f"{env.get('SERVER')}:{env.get('PORT')}/refresh"),
+                                                              f"{env.get('SERVER')}:{env.get('PORT')}/refresh"),
                                     url=url)
                 kwargs['auth'] = HTTPBearerAuth(env._access_token)
                 resp = request(method, url, session=_session, token_refreshed=True, **kwargs)

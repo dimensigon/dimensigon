@@ -7,12 +7,12 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import InMemoryHistory
 
 from dimensigon.dshell import network as ntwrk
+from dimensigon.dshell import validators as v, converters as c
 from dimensigon.dshell.argparse_raise import ArgumentParserRaise
 from dimensigon.dshell.completer import server_completer
 from dimensigon.dshell.helpers import get_history
 from dimensigon.dshell.output import dprint
 from dimensigon.dshell.prompts.utils import prompt_parameter
-from dimensigon.dshell import validators as v, converters as c
 
 form = {
     "target": dict(history=InMemoryHistory(), completer=server_completer, validator=v.List(), converter=c.List()),
@@ -61,7 +61,8 @@ def execute_cmd(command: str, target, timeout=None, input=None):
         dest = target
     else:
         raise ValueError(f'invalid target {target}')
-    resp = ntwrk.post('api_1_0.launch_command', view_data={'params': 'human'}, json=data,  headers={'D-Destination': dest})
+    resp = ntwrk.post('api_1_0.launch_command', view_data={'params': 'human'}, json=data,
+                      headers={'D-Destination': dest})
     return resp
 
 
@@ -85,7 +86,8 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
 
         while True:
             try:
-                text = prompt(f"{parent_prompt} {entity_name}> ", history=history, auto_suggest=AutoSuggestFromHistory())
+                text = prompt(f"{parent_prompt} {entity_name}> ", history=history,
+                              auto_suggest=AutoSuggestFromHistory())
             except KeyboardInterrupt:
                 continue
             except EOFError:
@@ -118,7 +120,7 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
                     except EOFError:
                         return
                 else:
-                    dprint("Not a valid parameter. Available: "+', '.join(form.keys()))
+                    dprint("Not a valid parameter. Available: " + ', '.join(form.keys()))
 
             elif splitted[0] == 'exit':
                 return

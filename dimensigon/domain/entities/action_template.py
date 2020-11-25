@@ -12,6 +12,7 @@ from dimensigon.web import db
 
 
 class ActionType(Enum):
+    TEST = 0
     ANSIBLE = 1
     PYTHON = 2
     SHELL = 3
@@ -20,7 +21,8 @@ class ActionType(Enum):
     NATIVE = 6
 
 
-class ActionTemplate(db.Model, UUIDistributedEntityMixin):
+
+class ActionTemplate(UUIDistributedEntityMixin, db.Model):
     __tablename__ = 'D_action_template'
     order = 10
     name = db.Column(db.String(40), nullable=False)
@@ -40,7 +42,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
                  expected_stdout: MultiLine = None, expected_stderr: MultiLine = None,
                  expected_rc: int = None, system_kwargs: typos.Kwargs = None, pre_process: MultiLine = None,
                  post_process: MultiLine = None, schema: typos.Kwargs = None, description: MultiLine = None, **kwargs):
-        UUIDistributedEntityMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.name = name
         self.version = version
         self.action_type = action_type
@@ -127,7 +129,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
                 at = ActionTemplate(name='wait servers', version=1, action_type=ActionType.NATIVE,
                                     description="waits server_names to join to the dimension",
                                     last_modified_at=defaults.INITIAL_DATEMARK,
-                                    schema={"input": {"server_names": {"type": "array",
+                                    schema={"input": {"server_names": {"type": ["array", "string"],
                                                                        "items": {"type": "string"}},
                                                       "timeout": {"type": "integer",
                                                                   "description": "time in seconds waiting for server_names to join",
@@ -165,7 +167,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
             if at is None:
                 at = ActionTemplate(name='wait route to servers', version=1, action_type=ActionType.NATIVE,
                                     description="waits until we have a valid route to a server",
-                                    schema={"input": {"server_names": {"type": "array",
+                                    schema={"input": {"server_names": {"type": ["array", "string"],
                                                                        "items": {"type": "string"}},
                                                       "timeout": {"type": "integer",
                                                                   "description": "time in seconds waiting for server_names to be alive"}
@@ -179,7 +181,7 @@ class ActionTemplate(db.Model, UUIDistributedEntityMixin):
             if at is None:
                 at = ActionTemplate(name='delete servers', version=1, action_type=ActionType.NATIVE,
                                     description="deletes server_names from the dimension",
-                                    schema={"input": {"server_names": {"type": "array",
+                                    schema={"input": {"server_names": {"type": ["array", "string"],
                                                                        "items": {"type": "string"}},
                                                       },
                                             "required": ["server_names"]

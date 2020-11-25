@@ -41,4 +41,3 @@ def set_initial(app=None, session=None, server=True, user=True, action_template=
 
         if ctx:
             db.session.commit()
-

@@ -47,7 +47,8 @@ class ActionTemplateResource(Resource):
     @jwt_required
     @securizer
     def get(self, action_template_id):
-        return ActionTemplate.query.get_or_raise(action_template_id).to_json(split_lines=check_param_in_uri('split_lines'))
+        return ActionTemplate.query.get_or_raise(action_template_id).to_json(
+            split_lines=check_param_in_uri('split_lines'))
 
     @jwt_required
     @securizer

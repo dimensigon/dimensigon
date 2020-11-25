@@ -27,6 +27,7 @@ Priority = t.TypeVar('T')
 
 MultiLine = t.Union[str, t.List[str]]
 
+
 class TypeDecorator(types.TypeDecorator):
     def __repr__(self):
         return self.impl.__repr__()
@@ -148,7 +149,6 @@ class Enum(_Enum):
     impl = types.VARCHAR(80)
 
 
-
 class UUIDEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, uuid.UUID):
@@ -212,6 +212,7 @@ class Pickle(TypeDecorator):
             value = pickle.loads(value)
         return value
 
+
 class Dill(TypeDecorator):
     impl = types.BLOB
 
@@ -224,6 +225,7 @@ class Dill(TypeDecorator):
         if value is not None:
             value = dill.loads(value)
         return value
+
 
 class Utc(dt.tzinfo):
     __slots__ = ()

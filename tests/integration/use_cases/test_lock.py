@@ -206,7 +206,6 @@ class TestLock(TestCase):
 
     @aioresponses()
     def test_lock_catalog_error_on_preventing(self, m):
-
         def callback_prevent(url, **kwargs):
             self.assertDictEqual(kwargs['json'],
                                  {'scope': 'CATALOG', 'applicant': [str(Server.get_current().id), str(self.n1.id),

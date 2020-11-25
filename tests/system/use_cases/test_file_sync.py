@@ -7,7 +7,7 @@ import responses
 from aioresponses import aioresponses
 from pyfakefs.fake_filesystem_unittest import TestCase
 
-from dimensigon.domain.entities import File, Dimension, Server, Gate, Route, FileServerAssociation
+from dimensigon.domain.entities import File, FileServerAssociation
 from dimensigon.use_cases.file_sync import FileSync
 from dimensigon.utils.helpers import get_now
 from dimensigon.web import db

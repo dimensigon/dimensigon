@@ -106,7 +106,6 @@ class TestSecurizer(TestCase):
         self.app.config['SECURIZER_PLAIN'] = False
         resp = self.client.post('/', json={'data': 'post data'}, headers={'D-Securizer': 'plain'})
 
-
         self.assertEqual(406, resp.status_code)
 
         mock_unpack_msg.assert_not_called()
@@ -124,10 +123,9 @@ class TestSecurizer(TestCase):
 
         resp = self.client.post('/', json={'data': 'post data'})
 
-
         self.assertEqual(400, resp.status_code)
         self.assertDictEqual({'error': 'Message',
-                                'message': {'data': 'post data'}}, resp.get_json())
+                              'message': {'data': 'post data'}}, resp.get_json())
 
         mock_unpack_msg.assert_called_once_with(data={'data': 'post data'})
         mock_pack_msg.assert_not_called()

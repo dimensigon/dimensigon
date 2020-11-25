@@ -4,7 +4,6 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, File, FileServerAssociation
-from dimensigon.domain.entities.bootstrap import set_initial
 from dimensigon.web import create_app, db, errors
 
 
@@ -22,7 +21,8 @@ class TestApi(TestCase):
         # set_initial(server=False)
 
         self.srv1 = Server('node1', id='00000000-0000-0000-0000-000000000001', me=True)
-        self.file = File(source_server=self.srv1, target='/etc/ssh/sshd_config', id='00000000-0000-0000-0000-000000000002')
+        self.file = File(source_server=self.srv1, target='/etc/ssh/sshd_config',
+                         id='00000000-0000-0000-0000-000000000002')
         self.fsa = FileServerAssociation(file=self.file, destination_server=self.srv1)
 
         db.session.add_all([self.srv1, self.file, self.fsa])
@@ -47,12 +47,13 @@ class TestApi(TestCase):
         self.assertEqual(self.fsa.last_modified_at, smashed.last_modified_at)
         self.assertIsNotNone(smashed.last_modified_at)
 
+        srv1_id = self.srv1.id
         db.session.commit()
         db.session.close()
 
         del smashed
 
-        fsa = FileServerAssociation.query.get(('00000000-0000-0000-0000-000000000002', self.srv1.id))
+        fsa = FileServerAssociation.query.get(('00000000-0000-0000-0000-000000000002', srv1_id))
         self.assertEqual("/new_target", fsa.dest_folder)
 
     def test_from_json_new(self):

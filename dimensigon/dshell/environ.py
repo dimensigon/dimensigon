@@ -6,11 +6,13 @@ _access_token = None
 _refresh_token = None
 _username = None
 
+
 def set_dict_in_environ(data: dict, **kwargs):
     for k, v in data.items():
         set(k, v)
     for k, v in kwargs.items():
         set(k, v)
+
 
 def set(key, value):
     if key == 'ACCESS_TOKEN':
@@ -31,4 +33,3 @@ def set_server2id_map(data):
 
 def server2id(server):
     return _server2id_map.get(server, None)
-

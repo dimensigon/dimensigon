@@ -13,7 +13,6 @@ class TestConvert(TestCase):
 
         self.assertDictEqual(o.param2.subparam1, {'level3': 3})
 
-
     def test_get_distributed_entities(self):
         import dimensigon.domain.entities
         entities = get_distributed_entities()

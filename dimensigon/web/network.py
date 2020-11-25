@@ -25,6 +25,7 @@ logger = logging.getLogger('dm.network')
 
 log_requests_with_elapsed = 3
 
+
 class Response:
 
     def __init__(self, msg: tJSON = None, code: int = None, exception: Exception = None,
@@ -97,7 +98,6 @@ class Response:
     @property
     def ok(self):
         return not bool(self.exception) and bool(self.code) and 200 <= self.code <= 299
-
 
 
 def pack_msg(data, *args, **kwargs):
@@ -302,18 +302,18 @@ def request(method: str, server: t.Union[Server, str], view_or_url: str, view_da
     start = time.time()
     try:
         resp: requests.Response = func(url, **kwargs)
-    except (Timeout, ) as e:
+    except (Timeout,) as e:
         timeout = kwargs.get('timeout', None)
         if isinstance(timeout, tuple):
             timeout = timeout[0] + timeout[1]
         exception = TimeoutError(f"Socket timeout reached while trying to connect to {url} "
-                                   f"for {timeout} seconds")
+                                 f"for {timeout} seconds")
     except Exception as e:
         exception = e
     finally:
         if not session:
             _session.close()
-    elapsed = time.time()-start
+    elapsed = time.time() - start
     if elapsed > log_requests_with_elapsed:
         logger.debug(f"{method.upper()} {url} elapsed time: {elapsed}")
     if exception is None:

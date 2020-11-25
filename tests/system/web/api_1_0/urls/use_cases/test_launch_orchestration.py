@@ -1,7 +1,7 @@
 import json
 import os
-from subprocess import CompletedProcess as CP, CompletedProcess
-from unittest import mock
+from pprint import pprint
+from unittest import mock, TestCase
 
 import responses
 from aioresponses import aioresponses
@@ -11,19 +11,31 @@ from pyfakefs.fake_filesystem_unittest import TestCase as FSTestCase
 from dimensigon import defaults
 from dimensigon.domain.entities import User, ActionTemplate, ActionType, Orchestration, \
     OrchExecution, \
-    StepExecution
-from dimensigon.use_cases.catalog import upgrade_catalog
+    StepExecution, Vault
+from dimensigon.domain.entities.user import ROOT
+from dimensigon.use_cases.catalog import update_db_catalog
+from dimensigon.use_cases.operations import CompletedProcess
+from dimensigon.utils.helpers import get_random_string
 from dimensigon.web import db
-from tests.base import TwoNodeMixin
-from tests.helpers import set_callbacks, request_scope
+from tests.base import TwoNodeMixin, OneNodeMixin
+from tests.helpers import set_callbacks
 
 now = defaults.INITIAL_DATEMARK
 
 
-class TestLaunchOrchestrationNested(TwoNodeMixin, FSTestCase):
+# function used to mock Operation._execute
+def operation_execute(self, params, timeout=None, context=None):
+    cp = CompletedProcess()
+    cp.set_start_time()
+    cp.stdout = self.rpl_params(dict(input=params, env=context.env, vault=context.vault))
+    cp.stderr = None
+    cp.rc = 0
+    cp.success = True
+    self.evaluate_result(cp, context)
+    return cp
 
-    def set_scoped_session(self, func=None):
-        super().set_scoped_session(request_scope)
+
+class TestLaunchOrchestrationNested(TwoNodeMixin, TestCase):
 
     def set_initial_data_nested_orchestration(self):
         # create data for orchestration
@@ -36,73 +48,41 @@ class TestLaunchOrchestrationNested(TwoNodeMixin, FSTestCase):
 
         db.session.add_all([at, self.o, self.s])
         db.session.commit()
-        self.o2 = Orchestration(name="launch create folder", version=1)
+        self.o_wrapper = Orchestration(name="launch create folder", version=1)
 
-        self.s21 = self.o2.add_step(undo=False,
-                                    action_type=ActionType.SHELL,
-                                    code="ls",
-                                    post_process="vc.set('hosts', {'all': '" + self.s2.id + "'})",
-                                    schema={'output': ['hosts']},
-                                    )
+        self.s21 = self.o_wrapper.add_step(undo=False,
+                                           action_template=ActionTemplate.query.filter_by(name='orchestration',
+                                                                                          version=1).one(),
+                                           schema={'mapping': {'orchestration_id': str(self.o.id), }},
+                                           parents=[]
+                                           )
 
-        self.s22 = self.o2.add_step(undo=False,
-                                    action_template=ActionTemplate.query.filter_by(name='orchestration',
-                                                                                   version=1).one(),
-                                    schema={'mapping': {'orchestration_id': str(self.o.id)}},
-                                    parents=[self.s21]
-                                    )
-
-        db.session.add_all([self.o2, self.s21, self.s22])
+        db.session.add_all([self.o_wrapper, self.s21])
 
         db.session.commit()
 
         self.dtos = {'ActionTemplate': [at.to_json()],
-                     'Orchestration': [self.o.to_json(), self.o2.to_json()],
-                     'Step': [self.s.to_json(), self.s21.to_json(), self.s22.to_json()]}
+                     'Orchestration': [self.o.to_json(), self.o_wrapper.to_json()],
+                     'Step': [self.s.to_json(), self.s21.to_json()]}
 
         with self.app2.app_context():
-            upgrade_catalog(self.dtos, check_mismatch=False)
+            update_db_catalog(self.dtos, check_mismatch=False)
 
-    @mock.patch('dimensigon.use_cases.operations.subprocess.run', autospec=True)
+    @mock.patch('dimensigon.use_cases.operations.ShellOperation._execute', operation_execute)
     @responses.activate
     @aioresponses()
-    def test_launch_orchestration_nested_orchestration(self, mock_run, m):
+    def test_launch_orchestration_nested_orchestration(self, m):
         set_callbacks([(r'(127\.0\.0\.1|node1)', self.client), ('node2', self.client2)], m)
-
-        mock_run.side_effect = [CP((), returncode=0, stdout='ls output', stderr=''),
-                                CP((), returncode=0, stdout='folder output', stderr='')]
 
         ###### INITIAL DATA #####
         self.set_initial_data_nested_orchestration()
 
-        resp = self.client.post(url_for('api_1_0.launch_orchestration', orchestration_id=self.o2.id),
-                                json={'hosts': 'node1', 'params': {'folder': '/new_folder'}, 'background': False},
+        resp = self.client.post(url_for('api_1_0.launch_orchestration', orchestration_id=self.o_wrapper.id),
+                                json={'hosts': 'node1', 'params': {'folder': '/new_folder', 'hosts': 'node2'},
+                                      'background': False},
                                 headers=self.auth.header)
 
         self.assertIn(resp.status_code, (200, 202))
-        self.assertEqual(2, mock_run.call_count)
-        self.assertTupleEqual(('ls',), mock_run.call_args_list[0][0])
-        self.assertTupleEqual(('mkdir -f /new_folder',), mock_run.call_args_list[1][0])
-
-        oe2: OrchExecution = OrchExecution.query.filter_by(orchestration_id=self.o2.id).one()
-        self.assertEqual(User.get_by_user('root'), oe2.executor)
-        self.assertEqual(True, oe2.success)
-        self.assertDictEqual({'folder': '/new_folder'}, oe2.params)
-        self.assertEqual(2, len(oe2.step_executions))
-        se21: StepExecution = StepExecution.query.filter_by(step=self.s21).one()
-        self.assertEqual(True, se21.success)
-        self.assertEqual('ls output', se21.stdout)
-        self.assertEqual('', se21.stderr)
-        self.assertEqual(0, se21.rc)
-        self.assertEqual(self.s1.id, se21.server.id)
-
-        oe1: OrchExecution = OrchExecution.query.filter_by(orchestration_id=self.o.id).one()
-        self.assertEqual(User.get_by_user('root'), oe1.executor)
-        self.assertEqual(True, oe1.success)
-        self.assertDictEqual({'folder': '/new_folder',
-                              'hosts': {'all': self.s2.id},
-                              'orchestration_id': str(self.o.id)}, oe1.params)
-        self.assertEqual(1, len(oe1.step_executions))
 
         o_id = self.o.id
         with self.app2.app_context():
@@ -110,18 +90,33 @@ class TestLaunchOrchestrationNested(TwoNodeMixin, FSTestCase):
             self.assertEqual(1, len(oe1.step_executions))
             se1: StepExecution = oe1.step_executions[0]
             self.assertEqual(True, se1.success)
-            self.assertEqual('folder output', se1.stdout)
-            self.assertEqual('', se1.stderr)
+            self.assertEqual('mkdir -f /new_folder', se1.stdout)
+            self.assertEqual(None, se1.stderr)
             self.assertEqual(0, se1.rc)
             self.assertEqual(self.s2.id, se1.server.id)
 
-        se22: StepExecution = StepExecution.query.filter_by(step=self.s22).one()
-        self.assertEqual(True, se22.success)
-        self.assertEqual(f"orch_execution_id={oe1.id}", se22.stdout)
+        # check inner orch
+        oe1: OrchExecution = OrchExecution.query.filter_by(orchestration_id=self.o.id).one()
+        self.assertEqual(User.get_by_name('root'), oe1.executor)
+        self.assertEqual(True, oe1.success)
+        self.assertDictEqual({'folder': '/new_folder'}, oe1.params)
+        self.assertEqual(1, len(oe1.step_executions))
 
-        self.assertEqual('', se21.stderr)
-        self.assertEqual(0, se21.rc)
-        self.assertEqual(self.s1.id, se22.server.id)
+        # check wrapper orch
+        oe2: OrchExecution = OrchExecution.query.filter_by(orchestration_id=self.o_wrapper.id).one()
+        self.assertEqual(User.get_by_name('root'), oe2.executor)
+        self.assertEqual(True, oe2.success)
+        self.assertDictEqual({'folder': '/new_folder', 'hosts': 'node2'}, oe2.params)
+        self.assertEqual(1, len(oe2.step_executions))
+        se21: StepExecution = StepExecution.query.filter_by(step=self.s21).one()
+        self.assertEqual(True, se21.success)
+        self.assertEqual(f'orch_execution_id={oe1.id}', se21.stdout)
+        self.assertEqual(None, se21.stderr)
+        self.assertEqual(None, se21.rc)
+        self.assertEqual(self.s1.id, se21.server.id)
+
+
+class TestLaunchOrchestrationSoftware(TwoNodeMixin, FSTestCase):
 
     def set_initial_data_install_software(self):
         self.source_folder = '/source'
@@ -172,7 +167,7 @@ class TestLaunchOrchestrationNested(TwoNodeMixin, FSTestCase):
                 "undo": False,
                 "undo_on_error": False,
                 "parent_step_ids": ["00000015-0000-0000-0001-000000000001"],
-                "code": "echo '{{input.file}}'",
+                "code": "{{input.file}}",
                 "action_type": "SHELL",
                 "expected_rc": 0,
                 "last_modified_at": defaults.INITIAL_DATEMARK.strftime(defaults.DATEMARK_FORMAT)}]
@@ -181,24 +176,20 @@ class TestLaunchOrchestrationNested(TwoNodeMixin, FSTestCase):
                      'SoftwareServerAssociation': ssa_dto,
                      'Orchestration': orch_dto,
                      'Step': step_dtos}
-        upgrade_catalog(self.dtos, check_mismatch=False)
+        update_db_catalog(self.dtos, check_mismatch=False)
 
         with self.app2.app_context():
-            upgrade_catalog(self.dtos, check_mismatch=False)
+            update_db_catalog(self.dtos, check_mismatch=False)
 
-    @mock.patch('dimensigon.use_cases.operations.subprocess.run')  # due to pyfakefs does not mock C library access
-    @mock.patch('dimensigon.web.api_1_0.resources.transfer.current_app')
+    @mock.patch('dimensigon.use_cases.operations.ShellOperation._execute', operation_execute)
+    @mock.patch('dimensigon.web.api_1_0.resources.transfer.current_app', autospec=True)
     @responses.activate
     @aioresponses()
-    def test_launch_orchestration_install_software_local(self, mock_current_app, mock_run, m):
+    def test_launch_orchestration_install_software_local(self, mock_current_app, m):
         set_callbacks([(r'(127\.0\.0\.1|node1)', self.client), ('node2', self.client2)], m)
         self.setUpPyfakefs()
 
         self.set_initial_data_install_software()
-
-        mock_run.return_value = CompletedProcess(args=f"echo '{os.path.join(self.dest_folder, self.filename)}'",
-                                                 stdout='output',
-                                                 returncode=0)
 
         resp = self.client.post(
             url_for('api_1_0.launch_orchestration', orchestration_id="00000015-0000-0000-0001-000000000000"),
@@ -221,28 +212,23 @@ class TestLaunchOrchestrationNested(TwoNodeMixin, FSTestCase):
             exec_step1.get('params'))
 
         self.assertEqual(0, exec_step2.get('rc'))
-        self.assertEqual('output', exec_step2.get('stdout'))
+        self.assertEqual(os.path.join(self.dest_folder, self.filename), exec_step2.get('stdout'))
         self.assertEqual(None, exec_step2.get('stderr'))
         self.assertDictEqual(
             dict(file=os.path.join(self.dest_folder, self.filename), dest_path=self.dest_folder),
             exec_step2.get('params'))
 
-        self.assertTupleEqual((f"echo '{os.path.join(self.dest_folder, self.filename)}'",), mock_run.call_args[0])
         self.assertTrue(os.path.exists(os.path.join(self.dest_folder, self.filename)))
 
-    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.ShellOperation._execute', operation_execute)
     @mock.patch('dimensigon.web.api_1_0.resources.transfer.current_app')
     @responses.activate
     @aioresponses()
-    def test_launch_orchestration_install_software_remote(self, mock_current_app, mock_run, m):
+    def test_launch_orchestration_install_software_remote(self, mock_current_app, m):
         set_callbacks([(r'(127\.0\.0\.1|node1)', self.client), ('node2', self.client2)], m)
         self.setUpPyfakefs()
 
         self.set_initial_data_install_software()
-
-        mock_run.return_value = CompletedProcess(args=f"echo '{os.path.join(self.dest_folder, self.filename)}'",
-                                                 stdout='output',
-                                                 returncode=0)
 
         resp = self.client.post(
             url_for('api_1_0.launch_orchestration', orchestration_id="00000015-0000-0000-0001-000000000000"),
@@ -265,28 +251,23 @@ class TestLaunchOrchestrationNested(TwoNodeMixin, FSTestCase):
             exec_step1.get('params'))
 
         self.assertEqual(0, exec_step2.get('rc'))
-        self.assertEqual('output', exec_step2.get('stdout'))
+        self.assertEqual(os.path.join(self.dest_folder, self.filename), exec_step2.get('stdout'))
         self.assertEqual(None, exec_step2.get('stderr'))
         self.assertDictEqual(
             dict(file=os.path.join(self.dest_folder, self.filename), dest_path=self.dest_folder),
             exec_step2.get('params'))
 
-        self.assertTupleEqual((f"echo '{os.path.join(self.dest_folder, self.filename)}'",), mock_run.call_args[0])
         self.assertTrue(os.path.exists(os.path.join(self.dest_folder, self.filename)))
 
-    @mock.patch('dimensigon.use_cases.operations.subprocess.run')
+    @mock.patch('dimensigon.use_cases.operations.ShellOperation._execute', operation_execute)
     @mock.patch('dimensigon.web.api_1_0.resources.transfer.current_app')
     @responses.activate
     @aioresponses()
-    def test_launch_orchestration_install_software_dual(self, mock_current_app, mock_run, m):
+    def test_launch_orchestration_install_software_dual(self, mock_current_app, m):
         set_callbacks([(r'(127\.0\.0\.1|node1)', self.client), ('node2', self.client2)], m)
         self.setUpPyfakefs()
 
         self.set_initial_data_install_software()
-
-        mock_run.return_value = CompletedProcess(args=f"echo '{os.path.join(self.dest_folder, self.filename)}'",
-                                                 stdout='output',
-                                                 returncode=0)
 
         def path(soft_path):
             if current_app == self.app:
@@ -295,6 +276,7 @@ class TestLaunchOrchestrationNested(TwoNodeMixin, FSTestCase):
                 return os.path.join('/node2', soft_path)
 
         mock_current_app.dm.config.path.side_effect = path
+
         resp = self.client.post(
             url_for('api_1_0.launch_orchestration', orchestration_id="00000015-0000-0000-0001-000000000000"),
             json={'hosts': ['node1', 'node2'], 'background': False},
@@ -330,28 +312,63 @@ class TestLaunchOrchestrationNested(TwoNodeMixin, FSTestCase):
             exec_step1_s2.get('params'))
 
         self.assertEqual(0, exec_step2_s1.get('rc'))
-        self.assertEqual('output', exec_step2_s1.get('stdout'))
+        self.assertEqual('/node1/software/Python-3.8.3.tgz', exec_step2_s1.get('stdout'))
         self.assertEqual(None, exec_step2_s1.get('stderr'))
         self.assertDictEqual(
             dict(file='/node1/software/Python-3.8.3.tgz'),
             exec_step2_s1.get('params'))
 
         self.assertEqual(0, exec_step2_s2.get('rc'))
-        self.assertEqual('output', exec_step2_s2.get('stdout'))
+        self.assertEqual('/node2/software/Python-3.8.3.tgz', exec_step2_s2.get('stdout'))
         self.assertEqual(None, exec_step2_s2.get('stderr'))
         self.assertDictEqual(
             dict(file='/node2/software/Python-3.8.3.tgz'),
             exec_step2_s2.get('params'))
 
-        if mock_run.call_args_list[0][0][0].startswith("echo '/node1"):
-            self.assertTupleEqual((f"echo '{os.path.join('/node1', defaults.SOFTWARE_REPO, self.filename)}'",),
-                                  mock_run.call_args_list[0][0])
-            self.assertTupleEqual((f"echo '{os.path.join('/node2', defaults.SOFTWARE_REPO, self.filename)}'",),
-                                  mock_run.call_args_list[1][0])
-        else:
-            self.assertTupleEqual((f"echo '{os.path.join('/node2', defaults.SOFTWARE_REPO, self.filename)}'",),
-                                  mock_run.call_args_list[0][0])
-            self.assertTupleEqual((f"echo '{os.path.join('/node1', defaults.SOFTWARE_REPO, self.filename)}'",),
-                                  mock_run.call_args_list[1][0])
         self.assertTrue(os.path.exists(os.path.join('/node1', defaults.SOFTWARE_REPO, self.filename)))
         self.assertTrue(os.path.exists(os.path.join('/node2', defaults.SOFTWARE_REPO, self.filename)))
+
+
+class TestLaunchOrchestrationVault(OneNodeMixin, TestCase):
+    def set_initial_data(self):
+        v1 = Vault(user_id=ROOT, name='home', value='home_content')
+        v2 = Vault(user_id=ROOT, name='command', value='command_content')
+        v3 = Vault(user_id=ROOT, name='foo', value='foo_content')
+
+        at = ActionTemplate('vault var in mapping', 1, action_type=ActionType.TEST, code='{{input.command}}',
+                            schema=dict(input=dict(command=dict(type='string')), required=['command']),
+                            id="0000000a-0000-0000-0000-000000000001")
+        at2 = ActionTemplate('vault var in action template code', 1, action_type=ActionType.TEST, code='{{vault.foo}}',
+                             schema=dict(required=['vault.foo']),
+                             id="0000000a-0000-0000-0000-000000000002")
+        o = Orchestration('vault', 1, id="00000015-0000-0000-0001-000000000000")
+        s1 = o.add_step(False, name='vault var in step code', action_type=ActionType.TEST, code="{{vault.home}}")
+        s2 = o.add_step(False, action_template=at, schema=dict(mapping={'command': {'from': 'vault.command'}}), parents=[s1])
+        s3 = o.add_step(False, action_template=at2, parents=[s2])
+
+        db.session.add_all([v1, v2, v3, o])
+        db.session.commit()
+
+    @mock.patch('dimensigon.use_cases.operations.ShellOperation._execute', operation_execute)
+    @responses.activate
+    @aioresponses()
+    def test_launch_orchestration_vault(self, m):
+        set_callbacks([(r'(127\.0\.0\.1|node1)', self.client)], m)
+        self.set_initial_data()
+        resp = self.client.post(
+            url_for('api_1_0.launch_orchestration', orchestration_id="00000015-0000-0000-0001-000000000000"),
+            json={'hosts': 'node1', 'params': {}, 'background': False},
+            headers=self.auth.header)
+
+        if resp.status_code != 200:
+            pprint(resp.get_json())
+        self.assertEqual(200, resp.status_code)
+        data = resp.get_json()
+        self.assertTrue(data['success'])
+        self.assertEqual(3, len(data['steps']))
+        exec_step1 = data['steps'][0]
+        exec_step2 = data['steps'][1]
+        exec_step3 = data['steps'][2]
+        self.assertEqual('home_content', exec_step1['stdout'])
+        self.assertEqual('command_content', exec_step2['stdout'])
+        self.assertEqual('foo_content', exec_step3['stdout'])

@@ -13,6 +13,7 @@ from dimensigon.web.network import Response
 
 logger = logging.getLogger('dshell')
 
+
 def dprint(msg):
     if isinstance(msg, str):
         if msg not in ('\n', None, ''):

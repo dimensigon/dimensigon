@@ -55,7 +55,7 @@ class TestUpdateCatalog(TestCase):
             db.create_all()
             Locker.set_initial()
             User.set_initial()
-            self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+            self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
             s1 = Server('node1', id='bbbbbbbb-1234-5678-1234-56781234bbb1', port=8000, me=True)
             s2 = Server('node2', id='bbbbbbbb-1234-5678-1234-56781234bbb2', port=8000)
             Route(s2, cost=0)
@@ -109,7 +109,6 @@ class TestUpdateCatalog(TestCase):
     @aioresponses()
     @responses.activate
     def test_check_catalog(self, m):
-
         set_callbacks([("node1", self.client1), (r"(127\.0\.0\.1|node2)", self.client2)], m)
 
         with self.app2.app_context():

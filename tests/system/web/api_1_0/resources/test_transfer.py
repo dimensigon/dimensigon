@@ -344,7 +344,7 @@ class TestTransferResource(TestCase):
                 fh.write(chunk_content)
 
         resp = self.client.put(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
-                                 headers=self.auth.header)
+                               headers=self.auth.header)
         self.assertEqual(201, resp.status_code)
         self.assertDictEqual({'message': f"File {os.path.join(self.dest_path, self.filename)} from transfer "
                                          f"{self.transfer.id} recived successfully"}, resp.get_json())
@@ -357,13 +357,13 @@ class TestTransferResource(TestCase):
         db.session.commit()
 
         resp = self.client.put(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
-                                 headers=self.auth.header)
+                               headers=self.auth.header)
         self.assertEqual(410, resp.status_code)
         self.assertDictEqual({'error': 'Transfer has already completed'}, resp.get_json())
 
     def test_put_transfer_status_waiting_chunks(self):
         resp = self.client.put(url_for('api_1_0.transferresource', transfer_id=str(self.transfer.id)),
-                                 headers=self.auth.header)
+                               headers=self.auth.header)
         self.assertEqual(406, resp.status_code)
         self.assertDictEqual({'error': 'Transfer still waiting for chunks'}, resp.get_json())
 

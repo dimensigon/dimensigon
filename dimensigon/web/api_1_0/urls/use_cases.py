@@ -18,7 +18,7 @@ import typing as t
 import uuid
 from collections import OrderedDict
 
-from flask import request, current_app, jsonify, g
+from flask import request, current_app, g
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
 from pkg_resources import parse_version
 
@@ -27,7 +27,7 @@ import dimensigon.use_cases.cluster
 import dimensigon.web.network as ntwrk
 from dimensigon import defaults as d, defaults
 from dimensigon.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
-    Orchestration, OrchExecution, User, ActionTemplate, ActionType
+    Orchestration, OrchExecution, User, ActionTemplate, ActionType, Vault
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.use_cases.deployment import deploy_orchestration, validate_input_chain
 from dimensigon.utils import asyncio, subprocess
@@ -56,7 +56,7 @@ def home():
 @jwt_required
 def join_token():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
-        user_join = User.get_by_user('join')
+        user_join = User.get_by_name('join')
         expire_time = request.args.get('expires_time', type=int, default=None)
 
         kwargs = {}
@@ -71,7 +71,7 @@ def join_token():
 @api_bp.route('/join/public', methods=['GET'])
 @jwt_required
 def join_public():
-    if User.query.get(get_jwt_identity()) == User.get_by_user('join'):
+    if User.query.get(get_jwt_identity()) == User.get_by_name('join'):
         return g.dimension.public.save_pkcs1(), 200, {'content-type': 'application/octet-stream'}
 
     else:
@@ -150,6 +150,7 @@ def join():
 
 
 _lock_add_node = threading.Lock()
+
 
 @api_bp.route('/join/acknowledge/<server_id>', methods=['POST'])
 @jwt_required
@@ -384,14 +385,13 @@ def cluster():
         raise errors.UserForbiddenError
 
 
-
 @api_bp.route('/cluster/in/<server_id>', methods=['POST'])
 @jwt_required
 @securizer
 def cluster_in(server_id):
     user = User.get_current()
     data = request.get_json()
-    if user and user.user == 'root':
+    if user and user.name == 'root':
         try:
             keepalive = dt.datetime.strptime(data.get('keepalive'), defaults.DATEMARK_FORMAT)
         except ValueError:
@@ -414,7 +414,7 @@ def cluster_in(server_id):
 @securizer
 def cluster_out(server_id):
     user = User.get_current()
-    if user and user.user == 'root':
+    if user and user.name == 'root':
         Server.query.get_or_raise(server_id)
         data = request.get_json()
         if data.get('death', None):
@@ -469,8 +469,8 @@ def routes():
     elif request.method == 'POST':
         data = request.get_json()
         current_app.dm.route_manager.refresh_table(discover_new_neighbours=data.get('discover_new_neighbours', False),
-                                                  check_current_neighbours=data.get('check_current_neighbours', False),
-                                                  max_num_discovery=data.get('max_num_discovery', 5))
+                                                   check_current_neighbours=data.get('check_current_neighbours', False),
+                                                   max_num_discovery=data.get('max_num_discovery', 5))
         return {}, 204
 
     elif request.method == 'PATCH':
@@ -576,34 +576,32 @@ def launch_orchestration(orchestration_id):
 
     execution_id = str(uuid.uuid4())
 
-    if data.get('input_validation', True):
-        validate_input_chain(orchestration, params)
+    executor_id = get_jwt_identity()
+    vc = Context(params, dict(execution_id=None, root_orch_execution_id=execution_id, orch_execution_id=execution_id,
+                              executor_id=executor_id),
+                 vault=Vault.get_variables_from(executor_id, scope=data.get('scope', 'global')))
 
-    vc = Context(params, dict(execution_id=None, parent_orch_execution_id=None, orch_execution_id=execution_id,
-                              executor_id=get_jwt_identity()))
+    if data.get('input_validation', True):
+        validate_input_chain(orchestration,
+                             {'input': set(params.keys()), 'env': set(vc.env.keys()), 'vault': set(vc.vault.keys())})
 
     if request.get_json().get('background', True):
-        future = executor.submit(deploy_orchestration, orchestration=orchestration.id, var_context=vc, hosts=hosts,
-                                 execution=execution_id)
+        future = executor.submit(deploy_orchestration, orchestration=orchestration.id, var_context=vc, hosts=hosts)
         try:
-            r = future.result(1)
+            orch_exe_id = future.result(1)
         except concurrent.futures.TimeoutError:
             return {'execution_id': execution_id}, 202
         except Exception as e:
             current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
             raise
-        else:
-            return jsonify(r), 200
     else:
         try:
-            orch_exe = deploy_orchestration(orchestration=orchestration, var_context=vc, hosts=hosts,
-                                            execution=execution_id)
+            orch_exe_id = deploy_orchestration(orchestration=orchestration, var_context=vc, hosts=hosts)
         except Exception as e:
             current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
             raise
-        else:
-
-            return orch_exe.to_json(add_step_exec=True, human=check_param_in_uri('human'), split_lines=True), 200
+    return OrchExecution.query.get(orch_exe_id).to_json(add_step_exec=True, human=check_param_in_uri('human'),
+                                                        split_lines=True), 200
 
 
 def wrap_sudo(user, cmd):
@@ -614,7 +612,7 @@ def wrap_sudo(user, cmd):
     if isinstance(cmd, str):
         return f"sudo -Siu {username} -- sh -c {shlex.quote(cmd)}"
     else:
-        args = ["sudo", "-Siu", username, "--", "bash" "-c",  shlex.quote(cmd)]
+        args = ["sudo", "-Siu", username, "--", "bash" "-c", shlex.quote(cmd)]
         return args
 
 
@@ -713,7 +711,7 @@ def launch_command():
                     r.exception) or str(r.exception.__class__.__name__)}
         else:
             resp_data[key] = {'stdout': outs.split('\n'), 'stderr': errs.split('\n'),
-                                           'returncode': proc.returncode}
+                              'returncode': proc.returncode}
     resp_data['cmd'] = cmd
     resp_data['input'] = data.get('input', None)
     return resp_data, 200

@@ -5,26 +5,11 @@ from dimensigon import defaults
 from dimensigon.domain.entities import Server, Dimension, Software, Transfer, TransferStatus
 from dimensigon.utils.helpers import get_now
 from dimensigon.web import create_app, db
+from tests.base import OneNodeMixin, TestDimensigonBase
 
 
-class TestTransfer(TestCase):
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        db.create_all()
-        Server.set_initial()
-        d = Dimension(name='test', current=True)
-        db.session.add(d)
-        db.session.commit()
-        self.client = self.app.test_client(use_cookies=True)
+class TestTransfer(TestDimensigonBase):
 
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
 
     def test_wait_transfer(self):
         s = Software(name='test', version='1', filename='file')
@@ -50,7 +35,8 @@ class TestTransfer(TestCase):
     def test_to_json(self):
         d = get_now()
         s = Software(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='test', version='1', filename='file')
-        t = Transfer(id='aaaaaaaa-1234-5678-1234-56781234aaa2', software=s, dest_path='/folder', num_chunks=0, created_on=d)
+        t = Transfer(id='aaaaaaaa-1234-5678-1234-56781234aaa2', software=s, dest_path='/folder', num_chunks=0,
+                     created_on=d)
 
         self.assertDictEqual(
             dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', software_id='aaaaaaaa-1234-5678-1234-56781234aaa1',

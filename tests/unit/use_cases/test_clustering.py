@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from dimensigon.use_cases.cluster import EventDispatcher, AliveEvent, DeathEvent, ClusterManager
+from dimensigon.use_cases.cluster import EventDispatcher, AliveEvent, DeathEvent
 
 event_id = None
 

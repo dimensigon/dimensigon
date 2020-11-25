@@ -200,7 +200,6 @@ class Worker:
         #         getattr(signal, signame),
         #         functools.partial(default_async_signal_handler, signame, loop))
 
-
     def init_args(self, *args, **kwargs):
         pass
 
@@ -369,6 +368,7 @@ class Thread(Proc):
 
     def terminate(self):
         pass
+
 
 # -- Main Wrappers
 class MainContext:

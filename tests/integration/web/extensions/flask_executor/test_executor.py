@@ -35,7 +35,7 @@ def fail():
 class Test(TestCase):
     def setUp(self) -> None:
         self.app = Flask(__name__)
-        
+
     def test_init(self):
         self.app = Flask(__name__)
         executor = Executor(self.app)
@@ -96,7 +96,7 @@ class Test(TestCase):
         assert executor._self._max_workers == EXECUTOR_MAX_WORKERS
 
     def test_thread_decorator_submit(self):
-        
+
         self.app.config['EXECUTOR_TYPE'] = 'thread'
         executor = Executor(self.app)
 

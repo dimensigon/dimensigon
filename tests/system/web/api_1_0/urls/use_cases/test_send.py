@@ -96,7 +96,6 @@ class TestSend(TestCase, ValidateResponseMixin):
 
         db.session.commit()
 
-
     def tearDown(self) -> None:
         db.session.remove()
         db.drop_all()

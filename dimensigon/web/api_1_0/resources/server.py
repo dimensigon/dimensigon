@@ -1,9 +1,8 @@
-from flask import request, g, current_app
+from flask import request, g
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
 
 from dimensigon.domain.entities import Server
-from dimensigon.use_cases import routing
 from dimensigon.web import errors, db
 from dimensigon.web.decorators import securizer, forward_or_dispatch, lock_catalog, validate_schema
 from dimensigon.web.helpers import filter_query, check_param_in_uri
@@ -48,9 +47,9 @@ class ServerResource(Resource):
     @securizer
     def get(self, server_id):
         return Server.query.get_or_raise(server_id).to_json(add_gates=check_param_in_uri('gates'),
-                                                          human=check_param_in_uri('human'),
-                                                          no_delete=True,
-                                                          add_ignore=True)
+                                                            human=check_param_in_uri('human'),
+                                                            no_delete=True,
+                                                            add_ignore=True)
 
     @forward_or_dispatch()
     @jwt_required
@@ -100,4 +99,3 @@ class ServerResource(Resource):
         db.session.commit()
 
         return {}, 204
-

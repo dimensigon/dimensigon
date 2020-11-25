@@ -167,6 +167,28 @@ class AlreadyExists(BaseError):
     def payload(self) -> t.Optional[dict]:
         return {self.name: self.value}
 
+
+class EntityAlreadyExists(BaseError):
+    status_code = 404
+
+    def __init__(self, entity: str, ident, columns: t.Iterable[str] = None):
+        self.entity = entity
+        self.id = ident
+        if is_iterable_not_string(columns):
+            self.columns = list(columns)
+        elif is_string_types(columns):
+            self.columns = [columns]
+        else:
+            self.columns = ['id']
+
+    def _format_error_msg(self) -> str:
+        return f"{self.entity} with given {', '.join(self.columns)} already exists"
+
+    @property
+    def payload(self) -> t.Optional[dict]:
+        return dict(entity=self.entity, id=self.id)
+
+
 class EntityNotFound(BaseError):
     status_code = 404
 
@@ -241,6 +263,7 @@ class CatalogMismatch(BaseError):
     def _format_error_msg(self) -> str:
         return "List entities do not match"
 
+
 #################
 # Locker Errors #
 #################
@@ -256,10 +279,12 @@ class LockerError(BaseError):
     def payload(self) -> t.Optional[dict]:
         return {'scope': self.scope.name}
 
+
 class NoServerToLock(LockerError):
 
     def _format_error_msg(self) -> str:
         return 'No server was found for locking'
+
 
 class PriorityLocker(LockerError):
     def _format_error_msg(self) -> str:
@@ -415,12 +440,14 @@ class CycleError(BaseError):
     def _format_error_msg(self) -> str:
         return "Cycle detected while trying to add dependency"
 
+
 ##############
 # Deployment #
 ##############
 
 class Timeout(BaseError):
     status_code = 500
+
 
 class RemoteServerTimeout(BaseError):
     status_code = 500
@@ -685,6 +712,7 @@ class InvalidRoute(BaseError):
 
         return data
 
+
 class InvalidDateFormat(BaseError):
     status_code = 404
 
@@ -709,4 +737,3 @@ class InvalidValue(BaseError):
     @property
     def payload(self) -> t.Optional[dict]:
         return self.kwargs
-

@@ -42,7 +42,8 @@ class TestServer(TestCase):
     def test_log_sender_file(self, mock_pb_rl, mock_pt_uof, mock_isfile, mock_walk, m):
         def callback(url, **kwargs):
             self.assertDictEqual(
-                {"file": '/dimensigon/logs/dimensigon.log', 'data': base64.b64encode('content'.encode()).decode('ascii')},
+                {"file": '/dimensigon/logs/dimensigon.log',
+                 'data': base64.b64encode('content'.encode()).decode('ascii')},
                 kwargs['json'])
             return CallbackResult('POST', status=200)
 
@@ -50,7 +51,8 @@ class TestServer(TestCase):
 
         mock_isfile.return_value = True
 
-        log = Log(id='aaaaaaaa-1234-5678-1234-56781234aaa1', source_server=self.source, target='/var/log/dimensigon.log',
+        log = Log(id='aaaaaaaa-1234-5678-1234-56781234aaa1', source_server=self.source,
+                  target='/var/log/dimensigon.log',
                   destination_server=self.dest, dest_folder='/dimensigon/logs/')
         db.session.add(log)
 
@@ -76,7 +78,8 @@ class TestServer(TestCase):
 
         mock_isfile.return_value = True
 
-        log = Log(id='aaaaaaaa-1234-5678-1234-56781234aaa1', source_server=self.source, target='/var/log/dimensigon.log',
+        log = Log(id='aaaaaaaa-1234-5678-1234-56781234aaa1', source_server=self.source,
+                  target='/var/log/dimensigon.log',
                   destination_server=self.dest, dest_folder=None)
         db.session.add(log)
 
@@ -102,7 +105,8 @@ class TestServer(TestCase):
                 return CallbackResult('POST', payload={'offset': 8}, status=200)
             elif kwargs['json']['file'] == '/dimensigon/logs/dir1/log2':
                 self.assertDictEqual(
-                    {"file": '/dimensigon/logs/dir1/log2', 'data': base64.b64encode('newcontent2'.encode()).decode('ascii')},
+                    {"file": '/dimensigon/logs/dir1/log2',
+                     'data': base64.b64encode('newcontent2'.encode()).decode('ascii')},
                     kwargs['json'])
                 return CallbackResult('POST', payload={'offset': 11}, status=200)
             else:

@@ -112,13 +112,13 @@ class TestLockScope(TestCase):
 
             return CallbackResult(r.data, status=r.status_code)
 
-        m.post(re.compile(Server.get_current().url()+'.*'), callback=callback_client)
+        m.post(re.compile(Server.get_current().url() + '.*'), callback=callback_client)
         m.post(n1.url('api_1_0.locker_prevent'), callback=callback_prevent)
         m.post(n2.url('api_1_0.locker_prevent'), callback=callback_prevent)
-        m.post(re.compile(Server.get_current().url()+'.*'), callback=callback_client)
+        m.post(re.compile(Server.get_current().url() + '.*'), callback=callback_client)
         m.post(n1.url('api_1_0.locker_lock'), callback=callback_lock)
         m.post(n2.url('api_1_0.locker_lock'), callback=callback_lock)
-        m.post(re.compile(Server.get_current().url()+'.*'), callback=callback_client)
+        m.post(re.compile(Server.get_current().url() + '.*'), callback=callback_client)
         m.post(n1.url('api_1_0.locker_unlock'), callback=callback_unlock)
         m.post(n2.url('api_1_0.locker_unlock'), callback=callback_unlock)
 
@@ -136,7 +136,6 @@ class TestLockScope(TestCase):
         l = Locker.query.get(Scope.CATALOG)
         self.assertEqual(State.UNLOCKED, l.state)
         self.assertEqual(None, l.applicant)
-
 
 
 class TestLockScopeFullChain(TestCase):

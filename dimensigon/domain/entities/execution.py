@@ -16,7 +16,7 @@ if t.TYPE_CHECKING:
     from dimensigon.use_cases.operations import CompletedProcess
 
 
-class StepExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
+class StepExecution(UUIDEntityMixin, EntityReprMixin, db.Model):
     __tablename__ = 'L_step_execution'
 
     start_time = db.Column(UtcDateTime(timezone=True), nullable=False)
@@ -89,7 +89,7 @@ class StepExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
         return data
 
 
-class OrchExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
+class OrchExecution(UUIDEntityMixin, EntityReprMixin, db.Model):
     __tablename__ = 'L_orch_execution'
 
     start_time = db.Column(UtcDateTime(timezone=True), nullable=False, default=get_now)
@@ -108,7 +108,8 @@ class OrchExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
     orchestration = db.relationship("Orchestration")
     executor = db.relationship("User")
     service = db.relationship("Service")
-    step_executions = db.relationship("StepExecution", back_populates="orch_execution", order_by="StepExecution.start_time")
+    step_executions = db.relationship("StepExecution", back_populates="orch_execution",
+                                      order_by="StepExecution.start_time")
 
     server = db.relationship("Server", foreign_keys=[server_id])
     parent_step_execution = db.relationship("StepExecution", uselist=False, foreign_keys=[parent_step_execution_id],
@@ -139,8 +140,10 @@ class OrchExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
             else:
                 d = str(Server.query.get(self.target) or self.target)
             data.update(target=d)
-            data.update(executor=str(self.executor) if self.executor else None)
-            data.update(service=str(self.service) if self.service else None)
+            if self.executor:
+                data.update(executor=str(self.executor))
+            if self.service:
+                data.update(service=str(self.service))
             if self.orchestration:
                 data.update(
                     orchestration=dict(id=str(self.orchestration.id), name=self.orchestration.name,
@@ -150,20 +153,16 @@ class OrchExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
                     orchestration=None)
             if self.server:
                 data.update(server=dict(id=str(self.server.id), name=self.server.name))
-            else:
-                data.update(server=None)
         else:
             data.update(target=self.target)
-            data.update(
-                orchestration_id=str(getattr(self.orchestration, 'id', None)) if getattr(self.orchestration, 'id',
-                                                                                         None) else None)
-            data.update(
-                executor_id=str(getattr(self.executor, 'id', None)) if getattr(self.executor, 'id', None) else None)
-            data.update(
-                service_id=str(getattr(self.service, 'id', None)) if getattr(self.service, 'id', None) else None)
-            data.update(
-                server_id=str(getattr(self.server, 'id', None)) if getattr(self.server,
-                                                                           'id', None) else None)
+            if self.orchestration_id or getattr(self.orchestration, 'id', None):
+                data.update(orchestration_id=str(self.orchestration_id or getattr(self.orchestration, 'id', None)))
+            if self.executor_id or getattr(self.executor, 'id', None):
+                data.update(executor_id=str(self.executor_id or getattr(self.executor, 'id', None)))
+            if self.service_id or getattr(self.service, 'id', None):
+                data.update(service_id=str(self.server_id or getattr(self.service, 'id', None)))
+            if self.server_id or getattr(self.server, 'id', None):
+                data.update(server_id=str(self.server_id or getattr(self.server, 'id', None)))
         data.update(params=self.params)
         data.update(success=self.success)
         data.update(undo_success=self.undo_success)
@@ -188,7 +187,6 @@ class OrchExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
                     params = ['steps']
                     if human:
                         params.append('human')
-
 
                     try:
                         auth = HTTPBearerAuth(create_access_token(get_jwt_identity()))
@@ -225,4 +223,3 @@ class OrchExecution(db.Model, UUIDEntityMixin, EntityReprMixin):
             return o
         else:
             return cls(**kwargs)
-

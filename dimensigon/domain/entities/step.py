@@ -22,7 +22,7 @@ step_step = db.Table('D_step_step',
                      )
 
 
-class Step(db.Model, UUIDistributedEntityMixin):
+class Step(UUIDistributedEntityMixin, db.Model):
     __tablename__ = "D_step"
     order = 30
     orchestration_id = db.Column(UUID, db.ForeignKey('D_orchestration.id'), nullable=False)
@@ -72,7 +72,7 @@ class Step(db.Model, UUIDistributedEntityMixin):
                  target: t.Union[str, t.Iterable[str]] = None, name: str = None, description: str = None, rid=None,
                  **kwargs):
 
-        UUIDistributedEntityMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         assert undo in (False, True)
         if action_template is not None:
             assert action_type is None
@@ -125,7 +125,7 @@ class Step(db.Model, UUIDistributedEntityMixin):
 
         description = description if description is not None else kwargs.pop('step_description', None)
         self.step_description = '\n'.join(description) if is_iterable_not_string(description) else description
-        self.rid = rid # used when creating an Orchestration
+        self.rid = rid  # used when creating an Orchestration
 
     @orm.reconstructor
     def init_on_load(self):
@@ -349,7 +349,6 @@ class Step(db.Model, UUIDistributedEntityMixin):
         """
         if isinstance(other, self.__class__):
             return all([self.undo == other.undo,
-                        self.schema == other.schema,
                         self.stop_on_error == other.stop_on_error,
                         self.stop_undo_on_error == other.stop_undo_on_error,
                         self.undo_on_error == other.undo_on_error,
@@ -405,7 +404,8 @@ class Step(db.Model, UUIDistributedEntityMixin):
         data.update(
             stop_undo_on_error=self.step_stop_undo_on_error) if self.step_stop_undo_on_error is not None else None
         data.update(undo_on_error=self.step_undo_on_error) if self.step_undo_on_error is not None else None
-        data.update(schema=self.step_schema) if self.step_schema is not None else None
+        if self.step_schema:
+            data.update(schema=self.step_schema)
         if self.step_expected_stdout is not None:
             data.update(
                 expected_stdout=self.step_expected_stdout.split('\n') if split_lines else self.step_expected_stdout)
@@ -456,4 +456,3 @@ class Step(db.Model, UUIDistributedEntityMixin):
             else:
                 raise errors.EntityNotFound('Step', parent_step_id)
         return super().from_json(kwargs)
-

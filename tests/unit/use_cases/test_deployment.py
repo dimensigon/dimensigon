@@ -13,7 +13,8 @@ class TestCommand(TestCase):
         self.mock_parameters = mock.Mock()
 
     def test_invoke(self):
-        with mock.patch('dimensigon.use_cases.deployment.Command.success', new_callable=mock.PropertyMock) as mock_success:
+        with mock.patch('dimensigon.use_cases.deployment.Command.success',
+                        new_callable=mock.PropertyMock) as mock_success:
             mock_success.return_value = True
 
             c = Command(implementation=self.mock_implementation, undo_command=self.mock_undo_command,
@@ -26,7 +27,8 @@ class TestCommand(TestCase):
             self.assertTrue(r)
 
     def test_undo_command_succeed(self):
-        with mock.patch('dimensigon.use_cases.deployment.Command.success', new_callable=mock.PropertyMock) as mock_success:
+        with mock.patch('dimensigon.use_cases.deployment.Command.success',
+                        new_callable=mock.PropertyMock) as mock_success:
             mock_success.return_value = True
             type(self.mock_undo_command).success = mock.PropertyMock(return_value=None)
             self.mock_undo_command.invoke.return_value = True
@@ -39,7 +41,8 @@ class TestCommand(TestCase):
             self.assertTrue(r)
 
     def test_undo_command_not_succeed(self):
-        with mock.patch('dimensigon.use_cases.deployment.Command.success', new_callable=mock.PropertyMock) as mock_success:
+        with mock.patch('dimensigon.use_cases.deployment.Command.success',
+                        new_callable=mock.PropertyMock) as mock_success:
             mock_success.return_value = False
             type(self.mock_undo_command).success = mock.PropertyMock(return_value=None)
             self.mock_undo_command.invoke.return_value = True
@@ -56,7 +59,8 @@ class TestCommand(TestCase):
             self.assertTrue(r)
 
     def test_undo_command_invoke_not_executed(self):
-        with mock.patch('dimensigon.use_cases.deployment.Command.success', new_callable=mock.PropertyMock) as mock_success:
+        with mock.patch('dimensigon.use_cases.deployment.Command.success',
+                        new_callable=mock.PropertyMock) as mock_success:
             mock_success.return_value = None
             type(self.mock_undo_command).success = mock.PropertyMock(return_value=None)
             self.mock_undo_command.invoke.return_value = True
@@ -182,5 +186,3 @@ class TestUndoCommand(TestCase):
         uc = UndoCommand(implementation=self.mock_implementation, var_context={'param': 'a'}, id_=1)
         uc._cp = {'success': True}
         self.assertDictEqual({1: {'success': True}}, uc.result)
-
-

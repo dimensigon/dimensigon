@@ -66,7 +66,8 @@ class TestSecurizer(TestCase):
         mock_lock_scope.return_value.__enter__.return_value = 1
         mock_get_servers_from_scope.return_value = [self.srv1]
         resp = self.client.get('/',
-                               headers={"Authorization": f"Bearer {create_access_token(1, user_claims={'applicant': 2})}"})
+                               headers={
+                                   "Authorization": f"Bearer {create_access_token(1, user_claims={'applicant': 2})}"})
 
         self.assertEqual(200, resp.status_code)
         mock_lock_scope.assert_not_called()

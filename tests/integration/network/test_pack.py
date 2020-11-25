@@ -137,7 +137,6 @@ class TestPack_msg_pickle(TestCase):
         with self.assertRaises(ValueError) as e:
             pack_msg(self.data, self.dest, self.source, pub_key=self.pub_key, cipher_key=sym_key_encrypted)
 
-
     @patch('dimensigon.utils.helpers.Fernet.generate_key')
     def test_unpack_with_symmetric_key_as_parameter_and_cipher_in_msg(self, mocked_generate_key):
         mocked_generate_key.return_value = self.sym_key

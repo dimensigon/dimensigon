@@ -28,7 +28,6 @@ Create dict like servers
 """
 
 
-
 def pack_msg(data,
              destination: t.Union[Server, str] = None,
              source: t.Union[Server, str] = None,
@@ -161,5 +160,3 @@ def unpack_msg(msg, pub_key: rsa.PublicKey = None, priv_key: rsa.PrivateKey = No
         data = json.loads(unloaded_data)
 
     return data
-
-

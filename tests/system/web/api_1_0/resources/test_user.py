@@ -21,7 +21,7 @@ class TestLogResourceList(TestCaseLockBypass):
         s = Server('server', port=8000, me=True)
         db.session.add(s)
 
-        self.user = User(user='user', active=False)
+        self.user = User(name='user', active=False)
         db.session.add(self.user)
 
         db.session.commit()
@@ -36,7 +36,7 @@ class TestLogResourceList(TestCaseLockBypass):
         resp = self.client.get(url_for('api_1_0.userlist'), headers=self.auth.header)
         self.assertListEqual([self.user.to_json()], resp.get_json())
 
-        root = User(user='root')
+        root = User('root')
         db.session.add(root)
         db.session.commit()
 
@@ -90,7 +90,7 @@ class TestUserResource(TestCaseLockBypass):
         db.create_all()
         s = Server('server', port=8000, me=True)
         db.session.add(s)
-        self.user = User(user='user', active=False)
+        self.user = User('user', active=False)
         db.session.add(self.user)
         db.session.commit()
         self.auth = HTTPBearerAuth(create_access_token(self.user.id))

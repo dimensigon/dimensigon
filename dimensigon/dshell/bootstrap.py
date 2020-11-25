@@ -8,6 +8,7 @@ from dimensigon.dshell import network as ntwrk
 
 _logger = logging.getLogger('dshell')
 
+
 def load_config_file(file=None):
     data = dict(USERNAME=None, TOKEN=None, SERVER=None, PORT=None)
     config = configparser.ConfigParser()

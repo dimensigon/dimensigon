@@ -151,5 +151,5 @@ class Test(TestCase):
 
         quorum = get_servers_from_scope(scope=Scope.CATALOG)
 
-        self.assertEqual(defaults.MIN_SERVERS_QUORUM+1, len(quorum))
+        self.assertEqual(defaults.MIN_SERVERS_QUORUM + 1, len(quorum))
         self.assertIn(Server.get_current(), quorum)

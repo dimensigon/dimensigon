@@ -7,8 +7,6 @@ from prompt_toolkit import prompt
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import merge_completers
 from prompt_toolkit.history import InMemoryHistory
-from prompt_toolkit.lexers import PygmentsLexer
-from pygments.lexers.python import PythonLexer
 
 import dimensigon.dshell.network as ntwrk
 from dimensigon.domain.entities import ActionType
@@ -99,7 +97,8 @@ def subprompt(entity, changed=False, ask_all=False, parent_prompt=None):
         if namespace.cmd == 'preview':
             if namespace.subcmd == 'action':
                 if entity.get('action_template_id', None):
-                    resp = ntwrk.get('api_1_0.actiontemplateresource', view_data={'action_template_id': entity['action_template_id']})
+                    resp = ntwrk.get('api_1_0.actiontemplateresource',
+                                     view_data={'action_template_id': entity['action_template_id']})
                     dprint(resp)
                 else:
                     dprint('no action_template_id set')

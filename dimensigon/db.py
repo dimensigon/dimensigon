@@ -140,9 +140,11 @@ def _add_columns(engine, table_name, columns_def):
                     table_name,
                 )
 
+
 def _rename_table(engine, old_table_name, new_table_name):
     with engine.connect() as connection:
         connection.execute(f"ALTER TABLE {old_table_name} RENAME TO {new_table_name}")
+
 
 def _rename_columns(engine, table_name, column_renames: t.List[t.Tuple[str, str]]):
     temp_table_name = table_name + '_temp'
@@ -226,8 +228,10 @@ def _create_table(engine, table_name):
     with engine.connect() as connection:
         connection.execute(ddl)
 
+
 def _recreate_table(engine, table_name):
     _rename_columns(engine, table_name, [])
+
 
 def _create_index(engine, table_name, index_name):
     """Create an index for the specified table.
@@ -338,7 +342,6 @@ def _drop_index(engine, table_name, index_name):
             index_name,
             table_name,
         )
-
 
 
 def _apply_update(engine, new_version, old_version):
@@ -461,3 +464,5 @@ def _apply_update(engine, new_version, old_version):
             connection.execute(text("UPDATE L_parameter SET dump = null, load= null"))
     elif new_version == 8:
         _recreate_table(engine, 'D_gate')
+        _rename_columns(engine, 'D_user', [('user', 'name')])
+        _create_table(engine, 'D_vault')

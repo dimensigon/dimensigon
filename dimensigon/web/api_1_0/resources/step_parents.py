@@ -33,7 +33,6 @@ class StepRelationshipParents(Resource):
 
         return dict(parent_step_ids=[str(ps.id) for ps in s.parents]), 200
 
-
     @forward_or_dispatch()
     @jwt_required
     @securizer

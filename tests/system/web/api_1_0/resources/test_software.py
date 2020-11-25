@@ -20,7 +20,7 @@ class TestSoftwareList(TestCaseLockBypass):
         self.client = self.app.test_client()
         db.create_all()
         set_initial()
-        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+        self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
         soft1 = Software(id='11111111-2222-3333-4444-555555550001', name='Dimensigon', version='0.0.1',
                          filename='Dimensigon_0.0.1.tar.gz')
         soft2 = Software(id='11111111-2222-3333-4444-555555550002', name='Dimensigon', version='0.0.2',

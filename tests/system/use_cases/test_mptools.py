@@ -47,7 +47,6 @@ def main(die_in_secs):
         main_ctx.Proc(FoodDelivery)
         main_ctx.Proc(Diner)
 
-
         while not main_ctx.shutdown_event.is_set():
             if die_time and time.time() > die_time:
                 raise RuntimeError("Application has run too long.")

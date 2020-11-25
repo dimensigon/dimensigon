@@ -10,7 +10,6 @@ from tests.base import TestCaseLockBypass
 
 class Test(TestCaseLockBypass):
 
-
     def setUp(self):
         """Create and configure a new app instance for each test."""
         # create the app with common test config

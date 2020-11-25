@@ -23,7 +23,7 @@ else:
 Destination_Servers = t.List[t.Union[t.Tuple[Server, str], t.Tuple[Id, str], Server, Destination_Server]]
 
 
-class FileServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixin):
+class FileServerAssociation(DistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = 'D_file_server_association'  # added in SCHEMA_VERSION = 6
     order = 30
 
@@ -34,8 +34,6 @@ class FileServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixin):
 
     file = db.relationship("File")
     destination_server = db.relationship("Server")
-
-    query_class = QueryWithSoftDelete
 
     @property
     def destination_folder(self):
@@ -75,7 +73,7 @@ class FileServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixin):
             return cls(**kwargs)
 
 
-class File(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
+class File(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = 'D_file'  # added in SCHEMA_VERSION = 6
     order = 20
 
@@ -94,8 +92,7 @@ class File(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
     def __init__(self, source_server: Server, target: str,
                  dest_folder=None, destination_servers: Destination_Servers = None, **kwargs):
-        UUIDistributedEntityMixin.__init__(self, **kwargs)
-        SoftDeleteMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
         self.source_server = source_server
         self.target = target
@@ -157,5 +154,3 @@ class File(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         for d in self.destinations:
             d.delete()
         return super().delete()
-
-

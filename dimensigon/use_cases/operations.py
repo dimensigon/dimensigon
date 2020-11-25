@@ -21,10 +21,9 @@ from flask_jwt_extended import create_access_token, get_jwt_identity
 from dimensigon import defaults
 from dimensigon.domain.entities import Step, Server, Software, OrchExecution, Orchestration, Scope, Route
 from dimensigon.network.auth import HTTPBearerAuth
-from dimensigon.use_cases import routing
 from dimensigon.use_cases.lock import lock_scope
 from dimensigon.utils import subprocess
-from dimensigon.utils.helpers import get_now
+from dimensigon.utils.helpers import get_now, is_iterable_not_string
 from dimensigon.utils.typos import Kwargs
 from dimensigon.utils.var_context import Context
 from dimensigon.web import db, errors
@@ -120,9 +119,9 @@ class IOperationEncapsulation(ABC):
             return CompletedProcess(success=False, stderr=f"Error creating execution: {str(e)}", start_time=start,
                                     end_time=get_now())
 
-    def rpl_params(self, params: Kwargs, env: Kwargs):
+    def rpl_params(self, context):
         template = jinja2.Template(self.code)
-        return template.render(input=params, env=env)
+        return template.render(**context)
 
     def evaluate_result(self, cp: CompletedProcess, context=None):
         if cp.success is None:
@@ -189,7 +188,7 @@ class IOperationEncapsulation(ABC):
 class RequestOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
-        kwargs = json.loads(self.rpl_params(params, context.env))
+        kwargs = json.loads(self.rpl_params(params))
         kwargs.update(self.system_kwargs)
         cp = CompletedProcess()
         cp.set_start_time()
@@ -230,7 +229,7 @@ class NativeOperation(IOperationEncapsulation):
 class NativeSoftwareSendOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
-        params_dict = dict(params)
+        input_params = params['input']
         cp = CompletedProcess()
         cp.set_start_time()
 
@@ -259,9 +258,9 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
                 cost = 999999
             return cost
 
-        soft = Software.query.get(params_dict.get('software_id', None))
+        soft = Software.query.get(input_params.get('software_id', None))
         if not soft:
-            cp.stderr = f"software id '{params_dict.get('software_id', None)}' not found"
+            cp.stderr = f"software id '{input_params.get('software_id', None)}' not found"
             cp.success = False
             cp.set_end_time()
             return cp
@@ -270,9 +269,9 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
             cp.success = False
             cp.set_end_time()
             return cp
-        dest_server = Server.query.get(params_dict.get('server_id', None))
+        dest_server = Server.query.get(input_params.get('server_id', None))
         if not dest_server:
-            cp.stderr = f"destination server id '{params_dict.get('server_id', None)}' not found"
+            cp.stderr = f"destination server id '{input_params.get('server_id', None)}' not found"
             cp.success = False
             cp.set_end_time()
             return cp
@@ -291,12 +290,12 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
             kwargs['auth'] = auth
         data = {'software_id': soft.id, 'dest_server_id': dest_server.id, "background": False,
                 "include_transfer_data": True, "force": True}
-        if params.get('dest_path', None):
-            data.update(dest_path=params.get('dest_path', None))
-        if params.get('chunk_size', None):
-            data.update(chunk_size=params.get('chunk_size', None))
-        if params.get('max_senders', None):
-            data.update(max_senders=params.get('max_senders', None))
+        if input_params.get('dest_path', None):
+            data.update(dest_path=input_params.get('dest_path', None))
+        if input_params.get('chunk_size', None):
+            data.update(chunk_size=input_params.get('chunk_size', None))
+        if input_params.get('max_senders', None):
+            data.update(max_senders=input_params.get('max_senders', None))
         # run request
         resp = ntwrk.post(server, 'api_1_0.send', json=data, **kwargs)
         cp.stdout = flask.json.dumps(resp.msg) if isinstance(resp.msg, dict) else resp.msg
@@ -311,22 +310,27 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
 class NativeWaitOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None):
+        input_params = params['input']
         start = time.time()
         found = []
         cp = CompletedProcess()
         cp.set_start_time()
         try:
-            min_timeout = min(timeout, params.get('timeout', None))
+            min_timeout = min(timeout, input_params.get('timeout', None))
         except TypeError:
             if timeout is not None:
                 min_timeout = timeout
-            elif params.get('timeout', None) is not None:
-                min_timeout = params.get('timeout')
+            elif input_params.get('timeout', None) is not None:
+                min_timeout = input_params.get('timeout')
             else:
                 min_timeout = defaults.MAX_TIME_WAITING_SERVERS
         try:
             now = get_now()
-            pending_names = set(params.get('server_names', []))
+            server_names = input_params.get('server_names', [])
+            if not is_iterable_not_string(server_names):
+                server_names = [server_names]
+
+            pending_names = set(server_names)
             with lock_scope(Scope.CATALOG, retries=3, delay=4, applicant=context.env.get('orch_execution_id')):
                 while len(pending_names) > 0:
                     try:
@@ -348,8 +352,8 @@ class NativeWaitOperation(IOperationEncapsulation):
         else:
             if not pending_names:
                 cp.success = True
-                cp.stdout = f"Server{'s' if len(params.get('server_names', [])) > 1 else ''} " \
-                            f"{', '.join(sorted(params.get('server_names', [])))} found"
+                cp.stdout = f"Server{'s' if len(server_names) > 1 else ''} " \
+                            f"{', '.join(sorted(server_names))} found"
             else:
                 cp.success = False
                 cp.stderr = f"Server{'s' if len(pending_names) > 1 else ''} {', '.join(sorted(pending_names))} " \
@@ -361,29 +365,35 @@ class NativeWaitOperation(IOperationEncapsulation):
 class NativeDmRunningOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None):
+        input_params = params
         start = time.time()
         running = []
         cp = CompletedProcess()
         cp.set_start_time()
         try:
-            min_timeout = min(timeout, params.get('timeout', None))
+            min_timeout = min(timeout, input_params.get('timeout', None))
         except TypeError:
             if timeout is not None:
                 min_timeout = timeout
-            elif params.get('timeout', None) is not None:
-                min_timeout = params.get('timeout')
+            elif input_params.get('timeout', None) is not None:
+                min_timeout = input_params.get('timeout')
             else:
                 min_timeout = defaults.MAX_TIME_WAITING_SERVERS
 
-        pending_names = set(params.get('server_names', []))
-
+        server_names = input_params.get('server_names', [])
+        if not is_iterable_not_string(server_names):
+            server_names = [server_names]
+        pending_names = set(server_names)
+        found_names = []
         while len(pending_names) > 0:
             try:
                 found_names = db.session.query(Server.name).join(Route, Route.destination_id == Server.id).filter(
                     Server.name.in_(pending_names)).filter(Route.cost.isnot(None)).order_by(Server.name).all()
             except sqlite3.OperationalError as e:
                 if str(e) == 'database is locked':
-                    found_names = []
+                    pass
+                else:
+                    raise
             found_names = set([t[0] for t in found_names])
             pending_names = pending_names - found_names
             if pending_names and (time.time() - start) < min_timeout:
@@ -393,8 +403,8 @@ class NativeDmRunningOperation(IOperationEncapsulation):
 
         if not pending_names:
             cp.success = True
-            cp.stdout = f"Server{'s' if len(params.get('server_names', [])) > 1 else ''} " \
-                        f"{', '.join(sorted(params.get('server_names', [])))} with dimensigon running"
+            cp.stdout = f"Server{'s' if len(server_names) > 1 else ''} " \
+                        f"{', '.join(sorted(server_names))} with dimensigon running"
         else:
             cp.success = False
             cp.stderr = f"Server{'s' if len(pending_names) > 1 else ''} {', '.join(sorted(pending_names))} " \
@@ -406,33 +416,28 @@ class NativeDmRunningOperation(IOperationEncapsulation):
 class NativeDeleteOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None):
+        input_params = params
         cp = CompletedProcess()
         cp.set_start_time()
         try:
             with lock_scope(Scope.CATALOG, retries=3, delay=4, applicant=context.env.get('orch_execution_id')):
-                to_be_deleted = Server.query.filter(Server.name.in_(params.get('server_names', []))).all()
-                acquired = routing._lock.acquire(timeout=15)
-                if acquired:
-                    routing.logger.debug(
-                        f"Routing Lock acquired for deletion of servers {[s.name for s in to_be_deleted]}")
-                else:
-                    routing.logger.debug(
-                        f"Unable to lock Routing Lock. Force deletion of servers {[s.name for s in to_be_deleted]}")
-                try:
-                    for s in to_be_deleted:
-                        # remove associated routes
-                        db.session.delete(s.route)
-                        s.delete()
-                        db.session.commit()
-                finally:
-                    if acquired:
-                        routing._lock.release()
+                server_names = input_params.get('server_names', [])
+                if not is_iterable_not_string(server_names):
+                    server_names = [server_names]
+                to_be_deleted = Server.query.filter(Server.name.in_(server_names)).all()
+
+                for s in to_be_deleted:
+                    # remove associated routes
+                    db.session.delete(s.route)
+                    s.delete()
+                    db.session.commit()
+
         except errors.LockError as e:
             cp.success = False
             cp.stderr = str(e)
         except Exception as e:
             cp.success = False
-            cp.stderr = f"Unable to delete server{'s' if len(params.get('to_be_deleted', [])) > 1 else ''} " \
+            cp.stderr = f"Unable to delete server{'s' if len(input_params.get('to_be_deleted', [])) > 1 else ''} " \
                         f"{', '.join([s.name for s in to_be_deleted])}. Exception: {e}"
         else:
             cp.success = True
@@ -506,19 +511,9 @@ class NativeDeleteOperation(IOperationEncapsulation):
 
 
 class ShellOperation(IOperationEncapsulation):
-    #
-    # def _get_env(self, params):
-    #     env = {}
-    #     for k, v in dict(params).items():
-    #         if isinstance(dict, v):
-    #             env.update({k: json.dumps(v)})
-    #         else:
-    #             env.update({k: str(v)})
-    #     env.update(**os.environ)
-    #     return env
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
-        tokens = self.rpl_params(params, context.env)
+        tokens = self.rpl_params(params)
 
         system_kwargs = self.system_kwargs.copy()
 
@@ -558,12 +553,12 @@ class ShellOperation(IOperationEncapsulation):
 
 class OrchestrationOperation(IOperationEncapsulation):
 
-    def execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         from dimensigon.use_cases.deployment import deploy_orchestration
-
+        input_params = params['input']
         cp = CompletedProcess().set_start_time()
         # Validation
-        orchestration_id = params.get('orchestration_id', None)
+        orchestration_id = input_params.pop('orchestration_id', None)
         if orchestration_id is None:
             cp.stderr = "No orchestration_id specified"
             cp.success = False
@@ -576,7 +571,7 @@ class OrchestrationOperation(IOperationEncapsulation):
             cp.set_end_time()
             return cp
 
-        hosts = params.get('hosts', None)
+        hosts = input_params.pop('hosts', None)
         if hosts is None:
             cp.stderr = "No hosts specified"
             cp.success = False
@@ -595,19 +590,19 @@ class OrchestrationOperation(IOperationEncapsulation):
 
         exe = OrchExecution(orchestration_id=orchestration_id,
                             target=hosts,
-                            params=params,
-                            executor_id=context.env['executor_id'],
-                            server=Server.get_current(),
-                            parent_step_execution_id=context.env['step_execution_id'])
+                            params=input_params,
+                            executor_id=context.env.get('executor_id'),
+                            server_id=context.env.get('server_id'),
+                            parent_step_execution_id=context.env.get('step_execution_id'))
         db.session.add(exe)
         db.session.commit()
 
         cp.stdout = f"orch_execution_id={exe.id}"
 
         ctx = Context(params,
-                      dict(parent_orch_execution_id=context.env['orch_execution_id'],
+                      dict(root_orch_execution_id=context.env['root_orch_execution_id'],
                            orch_execution_id=exe.id,
-                           executor_id=context.env['executor_id']))
+                           executor_id=context.env['executor_id']), vault=context.vault)
         try:
             deploy_orchestration(orchestration=orchestration_id, hosts=hosts, var_context=ctx, execution=exe)
         except Exception as e:
@@ -621,6 +616,12 @@ class OrchestrationOperation(IOperationEncapsulation):
 
         return cp
 
+
+class TestOperation(IOperationEncapsulation):
+
+    def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
+        tokens = self.rpl_params(params)
+        return CompletedProcess(success=True, stdout=tokens, rc=0, start_time=get_now(), end_time=get_now())
 
 from dimensigon.domain.entities import ActionType
 

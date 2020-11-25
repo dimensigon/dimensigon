@@ -6,7 +6,6 @@ from enum import Enum
 from dimensigon.domain.entities.base import UUIDistributedEntityMixin, SoftDeleteMixin
 from dimensigon.utils import typos
 from dimensigon.web import db
-from dimensigon.web.helpers import QueryWithSoftDelete
 
 if t.TYPE_CHECKING:
     from dimensigon.domain.entities import Server
@@ -19,7 +18,7 @@ class Mode(Enum):
     FOLDER = 3
 
 
-class Log(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
+class Log(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = 'D_log'
 
     src_server_id = db.Column(typos.UUID, db.ForeignKey('D_server.id'), nullable=False)
@@ -37,12 +36,9 @@ class Log(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
     __table_args__ = (db.UniqueConstraint('src_server_id', 'target', 'dst_server_id'),)
 
-    query_class = QueryWithSoftDelete
-
     def __init__(self, source_server: 'Server', target: str, destination_server: 'Server', dest_folder=None,
                  include=None, exclude=None, recursive=False, mode=Mode.REPO_MIRROR, **kwargs):
-        UUIDistributedEntityMixin.__init__(self, **kwargs)
-        SoftDeleteMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
         self.source_server = source_server
         self.target = target
@@ -61,7 +57,7 @@ class Log(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     def __str__(self):
         return f"{self.source_server}:{self.target} -> {self.destination_server}:{self.dest_folder}"
 
-    def to_json(self, human=False, delete_data=True, include: t.List[str] = None, exclude: t.List[str] = None):
+    def to_json(self, human=False, include: t.List[str] = None, exclude: t.List[str] = None):
         data = super().to_json()
         if self.source_server.id is None or self.destination_server.id is None:
             raise RuntimeError('Set ids for servers before')

@@ -31,7 +31,7 @@ class TestLaunchCommand(TestCase):
         set_initial(server=False)
         User.set_initial()
 
-        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+        self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
         server = Server('node1', port=8000, me=True, granules='granule')
         db.session.add_all([server, self.dim])
         db.session.commit()
@@ -117,7 +117,7 @@ class TestLaunchCommand(TestCase):
 
         self.assertEqual(2, mock_popen.call_count)
 
-        self.assertTupleEqual((wrap_sudo('root', ['ls', '-l']), ), mock_popen.call_args[0])
+        self.assertTupleEqual((wrap_sudo('root', ['ls', '-l']),), mock_popen.call_args[0])
 
         resp = self.client.post(url_for('api_1_0.launch_command'),
                                 json={"command": "ls -l", "hosts": [self.json_node2['id']], 'timeout': 1},
@@ -158,8 +158,6 @@ class TestLaunchCommand(TestCase):
                                      'stdout': '', 'stderr': ''},
              },
             resp.get_json())
-
-
 
     def test_launch_command_rm_recursive(self):
         resp = self.client.post(url_for('api_1_0.launch_command'),

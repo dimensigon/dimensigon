@@ -24,14 +24,14 @@ class Test(TestCase):
         self.app_context.pop()
 
     def test_verify_password(self):
-        u = User(user='root', email=None, groups=['adm', 'dev'])
+        u = User('root', email=None, groups=['adm', 'dev'])
         u.set_password('test')
         self.assertIsNotNone(u._password)
 
         self.assertTrue(u.verify_password('test'))
 
     def test_to_from(self):
-        u = User(user='root', email=None, groups=['adm', 'dev'])
+        u = User('root', email=None, groups=['adm', 'dev'])
         db.session.add(u)
 
         u_json = u.to_json(password=True)
@@ -56,7 +56,7 @@ class Test(TestCase):
         self.assertEqual(u.groups, smashed.groups)
 
     def test_to_from_no_password(self):
-        u = User(user='root', email=None, groups=['adm', 'dev'])
+        u = User('root', email=None, groups=['adm', 'dev'])
         db.session.add(u)
 
         u_json = u.to_json()
@@ -81,5 +81,3 @@ class Test(TestCase):
         self.assertEqual(u.created_at, smashed.created_at)
         self.assertEqual(u.email, smashed.email)
         self.assertEqual(u.groups, smashed.groups)
-
-

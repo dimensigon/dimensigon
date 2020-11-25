@@ -28,7 +28,7 @@ class TestForwardOrDispatch(TestCase, ValidateResponseMixin):
         @forward_or_dispatch()
         def hello():
             return {'msg': 'default response'}
-        
+
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client()
@@ -67,7 +67,6 @@ class TestForwardOrDispatch(TestCase, ValidateResponseMixin):
         self.assertEqual({'msg': 'default response'}, response.json)
 
         self.assertEqual(1, len(responses.calls))
-
 
     @patch('dimensigon.web.decorators.g')
     @responses.activate
@@ -115,7 +114,6 @@ class TestForwardOrDispatch(TestCase, ValidateResponseMixin):
         self.assertEqual('10.1.2.3', str(hg.ip))
         self.assertEqual(7124, hg.port)
 
-
         response = self.client.post('/', json={'data': None},
                                     headers={'D-Destination': 'bbbbbbbb-1234-5678-1234-56781234bbb1',
                                              'D-Source': 'bbbbbbbb-1234-5678-1234-56781234bbb2'},
@@ -126,7 +124,6 @@ class TestForwardOrDispatch(TestCase, ValidateResponseMixin):
         self.assertEqual(1, len(self.srv2.hidden_gates))
         self.assertEqual('10.1.2.4', str(hg.ip))
         self.assertEqual(7124, hg.port)
-
 
     @patch('dimensigon.web.decorators.g')
     def test_forward_or_dispatch_hidden_ip_multiple_ports(self, mock_g):

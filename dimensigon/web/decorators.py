@@ -6,7 +6,7 @@ import logging
 import socket
 import time
 import typing as t
-import multiprocessing as mp
+
 import requests
 import rsa
 from flask import current_app, url_for, g, request
@@ -14,7 +14,7 @@ from flask_jwt_extended import get_jwt_claims
 from jsonschema import validate
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate, bypass_datamark_update
+from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate
 from dimensigon.network.exceptions import NotValidMessage
 from dimensigon.use_cases.helpers import get_servers_from_scope, get_root_auth
 from dimensigon.use_cases.lock import lock_scope
@@ -68,7 +68,7 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
                         if resp.ok:
                             break
                     else:
-                        logger.error(f"Unable to create external gate {server}->{remote_addr}." 
+                        logger.error(f"Unable to create external gate {server}->{remote_addr}."
                                      f" Reason: {resp}" if resp else "")
                     # create local to be able to contact node in case needed
                     # with bypass_datamark_update():
@@ -86,7 +86,6 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
 
 def _proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
-
     url = destination.url() + request.full_path
     req_data = request.get_json()
 
@@ -201,7 +200,7 @@ def securizer(func):
         if 'D-Securizer' in request.headers:
             securizer_method = request.headers.get('D-Securizer')
             if securizer_method == 'plain' and not current_app.config.get('SECURIZER_PLAIN', False):
-                    return {'error': 'plain data is not allowed'}, 406
+                return {'error': 'plain data is not allowed'}, 406
 
         if request.method != 'GET':
             if request.is_json:
@@ -209,11 +208,13 @@ def securizer(func):
                     pass
                 else:
                     g.original_json = request.get_json()
-                    cipher_key = base64.b64decode(request.get_json().get('key')) if 'key' in request.get_json() else cipher_key
+                    cipher_key = base64.b64decode(
+                        request.get_json().get('key')) if 'key' in request.get_json() else cipher_key
                     # session['cipher_key'] = cipher_key
                     try:
                         if request.path in url_for('api_1_0.join'):
-                            temp_pub_key = rsa.PublicKey.load_pkcs1(request.get_json().pop('my_pub_key').encode('ascii'))
+                            temp_pub_key = rsa.PublicKey.load_pkcs1(
+                                request.get_json().pop('my_pub_key').encode('ascii'))
                             data = ntwrk.unpack_msg2(data=request.get_json(),
                                                      pub_key=temp_pub_key,
                                                      priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
@@ -285,7 +286,9 @@ def validate_schema(schema_name=None, **methods):
             if schema:
                 validate(request.get_json(), schema)
             return f(*args, **kw)
+
         return wrapper
+
     return decorator
 
 
@@ -349,7 +352,7 @@ def run_as(username: str):
                 ctx = app.app_context()
                 ctx.push()
             try:
-                user = User.get_by_user(username)
+                user = User.get_by_name(username)
                 if user is None:
                     raise errors.EntityNotFound("User", username, ['name'])
                 from flask_jwt_extended.utils import ctx_stack
@@ -369,6 +372,7 @@ def run_as(username: str):
 
 logger = logging.getLogger('dm.time')
 
+
 def log_time(tag=''):
     def decorator(f):
         @functools.wraps(f)
@@ -379,6 +383,7 @@ def log_time(tag=''):
             logger.debug(
                 f"{getattr(f, '__name__', '')}{f' ({tag}) ' if tag else ' '}took {elapsed} seconds to complete")
             return r
+
         return wrapper
 
     return decorator

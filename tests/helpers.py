@@ -22,6 +22,7 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon import defaults
 from dimensigon.domain.entities import update_datemark
+from dimensigon.use_cases.operations import CompletedProcess
 from dimensigon.utils.helpers import get_entities, get_distributed_entities
 from dimensigon.web import db
 
@@ -77,8 +78,6 @@ def captured_output() -> t.Tuple[StringIO, StringIO]:
         yield sys.stdout, sys.stderr
     finally:
         sys.stdout, sys.stderr = old_out, old_err
-
-
 
 
 def authorization_header(identity='test'):
@@ -177,3 +176,5 @@ def set_test_scoped_session(db_, func=app_scope, check_same_thread=False):
     connect_args.update(check_same_thread=check_same_thread)
     db_._engine_options['connect_args'] = connect_args
     db_.session = db_.create_scoped_session(dict(scopefunc=func))
+
+

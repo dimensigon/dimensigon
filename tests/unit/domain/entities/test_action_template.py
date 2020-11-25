@@ -30,7 +30,6 @@ class TestApi(TestCase):
         at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='ActionTest2', version=1,
                             action_type=ActionType.ORCHESTRATION,
                             code='test code',
-                            parameters={'dir': '/home'},
                             last_modified_at=now)
 
         db.session.add(at)
@@ -38,7 +37,7 @@ class TestApi(TestCase):
         at_json = at.to_json()
 
         self.assertDictEqual(dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='ActionTest2', version=1,
-                                  action_type='ORCHESTRATION', code='test code', parameters={'dir': '/home'},
+                                  action_type='ORCHESTRATION', code='test code',
                                   last_modified_at=now.strftime(defaults.DATEMARK_FORMAT)), at_json)
 
         at_json['name'] = "ChangedAction"

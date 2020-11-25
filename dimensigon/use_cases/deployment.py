@@ -1,5 +1,6 @@
 import base64
 import concurrent
+import copy
 import datetime
 import functools
 import json
@@ -18,13 +19,9 @@ from contextlib import contextmanager
 from functools import partial
 
 import jsonschema
-import yaml
-from RestrictedPython import compile_restricted, safe_builtins
-from RestrictedPython.Eval import default_guarded_getiter
-from RestrictedPython.Guards import full_write_guard
-from flask import current_app, Flask, has_app_context, g
+from flask import current_app, has_app_context, g
 from flask_jwt_extended import create_access_token
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, scoped_session
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Orchestration, Step, StepExecution, OrchExecution, User, Scope
@@ -36,7 +33,7 @@ from dimensigon.utils.event_handler import Event
 from dimensigon.utils.helpers import get_now, format_exception
 from dimensigon.utils.typos import Id
 from dimensigon.utils.var_context import Context
-from dimensigon.web import db, errors, executor
+from dimensigon.web import db, errors, executor, DimensigonFlask
 from dimensigon.web.network import post
 
 # if t.TYPE_CHECKING:
@@ -56,6 +53,7 @@ def exec_safe(code, locals=None):
     #                  '_getiter_': default_guarded_getiter},
     #      locals)
     exec(code, {}, locals)
+
 
 class ICommand(ABC):
 
@@ -135,6 +133,18 @@ def elapsed_times(tag):
     return decorator
 
 
+def extract_container_var(var):
+    if var.startswith('input.'):
+        source = var.split('.', 1)[1]
+        container_name = 'input'
+    elif '.' not in var:
+        source = var
+        container_name = 'input'
+    else:
+        container_name, source = var.split('.', 1)
+    return container_name, source
+
+
 class ImplementationCommand(ICommand):
 
     def __init__(self, implementation: IOperationEncapsulation,
@@ -148,7 +158,7 @@ class ImplementationCommand(ICommand):
         super().__init__(id_)
         self.implementation = implementation
         self.var_context = var_context
-        self.params = {}
+        self.params = DictDict()
         self.register = register
         self.step_execution_id = None
         self.pre_post_error = None
@@ -157,6 +167,7 @@ class ImplementationCommand(ICommand):
         self.signature = signature or {}
         self._elapsed_times = {}
         self._cp: CompletedProcess = None
+
 
     def create_step_execution(self):
         if self.register:
@@ -178,45 +189,72 @@ class ImplementationCommand(ICommand):
                 self._cp = CompletedProcess(success=False, stderr=f"Pre-Process error: {format_exception(e)}")
 
     def extract_params(self):
+        """
+        Turns over only params from var context to params
+        :return:
+        """
+        reserved_words = ['mapping', 'required', 'output']
         if not self._cp:
             try:
                 if self.signature:
-                    self.params = {}
+                    # get required variables
+                    required = DictSet()
+                    for r in self.signature.get('required', []):
+                        container_name, var = extract_container_var(r)
+                        required[container_name].add(var)
+                        # del container_name
+                    # containers in signature
+                    container_names = [k for k in self.signature.keys() if k not in reserved_words]
+                    # add containers to turn over params from required
+                    container_names = set(container_names) | set(required.keys())
+
+                    # resolve mapping values
                     for dest, value in self.signature.get('mapping', {}).items():
                         if isinstance(value, dict) and len(value) == 1 and 'from' in value:
                             action, source = tuple(value.items())[0]
-                            if source.startswith('env.'):
-                                source = source.split('.', 1)[1]
-                                container = self.var_context.env
-                            elif source.startswith('input.'):
-                                source = source.split('.', 1)[1]
-                                container = self.var_context
-                            else:
-                                container = self.var_context
+                            container_name, var = extract_container_var(source)
                             try:
-                                self.params[dest] = container.__getitem__(source)
+                                self.params['input'].update({dest: getattr(self.var_context, container_name, {})[var]})
                             except KeyError:
-                                if dest in self.signature.get('required', []):
+                                if dest in required.get('input', []):
                                     se = StepExecution.query.get(self.step_execution_id)
-                                    raise errors.MissingParameters(['source'],
+                                    raise errors.MissingParameters([source],
                                                                    se.step, se.server)
                         else:
-                            self.params[dest] = value
-                    for key, value in self.signature.get('input', {}).items():
-                        if key not in self.params:
-                            try:
-                                self.params[key] = self.var_context[key]
-                            except KeyError:
-                                if 'default' in value:
-                                    self.params[key] = value['default']
-                                elif key in self.signature.get('required', []):
-                                    raise errors.MissingParameters([key], Step.query.get(self.id[1]),
+                            self.params['input'][dest] = value
+
+                    schema2validate = {}
+                    for container_name in container_names:
+                        schema2validate.update(
+                            {container_name: dict(type="object", properties=self.signature.get(container_name, {}),
+                                                  required=list(required[container_name]))})
+                        for var, value in self.signature.get(container_name, {}).items():
+                            if var not in self.params[container_name]:
+                                try:
+                                    self.params[container_name].update(
+                                        {var: getattr(self.var_context, container_name, {})[var]})
+                                except KeyError:
+                                    if 'default' in value:
+                                        self.params[var] = value['default']
+                                    elif var in required.get(container_name, []):
+                                        raise errors.MissingParameters([f"{container_name}.{var}"],
+                                                                       Step.query.get(self.id[1]),
+                                                                       Server.query.get(self.id[0]))
+                        # add variables specified in required
+                        for var in required.get(container_name, []):
+                            if var not in self.params[container_name]:
+                                try:
+                                    self.params[container_name].update(
+                                        {var: getattr(self.var_context, container_name, {})[var]})
+                                except KeyError:
+                                    raise errors.MissingParameters([f"{container_name}.{var}"],
+                                                                   Step.query.get(self.id[1]),
                                                                    Server.query.get(self.id[0]))
-                    if self.signature.get('input'):
-                        jsonschema.validate(self.params, dict(type="object", properties=self.signature.get('input'),
-                                                              required=self.signature.get('required', [])))
+
+                    if schema2validate:
+                        jsonschema.validate(self.params, schema2validate)
                 else:
-                    self.params = dict(self.var_context)
+                    self.params = self.var_context.dict()
             except KeyError as e:
                 self._cp = CompletedProcess(success=False, stderr=f"Variable {e} not found")
             except jsonschema.ValidationError as e:
@@ -324,7 +362,6 @@ class Command(ImplementationCommand):
         self.undo_on_error = undo_on_error
         self._cp: t.Optional[CompletedProcess] = None
 
-
     @property
     def result(self) -> t.Dict[Id, CompletedProcess]:
         e = {}
@@ -401,6 +438,8 @@ class CompositeCommand(ICommand):
             return False
 
     def invoke(self, timeout=None) -> bool:
+        # logging.basicConfig(format='%(threadName)s %(levelname)-8s %(message)s')
+        # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
         res = []
         stop = False
         level = 1
@@ -565,7 +604,6 @@ class ProxyImplementationMixin(ImplementationCommand):
         self.__dict__['_completion_event'] = threading.Event()
         self.__dict__['timeout'] = timeout
         self.__dict__['_command'] = None
-
 
     #
     # proxying (special cases)
@@ -809,7 +847,7 @@ ORCH_EXEC_PATTERN = re.compile(r"^orch_execution_id=([a-zA-Z0-9-]{36})$")
 
 
 class RegisterStepExecution:
-    def __init__(self, orch_execution: OrchExecution, app: Flask = None):
+    def __init__(self, orch_execution: OrchExecution, app: DimensigonFlask = None):
         if app:
             self.app = app
         else:
@@ -817,117 +855,173 @@ class RegisterStepExecution:
 
         self.json_orch_execution = orch_execution.to_json()  # json_orch_execution property is used when running ProxyCommand
         self._store: t.Dict[Id, StepExecution] = OrderedDict()
-        engine = db.get_engine()
-        self.Session = sessionmaker(bind=engine)
+        if hasattr(app, 'dm') and getattr(app.dm, 'engine'):
+            engine = app.dm.engine
+        else:
+            engine = db.get_engine()
+        self.Session = sessionmaker(bind=engine, autoflush=False)
+
+        # def receive_after_transaction_create(session: Session, transaction:SessionTransaction):
+        #     print(f"Created transaction {transaction}{transaction._state}({transaction.parent}) on session {session}()")
+        #
+        # def receive_after_transaction_end(session, transaction):
+        #     print(f"Ended transaction {transaction}{transaction._state}({transaction.parent}) on session {session}")
+        #
+        # from sqlalchemy import event
+        # event.listen(self.Session, 'after_transaction_create', receive_after_transaction_create)
+        # event.listen(self.Session, 'after_transaction_end', receive_after_transaction_end)
+
+    @property
+    def id(self):
+        return self.json_orch_execution.get('id')
 
     @contextmanager
     def session_scope(self):
         """Provide a transactional scope around a series of operations."""
-        ctx = None
-        if not has_app_context():
-            ctx = self.app.app_context()
-            ctx.push()
-
+        session = self.Session()
         try:
-            session = self.Session()
-            try:
-                yield session
-                session.commit()
-            except:
-                session.rollback()
-                logger.exception("Unable to commit")
-            finally:
-                session.close()
+            yield session
+            session.flush()
+            session.commit()
+        except:
+            session.rollback()
+            logger.exception("Unable to commit")
         finally:
-            if ctx:
-                ctx.pop()
+            session.close()
 
     def update_orch_execution(self, **kwargs):
         with self.session_scope() as s:
             orch_execution = s.query(OrchExecution).get(self.json_orch_execution.get('id'))
             for key, value in kwargs.items():
                 setattr(orch_execution, key, value)
-            s.commit()
             self.json_orch_execution = orch_execution.to_json()
 
     def create_step_execution(self, command):
-        ident = uuid.uuid4()
-        se = StepExecution(id=ident, step_id=command.id[1],
-                           server_id=command.id[0], orch_execution_id=self.json_orch_execution.get('id'),
-                           start_time=get_now())
+        ident = str(uuid.uuid4())
+        with self.session_scope() as s:
+            se = StepExecution(id=ident, step_id=command.id[1],
+                               server_id=command.id[0], orch_execution_id=self.json_orch_execution.get('id'),
+                               start_time=get_now())
+            s.add(se)
         self._store[ident] = se
         return ident
 
     def save_step_execution(self, command: ImplementationCommand, params=None, pre_process_time=None,
                             execution_time=None,
                             post_process_time=None):
-        se = self._store[command.step_execution_id]
-        se.load_completed_result(command._cp)
-        se.params = params
-        se.pre_process_elapsed_time = pre_process_time
-        se.execution_elapsed_time = execution_time
-        se.post_process_elapsed_time = post_process_time
-        se.end_time = get_now()
-        if command._cp.stdout and ORCH_EXEC_PATTERN.match(command._cp.stdout):
-            se.child_orch_execution_id = ORCH_EXEC_PATTERN.findall(command._cp.stdout)[0]
+        with self.session_scope() as s:
+            se = s.merge(self._store[command.step_execution_id])
+            se.load_completed_result(command._cp)
+            se.params = params
+            se.pre_process_elapsed_time = pre_process_time
+            se.execution_elapsed_time = execution_time
+            se.post_process_elapsed_time = post_process_time
+            se.end_time = get_now()
+            if command._cp.stdout and ORCH_EXEC_PATTERN.match(command._cp.stdout):
+                se.child_orch_execution_id = ORCH_EXEC_PATTERN.match(command._cp.stdout)[0]
 
     def commit_data(self):
-        if self._store:
-            with self.session_scope() as s:
-                for step in self._store.values():
-                    s.add(step)
-                try:
-                    s.commit()
-                except:
-                    s.rollback()
-                    logger.exception("Unable to commit data")
-                else:
-                    self._store.clear()
+        pass
+        # if self._store:
+        #     with self.session_scope() as s:
+        #         for step in self._store.values():
+        #             s.add(step)
+        #         try:
+        #             s.commit()
+        #         except:
+        #             s.rollback()
+        #             logger.exception("Unable to commit data")
+        #         else:
+        #             self._store.clear()
 
 
-def validate_input_chain(validatable: t.Union[Orchestration, Step], params: t.Iterable[str]) -> \
+class DictSet(dict):
+
+    def __getitem__(self, item):
+        if item not in self:
+            super().__setitem__(item, set())
+        return super().__getitem__(item)
+
+    def __sub__(self, other):
+        missing = []
+        for c, v in self.items():
+            m = v - other[c]
+            missing.extend([f"{c}.{vv}" for vv in m])
+        return missing
+
+
+class DictDict(dict):
+
+    def __getitem__(self, item):
+        if item not in self:
+            super().__setitem__(item, {})
+        return super().__getitem__(item)
+
+    def __sub__(self, other):
+        missing = []
+        for c, v in self.items():
+            m = v - other[c]
+            missing.extend([f"{c}.{vv}" for vv in m])
+        return missing
+
+
+def validate_input_chain(validatable: t.Union[Orchestration, Step], params: t.Dict[str, set]) -> \
         t.Dict[Step, t.Set[str]]:
     """validates against the validatable that params have all needed parameters
 
     Parameters
     ----------
     validatable: object that carries the schema
-    params:      input key parameters
+    params:      dict with variables grouped by container
 
     Returns
     -------
     returns a dict like object with all missed parameters per step
     """
+
+    def split_container(_var):
+        if '.' in var:
+            c_name, v_name = var.split('.', 1)
+        else:
+            c_name, v_name = 'input', var
+        return c_name, v_name
+
     iterable = validatable.root if isinstance(validatable, Orchestration) else validatable.children
     not_found = {}
-    params = set(params)
+    if not isinstance(params, DictSet):
+        params = DictSet(params)
+    current_params = DictSet(copy.deepcopy(params))
     for step in iterable:
-        required_input_params = set(step.schema.get('required', []))
+        p = set(step.schema.get('required', []))
+        required_params = DictSet()
+        for var in p:
+            if '.' in var:
+                container_name, var_name = var.split('.', 1)
+            else:
+                container_name, var_name = 'input', var
+            required_params[container_name].add(var_name)
+
         m = step.schema.get('mapping', {})
-        constant_params = []
-        env_params = []
         if m:
-            mapped_params = {}
             for dest, value in m.items():
                 if isinstance(value, dict) and len(value) == 1 and 'from' in value:
                     action, source = tuple(value.items())[0]
-                    if source.startswith('env.'):
-                        env_params.append(dest)
-                    else:
-                        mapped_params.update({source: dest})
+                    if dest in required_params['input']:
+                        current_params['input'].add(dest)
+                        # add source as required
+                        container_name, var_name = split_container(source)
+                        required_params[container_name].add(var_name)
                 else:
-                    constant_params.append(dest)
-            input_params = set([mapped_params.get(p, p) for p in params])
-        else:
-            input_params = set(params)
+                    current_params['input'].add(dest)
 
         missing = required_input_params - set(input_params) - set(constant_params) - set(env_params)
         if missing:
             raise errors.MissingParameters(list(missing), step)
 
         out_params = set(step.schema.get('output', []))
+        params['input'].update(out_params)
 
-        r_not_found = validate_input_chain(step, params=params | out_params)
+        r_not_found = validate_input_chain(step, params=params)
         not_found.update(r_not_found)
     return not_found
 
@@ -952,7 +1046,7 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
         lock_retries: tries to lock for orchestration N times
         lock_delay: delay between retries
     Returns:
-        dict: dict with tuple ids and the :class: CompletedProcess
+        OrchExecution ID
 
     Raises:
         Exception: if anything goes wrong
@@ -963,11 +1057,9 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
     if not isinstance(orchestration, Orchestration):
         orchestration = db.session.query(Orchestration).get(orchestration)
     if not isinstance(execution, OrchExecution):
-
+        exe = None
         if execution is not None:
             exe = db.session.query(OrchExecution).get(execution)
-        else:
-            exe = db.session.query(OrchExecution).get(var_context.get('execution_id'))
         if exe is None:
             if not isinstance(executor, User):
                 executor = db.session.query(User).get(executor)
@@ -1028,7 +1120,8 @@ def _deploy_orchestration(orchestration: Orchestration,
     all = [str(s) for s in hosts['all']]
     servers = Server.query.filter(Server.id.in_(all)).all()
     try:
-        applicant = lock.lock(Scope.ORCHESTRATION, servers, execution.id, retries=lock_retries, delay=lock_delay)
+        applicant = lock.lock(Scope.ORCHESTRATION, servers, applicant=var_context.env.get('root_orch_execution_id'),
+                              retries=lock_retries, delay=lock_delay)
     except errors.LockError as e:
         kwargs.update(success=False, message=str(e))
         rse.update_orch_execution(**kwargs)
@@ -1049,8 +1142,6 @@ def _deploy_orchestration(orchestration: Orchestration,
             pass
 
     finally:
-
         lock.unlock(Scope.ORCHESTRATION, applicant=applicant, servers=servers)
 
-    db.session.refresh(execution)
-    return execution
+    return execution.id

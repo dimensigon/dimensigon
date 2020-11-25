@@ -24,7 +24,7 @@ class Test(TestCase, ValidateResponseMixin):
         self.client = self.app.test_client()
         db.create_all()
         set_initial()
-        self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+        self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
 
         self.source_path = '/software'
         self.filename = 'filename.zip'

@@ -3,21 +3,20 @@ from dimensigon.web.config import Config
 data1 = {
     'ActionTemplateRepo': [
         dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1, action_type='SHELL',
-             code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+             code='mkdir {dir}', expected_output=None, expected_rc=None,
              system_kwargs={}, data_mark='20190101000530100000'),
         dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', name='rmdir', version=1, action_type='SHELL',
-             code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+             code='rmdir {dir}', expected_output=None, expected_rc=None,
              system_kwargs={}, data_mark='20190101000530100000')
     ],
     'StepRepo': [
         dict(id='eeeeeeee-1234-5678-1234-56781234eee1', undo=False, stop_on_error=True,
              action_template='aaaaaaaa-1234-5678-1234-56781234aaa1',
-             step_expected_output=None, step_expected_rc=0, step_parameters={'dir': 'folder'}, step_system_kwargs=None,
+             step_expected_output=None, step_expected_rc=0, step_system_kwargs=None,
              data_mark='20190101000530100000'),
         dict(id='eeeeeeee-1234-5678-1234-56781234eee2', undo=True, stop_on_error=True,
              action_template='aaaaaaaa-1234-5678-1234-56781234aaa2',
-             step_expected_output=None, step_expected_rc=0, step_parameters={'dir': 'folder'},
-             step_system_kwargs=None, data_mark='20190101000530100000')
+             step_expected_output=None, step_expected_rc=0,              step_system_kwargs=None, data_mark='20190101000530100000')
     ],
     'OrchestrationRepo': [
         dict(id='cccccccc-1234-5678-1234-56781234ccc1', name='create folder', version=1,
@@ -47,27 +46,26 @@ data1 = {
 
 data2 = {'ActionTemplateRepo': [
     dict(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1, action_type='SHELL',
-         code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+         code='mkdir {dir}', xpected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000532100000'),
     dict(id='aaaaaaaa-1234-5678-1234-56781234aaa2', name='rmdir', version=1, action_type='SHELL',
-         code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+         code='rmdir {dir}', expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000530100000'),
     dict(id='aaaaaaaa-1234-5678-1234-56781234aaa3', name='install mysql', version=1, action_type='SHELL',
-         code='yum install mysql', parameters={}, expected_output=None, expected_rc=None,
+         code='yum install mysql', expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000531100000'),
     dict(id='aaaaaaaa-1234-5678-1234-56781234aaa4', name='start mysql', version=1, action_type='SHELL',
-         code='service start mysql', parameters={}, expected_output=None, expected_rc=None,
+         code='service start mysql', expected_output=None, expected_rc=None,
          system_kwargs={}, data_mark='20190101000531100000')
 ],
     'StepRepo': [
         dict(id='eeeeeeee-1234-5678-1234-56781234eee1', undo=False, stop_on_error=True,
              action_template='aaaaaaaa-1234-5678-1234-56781234aaa1',
-             step_expected_output=None, step_expected_rc=0, step_parameters={'dir': 'folder'}, step_system_kwargs=None,
+             step_expected_output=None, step_expected_rc=0, step_system_kwargs=None,
              data_mark='20190101000530100000'),
         dict(id='eeeeeeee-1234-5678-1234-56781234eee2', undo=True, stop_on_error=True,
              action_template='aaaaaaaa-1234-5678-1234-56781234aaa2',
-             step_expected_output=None, step_expected_rc=0, step_parameters={'dir': 'folder'},
-             step_system_kwargs=None, data_mark='20190101000530100000'),
+             step_expected_output=None, step_expected_rc=0,              step_system_kwargs=None, data_mark='20190101000530100000'),
         dict(id='eeeeeeee-1234-5678-1234-56781234eee3', undo=False, stop_on_error=True,
              action_template='aaaaaaaa-1234-5678-1234-56781234aaa3',
              step_expected_output=None, step_expected_rc=0, step_parameters={}, step_system_kwargs=None,

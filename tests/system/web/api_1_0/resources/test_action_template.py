@@ -97,4 +97,3 @@ class TestActionTemplate(TestCase):
              "name": "mkdir",
              "version": 1
              }, response.get_json())
-

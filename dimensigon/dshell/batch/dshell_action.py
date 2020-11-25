@@ -29,15 +29,14 @@ Options:
 import json
 import os
 import sys
-from pprint import pprint
 
 import yaml
-from dimensigon.dshell.output import dprint
 from docopt import docopt
 from schema import Schema, Or, And, Use, SchemaError
 
 import dimensigon.dshell.network as ntwrk
 from dimensigon.dshell.commands import action_list
+from dimensigon.dshell.output import dprint
 from dimensigon.dshell.utils import clean_none
 
 action_template_schema = Schema(

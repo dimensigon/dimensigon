@@ -39,7 +39,7 @@ class TestGate(TestCase):
         s = Server('test', id='aaaaaaaa-1234-5678-1234-56781234aaa1')
         g = Gate(server=s, dns='dns', port=8, id='aaaaaaaa-1234-5678-1234-56781234aaa2')
 
-        g_json = g.to_json()
+        g_json = g.to_json(no_delete=True)
         self.assertDictEqual(
             {'server_id': 'aaaaaaaa-1234-5678-1234-56781234aaa1', 'dns': 'dns', 'ip': None, 'port': 8, 'hidden': False,
              'id': 'aaaaaaaa-1234-5678-1234-56781234aaa2'}, g_json)
@@ -61,7 +61,7 @@ class TestGate(TestCase):
         db.session.add(g_smashed)
         db.session.commit()
 
-        g_json = g.to_json()
+        g_json = g.to_json(no_delete=True)
 
         self.assertEqual(
             {'id': 'aaaaaaaa-1234-5678-1234-56781234aaa2', 'server_id': 'aaaaaaaa-1234-5678-1234-56781234aaa1',

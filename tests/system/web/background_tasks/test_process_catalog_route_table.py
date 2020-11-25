@@ -34,7 +34,7 @@ class TestProcessCatalogRouteTable(TestCase):
             Locker.set_initial()
             User.set_initial()
 
-            self.auth = HTTPBearerAuth(create_access_token(User.get_by_user('root').id))
+            self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
 
             server = Server('node1', dns_or_ip='127.0.0.1', port=8000, me=True)
             for g in server.gates:
@@ -94,7 +94,6 @@ class TestProcessCatalogRouteTable(TestCase):
             db.session.remove()
             db.drop_all()
 
-
     @responses.activate
     @aioresponses()
     @patch('dimensigon.web.background_tasks.update_route_table_cost', return_value=True)
@@ -113,5 +112,3 @@ class TestProcessCatalogRouteTable(TestCase):
         with self.app.app_context():
             datemark = Catalog.max_catalog()
         self.assertEqual(dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc), datemark.astimezone(dt.timezone.utc))
-
-

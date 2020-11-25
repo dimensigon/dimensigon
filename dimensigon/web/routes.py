@@ -9,7 +9,7 @@ from dimensigon import defaults
 from dimensigon.domain.entities import Server, Catalog, User
 from dimensigon.utils.helpers import get_now
 from dimensigon.web import errors
-from dimensigon.web.decorators import forward_or_dispatch, validate_schema, securizer, log_time
+from dimensigon.web.decorators import forward_or_dispatch, validate_schema, securizer
 from dimensigon.web.helpers import check_param_in_uri
 from dimensigon.web.json_schemas import login_post, healthcheck_post
 
@@ -52,8 +52,10 @@ def healthcheck():
     else:
         server = g.server.name
         neighbours = sorted([s.name for s in Server.get_neighbours()])
-        cluster = {'alive': sorted([getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_alive()]),
-                   'in_coma': sorted([getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_zombies()])}
+        cluster = {'alive': sorted(
+            [getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_alive()]),
+                   'in_coma': sorted(
+                       [getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_zombies()])}
     data.update(server=server, neighbours=neighbours, cluster=cluster,
                 now=get_now().strftime(defaults.DATETIME_FORMAT))
 
@@ -77,7 +79,7 @@ def ping():
 @forward_or_dispatch()
 @validate_schema(login_post)
 def login():
-    user = User.get_by_user(user=request.get_json().get('username', None))
+    user = User.get_by_name(name=request.get_json().get('username', None))
     password = request.get_json().get('password', None)
     try:
         if not user or not user.verify_password(password):
@@ -100,7 +102,7 @@ def login():
 def refresh():
     user = User.query.get(get_jwt_identity())
     ret = {
-        'username': getattr(user, 'user', None),
+        'username': getattr(user, 'name', None),
         'access_token': create_access_token(identity=get_jwt_identity(), fresh=False)
     }
     return jsonify(ret), 200

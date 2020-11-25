@@ -67,7 +67,6 @@ class TestUpdateRouteTableCost(TestCase):
             elif host == 'node3':
                 return True
 
-
         mocked_async_check_host.side_effect = async_check_host
 
         changed_routes = asyncio.run(
@@ -555,7 +554,6 @@ class TestUpdateRouteTableFromData(TestCase):
         Route(s2, g2, cost=0)
         db.session.add_all([s1, s2, s3])
         db.session.commit()
-
 
         def check_host(host, port, *args, **kwargs):
             if host == 'node1':

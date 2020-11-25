@@ -1,11 +1,11 @@
-import multiprocessing as mp
 import logging
+import multiprocessing as mp
 import threading
 from datetime import datetime
 
-from sqlalchemy.exc import OperationalError
 from flask import request, current_app, g, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from sqlalchemy.exc import OperationalError
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Catalog
@@ -17,6 +17,7 @@ from dimensigon.web.helpers import transaction
 from dimensigon.web.json_schemas import locker_prevent_post, locker_unlock_lock_post
 
 logger = logging.getLogger('dm.lock')
+
 
 @api_bp.route('/locker', methods=['GET'])
 @forward_or_dispatch()
@@ -86,7 +87,9 @@ def locker_prevent():
     else:
         raise errors.StatusLockerError(l.scope, 'P', l.state)
 
+
 counter = mp.Value('i', 0)
+
 
 @api_bp.route('/locker/lock', methods=['POST'])
 @forward_or_dispatch()

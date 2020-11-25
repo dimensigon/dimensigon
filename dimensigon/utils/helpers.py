@@ -5,7 +5,9 @@ import inspect
 import itertools
 import logging
 import os
+import random
 import re
+import string
 import sys
 import traceback
 import typing as t
@@ -27,7 +29,7 @@ class Singleton(type):
 
     def __call__(cls, *args, **kwargs):
         if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton, cls)\
+            cls._instances[cls] = super(Singleton, cls) \
                 .__call__(*args, **kwargs)
         return cls._instances[cls]
 
@@ -314,6 +316,7 @@ def get_ips(ipv4=True, ipv6=False) -> t.List[t.Tuple[str, int]]:
                     ips.append(ip)
     return ips
 
+
 def bind2gate(bind: t.List[str]) -> t.List[t.Tuple[str, int]]:
     from dimensigon import defaults
     specified_gates = set()
@@ -334,6 +337,7 @@ def bind2gate(bind: t.List[str]) -> t.List[t.Tuple[str, int]]:
         else:
             specified_gates.update([gate])
     return list(specified_gates)
+
 
 def clean_string(incoming_string):
     replace_char = '_'
@@ -412,3 +416,8 @@ def get_root(path: str):
 
 def remove_root(path: str):
     return path.lstrip(get_root(path))
+
+
+def get_random_string(length=8):
+    letters = string.ascii_lowercase + string.digits
+    return ''.join(random.choice(letters) for i in range(length))

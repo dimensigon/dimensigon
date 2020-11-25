@@ -18,7 +18,7 @@ class TestOrchestration(TestCase):
         self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
         db.create_all()
         self.at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
-                                 parameters={'param1': 'test'}, expected_stdout='expected output', expected_rc=0,
+                                 expected_stdout='expected output', expected_rc=0,
                                  system_kwargs={})
         ActionTemplate.set_initial()
 
@@ -32,7 +32,7 @@ class TestOrchestration(TestCase):
                           name='Test Orchestration',
                           version=1,
                           description='description',
-                          params={'param1': 2})
+                          )
 
         db.session.add(o)
         db.session.commit()
@@ -48,14 +48,11 @@ class TestOrchestration(TestCase):
         s1 = o.add_step(undo=False, action_template=self.at, parents=[], children=[], stop_on_error=False, id=1)
 
         at = ActionTemplate(name='action', version=1, action_type=ActionType.SHELL, code='code to run',
-                            parameters={}, expected_stdout='expected output', expected_rc=0,
+                            expected_stdout='expected output', expected_rc=0,
                             system_kwargs={})
-
-        self.assertDictEqual(dict(s1.parameters), {'param1': 'test'})
 
         s1.action_template = at
 
-        self.assertDictEqual(dict(s1.parameters), {})
 
     def test_set_dependencies(self):
         s1 = Step(orchestration=None, undo=False, stop_on_error=False, action_template=self.at,
@@ -192,13 +189,12 @@ class TestOrchestration(TestCase):
         self.assertFalse(o1.eq_imp(o2))
         self.assertFalse(o2.eq_imp(o1))
 
-        s13 = o1.add_step(True, self.at, parents=[s12])
+        s13 = o1.add_step(True, self.at,  parents=[s12])
 
         self.assertTrue(o1.eq_imp(o2))
 
-        s13.step_parameters['server'] = 'localhost'
-        self.assertFalse(s13.eq_imp(s23))
-        self.assertFalse(o1.eq_imp(o2))
+        self.assertTrue(s13.eq_imp(s23))
+        self.assertTrue(o1.eq_imp(o2))
 
     def test_init_on_load(self):
         o = Orchestration(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001',

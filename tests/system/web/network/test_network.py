@@ -10,12 +10,12 @@ from tests.helpers import generate_dimension_json_data, set_callbacks
 
 now = get_now()
 
+
 class TestPing(TestDimensigonBase):
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.dim = generate_dimension_json_data()
-
 
     def fill_database(self, node):
         db.create_all()

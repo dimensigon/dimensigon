@@ -79,8 +79,7 @@ class TestOrchExecution(TestCase):
         db.session.add(u)
         o = Orchestration('run_orch', 1, id='eeeeeeee-1234-5678-1234-56781234eee1')
         s = o.add_step(undo=False,
-                       action_template=ActionTemplate('orchestration', 1, ActionType.ORCHESTRATION, code=''),
-                       parameters={'orchestration_id': 'eeeeeeee-1234-5678-1234-56781234eee2'})
+                       action_template=ActionTemplate('orchestration', 1, ActionType.ORCHESTRATION, code=''))
 
         co = Orchestration('child', 1, id='eeeeeeee-1234-5678-1234-56781234eee2')
         cs = o.add_step(undo=False, action_template=ActionTemplate('action', 1, ActionType.SHELL, code=''))
@@ -120,8 +119,6 @@ class TestOrchExecution(TestCase):
                                   end_time=end.strftime(defaults.DATETIME_FORMAT),
                                   target={'all': [str(self.me.id), str(self.remote.id)], 'backend': self.remote.name},
                                   params={'params': 'content'}, orchestration_id=str(o.id),
-                                  server_id=None,
-                                  service_id=None,
                                   success=None, undo_success=None,
                                   executor_id='cccccccc-1234-5678-1234-56781234ccc1',
                                   message=None),
@@ -135,8 +132,6 @@ class TestOrchExecution(TestCase):
                                   orchestration={'id': 'eeeeeeee-1234-5678-1234-56781234eee1',
                                                  'name': 'run_orch',
                                                  'version': 1},
-                                  server=None,
-                                  service=None,
                                   success=None, undo_success=None,
                                   executor='user',
                                   message=None),
@@ -161,7 +156,7 @@ class TestOrchExecution(TestCase):
         self.assertDictEqual({'all': [str(self.me.id), str(self.remote.id)], 'backend': self.remote.name},
                              smashed.target)
         self.assertDictEqual({'params': 'content'}, smashed.params)
-        self.assertEqual(User.get_by_user('user'), smashed.executor)
+        self.assertEqual(User.get_by_name('user'), smashed.executor)
         self.assertEqual(None, smashed.service)
         self.assertEqual(None, smashed.success)
         self.assertEqual(None, smashed.undo_success)

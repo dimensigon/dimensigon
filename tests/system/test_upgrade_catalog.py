@@ -46,7 +46,7 @@ class TestUpgradeCatalog(TestCase):
 
         at1 = ActionTemplate(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1,
                              action_type=ActionType.SHELL,
-                             code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+                             code='mkdir {dir}', expected_output=None, expected_rc=None,
                              system_kwargs={})
         db.session.add(at1)
         db.session.commit()
@@ -60,7 +60,7 @@ class TestUpgradeCatalog(TestCase):
 
         at2 = ActionTemplate(id='aaaaaaaa-1234-5678-1234-56781234aaa2', name='rmdir', version=1,
                              action_type=ActionType.SHELL,
-                             code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+                             code='rmdir {dir}', expected_output=None, expected_rc=None,
                              system_kwargs={}, last_modified_at=dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc))
         at2_json = at2.to_json()
         del at2
@@ -119,12 +119,12 @@ class TestUpgradeCatalog(TestCase):
 
         at1 = ActionTemplate(id='aaaaaaaa-1234-5678-1234-56781234aaa1', name='mkdir', version=1,
                              action_type=ActionType.SHELL,
-                             code='mkdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+                             code='mkdir {dir}', expected_output=None, expected_rc=None,
                              system_kwargs={}, last_modified_at=dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc))
 
         at2 = ActionTemplate(id='aaaaaaaa-1234-5678-1234-56781234aaa2', name='rmdir', version=1,
                              action_type=ActionType.SHELL,
-                             code='rmdir {dir}', parameters={}, expected_output=None, expected_rc=None,
+                             code='rmdir {dir}', expected_output=None, expected_rc=None,
                              system_kwargs={}, last_modified_at=dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc))
 
         responses.add(method='GET',

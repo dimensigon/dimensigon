@@ -29,6 +29,7 @@ from .software import Software, SoftwareServerAssociation
 from .step import Step
 from .transfer import Transfer, Status as TransferStatus
 from .user import User
+from .vault import Vault
 
 SCHEMA_VERSION = 8
 
@@ -61,6 +62,7 @@ __all__ = [
     "Transfer",
     "TransferStatus",
     "User",
+    "Vault",
 ]
 
 catalog = threading.local()

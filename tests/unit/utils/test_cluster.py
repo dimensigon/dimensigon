@@ -123,16 +123,16 @@ class TestClusterManager(TestCase):
                                  _ClusterRegister(9, birth=before_now, keepalive=before_now, death=None)])
 
         self.assertDictEqual({1: _ClusterRegister(1, birth=now, keepalive=now, death=None),
-                          2: _ClusterRegister(2, birth=now, keepalive=now, death=None),
-                          3: _ClusterRegister(3, birth=before_now, keepalive=before_now, death=now),
-                          4: _ClusterRegister(4, birth=before_now, keepalive=before_now, death=now),
-                          5: _ClusterRegister(5, birth=before_now, keepalive=before_now, death=after_now),
-                          6: _ClusterRegister(6, birth=before_now, keepalive=before_now, death=after_now),
-                          7: _ClusterRegister(7, birth=after_now, keepalive=after_now, death=None),
-                          8: _ClusterRegister(8, birth=after_now, keepalive=after_now, death=after_now),
-                          9: _ClusterRegister(9, birth=before_now, keepalive=before_now, death=None),
-                          10: _ClusterRegister(10, birth=before_now, keepalive=before_now, death=None)},
-                         self.cm._cluster)
+                              2: _ClusterRegister(2, birth=now, keepalive=now, death=None),
+                              3: _ClusterRegister(3, birth=before_now, keepalive=before_now, death=now),
+                              4: _ClusterRegister(4, birth=before_now, keepalive=before_now, death=now),
+                              5: _ClusterRegister(5, birth=before_now, keepalive=before_now, death=after_now),
+                              6: _ClusterRegister(6, birth=before_now, keepalive=before_now, death=after_now),
+                              7: _ClusterRegister(7, birth=after_now, keepalive=after_now, death=None),
+                              8: _ClusterRegister(8, birth=after_now, keepalive=after_now, death=after_now),
+                              9: _ClusterRegister(9, birth=before_now, keepalive=before_now, death=None),
+                              10: _ClusterRegister(10, birth=before_now, keepalive=before_now, death=None)},
+                             self.cm._cluster)
 
     def test_get_cluster(self):
         self.cm._cluster[1] = _ClusterRegister(1, birth=now, death=None)
@@ -184,11 +184,13 @@ class TestClusterManagerCoordinator(TestCase):
         mock_now.return_value = now
 
         self.cm.set_alive(1)
-        self.assertDictEqual({1: _ClusterRegister(1, birth=now, keepalive=now, death=None, coordinator=True)}, self.cm._cluster)
+        self.assertDictEqual({1: _ClusterRegister(1, birth=now, keepalive=now, death=None, coordinator=True)},
+                             self.cm._cluster)
 
         self.cm._cluster[1] = _ClusterRegister(1, birth=before_now, death=before_now)
         self.cm.set_alive(1)
-        self.assertDictEqual({1: _ClusterRegister(1, birth=now, keepalive=now, death=None, coordinator=True)}, self.cm._cluster)
+        self.assertDictEqual({1: _ClusterRegister(1, birth=now, keepalive=now, death=None, coordinator=True)},
+                             self.cm._cluster)
 
         self.cm._cluster[1] = _ClusterRegister(1, birth=before_now, death=None)
         self.cm.set_alive(1)
@@ -196,7 +198,8 @@ class TestClusterManagerCoordinator(TestCase):
 
         self.cm.set_alive(2)
         self.assertDictEqual({1: _ClusterRegister(1, birth=before_now, death=None, coordinator=True),
-                              2: _ClusterRegister(2, birth=now, keepalive=now, death=None, coordinator=False)}, self.cm._cluster)
+                              2: _ClusterRegister(2, birth=now, keepalive=now, death=None, coordinator=False)},
+                             self.cm._cluster)
 
     @mock.patch('dimensigon.utils.cluster_manager.get_now')
     def test_set_death(self, mock_now):
@@ -212,7 +215,6 @@ class TestClusterManagerCoordinator(TestCase):
         self.assertDictEqual({1: _ClusterRegister(1, birth=before_now, death=now, coordinator=False),
                               2: _ClusterRegister(2, birth=now, death=None, coordinator=False),
                               3: _ClusterRegister(3, birth=before_now, death=None, coordinator=True)}, self.cm._cluster)
-
 
     def test__update_cluster(self):
         self.cm._cluster = {1: _ClusterRegister(1, birth=before_now, death=None, coordinator=True),
@@ -273,7 +275,6 @@ class TestClusterManagerCoordinator(TestCase):
                               2: _ClusterRegister(2, birth=after_now, death=None, coordinator=False),
                               3: _ClusterRegister(3, birth=before_now, death=None, coordinator=False)},
                              self.cm._cluster)
-
 
 # class TestClusterManagerSession(TestCase):
 #

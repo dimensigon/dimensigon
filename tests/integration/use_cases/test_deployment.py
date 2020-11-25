@@ -331,7 +331,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
     def test_create_cmd_from_orchestration(self):
         at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001', name='create dir', version=1,
                             action_type=ActionType.SHELL, code='mkdir {{dir}}',
-                            parameters={}, expected_output='',
+                            expected_output='',
                             expected_rc=0, system_kwargs={})
 
         o = Orchestration('Test Orchestration', 1, 'description', id='bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
@@ -452,7 +452,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
     def test_create_cmd_from_orchestration_one_step(self):
         at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001', name='create dir', version=1,
                             action_type=ActionType.SHELL, code='mkdir {{dir}}',
-                            parameters={}, expected_output='',
+                            expected_output='',
                             expected_rc=0, system_kwargs={})
 
         o = Orchestration('Test Orchestration', 1, 'description',
@@ -495,13 +495,12 @@ class TestValidateInputChain(base.OneNodeMixin, TestCase):
                                                           'required': ['param2']},
                         action_type=ActionType.SHELL, code='')
 
-        validate_input_chain(o, params=['param1', 'param4'])
+        validate_input_chain(o, params=dict(input={'param1', 'param4'}))
 
         with self.assertRaises(errors.MissingParameters) as e:
-            validate_input_chain(o, params=['param1'])
+            validate_input_chain(o, params=dict(input={'param1'}))
 
         self.assertEqual({'param4'}, e.exception.parameters)
-
 
     def test_validate_input_chain_mapping_constant_value(self):
         o = Orchestration("test", 1)
@@ -517,7 +516,7 @@ class TestValidateInputChain(base.OneNodeMixin, TestCase):
                         action_type=ActionType.SHELL, code='')
 
         with self.assertRaises(errors.MissingParameters) as e:
-            validate_input_chain(o, params=['param1', 'param4'])
+            validate_input_chain(o, params=dict(input={'param1', 'param4'}))
 
         self.assertEqual({'param5'}, e.exception.parameters)
 
@@ -531,32 +530,30 @@ class TestValidateInputChain(base.OneNodeMixin, TestCase):
         s2 = o.add_step(undo=False, action_type=ActionType.SHELL, schema={'input': {'param2': {}},
                                                                           'required': ['param2']})
 
-        validate_input_chain(o, params=['param2'])
+        validate_input_chain(o, params=dict(input={'param2'}))
 
         with self.assertRaises(errors.MissingParameters) as e:
-            validate_input_chain(o, params=['param1'])
+            validate_input_chain(o, params=dict(input={'param1'}))
 
         self.assertEqual({'param2'}, e.exception.parameters)
 
     def test_validate_input_chain_mapping_with_orch(self):
         o = Orchestration('Schema Orch', 1, id='00000000-0000-0000-0000-000000000001')
         s1 = o.add_step(id=1, action_type=ActionType.SHELL, undo=False,
-                        schema={'input': {'1.a': {},
-                                          '1.b': {}},
-                                'required': ['1.b'],
-                                'output': ['1.c']})
+                        schema={'input': {'1_a': {},
+                                          '1_b': {}},
+                                'required': ['1_b'],
+                                'output': ['1_c']})
         s2 = o.add_step(undo=False, action_type=ActionType.SHELL,
-                        schema={'input': {'2.a': {}},
-                                'required': ['2.a'],
-                                'output': ['2.b']})
+                        schema={'input': {'2_a': {}},
+                                'required': ['2_a'],
+                                'output': ['2_b']})
 
         s3 = o.add_step(undo=False, action_type=ActionType.SHELL, parents=[s1],
-                        schema={'input': {'3.a': {},
-                                          '3.b': {}},
-                                'required': ['3.a'],
-                                'mapping': {'3.a': {'from': '2.b'}}})
-
-
+                        schema={'input': {'3_a': {},
+                                          '3_b': {}},
+                                'required': ['3_a'],
+                                'mapping': {'3_a': {'from': '2_b'}}})
 
         db.session.add(o)
         o2 = Orchestration('Schema Orch', 1)
@@ -565,12 +562,12 @@ class TestValidateInputChain(base.OneNodeMixin, TestCase):
                          undo=False,
                          schema={'mapping': {'orchestration_id': o.id}})
         s2 = o2.add_step(undo=False, action_type=1, parents=[s1],
-                         schema={'input': {1: {},
-                                           2: {}},
-                                 'required': [1],
-                                 'mapping': {1: {'from': '1.c'}}})
+                         schema={'input': {"1": {},
+                                           "2": {}},
+                                 'required': ["1"],
+                                 'mapping': {"1": {'from': '1_c'}}})
 
-        validate_input_chain(o2, params=['hosts', '1.b', '2.a'])
+        validate_input_chain(o2, params=dict(input={'hosts', '1_b', '2_a'}))
 
 
 class TestImplementationCommand(TestCase):

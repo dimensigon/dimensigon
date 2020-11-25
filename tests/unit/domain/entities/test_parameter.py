@@ -24,7 +24,7 @@ class TestParameter(unittest.TestCase):
 
     def test_set_and_get(self):
         p = Parameter('data', dump=lambda x: x.strftime(defaults.DATETIME_FORMAT),
-                            load=lambda x: dt.datetime.strptime(x, defaults.DATETIME_FORMAT))
+                      load=lambda x: dt.datetime.strptime(x, defaults.DATETIME_FORMAT))
         db.session.add(p)
         now = get_now()
         Parameter.set('data', now)
@@ -43,7 +43,6 @@ class TestParameter(unittest.TestCase):
         Parameter.set('name', 'Joan')
         p = Parameter.query.get('name')
         self.assertEqual('Joan', p.value)
-
 
         # test get
         self.assertEqual(now, Parameter.get('data'))

@@ -119,7 +119,7 @@ class Test(TestCaseLockBypass):
         self.assertListEqual([s3], s4.children)
 
         resp = self.client.delete(url_for('api_1_0.stepresource', step_id=s_id),
-                               headers=self.auth.header)
+                                  headers=self.auth.header)
 
         db.session.expire_all()
         self.assertEqual(204, resp.status_code)

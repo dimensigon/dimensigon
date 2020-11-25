@@ -87,7 +87,7 @@ def change_destinations(file: File, destinations: t.List, action: str = None):
         if already_there:
             raise errors.InvalidValue("destination servers already exist",
                                       destinations=[{'id': ident, 'name': Server.query.get(ident).name} for ident
-                                                           in already_there])
+                                                    in already_there])
         to_add = new
     elif action == 'delete':
         to_remove = new
@@ -95,7 +95,7 @@ def change_destinations(file: File, destinations: t.List, action: str = None):
         if not_there:
             raise errors.InvalidValue("destination servers do not exist",
                                       destinations=[{'id': ident, 'name': Server.query.get(ident).name} for ident
-                                                           in not_there])
+                                                    in not_there])
         to_modify = []
         to_add = []
     else:

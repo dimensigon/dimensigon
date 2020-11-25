@@ -40,15 +40,10 @@ form = {
     "expected_stdout": dict(multiline=True, mouse_support=True, history=InMemoryHistory(), converter=c.MultiLine),
     "expected_stderr": dict(multiline=True, mouse_support=True, history=InMemoryHistory(), converter=c.MultiLine),
     "expected_rc": dict(validator=v.Int, converter=c.Int, history=InMemoryHistory()),
-    "parameters": dict(multiline=True, mouse_support=True, lexer=PygmentsLexer(PythonLexer), validator=v.JSON,
-                       history=InMemoryHistory()),
-    "schema": dict(edit='.yaml', mouse_support=True, validator=v.JSON, history=InMemoryHistory(), converter=c.Yaml),
-    "system_kwargs": dict(multiline=True, mouse_support=True, lexer=PygmentsLexer(PythonLexer), validator=v.JSON,
-                          history=InMemoryHistory()),
-    "pre_process": dict(edit='.py', mouse_support=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(),
-                        converter=c.MultiLine),
-    "post_process": dict(edit='.py', mouse_support=True, lexer=PygmentsLexer(PythonLexer), history=InMemoryHistory(),
-                         converter=c.MultiLine),
+    "schema": dict(edit='.yaml', validator=v.JSON, history=InMemoryHistory(), converter=c.Yaml),
+    "system_kwargs": dict(edit='.yaml', validator=v.JSON, history=InMemoryHistory(), converter=c.Yaml),
+    "pre_process": dict(edit='.py', history=InMemoryHistory(), converter=c.MultiLine),
+    "post_process": dict(edit='.py', history=InMemoryHistory(), converter=c.MultiLine),
 }
 
 parser = ArgumentParserRaise(allow_abbrev=False, prog='')
@@ -56,7 +51,7 @@ subparser = parser.add_subparsers(dest='cmd')
 preview_action = subparser.add_parser('preview')
 preview_action.set_defaults(func=lambda x: pprint(x))
 set_action = subparser.add_parser('set')
-set_action.add_argument('parameter',  choices=form.keys())
+set_action.add_argument('parameter', choices=form.keys())
 delete_parser = subparser.add_parser('delete')
 delete_parser.add_argument('parameter', choices=form.keys())
 submit_action = subparser.add_parser('submit')

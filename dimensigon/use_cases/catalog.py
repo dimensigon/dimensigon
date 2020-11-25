@@ -1,6 +1,6 @@
-import multiprocessing as mp
 import datetime as dt
 import json
+import multiprocessing as mp
 import time
 import typing as t
 
@@ -23,6 +23,34 @@ from dimensigon.web import network as ntwrk
 if t.TYPE_CHECKING:
     from dimensigon.core import Dimensigon
 
+
+def update_db_catalog(catalog, check_mismatch=True, logger=None):
+    de = get_distributed_entities()
+
+    if check_mismatch:
+        inside = set([name for name, cls in de])
+        logger.debug(f'Actual entities: {inside}') if logger else None
+
+        outside = set(catalog.keys())
+        logger.debug(f'Remote entities: {outside}') if logger else None
+
+        if len(inside ^ outside) > 0:
+            raise errors.CatalogMismatch(inside, outside)
+
+    db.session.flush()
+    with bypass_datamark_update():
+        for name, cls in de:
+            if name in catalog:
+                if len(catalog[name]) > 0:
+                    logger.log(1, f"Adding/Modifying new '{name}' entities: \n"
+                                  f"{json.dumps(catalog[name], indent=2, sort_keys=True)}") if logger else None
+                for dto in catalog[name]:
+                    o = cls.from_json(dict(dto))
+                    # force modification to update catalog last_modified_at
+                    flag_modified(o, 'last_modified_at')
+                    db.session.add(o)
+
+        db.session.commit()
 
 class CatalogManager(mpt.TimerWorker):
     INTERVAL_SECS = 5 * 60
@@ -177,28 +205,4 @@ class CatalogManager(mpt.TimerWorker):
                 self.logger.error(f"Unable to get a valid response from server {server}: {resp}")
 
     def db_update_catalog(self, catalog, check_mismatch=True):
-        de = get_distributed_entities()
-
-        if check_mismatch:
-            inside = set([name for name, cls in de])
-            self.logger.debug(f'Actual entities: {inside}')
-
-            outside = set(catalog.keys())
-            self.logger.debug(f'Remote entities: {outside}')
-
-            if len(inside ^ outside) > 0:
-                raise errors.CatalogMismatch(inside, outside)
-
-        with bypass_datamark_update():
-            for name, cls in de:
-                if name in catalog:
-                    if len(catalog[name]) > 0:
-                        self.logger.log(1, f"Adding/Modifying new '{name}' entities: \n"
-                                           f"{json.dumps(catalog[name], indent=2, sort_keys=True)}")
-                    for dto in catalog[name]:
-                        o = cls.from_json(dict(dto))
-                        # force modification to update catalog last_modified_at
-                        flag_modified(o, 'last_modified_at')
-                        db.session.add(o)
-
-            db.session.commit()
+        update_db_catalog(catalog, check_mismatch=check_mismatch, logger=self.logger)

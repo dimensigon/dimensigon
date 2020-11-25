@@ -16,11 +16,11 @@ from .gate import Gate
 from .route import Route, RouteContainer
 from ... import defaults
 from ...utils.helpers import get_ips, get_now, is_iterable_not_string
-from ...web.helpers import QueryWithSoftDelete
 
 _me = {}
 
-class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
+
+class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = 'D_server'
     order = 10
 
@@ -45,14 +45,11 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
     # software_list = db.relationship("SoftwareServerAssociation", back_populates="server")
 
-    query_class = QueryWithSoftDelete
-
     def __init__(self, name: str, granules: t.List[str] = None,
                  dns_or_ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address] = None, port: int = None,
                  gates: t.List[t.Union[TGate, t.Dict[str, t.Any]]] = None, me: bool = False, created_on=None,
                  **kwargs):
-        UUIDistributedEntityMixin.__init__(self, **kwargs)
-        SoftDeleteMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
         self.name = name
         if port or dns_or_ip:
@@ -78,7 +75,6 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         # create an empty route
         if not me and not self.deleted:
             Route(self)
-
 
     @property
     def external_gates(self):
@@ -159,11 +155,11 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         gate = None
         route = self.route
         if self._me and (route is None or route.cost is None):
-            try:
+            if len(self.localhost_gates) > 0:
                 gate = self.localhost_gates[0]
-            except IndexError:
-                current_app.logger.warning(
-                    f"No localhost set for '{self}'. Trying connection through another gate")
+            else:
+                # current_app.logger.warning(
+                #     f"No localhost set for '{self}'. Trying connection through another gate")
                 if len(self.gates) == 0:
                     raise RuntimeError(f"No gate set for server '{self}'")
                 gate = self.gates[0]
@@ -185,7 +181,8 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
 
     @classmethod
     def get_neighbours(cls, alive=False,
-                       exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None, session=None) -> t.List[
+                       exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None, session=None) -> \
+    t.List[
         'Server']:
         """returns neighbour servers
 
@@ -227,7 +224,8 @@ class Server(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
             cls.name).all()
 
     @classmethod
-    def get_reachable_servers(cls, alive=False, exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None) -> t.List[
+    def get_reachable_servers(cls, alive=False,
+                              exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None) -> t.List[
         'Server']:
         """returns list of reachable servers
 

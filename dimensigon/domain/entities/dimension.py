@@ -13,7 +13,8 @@ from dimensigon.web import db
 
 current = {}
 
-class Dimension(db.Model, UUIDEntityMixin, EntityReprMixin):
+
+class Dimension(UUIDEntityMixin, EntityReprMixin, db.Model):
     __tablename__ = 'L_dimension'
     name = db.Column(db.String(40), nullable=False, unique=True)
     private = db.Column(PrivateKey, unique=True)
@@ -24,7 +25,7 @@ class Dimension(db.Model, UUIDEntityMixin, EntityReprMixin):
     def __init__(self, name: str, private: t.Union[rsa.PrivateKey, bytes] = None,
                  public: t.Union[rsa.PublicKey, bytes] = None, created_at: datetime = get_now(), current=False,
                  **kwargs):
-        UUIDEntityMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.name = name
         if isinstance(private, bytes):
             self.private = rsa.PrivateKey.load_pkcs1(private)

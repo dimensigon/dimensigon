@@ -55,8 +55,8 @@ class TestServer(TestCase):
 
         r = Route(destination=dest, proxy_server_or_gate=proxy.gates[0], cost=1)
         self.assertEqual(dest, r.destination)
-        self.assertIsNone(r.proxy_server)
-        self.assertEqual(proxy.gates[0], r.gate)
+        self.assertEqual(proxy, r.proxy_server)
+        self.assertIsNone(r.gate)
         self.assertEqual(1, r.cost)
 
         # routes defined with a proxy server
@@ -82,7 +82,6 @@ class TestServer(TestCase):
         self.assertEqual(proxy, r.proxy_server)
         self.assertIsNone(r.gate)
         self.assertEqual(1, r.cost)
-
 
     def test_to_json_proxy_remote(self):
         dest = Server('dest', port=8000)

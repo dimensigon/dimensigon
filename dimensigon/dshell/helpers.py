@@ -1,11 +1,10 @@
 import os
 import sys
 
-from dimensigon.utils.helpers import is_valid_uuid
-
 from dimensigon.dshell import environ
 from dimensigon.dshell.history import FileTagHistory
 from dimensigon.dshell.network import get, get_parameters_from_path
+from dimensigon.utils.helpers import is_valid_uuid
 
 
 def exit_dshell(msg=None, rc=None):

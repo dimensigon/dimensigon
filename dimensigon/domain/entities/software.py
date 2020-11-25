@@ -6,10 +6,9 @@ from dimensigon.domain.entities import Server
 from dimensigon.domain.entities.base import DistributedEntityMixin, UUIDistributedEntityMixin, SoftDeleteMixin
 from dimensigon.utils.typos import UUID
 from dimensigon.web import db
-from dimensigon.web.helpers import QueryWithSoftDelete
 
 
-class SoftwareServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixin):
+class SoftwareServerAssociation(DistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = "D_software_server_association"  # changed name in SCHEMA_VERSION = 7
     order = 30
 
@@ -19,8 +18,6 @@ class SoftwareServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixi
 
     software = db.relationship("Software", back_populates="ssas", uselist=False)
     server = db.relationship("Server", backref="software_list", uselist=False)
-
-    query_class = QueryWithSoftDelete
 
     def to_json(self):
         data = super().to_json()
@@ -50,7 +47,7 @@ class SoftwareServerAssociation(db.Model, DistributedEntityMixin, SoftDeleteMixi
         return os.path.join(self.path or '', self.software.filename or '')
 
 
-class Software(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
+class Software(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = "D_software"
     order = 20
 
@@ -68,10 +65,8 @@ class Software(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
     __table_args__ = (
         db.UniqueConstraint('name', 'version', name='D_software_u01'),)
 
-    query_class = QueryWithSoftDelete
-
     def __init__(self, name, version, filename, family=None, size=None, checksum=None, **kwargs):
-        UUIDistributedEntityMixin.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.name = name
         self.version = version
         self.family = family
@@ -103,5 +98,3 @@ class Software(db.Model, UUIDistributedEntityMixin, SoftDeleteMixin):
         super().delete()
         for ssa in self.ssas:
             ssa.delete()
-
-

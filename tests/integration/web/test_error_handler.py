@@ -42,8 +42,9 @@ class TestApi(TestCase):
         resp = self.client.get(url_for('error'), json={}, headers=self.auth.header)
 
         self.assertEqual(400, resp.status_code)
-        self.assertDictEqual({'error': {'type': 'ValidationError', 'message': 'error content', 'schema': {}, 'path': []}},
-                             resp.get_json())
+        self.assertDictEqual(
+            {'error': {'type': 'ValidationError', 'message': 'error content', 'schema': {}, 'path': []}},
+            resp.get_json())
 
     def test_base_error(self):
         def raise_error():

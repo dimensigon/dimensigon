@@ -9,7 +9,6 @@ import netifaces
 CONFIG_DIR_NAME = ".dimensigon"
 HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-
 ips = list(filter(lambda x: x != '127.0.0.1', itertools.chain(
     *[[ip['addr'] for ip in netifaces.ifaddresses(iface).get(netifaces.AF_INET, [])] for iface in
       netifaces.interfaces()])))
@@ -52,7 +51,6 @@ TIMEOUT_ORCHESTRATION = 1800  # max time waiting for an orchestration to finish
 TIMEOUT_COMMAND = 20  # max time waiting for a command execution
 TIMEOUT_LOCK_REQUEST = 60  # timeout on lock/unlock/prevent_lock HTTP request
 
-
 CHUNK_SIZE = 2  # in MB
 MAX_SENDERS = 4
 
@@ -67,5 +65,3 @@ DIMENSIGON_DIR = os.path.join(SOFTWARE_REPO, 'dimensigon')
 LOG_FOLDER = 'logs'
 LOG_SENDER_REPO = 'logfed'
 OFFSET_DIR = 'offset'
-
-
