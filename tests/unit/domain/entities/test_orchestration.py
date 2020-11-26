@@ -225,43 +225,43 @@ class TestOrchestration(TestCase):
         self.maxDiff = None
         o = Orchestration('Schema Orch', 1)
         s1 = o.add_step(id=1, action_type=ActionType.SHELL, undo=False,
-                        schema={'input': {'1.a': {},
-                                          '1.b': {}},
-                                'required': ['1.b'],
-                                'output': ['1.c']})
+                        schema={'input': {'1_a': {},
+                                          '1_b': {}},
+                                'required': ['1_b'],
+                                'output': ['1_c']})
         s2 = o.add_step(undo=False, action_type=ActionType.SHELL, parents=[s1],
-                        schema={'input': {'2.a': {}},
-                                'required': ['2.a'],
-                                'mapping': {'2.a': {'from': '1.c'}}})
+                        schema={'input': {'2_a': {}},
+                                'required': ['2_a'],
+                                'mapping': {'2_a': {'from': '1_c'}}})
 
-        self.assertDictEqual({'input': {'1.a': {},
-                                        '1.b': {}},
-                              'required': ['1.b'],
-                              'output': ['1.c']}, o.schema)
+        self.assertDictEqual({'input': {'1_a': {},
+                                        '1_b': {}},
+                              'required': ['input.1_b'],
+                              'output': ['1_c']}, o.schema)
 
         o = Orchestration('Schema Orch', 1, id='00000000-0000-0000-0000-000000000001')
         s1 = o.add_step(id=1, action_type=ActionType.SHELL, undo=False,
-                        schema={'input': {'1.a': {},
-                                          '1.b': {}},
-                                'required': ['1.b'],
-                                'output': ['1.c']})
+                        schema={'input': {'1_a': {},
+                                          '1_b': {}},
+                                'required': ['1_b'],
+                                'output': ['1_c']})
         s2 = o.add_step(undo=False, action_type=ActionType.SHELL,
-                        schema={'input': {'2.a': {}},
-                                'required': ['2.a'],
-                                'output': ['2.b']})
+                        schema={'input': {'2_a': {}},
+                                'required': ['2_a'],
+                                'output': ['2_b']})
 
         s3 = o.add_step(undo=False, action_type=ActionType.SHELL, parents=[s1],
-                        schema={'input': {'3.a': {},
-                                          '3.b': {}},
-                                'required': ['3.a'],
-                                'mapping': {'3.a': {'from': '2.b'}}})
+                        schema={'input': {'3_a': {},
+                                          '3_b': {}},
+                                'required': ['3_a'],
+                                'mapping': {'3_a': {'from': '2_b'}}})
 
-        self.assertDictEqual({'input': {'1.a': {},
-                                        '1.b': {},
-                                        '2.a': {},
-                                        '3.b': {}},
-                              'required': ['1.b', '2.a'],
-                              'output': ['1.c', '2.b']}, o.schema)
+        self.assertDictEqual({'input': {'1_a': {},
+                                        '1_b': {},
+                                        '2_a': {},
+                                        '3_b': {}},
+                              'required': ['input.1_b', 'input.2_a'],
+                              'output': ['1_c', '2_b']}, o.schema)
 
         db.session.add(o)
         o2 = Orchestration('Schema Orch', 1)
@@ -270,16 +270,31 @@ class TestOrchestration(TestCase):
                          undo=False,
                          schema={'mapping': {'orchestration_id': o.id}})
         s2 = o2.add_step(undo=False, action_type=1, parents=[s1],
-                         schema={'input': {1: {},
-                                           2: {}},
-                                 'required': [1],
-                                 'mapping': {1: {'from': '1.c'}}})
+                         schema={'input': {'1': {},
+                                           '2': {}},
+                                 'required': ['1', '2'],
+                                 'mapping': {'1': {'from': '1_c'},
+                                             '2': {'from': '5'}}})
+
+        with self.assertRaises(errors.MappingError):
+            self.assertDictEqual({'input': {'hosts': at.schema['input']['hosts'],
+                                            '1_a': {},
+                                            '1_b': {},
+                                            '2_a': {},
+                                            '3_b': {}},
+                                  'required': ['input.1_b', 'input.2_a', 'input.hosts'],
+                                  'output': ['1_c', '2_b']}, o2.schema)
+
+        s2.schema = {'input': {'1': {},
+                               '2': {}},
+                     'required': ['1'],
+                     'mapping': {'1': {'from': 'env.server_id'},
+                                 '2': {'from': '5'}}}
 
         self.assertDictEqual({'input': {'hosts': at.schema['input']['hosts'],
-                                        '1.a': {},
-                                        '1.b': {},
-                                        '2.a': {},
-                                        '3.b': {},
-                                        2: {}},
-                              'required': ['hosts', '1.b', '2.a'],
-                              'output': ['1.c', '2.b']}, o2.schema)
+                                        '1_a': {},
+                                        '1_b': {},
+                                        '2_a': {},
+                                        '3_b': {}},
+                              'required': ['input.1_b', 'input.2_a', 'input.hosts'],
+                              'output': ['1_c', '2_b']}, o2.schema)

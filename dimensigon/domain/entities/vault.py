@@ -17,8 +17,8 @@ class Vault(DistributedEntityMixin, SoftDeleteMixin, db.Model):
 
     user = db.relationship("User")
 
-    def to_json(self, human=False):
-        dto = {}
+    def to_json(self, human=False, **kwargs):
+        dto = super().to_json(**kwargs)
         dto.update(name=self.name, value=self.value)
         if self.scope:
             dto.update(scope=self.scope)

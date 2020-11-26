@@ -578,7 +578,7 @@ def launch_orchestration(orchestration_id):
 
     executor_id = get_jwt_identity()
     vc = Context(params, dict(execution_id=None, root_orch_execution_id=execution_id, orch_execution_id=execution_id,
-                              executor_id=executor_id),
+                              executor_id=executor_id, use_schema=data.get('input_validation', True)),
                  vault=Vault.get_variables_from(executor_id, scope=data.get('scope', 'global')))
 
     if data.get('input_validation', True):

@@ -67,15 +67,15 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
     def __str__(self):
         return f"{self.name}.ver{self.version}"
 
-    def to_json(self, split_lines=False):
-        data = super().to_json()
+    def to_json(self, split_lines=False, **kwargs):
+        data = super().to_json(**kwargs)
         data.update(name=self.name, version=self.version,
                     action_type=self.action_type.name)
         if self.code is not None:
             data.update(code=self.code.split('\n') if split_lines else self.code)
-        if self.schema is not None:
+        if self.schema:
             data.update(schema=self.schema)
-        if self.system_kwargs is not None:
+        if self.system_kwargs:
             data.update(system_kwargs=self.system_kwargs)
         if self.expected_stdout is not None:
             data.update(expected_stdout=self.expected_stdout.split('\n') if split_lines else self.expected_stdout)

@@ -43,8 +43,8 @@ class FileServerAssociation(DistributedEntityMixin, SoftDeleteMixin, db.Model):
     def target(self):
         return os.path.join(self.destination_folder, os.path.basename(self.file.target))
 
-    def to_json(self, human=False) -> t.Dict:
-        data = super().to_json()
+    def to_json(self, human=False, **kwargs) -> t.Dict:
+        data = super().to_json(**kwargs)
         if human:
             data.update({'file': {'target': self.file.target, 'src_server': self.file.source_server.name,
                                   'dst_server': str(self.destination_server.name),
@@ -119,7 +119,7 @@ class File(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
 
     def to_json(self, human=False, destinations=False, include: t.List[str] = None,
                 exclude: t.List[str] = None, **kwargs):
-        data = super().to_json()
+        data = super().to_json(**kwargs)
         if self.source_server.id is None:
             raise RuntimeError('Set ids for servers before')
         data.update(target=self.target, dest_folder=self.dest_folder)

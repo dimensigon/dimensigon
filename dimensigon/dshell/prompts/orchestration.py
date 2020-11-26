@@ -52,7 +52,7 @@ entity_name = os.path.basename(__file__).rstrip('.py')
 
 
 def submit(entity):
-    resp = ntwrk.post('api_1_0.orchestrationfull', json=entity)
+    resp = ntwrk.post('api_1_0.orchestrations_full', json=entity)
     dprint(resp)
     return resp.ok
 

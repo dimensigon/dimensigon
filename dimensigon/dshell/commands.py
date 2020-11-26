@@ -208,7 +208,7 @@ def orch_load(file):
 
 def orch_run(orchestration_id, target, params=None, background=False, scope=None, skip_validation=False):
     data = {}
-    data.update(target=target, params=params, background=background)
+    data.update(hosts=target, params=params, background=background)
     if scope:
         data.update(scope=scope)
     if skip_validation:
@@ -625,8 +625,8 @@ def vault_write(variable, value, scope='global'):
     dprint(resp)
 
 
-def vault_delete(variable, value, scope='global'):
-    resp = ntwrk.delete('api_1_0.vaultresource', dict(name=variable, scope=scope), json={'value': value})
+def vault_delete(variable, scope='global'):
+    resp = ntwrk.delete('api_1_0.vaultresource', dict(name=variable, scope=scope))
     dprint(resp)
 
 
@@ -775,7 +775,7 @@ nested_dict = {
             orch_load],
         'run': [
             {'argument': 'orchestration_id', 'completer': orch_completer},
-            {'argument': '--target', 'metavar': 'TARGET=VALUE', 'action': DictAction, 'nargs': "+", 'dest': 'hosts',
+            {'argument': 'target', 'metavar': 'TARGET=VALUE', 'action': DictAction, 'nargs': "+",
              'completer': merge_completers([server_name_completer, granule_completer]),
              'help': "Run the orch agains the specified target. If no target specified, hosts will be added to "
                      "'all' target. Example: --target node1 node2 backend=node2,node3 "},

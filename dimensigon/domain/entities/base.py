@@ -1,5 +1,4 @@
 import abc
-import functools
 import inspect
 import random
 import string
@@ -19,56 +18,67 @@ class SoftDeleteMixin:
     query_class = QueryWithSoftDelete
 
     def __init__(self, deleted=False, **kwargs):
-        def wrapper_to_json(_self, func):
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                no_delete = kwargs.pop('no_delete', False)
-                dto = func(*args, **kwargs)
-                if not no_delete:
-                    dto.update({'deleted': _self.deleted})
-                    for attr in [attr for attr, value in inspect.getmembers(_self) if
-                                 attr.startswith(_self.__prefix__)]:
-                        dto.update({attr: getattr(_self, attr)})
-                return dto
-
-            sig = inspect.signature(func)
-            param_list = list(sig.parameters.values())
-            try:
-                v_p_i = max(
-                    [param_list.index(p) for p in param_list if p.kind == inspect.Parameter.VAR_POSITIONAL])
-            except ValueError:
-                v_p_i = None
-            try:
-                var_k_i = min([param_list.index(p) for p in param_list if p.kind == inspect.Parameter.VAR_KEYWORD])
-            except ValueError:
-                var_k_i = None
-
-            # determine position
-            if var_k_i is not None:
-                index = var_k_i - 1
-            else:
-                index = len(param_list)
-            # determine type
-            if v_p_i is None:
-                kind = inspect.Parameter.POSITIONAL_OR_KEYWORD
-            else:
-                kind = inspect.Parameter.KEYWORD_ONLY
-            if 'no_delete' not in sig.parameters:
-                no_delete = inspect.Parameter("no_delete", kind=kind, default=False)
-                param_list.insert(index, no_delete)
-                new_sig = sig.replace(parameters=param_list)
-                wrapper.__signature__ = new_sig
-                return wrapper
-            else:
-                return func
+        # def wrapper_to_json(_self, func):
+        #     @functools.wraps(func)
+        #     def wrapper(*args, **kwargs):
+        #         no_delete = kwargs.pop('no_delete', False)
+        #         dto = func(*args, **kwargs)
+        #         if not no_delete:
+        #             dto.update({'deleted': _self.deleted})
+        #             for attr in [attr for attr, value in inspect.getmembers(_self) if
+        #                          attr.startswith(_self.__prefix__)]:
+        #                 dto.update({attr: getattr(_self, attr)})
+        #         return dto
+        #
+        #     sig = inspect.signature(func)
+        #     param_list = list(sig.parameters.values())
+        #     try:
+        #         v_p_i = max(
+        #             [param_list.index(p) for p in param_list if p.kind == inspect.Parameter.VAR_POSITIONAL])
+        #     except ValueError:
+        #         v_p_i = None
+        #     try:
+        #         var_k_i = min([param_list.index(p) for p in param_list if p.kind == inspect.Parameter.VAR_KEYWORD])
+        #     except ValueError:
+        #         var_k_i = None
+        #
+        #     # determine position
+        #     if var_k_i is not None:
+        #         index = var_k_i - 1
+        #     else:
+        #         index = len(param_list)
+        #     # determine type
+        #     if v_p_i is None:
+        #         kind = inspect.Parameter.POSITIONAL_OR_KEYWORD
+        #     else:
+        #         kind = inspect.Parameter.KEYWORD_ONLY
+        #     if 'no_delete' not in sig.parameters:
+        #         no_delete = inspect.Parameter("no_delete", kind=kind, default=False)
+        #         param_list.insert(index, no_delete)
+        #         new_sig = sig.replace(parameters=param_list)
+        #         wrapper.__signature__ = new_sig
+        #         return wrapper
+        #     else:
+        #         return func
 
         super().__init__(**kwargs)
         self.deleted = deleted
         for attr, value in kwargs.items():
             if attr.startswith(self.__prefix__):
                 setattr(self, attr, kwargs.get(attr, None))
-        if hasattr(self, 'to_json') and callable(getattr(self, 'to_json')):
-            self.to_json = wrapper_to_json(self, self.to_json)
+        # if hasattr(self, 'to_json') and callable(getattr(self, 'to_json')):
+        #     self.to_json = wrapper_to_json(self, self.to_json)
+
+    def to_json(self, no_delete=False, **kwargs):
+        if hasattr(super(), 'to_json'):
+            dto = super().to_json(**kwargs)
+        else:
+            dto = {}
+        if not no_delete:
+            dto.update({'deleted': self.deleted})
+            for attr in [attr for attr, value in inspect.getmembers(self) if attr.startswith(self.__prefix__)]:
+                dto.update({attr: getattr(self, attr)})
+        return dto
 
     def delete(self):
         if not self.deleted:
@@ -88,11 +98,14 @@ class DistributedEntityMixin:
         super().__init__(**kwargs)
         self.last_modified_at = kwargs.pop('last_modified_at', None)
 
-    def to_json(self):
-        try:
-            return dict(last_modified_at=self.last_modified_at.strftime(defaults.DATEMARK_FORMAT))
-        except AttributeError:
-            return dict()
+    def to_json(self, **kwargs):
+        if hasattr(super(), 'to_json'):
+            dto = super().to_json(**kwargs)
+        else:
+            dto = {}
+        if self.last_modified_at:
+            dto.update(last_modified_at=self.last_modified_at.strftime(defaults.DATEMARK_FORMAT))
+        return dto
 
     @classmethod
     def from_json(cls, kwargs):
@@ -109,14 +122,17 @@ class UUIDEntityMixin:
         super().__init__(*args, **kwargs)
         self.id = id or str(uuid.uuid4())
 
+    def to_json(self, **kwargs):
+        if hasattr(super(), 'to_json'):
+            dto = super().to_json(**kwargs)
+        else:
+            dto = {}
+        if self.id:
+            dto.update(id=str(self.id))
+        return dto
+
 
 class UUIDistributedEntityMixin(UUIDEntityMixin, DistributedEntityMixin):
-
-    def to_json(self):
-        data = super().to_json()
-        if self.id:
-            data['id'] = str(self.id)
-        return data
 
     @classmethod
     @abc.abstractmethod

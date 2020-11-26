@@ -21,7 +21,7 @@ from functools import partial
 import jsonschema
 from flask import current_app, has_app_context, g
 from flask_jwt_extended import create_access_token
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Orchestration, Step, StepExecution, OrchExecution, User, Scope
@@ -145,6 +145,14 @@ def extract_container_var(var):
     return container_name, source
 
 
+def normalize_container_var(var):
+    return '.'.join(extract_container_var(var))
+
+
+
+reserved_words = ['mapping', 'required', 'output']
+
+
 class ImplementationCommand(ICommand):
 
     def __init__(self, implementation: IOperationEncapsulation,
@@ -193,7 +201,6 @@ class ImplementationCommand(ICommand):
         Turns over only params from var context to params
         :return:
         """
-        reserved_words = ['mapping', 'required', 'output']
         if not self._cp:
             try:
                 if self.signature:
@@ -235,7 +242,7 @@ class ImplementationCommand(ICommand):
                                         {var: getattr(self.var_context, container_name, {})[var]})
                                 except KeyError:
                                     if 'default' in value:
-                                        self.params[var] = value['default']
+                                        self.params[container_name][var] = value['default']
                                     elif var in required.get(container_name, []):
                                         raise errors.MissingParameters([f"{container_name}.{var}"],
                                                                        Step.query.get(self.id[1]),
@@ -491,8 +498,6 @@ class CompositeCommand(ICommand):
                 if stop is True or (timeout is not None and (time.time() - start) > timeout):
                     break
             level += 1
-            self.register.commit_data()
-        self.register.commit_data()
         return all(res) if len(res) > 0 else None
 
     def undo(self, timeout=None) -> t.Optional[bool]:
@@ -746,7 +751,7 @@ def _create_server_undo_command(executor, current_server, server_id: Id, s: Step
                        post_process=_step.post_process,
                        stop_on_error=stop_on_error,
                        register=register,
-                       signature=_step.schema)
+                       signature=_step.schema if var_context.env.get('use_schema') else None)
             _s2cc[_step] = _uc
         if _uc not in _d:
             _d[_uc] = []
@@ -805,7 +810,7 @@ def create_cmd_from_orchestration(orchestration: Orchestration, var_context: Con
                             post_process=_step.post_process,
                             register=register,
                             id_=(str(server_id), str(_step.id)),
-                            signature=_step.schema)
+                            signature=_step.schema if var_context.env.get('use_schema') else None)
 
                     d[c] = []
             if len(d) == 1:

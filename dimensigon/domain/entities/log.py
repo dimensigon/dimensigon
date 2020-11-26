@@ -57,8 +57,8 @@ class Log(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     def __str__(self):
         return f"{self.source_server}:{self.target} -> {self.destination_server}:{self.dest_folder}"
 
-    def to_json(self, human=False, include: t.List[str] = None, exclude: t.List[str] = None):
-        data = super().to_json()
+    def to_json(self, human=False, include: t.List[str] = None, exclude: t.List[str] = None, **kwargs):
+        data = super().to_json(**kwargs)
         if self.source_server.id is None or self.destination_server.id is None:
             raise RuntimeError('Set ids for servers before')
         data.update(target=self.target, include=self.include,

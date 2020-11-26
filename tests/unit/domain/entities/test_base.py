@@ -23,8 +23,8 @@ class DistEntityWithSoftDelete(DistributedEntityMixin, SoftDeleteMixin, db.Model
     name = db.Column(db.Text)
     _old_name = db.Column(db.Text)
 
-    def to_json(self):
-        data = super().to_json()
+    def to_json(self, **kwargs):
+        data = super().to_json(**kwargs)
         data.update(id=self.id, name=self.name)
         return data
 

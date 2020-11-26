@@ -61,8 +61,8 @@ class User(UUIDistributedEntityMixin, db.Model):
         self._password = None
         self._hash_password(password)
 
-    def to_json(self, password=False) -> dict:
-        data = super().to_json()
+    def to_json(self, password=False, **kwargs) -> dict:
+        data = super().to_json(**kwargs)
         data.update(name=self.name, email=self.email, created_at=self.created_at.strftime(defaults.DATETIME_FORMAT),
                     active=self.active, groups=','.join(self.groups))
         if password:

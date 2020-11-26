@@ -390,8 +390,8 @@ class Step(UUIDistributedEntityMixin, db.Model):
             if step in self.children_steps:
                 self.children_steps.remove(step)
 
-    def to_json(self, add_action=False, split_lines=False):
-        data = super().to_json()
+    def to_json(self, add_action=False, split_lines=False, **kwargs):
+        data = super().to_json(**kwargs)
         if getattr(self.orchestration, 'id', None):
             data.update(orchestration_id=str(self.orchestration.id))
         if getattr(self.action_template, 'id', None):

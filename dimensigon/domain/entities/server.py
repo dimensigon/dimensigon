@@ -50,7 +50,6 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
                  gates: t.List[t.Union[TGate, t.Dict[str, t.Any]]] = None, me: bool = False, created_on=None,
                  **kwargs):
         super().__init__(**kwargs)
-
         self.name = name
         if port or dns_or_ip:
             self.add_new_gate(dns_or_ip or self.name, port or defaults.DEFAULT_PORT)
@@ -249,8 +248,8 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
 
         return query.order_by(Server.name).all()
 
-    def to_json(self, add_gates=False, human=False, add_ignore=False):
-        data = super().to_json()
+    def to_json(self, add_gates=False, human=False, add_ignore=False, **kwargs):
+        data = super().to_json(**kwargs)
         data.update(
             {'name': self.name, 'granules': self.granules,
              'created_on': self.created_on.strftime(defaults.DATETIME_FORMAT)})

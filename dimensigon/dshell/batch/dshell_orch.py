@@ -60,7 +60,7 @@ def main(args):
         else:
             exit("No file specified")
         if data:
-            resp = ntwrk.post(f'api_1_0.orchestrationfull', json=data)
+            resp = ntwrk.post(f'api_1_0.orchestrations_full', json=data)
             dprint(resp)
         else:
             exit("No data found to create action template")

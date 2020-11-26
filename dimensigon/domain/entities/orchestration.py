@@ -1,3 +1,4 @@
+import copy
 import typing as t
 
 from sqlalchemy import orm
@@ -382,8 +383,8 @@ class Orchestration(UUIDistributedEntityMixin, db.Model):
         return self._graph.subtree(steps)
 
     def to_json(self, add_target=False, add_params=False, add_steps=False, add_action=False, split_lines=False,
-                add_schema=False):
-        data = super().to_json()
+                add_schema=False, **kwargs):
+        data = super().to_json(**kwargs)
         data.update(name=self.name, version=self.version, stop_on_error=self.stop_on_error,
                     undo_on_error=self.undo_on_error, stop_undo_on_error=self.stop_undo_on_error)
         if add_target:
@@ -408,25 +409,49 @@ class Orchestration(UUIDistributedEntityMixin, db.Model):
 
     @property
     def schema(self):
-        outer_schema = {'input': {}, 'required': [], 'output': []}
+        from ...use_cases.deployment import reserved_words, extract_container_var, normalize_container_var
+        outer_schema = {'required': set(), 'output': set()}
         level = 1
         while level <= self._graph.depth:
+            new_schema = copy.deepcopy(outer_schema)
             for step in self._graph.get_nodes_at_level(level):
                 schema = step.schema
-                for k, v in step.schema.get('input', {}).items():
-                    if k not in outer_schema['input'] and \
-                            k not in outer_schema['output'] and \
-                            k not in schema.get('mapping', {}):
-                        outer_schema['input'].update({k: v})
-                for k, v in step.schema.get('mapping', {}).items():
+                container_names = [k for k in schema.keys() if k not in reserved_words]
+                for cn in container_names:
+                    for k, v in schema.get(cn, {}).items():
+                        if cn not in new_schema:
+                            new_schema.update({cn: {}})
+                        if cn == 'input' and not (k in outer_schema['output'] or k in schema.get('mapping', {})):
+                            new_schema[cn].update({k: v})
+
+                for k in schema.get('required', []):
+                    cn, v = extract_container_var(k)
+                    nv = f"{cn}.{v}"
+                    if cn == 'input':
+                        if v not in outer_schema['output'] and v not in schema.get('mapping', {}):
+                            new_schema['required'].add(nv)
+                    elif cn != 'env':
+                        new_schema['required'].add(nv)
+
+                for k, v in schema.get('mapping', {}).items():
                     if isinstance(v, dict) and len(v) == 1 and 'from' in v:
                         action, source = tuple(v.items())[0]
-                        if not (source in outer_schema['input'] or source in outer_schema['output']):
-                            raise errors.MappingError(source, step)
-                for k in list(schema.get('output', [])):
-                    outer_schema['output'].append(k) if k not in outer_schema['output'] else None
-                for k in list(schema.get('required', [])):
-                    if k not in outer_schema['output'] and k not in schema.get('mapping', {}):
-                        outer_schema['required'].append(k) if k not in outer_schema['required'] else None
+                        d_cn, d_var = extract_container_var(k)
+                        d_nv = f"{d_cn}.{d_var}"
+                        s_cn, s_var = extract_container_var(source)
+                        s_nv = f"{s_cn}.{s_var}"
+
+                        if d_nv in schema.get('required', {}) or d_var in schema.get('required', {}):
+                            if s_cn == 'input':
+                                if s_var not in outer_schema['output'] and s_var not in outer_schema['input']:
+                                    raise errors.MappingError(d_nv, step)
+                            elif s_cn != 'env':
+                                new_schema['required'].add(s_nv)
+
+                [new_schema['output'].add(extract_container_var(k)[1]) for k in schema.get('output', [])]
+
             level += 1
+            outer_schema = new_schema
+        outer_schema['required'] = sorted(list(outer_schema['required']))
+        outer_schema['output'] = sorted(list(outer_schema['output']))
         return outer_schema

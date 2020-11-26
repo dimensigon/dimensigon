@@ -18,9 +18,9 @@ class VaultList(Resource):
     def get(self):
         if check_param_in_uri('scopes'):
             return [r[0] for r in
-                    db.session.query(Vault.scope).filter_by(user_id=get_jwt_identity()).order_by(Vault.scope)]
+                    Vault.query.filter_by(user_id=get_jwt_identity()).filter_by(deleted=0).order_by(Vault.scope)]
         elif check_param_in_uri('vars'):
-            query = db.session.query(distinct(Vault.name)).filter_by(user_id=get_jwt_identity())
+            query = db.session.query(distinct(Vault.name)).filter_by(user_id=get_jwt_identity()).filter_by(deleted=0)
             if 'scope' in request.args:
                 query = query.filter_by(scope=request.args.get('scope'))
             return [r[0] for r in query.order_by(Vault.name)]
@@ -86,12 +86,9 @@ class VaultResource(Resource):
     @forward_or_dispatch()
     @jwt_required
     @securizer
-    @validate_schema(vault_put)
     @lock_catalog
     def delete(self, name, scope='global'):
-        data = request.get_json()
         v = Vault.query.get_or_raise((get_jwt_identity(), scope, name))
-
         v.delete()
         db.session.commit()
         return {}, 204

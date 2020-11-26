@@ -19,8 +19,8 @@ class SoftwareServerAssociation(DistributedEntityMixin, SoftDeleteMixin, db.Mode
     software = db.relationship("Software", back_populates="ssas", uselist=False)
     server = db.relationship("Server", backref="software_list", uselist=False)
 
-    def to_json(self):
-        data = super().to_json()
+    def to_json(self, **kwargs):
+        data = super().to_json(**kwargs)
         data.update({'software_id': str(self.software.id), 'server_id': str(self.server.id), 'path': self.path})
         return data
 

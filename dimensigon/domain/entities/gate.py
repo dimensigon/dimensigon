@@ -40,8 +40,8 @@ class Gate(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     def __str__(self):
         return f'{self.dns or self.ip}:{self.port}'
 
-    def to_json(self, human=False):
-        data = super().to_json()
+    def to_json(self, human=False, **kwargs):
+        data = super().to_json(**kwargs)
         data.update(server_id=str(self.server.id) if self.server.id else None, ip=str(self.ip) if self.ip else None,
                     dns=self.dns, port=self.port, hidden=self.hidden)
         return data

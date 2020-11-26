@@ -119,7 +119,7 @@ class IOperationEncapsulation(ABC):
             return CompletedProcess(success=False, stderr=f"Error creating execution: {str(e)}", start_time=start,
                                     end_time=get_now())
 
-    def rpl_params(self, context):
+    def rpl_params(self, **context):
         template = jinja2.Template(self.code)
         return template.render(**context)
 
@@ -513,7 +513,7 @@ class NativeDeleteOperation(IOperationEncapsulation):
 class ShellOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
-        tokens = self.rpl_params(params)
+        tokens = self.rpl_params(**params, env=context.env)
 
         system_kwargs = self.system_kwargs.copy()
 
