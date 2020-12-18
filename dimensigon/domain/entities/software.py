@@ -1,7 +1,7 @@
 import copy
 import os
 import typing as t
-import packaging
+
 from packaging.version import parse
 
 from dimensigon.domain.entities import Server
@@ -11,7 +11,7 @@ from dimensigon.web import db
 
 
 class SoftwareServerAssociation(DistributedEntityMixin, SoftDeleteMixin, db.Model):
-    __tablename__ = "D_software_server_association"  # changed name in SCHEMA_VERSION = 7
+    __tablename__ = "D_software_server_association"
     order = 30
 
     software_id = db.Column(UUID, db.ForeignKey("D_software.id"), primary_key=True, nullable=False)
@@ -60,7 +60,7 @@ class Software(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     filename = db.Column(db.String(256))
     size = db.Column(db.Integer)
     checksum = db.Column(db.Text())
-    _old_name = db.Column("$$name", db.String(255))  # added in SCHEMA_VERSION 7
+    _old_name = db.Column("$$name", db.String(255))
 
     ssas: t.List[SoftwareServerAssociation] = db.relationship("SoftwareServerAssociation", back_populates="software")
 

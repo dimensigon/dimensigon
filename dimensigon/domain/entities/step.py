@@ -43,9 +43,9 @@ class Step(UUIDistributedEntityMixin, db.Model):
     step_code = db.Column("code", db.Text)
     step_post_process = db.Column("post_process", db.Text)
     step_pre_process = db.Column("pre_process", db.Text)
-    step_name = db.Column("name", db.String(40))  # added in SCHEMA_VERSION = 6
-    step_schema = db.Column("schema", db.JSON)  # added in SCHEMA_VERSION = 6
-    step_description = db.Column("description", db.Text)  # added in SCHEMA_VERSION = 6
+    step_name = db.Column("name", db.String(40))
+    step_schema = db.Column("schema", db.JSON)
+    step_description = db.Column("description", db.Text)
 
     orchestration = db.relationship("Orchestration", primaryjoin="Step.orchestration_id==Orchestration.id",
                                     back_populates="steps")

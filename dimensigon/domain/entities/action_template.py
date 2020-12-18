@@ -35,8 +35,8 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
     system_kwargs = db.Column(db.JSON)
     pre_process = db.Column(db.Text)
     post_process = db.Column(db.Text)
-    schema = db.Column(db.JSON)  # added in SCHEMA_VERSION = 6
-    description = db.Column(db.Text)  # added in SCHEMA_VERSION = 6
+    schema = db.Column(db.JSON)
+    description = db.Column(db.Text)
 
     def __init__(self, name: str, version: int, action_type: ActionType, code: MultiLine = None,
                  expected_stdout: MultiLine = None, expected_stderr: MultiLine = None,

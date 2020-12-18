@@ -24,7 +24,7 @@ Destination_Servers = t.List[t.Union[t.Tuple[Server, str], t.Tuple[Id, str], Ser
 
 
 class FileServerAssociation(DistributedEntityMixin, SoftDeleteMixin, db.Model):
-    __tablename__ = 'D_file_server_association'  # added in SCHEMA_VERSION = 6
+    __tablename__ = 'D_file_server_association'
     order = 30
 
     file_id = db.Column(typos.UUID, db.ForeignKey('D_file.id'), nullable=False, primary_key=True)
@@ -74,7 +74,7 @@ class FileServerAssociation(DistributedEntityMixin, SoftDeleteMixin, db.Model):
 
 
 class File(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
-    __tablename__ = 'D_file'  # added in SCHEMA_VERSION = 6
+    __tablename__ = 'D_file'
     order = 20
 
     src_server_id = db.Column(typos.UUID, db.ForeignKey('D_server.id'), nullable=False)
