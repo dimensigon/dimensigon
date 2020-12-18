@@ -15,12 +15,11 @@ from dimensigon import defaults
 from dimensigon.domain.entities import Server, Route, Gate, Parameter
 from dimensigon.domain.entities.route import RouteContainer
 from dimensigon.network.low_level import check_host, async_check_host
-from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.use_cases.mptools import Worker, MPQueue
 from dimensigon.use_cases.mptools_events import BaseEvent
 from dimensigon.utils.helpers import convert, is_iterable_not_string, format_exception, get_now
 from dimensigon.utils.typos import Id
-from dimensigon.web import network as ntwrk, errors
+from dimensigon.web import network as ntwrk, errors, get_root_auth
 
 if t.TYPE_CHECKING:
     from dimensigon.core import Dimensigon
@@ -187,25 +186,25 @@ class RouteManager(Worker):
             else:
                 last_shutdown = last_shutdown
 
-        if self.dm.config.force_scan or last_shutdown < (get_now() - dt.timedelta(seconds=self.refresh_interval)):
-            scan = True
-        else:
-            scan = False
-        changed_routes = self._loop.run_until_complete(
-            self._async_refresh_route_table(discover_new_neighbours=scan, check_current_neighbours=scan,
-                                            max_num_discovery=None))
-        self.session.commit()
-        self.publish_q.safe_put(InitialRouteSet())
+            if self.dm.config.force_scan or last_shutdown < (get_now() - dt.timedelta(seconds=self.refresh_interval)):
+                scan = True
+            else:
+                scan = False
+            changed_routes = self._loop.run_until_complete(
+                self._async_refresh_route_table(discover_new_neighbours=scan, check_current_neighbours=scan,
+                                                max_num_discovery=None))
+            self.session.commit()
+            self.publish_q.safe_put(InitialRouteSet())
 
-        super()._main_loop()
+            super()._main_loop()
 
-        with self.dm.flask_app.app_context():
             Parameter.set('last_graceful_shutdown', get_now().strftime(defaults.DATETIME_FORMAT))
 
     def main_func(self, *args, **kwargs):
         item = self.queue.safe_get()
         try:
             if item:
+
                 if isinstance(item, tuple) and item[0] == 'REFRESH':
                     changed_routes = self._loop.run_until_complete(self._async_refresh_route_table(*item[1:]))
                 elif isinstance(item, tuple) and item[0] == 'NEW':
@@ -264,11 +263,6 @@ class RouteManager(Worker):
     @property
     def gate_query(self):
         return self.session.query(Gate).filter_by(deleted=0) if self.session else None
-
-    @property
-    def auth(self):
-        with self.dm.flask_app.app_context():
-            return get_root_auth()
 
     def _route_table_merge(self, data: t.Dict[Server, ntwrk.Response]):
         changed_routes: t.Dict[Server, RouteContainer] = {}
@@ -403,9 +397,8 @@ class RouteManager(Worker):
 
         if neighbours:
             self.logger.debug(f"Getting routing tables from {', '.join([str(s) for s in neighbours])}")
-            with self.dm.flask_app.app_context():
-                responses = await asyncio.gather(
-                    *[ntwrk.async_get(server, 'api_1_0.routes', auth=self.auth) for server in neighbours])
+            responses = await asyncio.gather(
+                *[ntwrk.async_get(server, 'api_1_0.routes', auth=get_root_auth()) for server in neighbours])
 
             cr = self._route_table_merge(dict(zip(neighbours, responses)))
             changed_routes.update(cr)
@@ -436,7 +429,7 @@ class RouteManager(Worker):
                 if target_server is None:
                     self.logger.warning(f"Destination server unknown {new_route.get('destination_id')}")
                     continue
-                if target_server == self.server:
+                if target_server.id == self.server.id:
                     # check if server has detected me as a neighbour
                     if new_route.get('cost') == 0:
                         # check if I do not have it as a neighbour yet
@@ -446,16 +439,12 @@ class RouteManager(Worker):
                             if isinstance(route, RouteContainer):
                                 changed_routes[likely_proxy_server] = route
                                 likely_proxy_server.set_route(route)
-                            elif route is None:
-                                if likely_proxy_server.route and likely_proxy_server.route.cost is not None:
-                                    changed_routes[likely_proxy_server] = RouteContainer(None, None, None)
-                                    likely_proxy_server.set_route(changed_routes[likely_proxy_server])
                 else:
                     # server may be created without route (backward compatibility)
                     if target_server.route is None:
                         target_server.set_route(Route(destination=target_server))
                     # process routes whose proxy_server is not me
-                    if str(self.server.id) != new_route.get('proxy_server_id'):
+                    if self.server.id != new_route.get('proxy_server_id'):
                         # check If I reach destination
                         if target_server.route.cost is not None:
                             if new_route.get('cost') is None:
@@ -488,11 +477,10 @@ class RouteManager(Worker):
                                     target_server.set_route(changed_routes[target_server])
                                 else:
                                     # still a valid route. Send route to likely_proxy_server to tell it I have access
-                                    with self.dm.flask_app.app_context():
-                                        resp = ntwrk.patch(likely_proxy_server, 'api_1_0.routes',
+                                    resp = ntwrk.patch(likely_proxy_server, 'api_1_0.routes',
                                                            json=dict(server_id=str(self.server.id),
                                                                      route_list=[target_server.route.to_json()]),
-                                                           auth=self.auth, timeout=5)
+                                                           auth=get_root_auth(), timeout=5)
                                     if not resp.ok:
                                         self.logger.info(f'Unable to send route to {likely_proxy_server}: {resp}')
                             elif target_server.route.proxy_server is not None and \
@@ -582,7 +570,7 @@ class RouteManager(Worker):
                 orm.lazyload(Route.destination), orm.lazyload(Route.gate), orm.lazyload(Route.proxy_server)).count()
             if lost_routes:
                 changed_routes = self._loop.run_until_complete(
-                    self._async_update_route_table_cost(discover_new_neighbours=False,
+                    self._async_refresh_route_table(discover_new_neighbours=False,
                                                         check_current_neighbours=False))
 
             changed_routes.update({server: RouteContainer(None, None, None)})
@@ -619,14 +607,13 @@ class RouteManager(Worker):
 
         exclude_ids = list(set([s.id for s in servers]).union([getattr(e, 'id', e) for e in c_exclude]))
 
-        with self.dm.flask_app.app_context():
-            auth = get_root_auth()
-            aw = [ntwrk.async_patch(s, view_or_url='api_1_0.routes',
-                                    json={'server_id': self.server.id, 'route_list': msg,
-                                          'exclude': exclude_ids},
-                                    auth=auth) for s in servers]
+        auth = get_root_auth()
+        aw = [ntwrk.async_patch(s, view_or_url='api_1_0.routes',
+                                json={'server_id': self.server.id, 'route_list': msg,
+                                      'exclude': exclude_ids},
+                                auth=auth) for s in servers]
 
-            rs = await asyncio.gather(*aw, return_exceptions=True)
+        rs = await asyncio.gather(*aw, return_exceptions=True)
 
         for r, s in zip(rs, servers):
             if isinstance(r, Exception):

@@ -7,7 +7,7 @@ import dimensigon.use_cases.routing as routing
 import dimensigon.web.network as ntwrk
 from dimensigon import __version__ as dm_version
 from dimensigon.domain.entities import Server
-from dimensigon.use_cases.helpers import get_root_auth
+from dimensigon.web import get_root_auth
 from dimensigon.use_cases.use_cases import run_elevator, get_software
 from dimensigon.utils import asyncio
 from dimensigon.web.decorators import run_as

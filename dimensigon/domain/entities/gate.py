@@ -15,16 +15,18 @@ class Gate(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = "D_gate"
     order = 20
 
-    server_id = db.Column(UUID, db.ForeignKey('D_server.id'))
+    server_id = db.Column(UUID)  # removed foreign key to skip unique constraints on delete SCHEMA_VERSION 9
     dns = db.Column(db.String(100))
     ip = db.Column(IPType)
     port = db.Column(db.Integer, nullable=False)
     hidden = db.Column(db.Boolean, default=False)
+    _old_server_id = db.Column(UUID)  # modified in SCHEMA_VERSION 9
 
-    __table_args__ = (db.UniqueConstraint('server_id', 'ip'),
-                      db.UniqueConstraint('server_id', 'dns'))  # modified in SCHEMA_VERSION 8
+    __table_args__ = (db.UniqueConstraint('server_id', 'ip', 'port'),
+                      db.UniqueConstraint('server_id', 'dns', 'port'))  # modified in SCHEMA_VERSION 8,10
 
-    server = db.relationship("Server", back_populates="gates")
+    server = db.relationship("Server", backref="gates", foreign_keys=[server_id],
+                             primaryjoin="Gate.server_id==Server.id")  # modified in SCHEMA_VERSION 9
 
     def __init__(self, server: 'Server', port: int = defaults.DEFAULT_PORT, dns: str = None,
                  ip: t.Union[str, ipaddress.IPv4Address, ipaddress.IPv6Address] = None, **kwargs):

@@ -6,33 +6,27 @@ from aioresponses import aioresponses, CallbackResult
 from asynctest.mock import patch as async_patch
 
 from dimensigon.domain.entities import Server, Route, Log, User
-from dimensigon.use_cases.log_sender import LogSender
+# from dimensigon.use_cases.log_sender import LogSender
 from dimensigon.use_cases.log_sender import _PygtailBuffer, Pygtail
 from dimensigon.utils.asyncio import run
 from dimensigon.web import create_app, db
+from tests.base import FlaskAppMixin
 
 
-class TestServer(TestCase):
+class TestLogSender(FlaskAppMixin):
 
     def setUp(self):
         """Create and configure a new app instance for each test."""
         # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        db.create_all()
         User.set_initial()
         self.source = Server('source', port=8000, me=True)
         self.dest = Server('dest', port=8000)
         Route(self.dest, cost=0)
         db.session.add_all([self.source, self.dest])
         _PygtailBuffer._fh = mock.MagicMock()
-        self.log_sender = LogSender()
 
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
+        self.mock_dm = mock.Mock()
+        self.log_sender = LogSender(dimensigon=self.mock_dm)
 
     @patch('dimensigon.use_cases.log_sender.os.walk', autospec=True)
     @patch('dimensigon.use_cases.log_sender.os.path.isfile', autospec=True)

@@ -12,12 +12,11 @@ from dimensigon import __version__
 from dimensigon import defaults
 from dimensigon.domain.entities import bypass_datamark_update, Scope, Server, Catalog
 from dimensigon.use_cases import mptools as mpt
-from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.use_cases.lock import lock_scope
 from dimensigon.use_cases.mptools import TerminateInterrupt
 from dimensigon.utils import asyncio
 from dimensigon.utils.helpers import get_distributed_entities, get_now
-from dimensigon.web import errors, db
+from dimensigon.web import errors, db, get_root_auth
 from dimensigon.web import network as ntwrk
 
 if t.TYPE_CHECKING:

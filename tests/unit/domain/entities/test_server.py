@@ -1,4 +1,4 @@
-from unittest import TestCase
+from unittest import TestCase, mock
 from unittest.mock import patch
 
 from dimensigon import defaults
@@ -101,12 +101,14 @@ class TestServer(TestCase):
                               '_old_name': None},
                              s.to_json())
 
+
         self.assertDictEqual({'id': '22cd859d-ee91-4079-a112-000000000001',
                               'name': 'server',
                               'granules': [],
                               'created_on': now.strftime(defaults.DATETIME_FORMAT),
+                              'ignore_on_lock': False,
                               },
-                             s.to_json(no_delete=True))
+                             s.to_json(no_delete=True, add_ignore=True))
         db.session.add(s)
         db.session.commit()
         db.session.remove()
@@ -127,3 +129,50 @@ class TestServer(TestCase):
         self.assertEqual(s.name, smashed.name)
         self.assertEqual(s.granules, smashed.granules)
         self.assertEqual(s.last_modified_at, smashed.last_modified_at)
+
+
+    @patch('dimensigon.domain.entities.base.uuid.uuid4')
+    @patch('dimensigon.domain.entities.server.get_now')
+    def test_from_to_json_with_gate(self, mock_get_now, mock_uuid):
+        mock_get_now.return_value = get_now()
+        mock_uuid.return_value = '22cd859d-ee91-4079-a112-000000000002'
+        s = Server('server2', id='22cd859d-ee91-4079-a112-000000000001')
+
+        gate = mock.MagicMock()
+        gate.to_json.return_value = {'server_id': 1, 'server': 'n1'}
+
+        type(s).gates = mock.PropertyMock(return_value=[gate])
+
+        self.assertDictEqual(
+            {'id': '22cd859d-ee91-4079-a112-000000000001', 'name': 'server2', 'granules': [],
+             'gates': [{}], 'created_on': mock_get_now.return_value.strftime(defaults.DATETIME_FORMAT),
+             '_old_name': None, 'deleted': False},
+            s.to_json(
+                add_gates=True))
+        db.session.add(s)
+        db.session.commit()
+
+        s_json = s.to_json(add_gates=True)
+        smashed = Server.from_json(s_json)
+
+        self.assertIs(s, smashed)
+        self.assertEqual(s.id, smashed.id)
+        self.assertEqual(s.name, smashed.name)
+        self.assertEqual(s.granules, smashed.granules)
+        self.assertEqual(s.last_modified_at, smashed.last_modified_at)
+        self.assertListEqual(s.gates, smashed.gates)
+
+        # from new Server
+        db.session.remove()
+        db.drop_all()
+        db.create_all()
+
+        with patch('dimensigon.domain.entities.server.Gate.from_json') as mock_gate_from_json:
+            smashed = Server.from_json(s_json)
+
+            self.assertEqual(s.id, smashed.id)
+            self.assertEqual(s.name, smashed.name)
+            self.assertEqual(s.granules, smashed.granules)
+            self.assertEqual(s.last_modified_at, smashed.last_modified_at)
+            self.assertEqual(1, len(smashed.gates))
+            mock_gate_from_json.assert_called_once()

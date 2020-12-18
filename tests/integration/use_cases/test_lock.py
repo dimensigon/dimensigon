@@ -10,6 +10,7 @@ from dimensigon.domain.entities.bootstrap import set_initial
 from dimensigon.use_cases.lock import lock_unlock, lock
 from dimensigon.web import create_app, db, errors
 from dimensigon.web.network import Response
+from tests.base import FlaskAppMixin
 
 
 class TestLockUnlock(TestCase):
@@ -148,17 +149,10 @@ class TestLockUnlock(TestCase):
                              e.exception.responses)
 
 
-class TestLock(TestCase):
+class TestLock(FlaskAppMixin, TestCase):
     def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        self.headers = {"Authorization": f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
+        super().setUp()
 
-        db.create_all()
         set_initial()
 
         self.n1 = Server("node1", port=8000)
@@ -169,28 +163,22 @@ class TestLock(TestCase):
         db.session.commit()
         self.datemark = Catalog.max_catalog(str)
 
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
-
     def test_lock_no_server(self):
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(errors.NoServerToLock):
             ret = lock(Scope.ORCHESTRATION)
 
     @aioresponses()
     def test_lock_catalog(self, m):
+
         def callback_prevent(url, **kwargs):
-            self.assertDictEqual(kwargs['json'],
-                                 {'scope': 'CATALOG', 'datemark': self.datemark,
-                                  'applicant': [str(Server.get_current().id), str(self.n1.id),
-                                                str(self.n2.id)]})
+            assert kwargs['json'] == {'scope': 'CATALOG', 'datemark': self.datemark,
+                                      'applicant': [Server.get_current().id, self.n1.id,
+                                                    self.n2.id]}
             return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)
 
         def callback_lock(url, **kwargs):
-            self.assertDictEqual(kwargs['json'],
-                                 {'scope': 'CATALOG', 'applicant': [str(Server.get_current().id), str(self.n1.id),
-                                                                    str(self.n2.id)]})
+            assert kwargs['json'] == {'scope': 'CATALOG', 'applicant': [str(Server.get_current().id), str(self.n1.id),
+                                                                        str(self.n2.id)]}
             return CallbackResult("{'message': 'Locked'}", status=200)
 
         m.post(Server.get_current().url('api_1_0.locker_prevent'), callback=callback_prevent)
@@ -200,9 +188,9 @@ class TestLock(TestCase):
         m.post(self.n1.url('api_1_0.locker_lock'), callback=callback_lock)
         m.post(self.n2.url('api_1_0.locker_lock'), callback=callback_lock)
 
-        applicant = lock(Scope.CATALOG)
+        applicant = lock(Scope.CATALOG, [Server.get_current(), self.n1, self.n2])
 
-        self.assertEqual(applicant, [str(Server.get_current().id), str(self.n1.id), str(self.n2.id)])
+        self.assertEqual(applicant, [Server.get_current().id, self.n1.id, self.n2.id])
 
     @aioresponses()
     def test_lock_catalog_error_on_preventing(self, m):
@@ -225,7 +213,7 @@ class TestLock(TestCase):
         m.post(self.n2.url('api_1_0.locker_unlock'), callback=callback_unlock)
 
         with self.assertRaises(errors.LockError):
-            applicant = lock(Scope.CATALOG)
+            applicant = lock(Scope.CATALOG, [Server.get_current(), self.n1, self.n2])
 
         c = Locker.query.get(Scope.CATALOG)
         self.assertEqual(State.UNLOCKED, c.state)

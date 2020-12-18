@@ -83,7 +83,7 @@ class TestUpgradeCatalog(TestCase):
         self.assertEqual(dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc), c.last_modified_at)
 
         at1 = ActionTemplate.query.get('aaaaaaaa-1234-5678-1234-56781234aaa1')
-        self.assertEqual('mkdir -p {dir}', at1.code)
+        self.assertEqual('mkdir -p {dir}', at.code)
 
     # no new data
     @patch('dimensigon.use_cases.use_cases.get_distributed_entities')

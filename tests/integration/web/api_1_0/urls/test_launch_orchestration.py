@@ -1,15 +1,18 @@
-import time
+import concurrent
+from unittest import mock
 from unittest import mock
 from unittest.mock import patch
 
 from flask import url_for
 
-from dimensigon.domain.entities import Orchestration, ActionTemplate, ActionType, Server, User
+from dimensigon.domain.entities import Orchestration, ActionTemplate, ActionType, OrchExecution
+from dimensigon.domain.entities.user import ROOT
+from dimensigon.use_cases.deployment import deploy_orchestration
 from dimensigon.web import db, errors
-from tests import base
+from tests.base import TestDimensigonBase, ValidateResponseMixin
 
 
-class TestLaunchOrchestration(base.TestDimensigonBase, base.ValidateResponseMixin):
+class TestLaunchOrchestration(TestDimensigonBase, ValidateResponseMixin):
 
     def setUp(self) -> None:
         super().setUp()
@@ -26,10 +29,10 @@ class TestLaunchOrchestration(base.TestDimensigonBase, base.ValidateResponseMixi
         self.at4 = ActionTemplate(action_type=ActionType.SHELL, name="delete user", version=1,
                                   code="sudo userdel {{user}}")
 
-        self.s1 = self.o.add_step(undo=False, action_template=self.at1)
-        self.s2 = self.o.add_step(undo=True, action_template=self.at2, parents=[self.s1])
-        self.s3 = self.o.add_step(undo=False, action_template=self.at3, parents=[self.s1])
-        self.s4 = self.o.add_step(undo=True, action_template=self.at4, parents=[self.s3])
+        self.st1 = self.o.add_step(undo=False, action_template=self.at1)
+        self.st2 = self.o.add_step(undo=True, action_template=self.at2, parents=[self.st1])
+        self.st3 = self.o.add_step(undo=False, action_template=self.at3, parents=[self.st1])
+        self.st4 = self.o.add_step(undo=True, action_template=self.at4, parents=[self.st3])
 
         db.session.add(self.o)
         db.session.commit()
@@ -62,24 +65,25 @@ class TestLaunchOrchestration(base.TestDimensigonBase, base.ValidateResponseMixi
 
         self.validate_error_response(resp, errors.TargetUnspecified(['new']))
 
-    @patch('dimensigon.web.api_1_0.urls.use_cases.uuid.uuid4', return_value='a7083c43-34cc-4b26-91f0-ea0928cf5945')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.uuid.uuid4')
     @patch('dimensigon.web.api_1_0.urls.use_cases.Context')
     @patch('dimensigon.web.api_1_0.urls.use_cases.deploy_orchestration')
-    @patch('dimensigon.web.api_1_0.urls.use_cases.HTTPBearerAuth', return_value='token')
-    def test_launch_orchestration_ok(self, mock_create, mock_deploy, mock_var_context, mock_uuid4):
-        mock_uuid4.return_value = 1
-        mock_create.return_value = 'token'
-        data = {'hosts': str(Server.get_current().id),
+    def test_launch_orchestration_ok_foreground(self, mock_deploy, mock_var_context, mock_uuid4):
+        mock_uuid4.return_value = 'a7083c43-34cc-4b26-91f0-ea0928cf5945'
+
+        data = {'hosts': self.s1.id,
                 'params': {'folder': '/home/{{user}}',
                            'home': '{{folder}}',
-                           'user': 'dimensigon'}}
+                           'user': 'dimensigon'},
+                'skip_validation': True,
+                'background': False}
+
+        oe = OrchExecution(id=mock_uuid4.return_value, orchestration_id=self.o.id)
+        db.session.add(oe)
+        db.session.commit()
 
         def deploy_orchestration(*args, **kwargs):
-            return {'result': 'ok'}
-
-        def deploy_orchestration_delayed(*args, **kwargs):
-            time.sleep(1.1)
-            return dict(**kwargs)
+            return mock_uuid4.return_value
 
         mock_deploy.side_effect = deploy_orchestration
         MockVarContext = mock.Mock(name='MockVarContext')
@@ -89,20 +93,64 @@ class TestLaunchOrchestration(base.TestDimensigonBase, base.ValidateResponseMixi
                                 headers=self.auth.header)
 
         self.assertEqual(200, resp.status_code)
-        self.assertDictEqual({'result': 'ok'}, resp.get_json())
+        self.assertDictEqual(oe.to_json(add_step_exec=True, split_lines=True), resp.get_json())
 
         mock_var_context.assert_called_once_with(data['params'],
-                                                 dict(execution_id=None, parent_orch_execution_id=None,
-                                                      orch_execution_id='1',
-                                                      executor_id=str(User.get_by_name('root').id)))
-        mock_deploy.assert_called_once_with(execution='1', orchestration=self.o.id, var_context=MockVarContext,
-                                            hosts={'all': [str(Server.get_current().id)]})
+                                                 dict(execution_id=None, root_orch_execution_id=mock_uuid4.return_value,
+                                                      orch_execution_id=mock_uuid4.return_value,
+                                                      executor_id=ROOT),
+                                                 vault={})
 
-        mock_deploy.side_effect = deploy_orchestration_delayed
-        resp = self.client.post(url_for('api_1_0.launch_orchestration', orchestration_id=str(self.o.id)),
-                                json=data,
-                                headers=self.auth.header)
+        mock_deploy.assert_called_once_with(orchestration=self.o, var_context=MockVarContext,
+                                            hosts={'all': [self.s1.id]}, timeout=None)
 
-        self.assertEqual(202, resp.status_code)
-        self.assertDictEqual({'execution_id': '1'},
-                             resp.get_json())
+    @patch('dimensigon.web.api_1_0.urls.use_cases.uuid.uuid4')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.Context')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.executor.submit')
+    def test_launch_orchestration_ok_background(self, mock_submit, mock_var_context, mock_uuid4):
+        with self.subTest("Test background resolved"):
+            mock_uuid4.return_value = 'a7083c43-34cc-4b26-91f0-ea0928cf5945'
+
+            data = {'hosts': self.s1.id,
+                    'params': {'folder': '/home/{{user}}',
+                               'home': '{{folder}}',
+                               'user': 'dimensigon'},
+                    'skip_validation': True,
+                    'background': True}
+
+            oe = OrchExecution(id=mock_uuid4.return_value, orchestration_id=self.o.id)
+            db.session.add(oe)
+            db.session.commit()
+
+            mock_submit.return_value = mock.Mock()
+
+            MockVarContext = mock.Mock(name='MockVarContext')
+            mock_var_context.return_value = MockVarContext
+
+            resp = self.client.post(url_for('api_1_0.launch_orchestration', orchestration_id=str(self.o.id)),
+                                    json=data,
+                                    headers=self.auth.header)
+
+            mock_var_context.assert_called_once_with(data['params'],
+                                                     dict(execution_id=None, root_orch_execution_id=mock_uuid4.return_value,
+                                                          orch_execution_id=mock_uuid4.return_value,
+                                                          executor_id=ROOT),
+                                                     vault={})
+
+            mock_submit.assert_called_once_with(deploy_orchestration, orchestration=self.o.id, var_context=MockVarContext,
+                                                hosts={'all': [self.s1.id]}, timeout=None)
+
+            self.assertEqual(200, resp.status_code)
+            self.assertDictEqual(oe.to_json(add_step_exec=True, split_lines=True), resp.get_json())
+
+        with self.subTest("Test background taking longer"):
+            mock_submit.return_value = mock.Mock()
+            mock_submit.return_value.result.side_effect = concurrent.futures.TimeoutError()
+
+            resp = self.client.post(url_for('api_1_0.launch_orchestration', orchestration_id=str(self.o.id)),
+                                    json=data,
+                                    headers=self.auth.header)
+
+            self.assertEqual(202, resp.status_code)
+            self.assertDictEqual({'execution_id': 'a7083c43-34cc-4b26-91f0-ea0928cf5945'},
+                                 resp.get_json())

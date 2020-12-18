@@ -474,7 +474,8 @@ launch_orchestration_post = {
         "params": {"type": ["object", "null"]},
         "background": {"type": "boolean"},
         "skip_validation": {"type": "boolean"},
-        "scope": {"type": "string"}
+        "scope": {"type": "string"},
+        "timeout": {"type": "integer"}
     },
     "required": ["hosts"],
     "additionalProperties": False,

@@ -1,24 +1,13 @@
-from unittest import TestCase
-from unittest.mock import patch
+from unittest import TestCase, mock
 
+from dimensigon import defaults
 from dimensigon.domain.entities import Server, Route
-from dimensigon.web import create_app, db, errors
+from dimensigon.utils.helpers import get_now
+from dimensigon.web import db, errors
+from tests.base import OneNodeMixin
 
 
-class TestServer(TestCase):
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        # set_initial()
-        db.create_all()
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
+class TestServer(OneNodeMixin, TestCase):
 
     def set_servers_and_routes(self):
         self.n1 = Server(name='n1', dns_or_ip='1.1.1.1')
@@ -37,30 +26,31 @@ class TestServer(TestCase):
 
         db.session.commit()
 
-    @patch('dimensigon.domain.entities.route.check_host')
-    @patch('dimensigon.domain.entities.server.url_for')
+    @mock.patch('dimensigon.domain.entities.route.check_host')
+    @mock.patch('dimensigon.domain.entities.server.url_for')
     def test_url(self, mock_url, mock_check_host):
         self.set_servers_and_routes()
 
         mock_check_host.return_value = True
-        self.assertEqual('http://1.1.1.1:8000', self.n1.url())
-        self.assertEqual('http://n2_dns:8000', self.n2.url())
-        self.assertEqual('http://n3:8000', self.n3.url())
-        self.assertEqual('http://1.1.1.1:8000', self.r1.url())
-        self.assertEqual('http://n2_dns:8000', self.r2.url())
+        self.assertEqual(f'https://1.1.1.1:{defaults.DEFAULT_PORT}', self.n1.url())
+        self.assertEqual(f'https://n2_dns:{defaults.DEFAULT_PORT}', self.n2.url())
+        self.assertEqual(f'https://n3:8000', self.n3.url())
+        self.assertEqual(f'https://1.1.1.1:{defaults.DEFAULT_PORT}', self.r1.url())
+        self.assertEqual(f'https://n2_dns:{defaults.DEFAULT_PORT}', self.r2.url())
 
         mock_url.return_value = '/'
 
-        self.assertEqual('http://1.1.1.1:8000/', self.n1.url('api'))
+        self.assertEqual(f'https://1.1.1.1:{defaults.DEFAULT_PORT}/', self.n1.url('api'))
 
         mock_url.assert_called_once_with('api')
 
         me = Server(name='me', gates=[('127.0.0.1', 5), ('192.168.1.2', 2)], me=True)
-        self.assertEqual(f'http://127.0.0.1:5/', me.url('api'))
+        self.assertEqual(f'https://127.0.0.1:5/', me.url('api'))
 
-        self.app.config['PREFERRED_URL_SCHEME'] = 'https'
-        me = Server(name='me', gates=[('192.168.1.2', 2)], me=True)
-        self.assertEqual(f'https://192.168.1.2:2/', me.url('api'))
+        with mock.patch('dimensigon.domain.entities.server.current_app') as mock_current_app:
+            type(mock_current_app.dm.config).http_config = mock.PropertyMock(return_value={'keyfile': 'x'})
+            me = Server(name='me', gates=[('192.168.1.2', 2)], me=True)
+            self.assertEqual(f'http://192.168.1.2:2/', me.url('api'))
 
         s = Server('test', port=8000)
         with self.assertRaises(errors.UnreachableDestination):
@@ -80,12 +70,9 @@ class TestServer(TestCase):
 
         self.assertListEqual([n1, n2], me.get_neighbours())
 
-        self.app.cluster.set_alive(n1.id)
-
-        self.assertListEqual([n1], me.get_neighbours(alive=True))
-
         self.assertListEqual([n2], me.get_neighbours(exclude=n1))
         self.assertListEqual([n2], me.get_neighbours(exclude=[n1, n3]))
+        self.assertListEqual([n2], me.get_neighbours(exclude=[n1.id, n3.id]))
 
     def test_get_neighbours_no_route(self):
         n1 = Server('n1', port=8000)
@@ -132,42 +119,3 @@ class TestServer(TestCase):
 
         self.assertListEqual([r1], me.get_reachable_servers(exclude=[n1.id, n2]))
 
-    @patch('dimensigon.domain.entities.base.uuid.uuid4')
-    def test_from_to_json_with_gate(self, mock_uuid):
-        mock_uuid.return_value = '22cd859d-ee91-4079-a112-000000000002'
-        s = Server('server2', gates=[('dns', 6000)], id='22cd859d-ee91-4079-a112-000000000001')
-        self.assertDictEqual(
-            {'id': '22cd859d-ee91-4079-a112-000000000001', 'name': 'server2', 'granules': [],
-             'gates': [{'id': '22cd859d-ee91-4079-a112-000000000002', 'ip': None, 'dns': 'dns', 'port': 6000,
-                        'hidden': False}]},
-            s.to_json(
-                add_gates=True))
-        db.session.add(s)
-        db.session.commit()
-
-        s_json = s.to_json(add_gates=True)
-        smashed = Server.from_json(s_json)
-
-        self.assertIs(s, smashed)
-        self.assertEqual(s.id, smashed.id)
-        self.assertEqual(s.name, smashed.name)
-        self.assertEqual(s.granules, smashed.granules)
-        self.assertEqual(s.last_modified_at, smashed.last_modified_at)
-        self.assertListEqual(s.gates, smashed.gates)
-
-        # from new Server
-        db.session.remove()
-        db.drop_all()
-        db.create_all()
-
-        smashed = Server.from_json(s_json)
-
-        self.assertEqual(s.id, smashed.id)
-        self.assertEqual(s.name, smashed.name)
-        self.assertEqual(s.granules, smashed.granules)
-        self.assertEqual(s.last_modified_at, smashed.last_modified_at)
-        self.assertEqual(1, len(smashed.gates))
-        self.assertEqual(s.gates[0].id, smashed.gates[0].id)
-        self.assertEqual(s.gates[0].ip, smashed.gates[0].ip)
-        self.assertEqual(s.gates[0].dns, smashed.gates[0].dns)
-        self.assertEqual(s.gates[0].port, smashed.gates[0].port)

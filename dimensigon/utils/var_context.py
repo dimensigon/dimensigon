@@ -12,8 +12,8 @@ class Context:
                  vault=None):
         self._global_envs = __globals if __globals is not None else {}  # environment variables global to a deployment
         self._local_envs = __locals if __locals is not None else {}  # environment variables local to a step
-        self._container = {'env': ChainMap(self._local_envs, self._global_envs),
-                           'vault': vault if vault is not None else {}}
+        self.env = ChainMap(self._local_envs, self._global_envs)
+        self._container = {'vault': vault if vault is not None else {}}
 
         self._global_variables = variables if variables is not None else {}  # user data shared between steps
         self._key_server_ctx = key_server_ctx
@@ -39,6 +39,12 @@ class Context:
     def __setitem__(self, key, value):
         self.input[key] = value
         self.merge_common_variables(key)
+
+    def __getstate__(self):
+        return self.__dict__
+
+    def __setstate__(self, d):
+        self.__dict__ = d
 
     def __iter__(self):
         for k, v in self.input.items():

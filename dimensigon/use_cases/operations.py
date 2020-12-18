@@ -4,6 +4,7 @@ import functools
 import inspect
 import os
 import re
+import signal
 import sqlite3
 import sys
 import tempfile
@@ -16,14 +17,13 @@ import jinja2
 import requests
 from dataclasses import dataclass
 from flask import json
-from flask_jwt_extended import create_access_token, get_jwt_identity
+from packaging.version import parse
 
 from dimensigon import defaults
-from dimensigon.domain.entities import Step, Server, Software, OrchExecution, Orchestration, Scope, Route
-from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.domain.entities import Step, Server, Software, OrchExecution, Orchestration, Scope, Route, StepExecution
 from dimensigon.use_cases.lock import lock_scope
 from dimensigon.utils import subprocess
-from dimensigon.utils.helpers import get_now, is_iterable_not_string
+from dimensigon.utils.helpers import get_now, is_iterable_not_string, format_exception, is_valid_uuid
 from dimensigon.utils.typos import Kwargs
 from dimensigon.utils.var_context import Context
 from dimensigon.web import db, errors
@@ -39,7 +39,6 @@ class CompletedProcess:
     rc: int = None
     start_time: dt.datetime = None
     end_time: dt.datetime = None
-    pre_post_error: Exception = None
 
     def set_start_time(self) -> 'CompletedProcess':
         self.start_time = get_now()
@@ -116,7 +115,9 @@ class IOperationEncapsulation(ABC):
         try:
             return self._execute(params, timeout=timeout, context=context)
         except Exception as e:
-            return CompletedProcess(success=False, stderr=f"Error creating execution: {str(e)}", start_time=start,
+            return CompletedProcess(success=False,
+                                    stderr=f"Error creating execution: {format_exception(e)}",
+                                    start_time=start,
                                     end_time=get_now())
 
     def rpl_params(self, **context):
@@ -128,7 +129,7 @@ class IOperationEncapsulation(ABC):
             res = []
             if self.expected_stdout is not None:
                 if isinstance(cp.stdout, str):
-                    match = re.match(self.expected_stdout, cp.stdout)
+                    match = re.search(self.expected_stdout, cp.stdout)
                     if match:
                         res.append(True)
                         if context:
@@ -138,7 +139,7 @@ class IOperationEncapsulation(ABC):
                         res.append(False)
             if self.expected_stderr is not None:
                 if isinstance(cp.stderr, str):
-                    match = re.match(self.expected_stderr, cp.stderr)
+                    match = re.search(self.expected_stderr, cp.stderr)
                     if match:
                         res.append(True)
                         if context:
@@ -184,7 +185,7 @@ class IOperationEncapsulation(ABC):
 # 
 #         return self.evaluate_result(cp)
 
-
+# TODO: make a test case
 class RequestOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
@@ -235,16 +236,8 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
 
         # common parameters
         kwargs = self.system_kwargs
-        if kwargs.get('timeout') is not None and timeout is not None:
-            kwargs['timeout'] = min(kwargs.get('timeout'), timeout)
-        else:
-            if timeout is None:
-                kwargs['timeout'] = kwargs.get('timeout') or 15 * 60
-            else:
-                kwargs['timeout'] = timeout
+        kwargs['timeout'] = timeout or kwargs.get('timeout')
 
-        auth = HTTPBearerAuth(
-            create_access_token(get_jwt_identity(), expires_delta=dt.timedelta(seconds=kwargs['timeout'])))
         resp, exception = None, None
 
         def search_cost(ssa, route_list):
@@ -258,26 +251,49 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
                 cost = 999999
             return cost
 
-        soft = Software.query.get(input_params.get('software_id', None))
-        if not soft:
-            cp.stderr = f"software id '{input_params.get('software_id', None)}' not found"
-            cp.success = False
-            cp.set_end_time()
-            return cp
+        software = input_params.get('software', None)
+        if is_valid_uuid(software):
+            soft = Software.query.get(software)
+            if not soft:
+                cp.stderr = f"software id '{software}' not found"
+                cp.success = False
+                cp.set_end_time()
+                return cp
+        else:
+            version = input_params.get('version', None)
+            if version:
+                parsed_ver = parse(str(version))
+                soft_list = [s for s in Software.query.filter_by(name=software).all() if s.parsed_version == parsed_ver]
+            else:
+                soft_list = sorted(Software.query.filter_by(name=software).all(), key=lambda x: x.parsed_version)
+            if soft_list:
+                soft = soft_list[-1]
+            else:
+                cp.stderr = f"No software found for '{software}'" + (f" and version '{version}'" if version else "")
+                cp.success = False
+                cp.set_end_time()
+                return cp
+
         if not soft.ssas:
             cp.stderr = f"{soft.id} has no server association"
             cp.success = False
             cp.set_end_time()
             return cp
-        dest_server = Server.query.get(input_params.get('server_id', None))
+
+        # Server validation
+        server = input_params.get('server', None)
+        if is_valid_uuid(server):
+            dest_server = Server.query.get(server)
+        else:
+            dest_server = Server.query.filter_by(name=server).one_or_none()
         if not dest_server:
-            cp.stderr = f"destination server id '{input_params.get('server_id', None)}' not found"
+            cp.stderr = f"destination server {'id ' if is_valid_uuid(server) else ''}'{server}' not found"
             cp.success = False
             cp.set_end_time()
             return cp
 
         # decide best server source
-        resp = ntwrk.get(dest_server, 'api_1_0.routes', auth=auth, timeout=10)
+        resp = ntwrk.get(dest_server, 'api_1_0.routes', timeout=10)
         if resp.code == 200:
             ssas = copy.copy(soft.ssas)
             ssas.sort(key=functools.partial(search_cost, route_list=resp.msg['route_list']))
@@ -286,8 +302,6 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
         server = ssas[0].server
 
         # Process kwargs
-        if 'auth' not in kwargs:
-            kwargs['auth'] = auth
         data = {'software_id': soft.id, 'dest_server_id': dest_server.id, "background": False,
                 "include_transfer_data": True, "force": True}
         if input_params.get('dest_path', None):
@@ -315,20 +329,23 @@ class NativeWaitOperation(IOperationEncapsulation):
         found = []
         cp = CompletedProcess()
         cp.set_start_time()
-        try:
-            min_timeout = min(timeout, input_params.get('timeout', None))
-        except TypeError:
-            if timeout is not None:
-                min_timeout = timeout
-            elif input_params.get('timeout', None) is not None:
-                min_timeout = input_params.get('timeout')
-            else:
-                min_timeout = defaults.MAX_TIME_WAITING_SERVERS
+        timeout = input_params.get('timeout')
+        if timeout is None:
+            timeout = self.system_kwargs.get('timeout')
+        if timeout is None:
+            timeout = defaults.MAX_TIME_WAITING_SERVERS
+
         try:
             now = get_now()
             server_names = input_params.get('server_names', [])
             if not is_iterable_not_string(server_names):
                 server_names = [server_names]
+
+            if not server_names:
+                cp.success = False
+                cp.stderr = f"No server to wait"
+                cp.set_end_time()
+                return cp
 
             pending_names = set(server_names)
             with lock_scope(Scope.CATALOG, retries=3, delay=4, applicant=context.env.get('orch_execution_id')):
@@ -339,9 +356,11 @@ class NativeWaitOperation(IOperationEncapsulation):
                     except sqlite3.OperationalError as e:
                         if str(e) == 'database is locked':
                             found_names = []
+                        else:
+                            raise
                     found_names = set([t[0] for t in found_names])
                     pending_names = pending_names - found_names
-                    if pending_names and (time.time() - start) < min_timeout:
+                    if pending_names and (time.time() - start) < timeout:
                         time.sleep(self.system_kwargs.get('sleep_time', 15))
                     else:
                         break
@@ -357,15 +376,15 @@ class NativeWaitOperation(IOperationEncapsulation):
             else:
                 cp.success = False
                 cp.stderr = f"Server{'s' if len(pending_names) > 1 else ''} {', '.join(sorted(pending_names))} " \
-                            f"not created after {min_timeout} seconds"
+                            f"not created after {timeout} seconds"
         cp.set_end_time()
         return cp
 
-
+# TODO: make a test case
 class NativeDmRunningOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None):
-        input_params = params
+        input_params = params['input']
         start = time.time()
         running = []
         cp = CompletedProcess()
@@ -383,6 +402,12 @@ class NativeDmRunningOperation(IOperationEncapsulation):
         server_names = input_params.get('server_names', [])
         if not is_iterable_not_string(server_names):
             server_names = [server_names]
+
+        if not server_names:
+            cp.success = False
+            cp.stdout = f"No server to wait for DM running"
+            cp.set_end_time()
+            return cp
         pending_names = set(server_names)
         found_names = []
         while len(pending_names) > 0:
@@ -412,11 +437,11 @@ class NativeDmRunningOperation(IOperationEncapsulation):
         cp.set_end_time()
         return cp
 
-
+# TODO: make a test case
 class NativeDeleteOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None):
-        input_params = params
+        input_params = params['input']
         cp = CompletedProcess()
         cp.set_start_time()
         try:
@@ -448,68 +473,6 @@ class NativeDeleteOperation(IOperationEncapsulation):
         return cp
 
 
-# class PythonOperation(IOperationEncapsulation):
-#     def execute(self, params: Kwargs, timeout=None, env=None) -> CompletedProcess:
-#         byte_code = compile_restricted(self.code, '<inline>', 'exec')
-#         safe_builtins.update(json=json)
-#         safe_builtins.update(yaml=yaml)
-#         safe_builtins.update(jinja2=jinja2)
-#         safe_builtins.update(open=open)
-#
-#         cp = CompletedProcess()
-#         cp.set_start_time()
-#         _locals = dict(vc=var_context)
-#
-#         try:
-#             exec(byte_code, {'__builtins__': safe_builtins, '_write_': lambda x: x, '_print_': PrintCollector}, _locals)
-#         except Exception as e:
-#             cp.stderr = format_exception(e)
-#             cp.success = False
-#         else:
-#             cp.stdout = ''.join(getattr(_locals.get('_print', None), 'txt', []))
-#             cp.success = True
-#             cp.set_end_time()
-#
-#         return cp
-#
-# class PythonOperation(IOperationEncapsulation):
-#
-#     def _get_env(self, var_context):
-#         env = dict(var_context)
-#         if 'PATH' in os.environ:
-#             env.update(PATH=os.environ.get('PATH'))
-#         if 'PYTHONPATH' in os.environ:
-#             env.update(PYTHONPATH=os.environ.get('PATH'))
-#         if 'VIRTUAL_ENV' in os.environ:
-#             env.update(VIRTUAL_ENV=os.environ.get('VIRTUAL_ENV'))
-#         return env
-#
-#     def execute(self, params: Kwargs, timeout=None, env=None) -> CompletedProcess:
-#         system_kwargs = self.system_kwargs.copy()
-#
-#         timeout = system_kwargs.pop('timeout', 300)
-#
-#         cp = CompletedProcess()
-#         cp.set_start_time()
-#
-#         try:
-#             r = subprocess.run(f"{sys.executable} -c {self.code}", shell=True, stdout=subprocess.PIPE,
-#                                stderr=subprocess.PIPE,
-#                                **system_kwargs, timeout=timeout, env=self._get_env(var_context))
-#             cp.stdout = r.stdout.decode() if isinstance(r.stdout, bytes) else r.stdout
-#             cp.stderr = r.stderr.decode() if isinstance(r.stderr, bytes) else r.stderr
-#             cp.rc = r.returncode
-#         except (subprocess.TimeoutExpired, ValueError) as e:
-#             cp.stderr = f"{e.__class__.__name__}{e.args}"
-#             cp.success = False
-#         finally:
-#             cp.set_end_time()
-#
-#         self.evaluate_result(cp)
-#
-#         return cp
-
-
 class ShellOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
@@ -519,38 +482,76 @@ class ShellOperation(IOperationEncapsulation):
 
         shebang = system_kwargs.pop('shebang', '/bin/bash')
         user = system_kwargs.pop('run_as', None)
-        timeout = system_kwargs.pop('timeout', None)
-
+        timeout = system_kwargs.pop('timeout', timeout)
+        if timeout and not isinstance(timeout, float):
+            try:
+                timeout = float(timeout)
+            except:
+                timeout = None
         cp = CompletedProcess()
         cp.set_start_time()
-        tmp = tempfile.NamedTemporaryFile('w', delete=False)
+        tmp = tempfile.NamedTemporaryFile('w', delete=False, suffix='.' + os.path.basename(shebang))
         tmp.write(f"#!{shebang}\n")
         tmp.write(tokens)
         tmp.close()
         os.chmod(tmp.name, 0o755)
-        r = None
+        out_fh = open(tmp.name + '.out', 'w')
 
         if user:
             cmd = f"sudo -niu {user} {tmp.name}"
         else:
             cmd = tmp.name
+
+        with subprocess.Popen(cmd, stdout=out_fh, stderr=subprocess.STDOUT, encoding='utf-8',
+                              shell=True) as p:
+            try:
+                p.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                subprocess.run(f"sudo -u {user} kill {p.pid}", shell=True) if user else p.terminate()
+                try:
+                    p.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
+                                                                                                       signal.SIGKILL)
+                    p.communicate()
+                    cp.stderr = f"Timeout of {timeout} seconds while executing shell"
+                    cp.success = False
+                except Exception as e:
+                    subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
+                                                                                                       signal.SIGKILL)
+                    cp.stderr = f"Error waiting process {p.pid} to terminate\n{format_exception(e)}"
+                    cp.success = False
+                else:
+                    cp.stderr = f"Timeout of {timeout} seconds while executing shell"
+                    cp.success = False
+            except Exception as e:
+                subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
+                                                                                                   signal.SIGKILL)
+                p.communicate()
+                cp.stderr += "\n" + format_exception(e)
+
+            cp.rc = p.poll()
+            out_fh.close()
+            with open(tmp.name + '.out', 'r') as fh:
+                cp.stdout = fh.read()
+
         try:
-            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, shell=True)
-            cp.stdout = r.stdout.decode() if isinstance(r.stdout, bytes) else r.stdout
-            cp.stderr = r.stderr.decode() if isinstance(r.stderr, bytes) else r.stderr
-            cp.rc = r.returncode
-        except subprocess.TimeoutExpired as e:
-            cp.stderr = str(e)
-            cp.success = False
-        finally:
             os.remove(tmp.name)
-            cp.set_end_time()
+        except:
+            pass
+
+        try:
+
+            os.remove(tmp.name + '.out')
+        except:
+            pass
+        cp.set_end_time()
 
         self.evaluate_result(cp, context)
 
         return cp
 
-
+# TODO: make a test case
 class OrchestrationOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
@@ -558,25 +559,17 @@ class OrchestrationOperation(IOperationEncapsulation):
         input_params = params['input']
         cp = CompletedProcess().set_start_time()
         # Validation
-        orchestration_id = input_params.pop('orchestration_id', None)
-        if orchestration_id is None:
-            cp.stderr = "No orchestration_id specified"
+        orchestration = Orchestration.get(input_params.pop('orchestration', None), input_params.pop('version', None))
+        if not isinstance(orchestration, Orchestration):
+            cp.stderr = orchestration
             cp.success = False
-            cp.set_end_time()
-            return cp
-        orch = Orchestration.query.get(orchestration_id)
-        if orch is None:
-            cp.stderr = str(errors.EntityNotFound('Orchestration', orchestration_id))
-            cp.success = False
-            cp.set_end_time()
-            return cp
+            return cp.set_end_time()
 
         hosts = input_params.pop('hosts', None)
         if hosts is None:
             cp.stderr = "No hosts specified"
             cp.success = False
-            cp.set_end_time()
-            return cp
+            return cp.set_end_time()
         hosts = copy.deepcopy(hosts)
         if isinstance(hosts, list):
             hosts = {'all': hosts}
@@ -586,41 +579,44 @@ class OrchestrationOperation(IOperationEncapsulation):
         if not_found:
             cp.stderr = str(errors.ServerNormalizationError(not_found))
             cp.success = False
-            return cp
+            return cp.set_end_time()
 
-        exe = OrchExecution(orchestration_id=orchestration_id,
-                            target=hosts,
-                            params=input_params,
-                            executor_id=context.env.get('executor_id'),
-                            server_id=context.env.get('server_id'),
-                            parent_step_execution_id=context.env.get('step_execution_id'))
-        db.session.add(exe)
+        o_exe = OrchExecution(orchestration_id=orchestration.id,
+                              target=hosts,
+                              params=input_params,
+                              executor_id=context.env.get('executor_id'),
+                              server_id=context.env.get('server_id'),
+                              parent_step_execution_id=context.env.get('step_execution_id'))
+        db.session.add(o_exe)
+        se = StepExecution.query.get(context.env.get('step_execution_id'))
+        if se:
+            se.child_orch_execution_id = o_exe.id
         db.session.commit()
 
-        cp.stdout = f"orch_execution_id={exe.id}"
+        cp.stdout = f"orch_execution_id={o_exe.id}"
 
-        ctx = Context(params,
-                      dict(root_orch_execution_id=context.env['root_orch_execution_id'],
-                           orch_execution_id=exe.id,
-                           executor_id=context.env['executor_id']), vault=context.vault)
+        env = dict(context.env)
+        env.update(root_orch_execution_id=context.env['root_orch_execution_id'],
+                   orch_execution_id=o_exe.id,
+                   executor_id=context.env['executor_id'])
+        ctx = Context(input_params, env, vault=context.vault)
         try:
-            deploy_orchestration(orchestration=orchestration_id, hosts=hosts, var_context=ctx, execution=exe)
+            deploy_orchestration(orchestration=orchestration, hosts=hosts, var_context=ctx, execution=o_exe,
+                                 timeout=timeout)
         except Exception as e:
             cp.stderr = str(e) if str(e) else e.__class__.__name__
             cp.success = False
         else:
             context.merge_ctx(ctx)
-            db.session.refresh(exe)
-            cp.success = exe.success
-        cp.set_end_time()
-
-        return cp
+            db.session.refresh(o_exe)
+            cp.success = o_exe.success
+        return cp.set_end_time()
 
 
 class TestOperation(IOperationEncapsulation):
 
     def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
-        tokens = self.rpl_params(params)
+        tokens = self.rpl_params(**params, env=context.env)
         return CompletedProcess(success=True, stdout=tokens, rc=0, start_time=get_now(), end_time=get_now())
 
 from dimensigon.domain.entities import ActionType

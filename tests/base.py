@@ -1,4 +1,5 @@
 import os
+import unittest
 from unittest import mock
 from unittest.case import TestCase
 
@@ -34,9 +35,8 @@ class ValidateResponseMixin:
 class TestBase:
     scopefunc = app_scope
 
-    @staticmethod
-    def set_scoped_session():
-        set_test_scoped_session(db, TestBase.scopefunc)
+    def set_scoped_session(self):
+        set_test_scoped_session(db, self.scopefunc)
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -54,10 +54,26 @@ class TestBase:
                 pass
 
 
+class FlaskAppMixin(TestBase):
+    def setUp(self):
+        self.maxDiff = None
+        self.set_scoped_session()
+        self.app = create_app('test')
+        self.app.config['SERVER_NAME'] = 'me'
+        self.app_context = self.app.app_context()
+        self.client = self.app.test_client()
+        self.app_context.push()
+        db.create_all()
+
+    def tearDown(self) -> None:
+        self.remove_db()
+        self.app_context.pop()
+
+
 class OneNodeMixin(TestBase):
     db_uris = []
 
-    def fill_database(self):
+    def _fill_database(self):
         db.create_all()
         set_initial(server=False, user=True, action_template=True)
         d = Dimension.from_json(self.dim)
@@ -80,7 +96,7 @@ class OneNodeMixin(TestBase):
         self.client = self.app.test_client()
         self.app_context.push()
 
-        self.fill_database()
+        self._fill_database()
 
         self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
 
@@ -92,7 +108,7 @@ class OneNodeMixin(TestBase):
 class TwoNodeMixin(TestBase):
     db_uris = []
 
-    def fill_database(self, app: Flask):
+    def _fill_database(self, app: Flask):
         node = app.config['SERVER_NAME']
 
         with app.app_context():
@@ -137,9 +153,9 @@ class TwoNodeMixin(TestBase):
         self.app2_context = self.app2.app_context()
         self.client2 = self.app2.test_client()
 
-        self.fill_database(self.app)
+        self._fill_database(self.app)
 
-        self.fill_database(self.app2)
+        self._fill_database(self.app2)
 
         self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
 
@@ -154,7 +170,7 @@ class TwoNodeMixin(TestBase):
 class ThreeNodeMixin(TestBase):
     db_uris = []
 
-    def fill_database(self, app: Flask):
+    def _fill_database(self, app: Flask):
         node = app.config['SERVER_NAME']
         with app.app_context():
             db.create_all()
@@ -213,11 +229,11 @@ class ThreeNodeMixin(TestBase):
         self.app3_context = self.app3.app_context()
         self.client3 = self.app3.test_client()
 
-        self.fill_database(self.app2)
+        self._fill_database(self.app2)
 
-        self.fill_database(self.app3)
+        self._fill_database(self.app3)
 
-        self.fill_database(self.app)
+        self._fill_database(self.app)
 
         self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
 
@@ -241,3 +257,8 @@ class TestDimensigonBase(OneNodeMixin, TestCase):
     # def setUp(self) -> None:
     #     super().setUp()
     #     # set_initial()
+
+
+class AsyncMock(unittest.mock.MagicMock):
+    async def __call__(self, *args, **kwargs):
+        return super().__call__(*args, **kwargs)

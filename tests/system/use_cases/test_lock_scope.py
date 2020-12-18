@@ -1,5 +1,5 @@
 import re
-from unittest import TestCase
+from unittest import TestCase, mock
 
 from aioresponses import aioresponses, CallbackResult
 from flask_jwt_extended import create_access_token
@@ -9,35 +9,23 @@ from dimensigon.domain.entities.bootstrap import set_initial
 from dimensigon.use_cases.lock import lock_scope
 from dimensigon.utils.helpers import generate_dimension
 from dimensigon.web import create_app, db, load_global_data_into_context
+from tests.base import TestDimensigonBase
 
 
-class TestLockScope(TestCase):
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        self.headers = {"Authorization": f"Bearer {create_access_token('00000000-0000-0000-0000-000000000001')}"}
+class TestLockScope(TestDimensigonBase):
 
-        db.create_all()
-        set_initial()
-        db.session.commit()
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
-
+    @mock.patch('dimensigon.web.helpers.current_app')
     @aioresponses()
-    def test_lock_scope(self, m):
+    def test_lock_scope(self, mock_app, m):
+
         n1 = Server("node1", port=8000)
         Route(n1, cost=0)
         n2 = Server("node2", port=8000)
         Route(n2, cost=0)
         db.session.add_all([n1, n2])
         db.session.commit()
+
+        mock_app.dm.cluster_manager.get_alive.return_value = [n1.id, n2.id]
 
         def callback_prevent(url, **kwargs):
             return CallbackResult("{'message': 'Preventing lock acquired'}", status=200)

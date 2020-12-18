@@ -10,7 +10,7 @@ from dimensigon.utils.event_handler import EventHandler
 from dimensigon.web import errors, threading
 from dimensigon.web.config import config_by_name
 from .extensions.flask_executor.executor import Executor
-from .helpers import BaseQueryJSON, run_in_background
+from .helpers import BaseQueryJSON, run_in_background, get_root_auth
 from ..utils.helpers import bind2gate
 
 if t.TYPE_CHECKING:
@@ -41,7 +41,6 @@ class DimensigonFlask(Flask):
         with self.app_context():
             from dimensigon.domain.entities import Server, Parameter
             import dimensigon.web.network as ntwrk
-            from dimensigon.use_cases.helpers import get_root_auth
             from dimensigon.domain.entities import Locker
 
             # reset scopes

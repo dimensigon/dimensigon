@@ -17,9 +17,6 @@ from .route import Route, RouteContainer
 from ... import defaults
 from ...utils.helpers import get_ips, get_now, is_iterable_not_string
 
-_me = {}
-
-
 class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = 'D_server'
     order = 10
@@ -34,7 +31,7 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
 
     route: t.Optional[Route] = db.relationship("Route", primaryjoin="Route.destination_id==Server.id", uselist=False,
                                                back_populates="destination", cascade="all, delete-orphan")
-    gates: t.List[Gate] = db.relationship("Gate", back_populates="server", cascade="all, delete-orphan")
+    gates: t.List[Gate]
 
     log_sources = db.relationship("Log", primaryjoin="Server.id==Log.src_server_id", back_populates="source_server")
     log_destinations = db.relationship("Log", primaryjoin="Server.id==Log.dst_server_id",
@@ -179,8 +176,7 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
                 return root_path + url_for(view, **values)
 
     @classmethod
-    def get_neighbours(cls, alive=False,
-                       exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None, session=None) -> \
+    def get_neighbours(cls, exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None, session=None) -> \
     t.List[
         'Server']:
         """returns neighbour servers
@@ -199,16 +195,13 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
         if exclude:
             if isinstance(exclude, list):
                 if isinstance(exclude[0], Server):
-                    query = query.filter(Server.id.in_([s.id for s in exclude]))
+                    query = query.filter(Server.id.notin_([s.id for s in exclude]))
                 else:
-                    query = query.filter(Server.id.in_(exclude))
+                    query = query.filter(Server.id.notin_(exclude))
             elif isinstance(exclude, Server):
                 query = query.filter(Server.id != exclude.id)
             else:
                 query = query.filter(Server.id != exclude)
-
-        # if alive:
-        #     query = query.filter(cls.id.in_([iden for iden in current_app.dm.cluster_manager.get_alive()]))
 
         return query.order_by(cls.name).all()
 
@@ -261,7 +254,7 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
                 json_gate.pop('server', None)  # added to remove when human set
                 data['gates'].append(json_gate)
         if add_ignore:
-            data.update(ignore_on_lock=self.l_ignore_on_lock)
+            data.update(ignore_on_lock=self.l_ignore_on_lock or False)
         return data
 
     @classmethod
@@ -278,22 +271,9 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
 
     @classmethod
     def get_current(cls, session=None) -> 'Server':
-        global _me
-        if session:
-            query = session.query(cls)
-        else:
-            query = cls.query
-        if has_app_context():
-            app = current_app._get_current_object()
-            if app not in _me:
-                entity = query.filter_by(_me=True).filter_by(deleted=False).one()
-                if entity:
-                    db.session.expunge(entity)
-                    _me[app] = entity
-                else:
-                    raise NoResultFound('No row was found for one()')
-            return db.session.merge(_me[app], load=False)
-        return query.filter_by(_me=True).filter_by(deleted=False).one()
+        if session is None:
+            session = db.session
+        return session.query(cls).filter_by(_me=True).filter_by(deleted=False).one()
 
     @staticmethod
     def set_initial(session=None, gates=None) -> Id:

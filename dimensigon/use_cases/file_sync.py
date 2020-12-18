@@ -19,13 +19,12 @@ from dimensigon import defaults
 from dimensigon.domain.entities import File, Server, Log, FileServerAssociation
 from dimensigon.domain.entities.log import Mode
 from dimensigon.use_cases.cluster import NewEvent, AliveEvent
-from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.use_cases.mptools import MPQueue, TimerWorker
 from dimensigon.utils import asyncio
 from dimensigon.utils.helpers import remove_root
 from dimensigon.utils.pygtail import Pygtail
 from dimensigon.utils.typos import Id
-from dimensigon.web import network as ntwrk
+from dimensigon.web import network as ntwrk, get_root_auth
 
 if t.TYPE_CHECKING:
     from dimensigon.core import Dimensigon

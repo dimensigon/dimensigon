@@ -212,25 +212,22 @@ class DshellCompleter(Completer):
                         return
                     for arg in completer:
                         if isinstance(arg, dict):
-                            if arg.get('argument').startswith('-'):
-                                options.update({arg.get('argument'): arg})
+                            arg = [arg]
+                        elif isinstance(arg, list):
+                            pass
+                        else:
+                            # to pass command function in dict command definition
+                            continue
+                        for a in arg:
+                            if a.get('argument').startswith('-'):
+                                options.update({a.get('argument'): a})
                             else:
-                                params.update({arg.get('argument'): arg})
+                                params.update({a.get('argument'): a})
 
-                            if 'dest' in arg:
-                                dest_args.update({arg.get('dest'): arg})
+                            if 'dest' in a:
+                                dest_args.update({a.get('dest'): a})
                             else:
-                                dest_args.update({arg.get('argument').lstrip('-'): arg})
-                        if isinstance(arg, list):
-                            for a in arg:
-                                if a.get('argument').startswith('-'):
-                                    options.update({a.get('argument'): a})
-                                else:
-                                    params.update({a.get('argument'): a})
-                                if 'dest' in a:
-                                    dest_args.update({a.get('dest'): a})
-                                else:
-                                    dest_args.update({a.get('argument').lstrip('-'): a})
+                                dest_args.update({a.get('argument').lstrip('-'): a})
 
                     try:
                         words = shlex.split(text)
@@ -268,6 +265,7 @@ class DshellCompleter(Completer):
                                     break
                         else:
                             k = None
+                            v = None
 
                         # special case for DictAction
                         for dest, arg_def in dest_args.items():
@@ -294,30 +292,58 @@ class DshellCompleter(Completer):
                                         if len(v) == 0 or len(v) == 1 and v[0] == finder:
                                             return
                                 k = None
-                        # get source     value
+                                v = None
+
+                        # get source value
                         if k:
-                            # completing an option argument value
+                            nargs = dest_args[k].get('nargs')
+                            if nargs and not isinstance(nargs, int):
+                                if k not in params and document.char_before_cursor == ' ':
+                                    if '--' not in words:
+                                        # next argument may be a positional parameter or an optional argument
+                                        # if nargs '+' means that at least 1 item must be provided
+                                        if not (nargs == '+' and v and len(v) - 1 == 0) and k not in params:
+                                            completer = DshellWordCompleter(words=list(options.keys()))
+                                            for c in completer.get_completions(document, complete_event):
+                                                yield c
+                                        if nargs == '*' or (nargs == '+' and v and len(v) - 1 > 0):
+                                            yield Completion('--')
+                                    else:
+                                        for p in params:
+                                            if 'choices' in params[p]:
+                                                completer = DshellWordCompleter(params[p].get("choices"))
+                                            elif 'completer' in params[p]:
+                                                completer = params[p].get('completer')
+                                            for c in completer.get_completions(document, complete_event):
+                                                yield c
+                                            break
+                                elif k in params and document.char_before_cursor == ' ':
+                                    completer = DshellWordCompleter(words=list(options.keys()))
+                                    for c in completer.get_completions(document, complete_event):
+                                        yield c
+                            # cursor is in params (not option) it may set an optional parameter
+                            elif k in params and '--' not in words:
+                                completer = DshellWordCompleter(words=list(options.keys()))
+                                for c in completer.get_completions(document, complete_event):
+                                    yield c
                             if k in dest_args:
                                 if 'choices' in dest_args[k]:
                                     completer = DshellWordCompleter(dest_args[k].get("choices"))
                                     for c in completer.get_completions(document, complete_event):
-                                        yield c
+                                        if (v and c.text not in v) or v is None:
+                                            yield c
                                 completer = dest_args[k].get('completer', None)
                             else:
                                 completer = None
-                            # next argument can be a positional parameter or an optional argument
-                            if k in params and current_word == finder:
-                                # the user may want to add more options
-                                _completer = DshellWordCompleter(words=list(options.keys()))
-                                for c in _completer.get_completions(document, complete_event):
-                                    yield c
                             if completer:
                                 if isinstance(completer, ResourceCompleter):
                                     kwargs = dict(var_filters=values)
                                 else:
                                     kwargs = {}
+
                                 for c in completer.get_completions(document, complete_event, **kwargs):
-                                    yield c
+                                    if (v and c.text not in v) or v is None:
+                                        yield c
                         else:
                             completer = DshellWordCompleter(words=list(options.keys()))
                             for c in completer.get_completions(document, complete_event):

@@ -69,7 +69,7 @@ class ArgumentParserRaise(argparse.ArgumentParser):
 
 
 _T = TypeVar('_T')
-
+import re as _re
 
 class GuessArgumentParser(ArgumentParserRaise):
 
@@ -117,6 +117,78 @@ class GuessArgumentParser(ArgumentParserRaise):
 
     def _check_value(self, action, value):
         pass
+
+    def _get_nargs_pattern(self, action, action_slices=None):
+        # in all examples below, we have to allow for '--' args
+        # which are represented as '-' in the pattern
+        nargs = action.nargs
+
+        # the default (None) is assumed to be a single argument
+        if nargs is None:
+            nargs_pattern = '(-*A-*)'
+
+        # allow zero or one arguments
+        elif nargs == argparse.OPTIONAL:
+            nargs_pattern = '(-*A?-*)'
+
+        # allow zero or more arguments
+        elif nargs == argparse.ZERO_OR_MORE:
+            nargs_pattern = '(-*[A-]*)'
+
+        # allow one or more arguments
+        elif nargs == argparse.ONE_OR_MORE:
+            nargs_pattern = '(-*A[A-]*)'
+
+        # allow any number of options or arguments
+        elif nargs == argparse.REMAINDER:
+            nargs_pattern = '([-AO]*)'
+
+        # allow one argument followed by any number of options or arguments
+        elif nargs == argparse.PARSER:
+            nargs_pattern = '(-*A[-AO]*)'
+
+        # all others should be integers
+        else:
+            if action_slices and action == action_slices[-1]:
+                nargs_pattern = '(-*[A-]{,%s})' % nargs
+            else:
+                nargs_pattern = '(-*%s-*)' % '-*'.join('A' * nargs)
+
+        # if this is an optional action, -- is not allowed
+        if action.option_strings:
+            nargs_pattern = nargs_pattern.replace('-*', '')
+            nargs_pattern = nargs_pattern.replace('-', '')
+
+        # return the pattern
+        return nargs_pattern
+
+    def _match_argument(self, action, arg_strings_pattern):
+        # match the pattern for this action to the arg strings
+        nargs_pattern = self._get_nargs_pattern(action, arg_strings_pattern)
+        match = _re.match(nargs_pattern, arg_strings_pattern)
+
+        # raise an exception if we weren't able to find a match
+        if match is None:
+            return 0
+
+        # return the number of arguments matched
+        return len(match.group(1))
+
+    def _match_arguments_partial(self, actions, arg_strings_pattern):
+        # progressively shorten the actions list by slicing off the
+        # final actions until we find a match
+        result = []
+        for i in range(len(actions), 0, -1):
+            actions_slice = actions[:i]
+            pattern = ''.join([self._get_nargs_pattern(action, actions_slice)
+                               for action in actions_slice])
+            match = _re.match(pattern, arg_strings_pattern)
+            if match is not None:
+                result.extend([len(string) for string in match.groups()])
+                break
+
+        # return the list of arg string counts
+        return result
 
     def _parse_known_args(self, arg_strings, namespace):
 
@@ -169,10 +241,7 @@ class GuessArgumentParser(ArgumentParserRaise):
             # take the action if we didn't receive a SUPPRESS value
             # (e.g. from a default)
             if argument_values is not argparse.SUPPRESS:
-                try:
-                    action(self, namespace, argument_values, option_string)
-                except:
-                    pass
+                action(self, namespace, argument_values, option_string)
 
         # function to convert arg_strings into an optional action
         def consume_optional(start_index):

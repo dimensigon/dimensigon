@@ -16,6 +16,8 @@ class Config(object):
     SSL_VERIFY = False
     PROPAGATE_EXCEPTIONS = False
 
+    JWT_DECODE_LEEWAY = 15
+
     # executor
     EXECUTOR_MAX_WORKERS = min(32, os.cpu_count() + 4)
     EXECUTOR_PROPAGATE_EXCEPTIONS = True

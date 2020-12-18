@@ -2,6 +2,7 @@ from unittest import TestCase
 
 from flask_jwt_extended import create_access_token
 
+
 from dimensigon import defaults
 from dimensigon.domain.entities import ActionTemplate, ActionType
 from dimensigon.web import create_app, db

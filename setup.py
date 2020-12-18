@@ -39,6 +39,7 @@ setup(
         "jinja2schema",
         "jsonschema",
         "netifaces",
+        "packaging",
         "passlib",
         "prompt_toolkit",
         "pygments",

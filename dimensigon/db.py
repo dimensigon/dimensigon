@@ -466,3 +466,68 @@ def _apply_update(engine, new_version, old_version):
         _recreate_table(engine, 'D_gate')
         _rename_columns(engine, 'D_user', [('user', 'name')])
         _create_table(engine, 'D_vault')
+    elif new_version == 9:
+        _recreate_table(engine, 'D_gate')
+        with engine.connect() as connection:
+            schema = json.dumps({"input": {"software_id": {"type": "string",
+                                                           "description": "software id to send"},
+                                           "server_id": {"type": "string",
+                                                         "description": "destination server id"},
+                                           "dest_path": {"type": "string",
+                                                         "description": "destination path to send software"},
+                                           "chunk_size": {"type": "integer"},
+                                           "max_senders": {"type": "integer"},
+                                           },
+                                 "required": ["software_id", "server_id"],
+                                 "output": ["file"]
+                                 })
+            connection.execute(text(
+                f"UPDATE D_action_template SET schema=:schema"
+                f" WHERE id = '00000000-0000-0000-000a-000000000001'"), schema=schema)
+
+            schema = json.dumps({"input": {"server_names": {"type": ["array", "string"],
+                                                            "items": {"type": "string"}},
+                                           },
+                                 "required": ["server_names"]
+                                 })
+            connection.execute(text(
+                f"UPDATE D_action_template SET schema=:schema"
+                f" WHERE id = '00000000-0000-0000-000a-000000000002'"), schema=schema)
+
+            schema = {"input": {"orchestration": {"type": "string",
+                                                  "description": "orchestration name or ID to "
+                                                                 "execute. If no version "
+                                                                 "specified, the last one will "
+                                                                 "be executed"},
+                                "version": {"type": "integer"},
+                                "hosts": {"type": ["string", "array", "object"],
+                                          "items": {"type": "string"},
+                                          "minItems": 1,
+                                          "patternProperties": {
+                                              ".*": {"anyOf": [{"type": "string"},
+                                                               {"type": "array",
+                                                                "items": {"type": "string"},
+                                                                "minItems": 1
+                                                                },
+                                                               ]
+                                                     },
+                                          },
+                                          },
+                                },
+                      "required": ["orchestration", "hosts"]
+                      }
+
+            connection.execute(text(
+                f"UPDATE D_action_template SET schema=:schema"
+                f" WHERE id = '00000000-0000-0000-000a-000000000003'"), schema=schema)
+
+            schema = json.dumps({"input": {"server_names": {"type": ["array", "string"],
+                                                            "items": {"type": "string"}},
+                                           },
+                                 "required": ["server_names"]
+                                 })
+            connection.execute(text(
+                f"UPDATE D_action_template SET schema=:schema"
+                f" WHERE id = '00000000-0000-0000-000a-000000000004'"), schema=schema)
+    elif new_version == 10:
+        _recreate_table(engine, 'D_gate')

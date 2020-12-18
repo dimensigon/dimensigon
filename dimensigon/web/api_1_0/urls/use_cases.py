@@ -28,7 +28,6 @@ import dimensigon.web.network as ntwrk
 from dimensigon import defaults as d, defaults
 from dimensigon.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
     Orchestration, OrchExecution, User, ActionTemplate, ActionType, Vault
-from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.use_cases.deployment import deploy_orchestration, validate_input_chain
 from dimensigon.utils import asyncio, subprocess
 from dimensigon.utils.dag import DAG
@@ -39,12 +38,12 @@ from dimensigon.web import db, executor, errors, threading
 from dimensigon.web.api_1_0 import api_bp
 from dimensigon.web.async_functions import async_send_file
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog, log_time
-from dimensigon.web.helpers import check_param_in_uri, normalize_hosts, search, get_auth_from_request
+from dimensigon.web.helpers import check_param_in_uri, normalize_hosts, search
 from dimensigon.web.json_schemas import launch_command_post, routes_post, routes_patch, \
     launch_orchestration_post, send_post, orchestration_full, manager_server_ignore_lock_post
 
 if t.TYPE_CHECKING:
-    from dimensigon.use_cases.operations import IOperationEncapsulation
+    from dimensigon.use_cases.operations import IOperationEncapsulation, CompletedProcess
 
 
 @api_bp.route('/')
@@ -172,7 +171,7 @@ def join_acknowledge(server_id):
 @jwt_required
 @securizer
 @validate_schema(manager_server_ignore_lock_post)
-def internal_server():
+def manager_server_ignore_lock():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         ignore = request.get_json()['ignore_on_lock']
         for server_id in request.get_json()['server_ids']:
@@ -202,8 +201,6 @@ def send():
             cost = 999999
         return cost
 
-    auth = HTTPBearerAuth(create_access_token(get_jwt_identity(), expires_delta=dt.timedelta(
-        minutes=30)))
     # Validate Data
     json_data = request.get_json()
 
@@ -215,18 +212,18 @@ def send():
         ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
         # if current server does not have the software, forward request to the closest server who has it
         if not ssa:
-            resp = ntwrk.get(dest_server, 'api_1_0.routes', auth=auth, timeout=5)
+            resp = ntwrk.get(dest_server, 'api_1_0.routes', timeout=5)
             if resp.code == 200:
                 ssas = copy.copy(software.ssas)
                 ssas.sort(key=functools.partial(search_cost, route_list=resp.msg['route_list']))
             # unable to get route cost, we take the first option we have
             else:
                 ssas = random.shuffle(list(software.ssas))
-            if len(ssas) == 0:
+            if not ssas or len(ssas) == 0:
                 raise errors.NoSoftwareServer(software_id=str(software.id))
             server = ssas[0].server  # closest server from dest_server who has the software
 
-            resp = ntwrk.post(server, 'api_1_0.send', json=json_data, auth=auth)
+            resp = ntwrk.post(server, 'api_1_0.send', json=json_data)
             resp.raise_if_not_ok()
             return resp.msg, resp.code
         else:
@@ -259,7 +256,7 @@ def send():
     if 'force' in json_data:
         json_msg['force'] = json_data['force']
 
-    resp = ntwrk.post(dest_server, 'api_1_0.transferlist', json=json_msg, auth=auth)
+    resp = ntwrk.post(dest_server, 'api_1_0.transferlist', json=json_msg)
     resp.raise_if_not_ok()
 
     transfer_id = resp.msg.get('id')
@@ -269,13 +266,13 @@ def send():
     if json_data.get('background', True):
         executor.submit(asyncio.run,
                         async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
-                                        chunk_size=chunk_size, max_senders=max_senders, auth=auth))
+                                        chunk_size=chunk_size, max_senders=max_senders))
     else:
         asyncio.run(async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
-                                    chunk_size=chunk_size, max_senders=max_senders, auth=auth))
+                                    chunk_size=chunk_size, max_senders=max_senders))
 
     if json_data.get('include_transfer_data', False):
-        resp = ntwrk.get(dest_server, "api_1_0.transferresource", view_data=dict(transfer_id=transfer_id), auth=auth)
+        resp = ntwrk.get(dest_server, "api_1_0.transferresource", view_data=dict(transfer_id=transfer_id))
         if resp.code == 200:
             msg = resp.msg
         else:
@@ -349,8 +346,7 @@ def fetch_catalog(data_mark):
     for name, obj in get_distributed_entities():
         c = Catalog.query.get(name)
         # db.session.query to bypass deleted objects to spread deleted changes
-        repo_data = obj.query.filter(obj.last_modified_at > data_mark).filter(
-            obj.last_modified_at <= now).all()
+        repo_data = obj.query.filter(obj.last_modified_at > data_mark).filter(obj.last_modified_at <= now).all()
         if name == 'User':
             data.update({name: [e.to_json(password=True) for e in repo_data]})
         else:
@@ -480,24 +476,29 @@ def routes():
 
 def run_command_and_callback(operation: 'IOperationEncapsulation', params, context: Context, source: Server,
                              step_execution: StepExecution,
-                             jwt_identity, event_id,
+                             event_id,
                              timeout=None):
-    cp = operation.execute(params, timeout=timeout, context=context)
-
-    execution = db.session.merge(step_execution)
+    execution: StepExecution = db.session.merge(step_execution)
     source = db.session.merge(source)
-    execution.load_completed_result(cp)
+    start = get_now()
+    try:
+        cp = operation.execute(params, timeout=timeout, context=context)
+    except Exception as e:
+        cp = CompletedProcess(success=False, stderr=f"Error while executing operation. {format_exception(e)}",
+                              start_time=start, end_time=get_now())
+    finally:
+        execution.load_completed_result(cp)
+
     try:
         db.session.commit()
     except Exception as e:
         current_app.logger.exception(f"Error on commit for execution {execution.id}")
+
     data = dict(step_execution=execution.to_json())
     if execution.child_orch_execution:
         data['step_execution'].update(orch_execution=execution.child_orch_execution.to_json(add_step_exec=True))
     resp, code = ntwrk.post(server=source, view_or_url='api_1_0.events', view_data={'event_id': event_id},
-                            json=data,
-                            auth=HTTPBearerAuth(
-                                create_access_token(jwt_identity, expires_delta=dt.timedelta(seconds=30))))
+                            json=data)
     if code != 202:
         current_app.logger.error(f"Error while sending result for execution {execution.id}: {code}, {resp}")
     return data
@@ -521,7 +522,7 @@ def launch_operation():
     db.session.add_all([orch_exec, se])
     db.session.commit()
     future = executor.submit(run_command_and_callback, operation, params, var_context, g.source, se,
-                             get_jwt_identity(), data['event_id'],
+                             data['event_id'],
                              timeout=data.get('timeout', None))
     try:
         r = future.result(1)
@@ -578,17 +579,18 @@ def launch_orchestration(orchestration_id):
 
     executor_id = get_jwt_identity()
     vc = Context(params, dict(execution_id=None, root_orch_execution_id=execution_id, orch_execution_id=execution_id,
-                              executor_id=executor_id, use_schema=data.get('input_validation', True)),
+                              executor_id=executor_id),
                  vault=Vault.get_variables_from(executor_id, scope=data.get('scope', 'global')))
 
-    if data.get('input_validation', True):
+    if not data.get('skip_validation', False):
         validate_input_chain(orchestration,
                              {'input': set(params.keys()), 'env': set(vc.env.keys()), 'vault': set(vc.vault.keys())})
 
     if request.get_json().get('background', True):
-        future = executor.submit(deploy_orchestration, orchestration=orchestration.id, var_context=vc, hosts=hosts)
+        future = executor.submit(deploy_orchestration, orchestration=orchestration.id, var_context=vc, hosts=hosts,
+                                 timeout=data.get('timeout', None))
         try:
-            orch_exe_id = future.result(1)
+            future.result(5)
         except concurrent.futures.TimeoutError:
             return {'execution_id': execution_id}, 202
         except Exception as e:
@@ -596,12 +598,13 @@ def launch_orchestration(orchestration_id):
             raise
     else:
         try:
-            orch_exe_id = deploy_orchestration(orchestration=orchestration, var_context=vc, hosts=hosts)
+            deploy_orchestration(orchestration=orchestration, var_context=vc, hosts=hosts,
+                                 timeout=data.get('timeout', None))
         except Exception as e:
             current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
             raise
-    return OrchExecution.query.get(orch_exe_id).to_json(add_step_exec=True, human=check_param_in_uri('human'),
-                                                        split_lines=True), 200
+    return OrchExecution.query.get(execution_id).to_json(add_step_exec=True, human=check_param_in_uri('human'),
+                                                         split_lines=True), 200
 
 
 def wrap_sudo(user, cmd):
@@ -653,7 +656,7 @@ def launch_command():
     data.pop('target', None)
     start = None
 
-    username = getattr(User.query.get(get_jwt_identity()), 'user', None)
+    username = getattr(User.query.get(get_jwt_identity()), 'name', None)
     if not username:
         raise errors.EntityNotFound('User', get_jwt_identity())
     cmd = wrap_sudo(username, data['command'])
@@ -670,8 +673,7 @@ def launch_command():
         attr = 'id'
     if server_list:
         resp: t.List[ntwrk.Response] = asyncio.run(
-            ntwrk.parallel_requests(server_list, method='POST', view_or_url='api_1_0.launch_command', json=data,
-                                    auth=get_auth_from_request()))
+            ntwrk.parallel_requests(server_list, method='POST', view_or_url='api_1_0.launch_command', json=data))
         for s, r in zip(server_list, resp):
             key = getattr(s, attr, s.id)
             if r.ok:

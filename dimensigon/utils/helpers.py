@@ -56,7 +56,7 @@ UUID_PATTERN = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 
 def is_valid_uuid(var):
     # best performance with regular expression compiled and not using re.IGNORECASE
-    if UUID_PATTERN.match(var):
+    if isinstance(var, str) and UUID_PATTERN.match(var):
         return True
     else:
         return False
@@ -197,7 +197,8 @@ def get_distributed_entities() -> t.List[t.Tuple['str', t.Any]]:
     entities = []
     for name, cls in inspect.getmembers(sys.modules['dimensigon.domain.entities'],
                                         lambda x: (inspect.isclass(x) and issubclass(x, DistributedEntityMixin))):
-        entities.append((name, cls))
+        entities.append((name, cls)) if name == cls.__name__ else None
+
 
     return sorted(entities, key=lambda x: x[1].order or 99999)
 
@@ -395,7 +396,7 @@ def session_scope(session=None):
         session.close()
 
 
-def format_exception(exc: Exception):
+def format_exception(exc: Exception) -> str:
     return ''.join(traceback.format_exception(exc, exc, exc.__traceback__))
 
 

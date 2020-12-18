@@ -1,6 +1,8 @@
 import copy
 import os
 import typing as t
+import packaging
+from packaging.version import parse
 
 from dimensigon.domain.entities import Server
 from dimensigon.domain.entities.base import DistributedEntityMixin, UUIDistributedEntityMixin, SoftDeleteMixin
@@ -85,6 +87,10 @@ class Software(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
                 servers.append(server_data)
             data.update(servers=servers)
         return data
+
+    @property
+    def parsed_version(self):
+        return parse(self.version) if self.version else None
 
     @classmethod
     def from_json(cls, kwargs):

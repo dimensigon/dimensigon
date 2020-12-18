@@ -1,38 +1,11 @@
-from unittest import TestCase
-
 from flask import url_for
-from flask_jwt_extended import create_access_token
 from werkzeug.exceptions import InternalServerError
 
-from dimensigon.domain.entities import User
-from dimensigon.domain.entities.bootstrap import set_initial
-from dimensigon.network.auth import HTTPBearerAuth
-from dimensigon.web import create_app, db, errors
+from dimensigon.web import errors
+from tests.base import TestDimensigonBase
 
 
-class TestApi(TestCase):
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app.config['DEBUG'] = True
-        self.app.config['TESTING'] = False
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-
-        db.create_all()
-        set_initial()
-        u = User('test')
-        db.session.add(u)
-        self.auth = HTTPBearerAuth(create_access_token(u.id))
-
-        db.session.commit()
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
+class TestApi(TestDimensigonBase):
 
     def test_validation_error(self):
         def raise_error():

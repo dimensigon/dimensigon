@@ -37,6 +37,10 @@ class RouteContainer:
         else:
             IndexError('list index out of range')
 
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and self.cost == other.cost and self.gate == other.gate \
+               and self.proxy_server == other.proxy_server
+
 
 class Route(db.Model):
     __tablename__ = 'L_route'

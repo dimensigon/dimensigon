@@ -7,11 +7,12 @@ from uuid import UUID
 from flask_jwt_extended import create_access_token, get_jwt_identity
 from sqlalchemy.orm import sessionmaker
 
+
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Catalog
 from dimensigon.domain.entities.locker import Scope
 from dimensigon.network.auth import HTTPBearerAuth
-from dimensigon.use_cases.helpers import get_servers_from_scope
+from dimensigon.web.helpers import get_servers_from_scope
 from dimensigon.utils.asyncio import run, create_task
 from dimensigon.utils.helpers import is_iterable_not_string
 from dimensigon.utils.typos import Id

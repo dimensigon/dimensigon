@@ -126,7 +126,7 @@ def server_routes(node, refresh=False):
         dprint(resp)
 
 
-def orch_list(ident=None, name=None, version=None, detail=False, like=None):
+def orch_list(ident=None, name=None, version=None, detail=False, like=None, schema=False):
     kwargs = {}
     view_data = dict()
     if ident is not None:
@@ -139,6 +139,8 @@ def orch_list(ident=None, name=None, version=None, detail=False, like=None):
         view_data.update({'params': ['steps', 'vars', 'target', 'action', 'human', 'split_lines']})
     else:
         view_data.update({'params': ['vars', 'target', 'human', 'split_lines']})
+    if schema:
+        view_data['params'].append('schema')
     resp = ntwrk.get('api_1_0.orchestrationlist', view_data=view_data, **kwargs)
     if resp.code == 200:
         data = resp.msg or []
@@ -464,7 +466,8 @@ def manager_catalog_refresh():
     dprint(resp)
 
 
-def manager_locker_ignore(ignore: bool, server_ids):
+def manager_locker_ignore(ignore: bool, nodes):
+    server_ids = [normalize2id(n) for n in nodes]
     resp = ntwrk.post('api_1_0.manager_server_ignore_lock', json={'server_ids': server_ids, 'ignore_on_lock': ignore})
     dprint(resp)
 
@@ -736,11 +739,11 @@ nested_dict = {
               login],
     "manager": {
         "catalog": {"refresh": [manager_catalog_refresh]},
-        "locker": {"ignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
-                               'completer': server_completer},
+        "locker": {"ignore": [{'argument': 'nodes', 'metavar': 'NODE', 'nargs': '+',
+                               'completer': server_name_completer},
                               functools.partial(manager_locker_ignore, True)],
-                   "unignore": [{'argument': 'server_ids', 'metavar': 'NODE', 'nargs': '+',
-                                 'completer': server_completer},
+                   "unignore": [{'argument': 'nodes', 'metavar': 'NODE', 'nargs': '+',
+                                 'completer': server_name_completer},
                                 functools.partial(manager_locker_ignore, False)],
                    'show': [{'argument': 'node', 'nargs': '+', 'completer': server_name_completer},
                             manager_locker_show],
@@ -756,7 +759,8 @@ nested_dict = {
         'list': [
             {'argument': '--version', 'action': 'store', 'type': int,
              'completer': orch_ver_completer},
-            {'argument': '--detail', 'action': 'store_true'},
+            [{'argument': '--detail', 'action': 'store_true'},
+             {'argument': '--schema', 'action': 'store_true'}],
             [{'argument': '--like'},
              {'argument': '--id', 'dest': 'ident', 'completer': orch_completer},
              {'argument': '--name', 'completer': orch_name_completer}],

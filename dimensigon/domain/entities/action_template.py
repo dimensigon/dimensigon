@@ -107,16 +107,20 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
             if at is None:
                 at = ActionTemplate(name='send software', version=1, action_type=ActionType.NATIVE,
                                     expected_rc=201, last_modified_at=defaults.INITIAL_DATEMARK,
-                                    schema={"input": {"software_id": {"type": "string",
-                                                                      "description": "software id to send"},
-                                                      "server_id": {"type": "string",
+                                    schema={"input": {"software": {"type": "string",
+                                                                   "description": "software name or ID to send. If "
+                                                                                  "name specified and version not set, "
+                                                                                  "biggest version will be taken"},
+                                                      "version": {"type": "string",
+                                                                  "description": "software version to take"},
+                                                      "server": {"type": "string",
                                                                     "description": "destination server id"},
                                                       "dest_path": {"type": "string",
                                                                     "description": "destination path to send software"},
                                                       "chunk_size": {"type": "integer"},
                                                       "max_senders": {"type": "integer"},
                                                       },
-                                            "required": ["software_id", "server_id"],
+                                            "required": ["software", "server"],
                                             "output": ["file"]
                                             },
                                     id='00000000-0000-0000-000a-000000000001',
@@ -131,9 +135,6 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                     last_modified_at=defaults.INITIAL_DATEMARK,
                                     schema={"input": {"server_names": {"type": ["array", "string"],
                                                                        "items": {"type": "string"}},
-                                                      "timeout": {"type": "integer",
-                                                                  "description": "time in seconds waiting for server_names to join",
-                                                                  "default": 600}
                                                       },
                                             "required": ["server_names"]
                                             },
@@ -143,7 +144,12 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
             if at is None:
                 at = ActionTemplate(name='orchestration', version=1, action_type=ActionType.ORCHESTRATION,
                                     description="launches an orchestration",
-                                    schema={"input": {"orchestration_id": {"type": "string"},
+                                    schema={"input": {"orchestration": {"type": "string",
+                                                                        "description": "orchestration name or ID to "
+                                                                                       "execute. If no version "
+                                                                                       "specified, the last one will "
+                                                                                       "be executed"},
+                                                      "version": {"type": "integer"},
                                                       "hosts": {"type": ["string", "array", "object"],
                                                                 "items": {"type": "string"},
                                                                 "minItems": 1,
@@ -158,7 +164,7 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                                                 },
                                                                 },
                                                       },
-                                            "required": ["orchestration_id", "hosts"]
+                                            "required": ["orchestration", "hosts"]
                                             },
                                     last_modified_at=defaults.INITIAL_DATEMARK,
                                     id='00000000-0000-0000-000a-000000000003')
@@ -169,8 +175,6 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                     description="waits until we have a valid route to a server",
                                     schema={"input": {"server_names": {"type": ["array", "string"],
                                                                        "items": {"type": "string"}},
-                                                      "timeout": {"type": "integer",
-                                                                  "description": "time in seconds waiting for server_names to be alive"}
                                                       },
                                             "required": ["server_names"]
                                             },

@@ -10,7 +10,7 @@ from dimensigon.utils.typos import UUID, ScalarListType, UtcDateTime
 from dimensigon.web import db, errors
 from .action_template import ActionType
 from ...utils import typos
-from ...utils.helpers import get_now, is_iterable_not_string
+from ...utils.helpers import get_now, is_iterable_not_string, is_valid_uuid
 
 if t.TYPE_CHECKING:
     from .action_template import ActionTemplate
@@ -20,6 +20,8 @@ step_step = db.Table('D_step_step',
                      db.Column('parent_step_id', UUID, db.ForeignKey('D_step.id'), primary_key=True),
                      db.Column('step_id', UUID, db.ForeignKey('D_step.id'), primary_key=True),
                      )
+
+
 
 
 class Step(UUIDistributedEntityMixin, db.Model):
@@ -191,23 +193,22 @@ class Step(UUIDistributedEntityMixin, db.Model):
 
         if self.action_type == ActionType.ORCHESTRATION:
             from .orchestration import Orchestration
-            o_id = schema.get('mapping', {}).get('orchestration_id')
-            if o_id:
-                o = Orchestration.query.get(o_id)
-                if o:
-                    orch_schema = o.schema
-                    i = schema.get('input', {})
-                    i.update(orch_schema.get('input', {}))
-                    schema.update({'input': i})
-                    m = schema.get('mapping', {})
-                    m.update(orch_schema.get('mapping', {}))
-                    schema.update({'mapping': m})
-                    r = schema.get('required', [])
-                    [r.append(k) for k in orch_schema.get('required', []) if k not in r]
-                    schema.update({'required': r})
-                    o = schema.get('output', [])
-                    [o.append(k) for k in orch_schema.get('output', []) if k not in o]
-                    schema.update({'output': o})
+            mapping = schema.get('mapping', {})
+            o = Orchestration.get(mapping.get('orchestration', None), mapping.get('version', None))
+            if isinstance(o, Orchestration):
+                orch_schema = o.schema
+                i = schema.get('input', {})
+                i.update(orch_schema.get('input', {}))
+                schema.update({'input': i})
+                m = schema.get('mapping', {})
+                m.update(orch_schema.get('mapping', {}))
+                schema.update({'mapping': m})
+                r = schema.get('required', [])
+                [r.append(k) for k in orch_schema.get('required', []) if k not in r]
+                schema.update({'required': r})
+                o = schema.get('output', [])
+                [o.append(k) for k in orch_schema.get('output', []) if k not in o]
+                schema.update({'output': o})
         return schema
 
     @schema.setter

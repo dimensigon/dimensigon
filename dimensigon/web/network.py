@@ -18,6 +18,7 @@ from dimensigon.network.exceptions import NotValidMessage
 from dimensigon.utils.helpers import get_now
 from dimensigon.utils.typos import Kwargs, tJSON, Id
 from dimensigon.web import errors, db
+from dimensigon.web.helpers import generate_http_auth
 
 requests.packages.urllib3.disable_warnings()
 
@@ -264,6 +265,8 @@ def prepare_request(server: t.Union[Server, str], view_or_url, view_data, kwargs
 
     if 'auth' in kwargs and kwargs['auth'] is not None:
         kwargs['auth'](kwargs)
+    else:
+        generate_http_auth()(kwargs)
 
     if 'json' in kwargs and kwargs['json'] and securizer:
         kwargs['json'] = pack_msg(kwargs['json'])

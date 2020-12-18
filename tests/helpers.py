@@ -156,19 +156,19 @@ def load_data(catalog: t.Dict[str, t.List[t.Dict]]):
                 update_datemark(True)
 
 
-def app_scope():
+def app_scope(x):
     try:
         return str(hash(flask._app_ctx_stack.top.app)) + str(threading.get_ident())
     except:
         return str(threading.get_ident())
 
 
-def request_scope():
+def request_scope(x):
     try:
         return str(hash(flask._request_ctx_stack.top.request)) + str(hash(flask._app_ctx_stack.top.app)) + str(
             threading.get_ident())
     except:
-        return app_scope()
+        return app_scope(x)
 
 
 def set_test_scoped_session(db_, func=app_scope, check_same_thread=False):

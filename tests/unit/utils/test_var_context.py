@@ -1,3 +1,4 @@
+import pickle
 from unittest import TestCase
 
 from dimensigon.utils.var_context import Context
@@ -47,3 +48,13 @@ class TestContext(TestCase):
         c1.set('common_file', 'common')
         c2.set('common_file', 'common')
         self.assertEqual('common', c['common_file'])
+
+    def test_pickle(self):
+        c = Context({'foo': 'bar'}, {'global': 'g'}, {'local': 'l'}, key_server_ctx=1, server_variables={'server': 's'},
+                    vault={'vault': 'v'})
+
+        dumped_c = pickle.dumps(c)
+
+        loaded_c = pickle.loads(dumped_c)
+
+        self.assertDictEqual(c.__dict__, loaded_c.__dict__)

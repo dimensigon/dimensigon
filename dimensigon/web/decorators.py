@@ -16,10 +16,10 @@ from jsonschema import validate
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate
 from dimensigon.network.exceptions import NotValidMessage
-from dimensigon.use_cases.helpers import get_servers_from_scope, get_root_auth
+from dimensigon.web.helpers import get_servers_from_scope
 from dimensigon.use_cases.lock import lock_scope
 from dimensigon.utils.helpers import get_now
-from dimensigon.web import db, errors, network as ntwrk, executor
+from dimensigon.web import db, errors, network as ntwrk, executor, get_root_auth
 
 if t.TYPE_CHECKING:
     import flask
@@ -142,7 +142,8 @@ def set_source():
             save_if_hidden_ip(request.remote_addr, source)
 
         if not isinstance(source, Server):
-            servers = db.session.query(Server).filter_by(deleted=False).join(Gate).filter_by(ip=source).all()
+            servers = db.session.query(Server).filter_by(deleted=False).join(Gate.server).filter(
+                Gate.ip == source).all()
             if len(servers) == 1:
                 source = servers[0]
 
@@ -171,8 +172,11 @@ def forward_or_dispatch(*methods):
                 if destination is None:
                     return errors.format_error_response(errors.EntityNotFound('Server', destination_id))
                 try:
-                    logger.debug(f"Forwarding request {request.method} {request.full_path} to {destination.route}")
-                    resp = _proxy_request(request=request, destination=destination)
+                    if destination.route.proxy_server or destination.route.gate:
+                        logger.debug(f"Forwarding request {request.method} {request.full_path} to {destination.route}")
+                        resp = _proxy_request(request=request, destination=destination)
+                    else:
+                        return errors.format_error_response(errors.UnreachableDestination(destination, g.server))
                 except requests.exceptions.RequestException as e:
                     return errors.format_error_response(errors.ProxyForwardingError(destination, e))
                 else:
@@ -204,15 +208,13 @@ def securizer(func):
 
         if request.method != 'GET':
             if request.is_json:
-                if securizer_method == 'plain':
-                    pass
-                else:
+                if current_app.config.get('SECURIZER', False) and securizer_method != 'plain':
                     g.original_json = request.get_json()
                     cipher_key = base64.b64decode(
                         request.get_json().get('key')) if 'key' in request.get_json() else cipher_key
-                    # session['cipher_key'] = cipher_key
+
                     try:
-                        if request.path in url_for('api_1_0.join'):
+                        if request.path == url_for('api_1_0.join'):
                             temp_pub_key = rsa.PublicKey.load_pkcs1(
                                 request.get_json().pop('my_pub_key').encode('ascii'))
                             data = ntwrk.unpack_msg2(data=request.get_json(),
@@ -224,16 +226,9 @@ def securizer(func):
                     except (rsa.pkcs1.VerificationError, NotValidMessage) as e:
                         return {'error': str(e),
                                 'message': request.get_json()}, 400
-                    if current_app.config.get('SECURIZER', None):
-                        # if data and isinstance(data, dict):
-                        #     # fill json request with unpacked data
-                        #     for key in list(request.get_json().keys()):
-                        #         request.get_json().pop(key)
-                        #     for key, val in data.items():
-                        #         request.get_json()[key] = val
-                        # else:
-                        request._cached_data = json.dumps(data)
-                        request._cached_json = (data, data)
+
+                    request._cached_data = json.dumps(data)
+                    request._cached_json = (data, data)
 
 
             else:

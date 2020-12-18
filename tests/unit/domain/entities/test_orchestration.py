@@ -268,7 +268,7 @@ class TestOrchestration(TestCase):
         at = ActionTemplate.query.filter_by(name='orchestration', version=1).one()
         s1 = o2.add_step(id=1, action_template=at,
                          undo=False,
-                         schema={'mapping': {'orchestration_id': o.id}})
+                         schema={'mapping': {'orchestration': o.id}})
         s2 = o2.add_step(undo=False, action_type=1, parents=[s1],
                          schema={'input': {'1': {},
                                            '2': {}},
@@ -292,9 +292,23 @@ class TestOrchestration(TestCase):
                                  '2': {'from': '5'}}}
 
         self.assertDictEqual({'input': {'hosts': at.schema['input']['hosts'],
+                                        'version': {'type': 'integer'},  # from ActionTemplate
                                         '1_a': {},
                                         '1_b': {},
                                         '2_a': {},
                                         '3_b': {}},
                               'required': ['input.1_b', 'input.2_a', 'input.hosts'],
                               'output': ['1_c', '2_b']}, o2.schema)
+
+        # test a container required in step
+        o = Orchestration('Schema Orch', 1)
+        s1 = o.add_step(id=1, action_type=ActionType.SHELL, undo=False,
+                        schema={'container': {'1_a': {}},
+                                'required': ['container.1_a']})
+        s2 = o.add_step(id=1, action_type=ActionType.SHELL, undo=False,
+                        schema={'input': {'1_b': {}},
+                                'mapping': {'1_b': {'from': 'container.foo'}},
+                                'required': ['1_b']}, parents=[s1])
+
+        self.assertDictEqual({'container': {'1_a': {}},
+                              'required': ['container.1_a', 'container.foo']}, o.schema)

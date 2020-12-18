@@ -331,7 +331,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
     def test_create_cmd_from_orchestration(self):
         at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001', name='create dir', version=1,
                             action_type=ActionType.SHELL, code='mkdir {{dir}}',
-                            expected_output='',
+                            expected_stdout='',
                             expected_rc=0, system_kwargs={})
 
         o = Orchestration('Test Orchestration', 1, 'description', id='bbbbbbbb-1234-5678-1234-bbbbbbbb0001')
@@ -375,7 +375,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
 
         self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0002',
                                'eeeeeeee-1234-5678-1234-eeeeeeee0009'), c9.id)
-        self.assertIsInstance(c9, Command)
+        self.assertIsInstance(c9, ProxyCommand)
         self.assertTrue(c9.stop_on_error)
         self.assertTrue(c9.undo_on_error)
         self.assertIsNone(c9.stop_undo_on_error)
@@ -389,7 +389,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
         c22 = c9.undo_command
         self.assertTupleEqual(('cccccccc-1234-5678-1234-cccccccc0002',
                                'eeeeeeee-1234-5678-1234-eeeeeeee0002'), c22.id)
-        self.assertIsInstance(c22, UndoCommand)
+        self.assertIsInstance(c22, ProxyUndoCommand)
         self.assertFalse(c22.stop_on_error)
 
         c3, = cc._dag.get_nodes_at_level(2)
@@ -452,7 +452,7 @@ class TestCreateCmdFromOrchestration2(TestCase):
     def test_create_cmd_from_orchestration_one_step(self):
         at = ActionTemplate(id='aaaaaaaa-1234-5678-1234-aaaaaaaa0001', name='create dir', version=1,
                             action_type=ActionType.SHELL, code='mkdir {{dir}}',
-                            expected_output='',
+                            expected_stdout='',
                             expected_rc=0, system_kwargs={})
 
         o = Orchestration('Test Orchestration', 1, 'description',
@@ -559,7 +559,7 @@ class TestValidateInputChain(base.OneNodeMixin, TestCase):
         at = ActionTemplate.query.filter_by(name='orchestration', version=1).one()
         s1 = o2.add_step(id=1, action_template=at,
                          undo=False,
-                         schema={'mapping': {'orchestration_id': o.id}})
+                         schema={'mapping': {'orchestration': o.id}})
         s2 = o2.add_step(undo=False, action_type=1, parents=[s1],
                          schema={'input': {"1": {},
                                            "2": {}},
@@ -648,7 +648,7 @@ class TestImplementationCommand(TestCase):
 
         ic.register_execution()
 
-        mock_register.register_step_execution.assert_called_once_with(ic, params=ic.params, pre_process=1)
+        mock_register.save_step_execution.assert_called_once_with(ic, params=ic.params, pre_process=1)
 
     def test_pre_process(self):
         mock_context = mock.Mock()
@@ -665,44 +665,33 @@ class TestImplementationCommand(TestCase):
         self.assertIn("KeyError: 'foo'", ic._cp.stderr)
 
     def test_extract_params(self):
-        class Context(dict):
-            env = dict()
-
-            def set(self, key, value=None):
-                self.update({key: value})
-
-        c = Context({'string': "abc", "integer": 1, "replace": "foo"})
-        c.env.update({'server_id': 4})
+        c = Context({'string': "abc", "integer": 1}, {}, {'server_id': 4})
 
         ic = UndoCommand(implementation=self.mocked_imp_succ, var_context=c,
-                         pre_process="vc.set('foo', 'bar')", signature={"input":
-                                                                            {"string": {"type": "string"},
-                                                                             "optional": {"type": "string"},
-                                                                             "default": {"type": "string",
-                                                                                         "default": "def"}},
-                                                                        "mapping": {
-                                                                            "replaced": {"replace": "replace"}},
-                                                                        "env": ['server_id']})
+                         pre_process="vc.set('foo', 'bar')", signature={"input": {"string": {"type": "string"},
+                                                                                  "optional": {"type": "string"},
+                                                                                  "default": {"type": "string",
+                                                                                              "default": "def"}},
+                                                                        })
         ic.extract_params()
 
-        self.assertDictEqual({'string': "abc", "replaced": "foo", "default": "def", "server_id": 4}, ic.params)
+        self.assertDictEqual({'input': {'string': "abc", "default": "def"}},
+                             ic.params)
 
         # required
         ic = UndoCommand(implementation=self.mocked_imp_succ, var_context=c,
-                         pre_process="vc.set('foo', 'bar')", signature={"input":
-                                                                            {"bar": {"type": "string"},
-                                                                             },
+                         pre_process="vc.set('foo', 'bar')", signature={"input": {"bar": {"type": "string"},
+                                                                                  },
                                                                         "required": ["bar"]})
         ic.extract_params()
 
         self.assertFalse(ic._cp.success)
-        self.assertEqual("Variable 'bar' not found", ic._cp.stderr)
+        self.assertEqual(str(errors.MissingParameters(['input.bar'])), ic._cp.stderr)
 
         # validation error
         ic = UndoCommand(implementation=self.mocked_imp_succ, var_context=c,
-                         pre_process="vc.set('foo', 'bar')", signature={"input":
-                                                                            {"string": {"type": "integer"},
-                                                                             }})
+                         pre_process="vc.set('foo', 'bar')", signature={"input": {"string": {"type": "integer"},
+                                                                                  }})
         ic.extract_params()
 
         self.assertFalse(ic._cp.success)

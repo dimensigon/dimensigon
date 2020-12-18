@@ -31,8 +31,7 @@ DEFAULT_DB_URL = f"{DB_PREFIX}{{db_file}}"
 DEFAULT_DB_FILE = "dimensigon.db"
 
 # Dimensigon Defaults
-STEP_TIMEOUT = 300  # time in seconds waiting tasks to finish
-MAX_TIME_WAITING_SERVERS = 600  # max time waiting for servers to be created
+MAX_TIME_WAITING_SERVERS = 1800  # max time waiting for servers to be created
 JOIN_TOKEN_EXPIRE_TIME = 15  # join token expire time in minutes
 ROUTE_REFRESH_PERIOD = 300  # route table refresh process
 ROUTE_SEND_PERIOD = 10  # send changed routes every ROUTE_SEND_PERIOD seconds
@@ -47,8 +46,8 @@ MAJORITY = 0.51  # ratio of servers to be selectable from selectable population 
 
 TIMEOUT_REQUEST = 60
 TIMEOUT_PREVENTING_LOCK = 60  # max time in seconds locker will be in PREVENTING_LOCK before returning to UNLOCK
-TIMEOUT_ORCHESTRATION = 1800  # max time waiting for an orchestration to finish
 TIMEOUT_COMMAND = 20  # max time waiting for a command execution
+TIMEOUT_REMOTE_COMMAND = 2*60*60  # max time waiting for a command execution
 TIMEOUT_LOCK_REQUEST = 60  # timeout on lock/unlock/prevent_lock HTTP request
 
 CHUNK_SIZE = 2  # in MB

@@ -2,6 +2,7 @@ import argparse
 import base64
 import datetime as dt
 import functools
+import ipaddress
 import logging
 import os
 import platform
@@ -17,10 +18,11 @@ import yaml
 from dataclasses import dataclass
 from flask import Flask
 from flask_jwt_extended import create_access_token
+from sqlalchemy import exc, sql
 
 from dimensigon import defaults
 from dimensigon.core import Dimensigon
-from dimensigon.use_cases.helpers import get_root_auth
+from dimensigon.dshell.output import dprint
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -28,7 +30,7 @@ PLATFORM = platform.system()
 
 from dimensigon.domain.entities import *
 from dimensigon.web.network import pack_msg2, unpack_msg2
-from dimensigon.web import create_app, db
+from dimensigon.web import create_app, db, get_root_auth
 from dimensigon.utils.helpers import generate_symmetric_key, generate_dimension, get_now
 
 app: Flask = create_app(os.getenv('FLASK_CONFIG') or 'default')
@@ -355,6 +357,49 @@ def catalog(dm: Dimensigon, ip, port, http=False):
             exit(f"Unable to get catalog from {resp.url}: {resp}")
 
 
+def gate(dm: Dimensigon, action, ip_or_dns, port, hidden=True):
+    dm.create_flask_instance()
+    with dm.flask_app.app_context():
+
+        if action == 'create':
+            ip, dns = None, None
+            try:
+                ip = ipaddress.ip_address(ip_or_dns)
+            except:
+                dns = ip_or_dns
+            g = Gate(server=Server.get_current(), ip=ip, dns=dns, port=port, hidden=hidden)
+            db.session.add(g)
+            try:
+                db.session.commit()
+            except exc.IntegrityError:
+                exit(f"{ip or dns}:{port} already exists")
+            else:
+                print(f"{g.ip or g.dns}:{g.port}{' (hidden)' if g.hidden else ''} created succesfully")
+        elif action == 'port':
+            db.engine.execute(sql.text(f"UPDATE D_gate set port = :port WHERE main.D_gate.server_id = :server_id"),
+                              port=port,
+                              server_id=Server.get_current().id)
+            db.session.commit()
+        elif action == 'list':
+            dprint([f"{g.ip or g.dns}:{g.port}{' (hidden)' if g.hidden else ''}" for g in
+                    Gate.query.filter_by(server_id=Server.get_current().id).all()])
+        elif action == 'delete':
+            ip, dns = None, None
+            try:
+                ip = ipaddress.ip_address(ip_or_dns)
+            except:
+                dns = ip_or_dns
+
+            query = Gate.query
+            if ip or dns:
+                query = query.filter_by(ip=ip, dns=dns)
+            if port:
+                query = query.filter_by(port=port)
+            if hidden:
+                query = query.filter_by(hidden=hidden)
+            [g.delete() for g in query.all()]
+            db.session.commit()
+
 def run(dm: Dimensigon):
     # check if there is a dimension
     result = dm.engine.execute(Dimension.__table__.select())
@@ -514,6 +559,24 @@ def get_arguments() -> argparse.Namespace:
     catalog_parser.add_argument("--http",
                                 action='store_true')
 
+    gate_parser = subparser.add_parser("gate", help="handle server gates")
+    gate_subparser = gate_parser.add_subparsers(dest='subcommand')
+
+    gate_create_parser = gate_subparser.add_parser("create", help="create a new gate for the current server")
+    gate_create_parser.add_argument("IP_DNS", metavar="(IP | DNS)")
+    gate_create_parser.add_argument("port", metavar='[port]', nargs='?', type=int, default=defaults.DEFAULT_PORT)
+    gate_create_parser.add_argument("--hidden", action="store_true", )
+
+    gate_list_parser = gate_subparser.add_parser("list", help="list all server gates")
+
+    gate_port_parser = gate_subparser.add_parser("port", help="update port from all gates in the current server")
+    gate_port_parser.add_argument("port", type=int, help="sets the port on all gates")
+
+    gate_delete_parser = gate_subparser.add_parser("delete", help="delete a current server gate")
+    gate_delete_parser.add_argument("IP_DNS", metavar="(IP | DNS)")
+    gate_delete_parser.add_argument("port", metavar='[port]', nargs='?', type=int)
+    gate_delete_parser.add_argument("--hidden", action="store_true", )
+
     arguments = parser.parse_args()
 
     # if os.name != "posix":
@@ -573,6 +636,9 @@ def main():
         new(dm, args.dimension)
     elif args.command == 'catalog':
         catalog(dm, ip=args.IP, port=args.port, http=args.http)
+    elif args.command == 'gate':
+        gate(dm, action=args.subcommand, ip_or_dns=getattr(args, 'IP_DNS', None), port=getattr(args, 'port', None),
+             hidden=getattr(args, 'hidden', None))
     else:
         exit("Use -h to show help")
 

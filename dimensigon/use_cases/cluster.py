@@ -11,14 +11,13 @@ from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Route
-from dimensigon.use_cases.helpers import get_root_auth
 from dimensigon.use_cases.mptools import Worker, MPQueue
 from dimensigon.use_cases.mptools_events import BaseEvent
 from dimensigon.use_cases.routing import InitialRouteSet
 from dimensigon.utils import asyncio
 from dimensigon.utils.helpers import format_exception, get_now
 from dimensigon.utils.typos import Id
-from dimensigon.web import network as ntwrk
+from dimensigon.web import network as ntwrk, get_root_auth
 
 if t.TYPE_CHECKING:
     from dimensigon.core import Dimensigon
@@ -119,7 +118,6 @@ class _Entry:
     death: bool = False
     zombie: bool = False
 
-
 Input = t.Tuple[Id, dt.datetime, bool, bool]
 Item = t.Union[Input, t.List[Input]]
 
@@ -185,11 +183,11 @@ class ClusterManager(Worker):
     def get_cluster(self, str_format=None):
         return [(e.id, e.keepalive if str_format is None else e.keepalive.strftime(str_format), e.death) for e in
                 self._registry.values()] + [
-                   (self.dm.server_id, get_now() if str_format is None else get_now().strftime(str_format), None)]
+            (self.dm.server_id, get_now() if str_format is None else get_now().strftime(str_format), False)]
 
     def __contains__(self, item):
         entity = self._registry.get(item, None)
-        if not (entity.zombie or entity.death) or item == self.dm.server_id:
+        if item == self.dm.server_id or (entity and not (entity.zombie or entity.death)):
             return True
         else:
             return False
@@ -307,17 +305,16 @@ class ClusterManager(Worker):
                                                        'death': e.death} for e in
                                                       temp_buffer.values()], auth=auth, securizer=False), )
                 except Exception as e:
-                    self.logger.error(f"Unable to send cluster information to neighbours: "
-                                      f"{format_exception(e)}")
+                    self.logger.error(f"Unable to send cluster information to neighbours: {format_exception(e)}")
                     # restore data with new data arrived
                     with self._change_buffer_lock:
                         temp_buffer.update(**self._buffer)
                         self._buffer.clear()
                         self._buffer.update(temp_buffer)
                 else:
-                    for s, r in zip(neighbours, responses):
+                    for r in responses:
                         if not r.ok:
-                            self.logger.warning(f"Unable to send data to {s}: {r}")
+                            self.logger.warning(f"Unable to send data to {r.server}: {r}")
 
                 # check if new data arrived during timer execution
                 with self._change_buffer_lock:
@@ -335,7 +332,6 @@ class ClusterManager(Worker):
     def _notify_cluster_in(self):
         from dimensigon.domain.entities import Server
         import dimensigon.web.network as ntwrk
-        from dimensigon.use_cases.helpers import get_root_auth
         from dimensigon.domain.entities import Parameter
 
         try:

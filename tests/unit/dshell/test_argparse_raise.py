@@ -26,13 +26,13 @@ class TestArgparseRaise(TestCase):
             }}
 
         parser = create_parser(data)
-        # namespace = parser.parse_args('status node1'.split())
-        # self.assertEqual(status, namespace.func)
-        # self.assertEqual('node1', namespace.node)
+        namespace = parser.parse_args('status node1'.split())
+        self.assertEqual(status, namespace.func)
+        self.assertEqual('node1', namespace.node)
 
         namespace = parser.parse_args('server list --j'.split())
         self.assertEqual(server_list, namespace.func)
-        self.assertEqual('node1', namespace.name)
+        self.assertEqual(None, namespace.name)
         self.assertEqual(True, namespace.json)
 
         namespace = parser.parse_args('server list --json --name node1'.split())
@@ -40,7 +40,7 @@ class TestArgparseRaise(TestCase):
         self.assertEqual('node1', namespace.name)
         self.assertEqual(True, namespace.json)
 
-        with self.assertRaises(argparse.ArgumentError):
+        with self.assertRaises(SystemExit):
             parser.parse_args('server list --name node1 --id 1'.split())
 
 
@@ -77,7 +77,7 @@ class TestGuessArgparse(TestCase):
         self.assertEqual('x', namespace.last)
 
         namespace = parser.parse_args('server list --j'.split())
-        self.assertFalseIn(namespace.json)
+        self.assertTrue(namespace.json)
 
     def test_parameters(self):
         data = {

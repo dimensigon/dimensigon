@@ -189,9 +189,8 @@ class OrchExecution(UUIDEntityMixin, EntityReprMixin, db.Model):
                         params.append('human')
 
                     try:
-                        auth = HTTPBearerAuth(create_access_token(get_jwt_identity()))
                         resp = get(se.server, 'api_1_0.orchexecutionresource',
-                                   view_data=dict(execution_id=se.child_orch_execution_id, params=params), auth=auth)
+                                   view_data=dict(execution_id=se.child_orch_execution_id, params=params))
                     except Exception as e:
                         current_app.logger.exception(f"Exception while trying to acquire orch execution "
                                                      f"{se.child_orch_execution_id} from {se.server}")

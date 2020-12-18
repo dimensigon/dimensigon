@@ -1,4 +1,4 @@
-import datetime
+import datetime as dt
 import logging
 import re
 import sys
@@ -9,20 +9,22 @@ from contextlib import contextmanager
 from json import JSONEncoder
 
 from flask import current_app, request
+from flask_jwt_extended import create_access_token, get_jwt_identity
 from flask_sqlalchemy import BaseQuery
+from sqlalchemy import not_
 from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.utils.asyncio import run
-from dimensigon.utils.helpers import is_iterable_not_string
+from dimensigon.utils.helpers import is_iterable_not_string, get_now
 from dimensigon.utils.typos import Id
 from dimensigon.web.errors import EntityNotFound, NoDataFound
 
-if t.TYPE_CHECKING:
-    from dimensigon.domain.entities import Server
-
 logger = logging.getLogger(__name__)
+
+if t.TYPE_CHECKING:
+    from dimensigon.domain.entities import Server, Scope
 
 
 class BaseQueryJSON(BaseQuery):
@@ -135,7 +137,7 @@ def run_in_background(func: t.Callable, app=None, args=None, kwargs=None):
 
 class DatetimeEncoder(JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, datetime.datetime):
+        if isinstance(obj, dt.datetime):
             return obj.strftime(defaults.DATETIME_FORMAT)
         return JSONEncoder.default(self, obj)
 
@@ -231,6 +233,17 @@ def get_auth_from_request():
     return HTTPBearerAuth(request.headers['Authorization'].split()[1])
 
 
+def generate_http_auth(identity=None, **kwargs) -> HTTPBearerAuth:
+    identity = identity or get_jwt_identity()
+    if not kwargs:
+        kwargs['minutes'] = 15
+    return HTTPBearerAuth(create_access_token(identity=identity, expires_delta=dt.timedelta(**kwargs)))
+
+
+def get_root_auth(**kwargs):
+    return generate_http_auth(identity='00000000-0000-0000-0000-000000000001', **kwargs)
+
+
 @contextmanager
 def transaction(session=None):
     from dimensigon.web import db
@@ -242,3 +255,71 @@ def transaction(session=None):
     except Exception:
         session.rollback()
         raise
+
+
+def get_servers_from_scope(scope: 'Scope', bypass: t.Union[t.List['Server'], 'Server'] = None) -> t.List['Server']:
+    """
+    Returns the servers to lock for the related scope
+
+    Parameters
+    ----------
+    scope: Scope
+
+    Returns
+    -------
+
+    """
+    from dimensigon.domain.entities import Server
+
+    quorum = []
+    me = Server.get_current()
+    if scope == scope.CATALOG:
+        last_alive_ids = current_app.dm.cluster_manager.get_alive()
+        if me.id not in last_alive_ids:
+            last_alive_ids.append(me.id)
+        all_query = Server.query.filter_by(l_ignore_on_lock=False)
+        if isinstance(bypass, list):
+            all_query = all_query.filter(not_(Server.id.in_([s.id for s in bypass])))
+        elif isinstance(bypass, Server):
+            all_query = all_query.filter_by(Server.id != bypass.id)
+        n_servers = all_query.count()
+
+        adult_query = all_query.filter(Server.created_on <= get_now() - defaults.ADULT_NODES)
+        n_adult_nodes = adult_query.count()
+
+        if n_adult_nodes == 0:
+            if n_servers <= defaults.MIN_SERVERS_QUORUM:
+                return all_query.filter(Server.id.in_(last_alive_ids)).order_by(
+                    Server.created_on).all()
+            else:
+                return all_query.filter(Server.id.in_(last_alive_ids)).order_by(
+                    Server.created_on).limit(defaults.MIN_SERVERS_QUORUM).all()
+
+        elegible_query = adult_query.filter(Server.id.in_(last_alive_ids))
+        n_elegible = elegible_query.count()
+
+        if n_elegible <= defaults.MIN_SERVERS_QUORUM:
+            return elegible_query.all()
+        else:
+            servers = elegible_query.order_by(Server.created_on).all()
+            if len(servers) < defaults.MIN_SERVERS_QUORUM:
+                return servers
+            else:
+                cost_dict = {}
+                for server in servers:
+                    if server.route and server.route.cost is not None:
+                        if server.route.cost not in cost_dict:
+                            cost_dict[server.route.cost] = []
+                        cost_dict[server.route.cost].append(server)
+                if len(cost_dict) > defaults.MIN_SERVERS_QUORUM:
+                    for v in cost_dict.values():
+                        v.sort(key=lambda x: (x.last_modified_at, x.name))
+                        quorum.append(v[0])
+                else:
+                    quorum.extend(servers[0:defaults.MIN_SERVERS_QUORUM])
+                me = Server.get_current()
+                if me not in quorum:
+                    quorum.append(me)
+    elif scope == scope.UPGRADE:
+        quorum = Server.get_current()
+    return quorum

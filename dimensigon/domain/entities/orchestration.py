@@ -8,7 +8,7 @@ from dimensigon.domain.entities.base import UUIDistributedEntityMixin
 from dimensigon.utils.dag import DAG
 from dimensigon.web import db, errors
 from .step import Step
-from ...utils.helpers import get_now, is_iterable_not_string
+from ...utils.helpers import get_now, is_iterable_not_string, is_valid_uuid
 from ...utils.typos import UtcDateTime
 
 if t.TYPE_CHECKING:
@@ -409,7 +409,7 @@ class Orchestration(UUIDistributedEntityMixin, db.Model):
 
     @property
     def schema(self):
-        from ...use_cases.deployment import reserved_words, extract_container_var, normalize_container_var
+        from ...use_cases.deployment import reserved_words, extract_container_var
         outer_schema = {'required': set(), 'output': set()}
         level = 1
         while level <= self._graph.depth:
@@ -421,7 +421,7 @@ class Orchestration(UUIDistributedEntityMixin, db.Model):
                     for k, v in schema.get(cn, {}).items():
                         if cn not in new_schema:
                             new_schema.update({cn: {}})
-                        if cn == 'input' and not (k in outer_schema['output'] or k in schema.get('mapping', {})):
+                        if not (k in outer_schema['output'] or k in schema.get('mapping', {})):
                             new_schema[cn].update({k: v})
 
                 for k in schema.get('required', []):
@@ -454,4 +454,26 @@ class Orchestration(UUIDistributedEntityMixin, db.Model):
             outer_schema = new_schema
         outer_schema['required'] = sorted(list(outer_schema['required']))
         outer_schema['output'] = sorted(list(outer_schema['output']))
+        for c in ('required', 'output', 'input'):
+            if not outer_schema[c]:
+                outer_schema.pop(c)
+
         return outer_schema
+
+    @staticmethod
+    def get(id_or_name, version=None) -> t.Union['Orchestration', str]:
+        if is_valid_uuid(id_or_name):
+            orch = Orchestration.query.get(id_or_name)
+            if orch is None:
+                return str(errors.EntityNotFound('Orchestration', id_or_name))
+        else:
+            if id_or_name:
+                query = Orchestration.query.filter_by(name=id_or_name).order_by(Orchestration.version.desc())
+                if version:
+                    query.filter_by(version=version)
+                orch = query.first()
+                if orch is None:
+                    return f"No orchestration found for '{id_or_name}'" + (f" version '{version}'" if version else None)
+            else:
+                return "No orchestration specified"
+        return orch
