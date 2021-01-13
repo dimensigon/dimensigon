@@ -14,7 +14,7 @@ ips = list(filter(lambda x: x != '127.0.0.1', itertools.chain(
       netifaces.interfaces()])))
 
 # Gunicorn Defaults
-DEFAULT_PORT = 5000
+DEFAULT_PORT = 20194
 HOSTNAME = socket.gethostname()
 GUNICORN_CONF_FILE = '_gunicorn.conf.py'
 PID_FILE = 'dimensigon.pid'
