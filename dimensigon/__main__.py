@@ -124,7 +124,7 @@ def new(dm: Dimensigon, name: str):
 
 def server_port():
     if 'PORT' not in os.environ:
-        return '5000'
+        return defaults.DEFAULT_PORT
     else:
         return os.environ['PORT']
 
@@ -517,7 +517,7 @@ def get_arguments() -> argparse.Namespace:
     )
     join_parser.add_argument(
         '--port', '-p',
-        help="port used to contact the server. Defaults to 5000",
+        help=f"port used to contact the server. Defaults to {defaults.DEFAULT_PORT}",
         default=defaults.DEFAULT_PORT,
     )
     join_parser.add_argument(

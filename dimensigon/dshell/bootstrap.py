@@ -47,7 +47,7 @@ def bootstrap_environ(run_config):
     data = load_config_file(os.path.expanduser(config_file))
 
     server = run_config['--server'] or os.environ.get('DM_SERVER') or data.get('SERVER', None) or '127.0.0.1'
-    port = run_config['--port'] or os.environ.get('DM_PORT') or data.get('PORT', None) or defaults.DEFAULT_PORT
+    port = int(run_config['--port'] or os.environ.get('DM_PORT') or data.get('PORT', None) or defaults.DEFAULT_PORT)
 
     env.set_dict_in_environ({'SERVER': server, 'PORT': port, 'SCHEME': 'https', 'SSL_VERIFY': False,
                              'FILE_HISTORY': '~/.dshell_history', 'DEBUG': False, 'CONFIG_FILE': config_file})

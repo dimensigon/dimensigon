@@ -7,7 +7,7 @@ options:
    --password PASSWORD              Password used to login
    -t, --token TOKEN                Refresh token used to authenticate
    -s, --server SERVER              Server to communicate with
-   -p, --port PORT                  Port to communicate with [default: 5000]
+   -p, --port PORT                  Port to communicate with. If not specified default port will be used
    -c, --config-file CONFIG_FILE    configuration file [default: ~/.dshell]
    --debug                          Sets trace for debugging
 
