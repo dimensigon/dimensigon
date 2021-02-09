@@ -18,6 +18,7 @@ JOIN = '00000000-0000-0000-0000-000000000004'
 
 class User(UUIDistributedEntityMixin, db.Model):
     __tablename__ = 'D_user'
+    order = 3
 
     name = db.Column(db.String(30), nullable=False)  # changed in SCHEMA VERSION 8
     _password = db.Column('password', db.String(256))

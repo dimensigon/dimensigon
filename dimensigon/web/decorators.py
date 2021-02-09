@@ -303,8 +303,7 @@ def lock_catalog(f):
                         raise
                     return ret
 
-        servers = get_servers_from_scope(Scope.CATALOG)
-        with lock_scope(Scope.CATALOG, servers):
+        with lock_scope(Scope.CATALOG):
             try:
                 ret = f(*args, **kw)
             except Exception as e:

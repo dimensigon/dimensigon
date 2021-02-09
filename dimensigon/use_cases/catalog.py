@@ -23,6 +23,48 @@ if t.TYPE_CHECKING:
     from dimensigon.core import Dimensigon
 
 
+class BaseCatalogException(errors.BaseError):
+    """Base Class Exception"""
+
+
+class NewVersionFound(BaseCatalogException):
+    """Exception raised if new version found"""
+
+
+class NoServerFound(BaseCatalogException):
+    """No server with high catalog found"""
+
+
+class NoNeighbourHealtchcheckFound(BaseCatalogException):
+    """No healthcheck found server with high catalog found"""
+
+
+class CatalogFetchError(BaseCatalogException):
+    """Unable to fetch catalog from server"""
+
+
+class HealthCheckMismatch(errors.BaseError):
+    status_code = 500
+
+    def __init__(self, expected: t.Dict[str, str], actual: t.Dict[str, str]):
+        self.expected = expected
+        self.actual = actual
+
+    def _format_error_msg(self) -> str:
+        return "Healtcheck response does not match with the server requested"
+
+
+class CatalogMismatch(errors.BaseError):
+    status_code = 500
+
+    def __init__(self, local_entities, remote_entities):
+        self.local_entities = local_entities
+        self.remote_entities = remote_entities
+
+    def _format_error_msg(self) -> str:
+        return "List entities do not match"
+
+
 def update_db_catalog(catalog, check_mismatch=True, logger=None):
     de = get_distributed_entities()
 
@@ -34,7 +76,7 @@ def update_db_catalog(catalog, check_mismatch=True, logger=None):
         logger.debug(f'Remote entities: {outside}') if logger else None
 
         if len(inside ^ outside) > 0:
-            raise errors.CatalogMismatch(inside, outside)
+            raise CatalogMismatch(inside, outside)
 
     db.session.flush()
     with bypass_datamark_update():
@@ -51,6 +93,7 @@ def update_db_catalog(catalog, check_mismatch=True, logger=None):
 
         db.session.commit()
 
+
 class CatalogManager(mpt.TimerWorker):
     INTERVAL_SECS = 5 * 60
 
@@ -63,25 +106,26 @@ class CatalogManager(mpt.TimerWorker):
         self._catalog_ver = None
         self._updating = mp.Event()
         self._update_lock = mp.Lock()
+        self._server = None
 
     def main_func(self):
         with self._update_lock:
-            self._updating.set()
-            try:
-                with self.dm.flask_app.app_context():
-                    self.logger.debug("Starting check catalog from neighbours")
-                    # cluster information
-                    cluster_hearthbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
-                    # check version update before catalog update to match database revision
-                    data = asyncio.run(self._async_get_neighbour_catalog_data_mark(cluster_hearthbeat_id))
-                    if not self.upgrade_version(data):
-                        self.catalog_update(data)
-            except Exception as e:
-                self.logger.exception("Exception while trying to execute catalog update")
-            except (KeyboardInterrupt, TerminateInterrupt):
-                pass
-            finally:
-                self._updating.clear()
+            with self.dm.flask_app.app_context():
+                self._updating.set()
+                try:
+                    self.upgrade_process()
+                except NewVersionFound as e:
+                    self.logger.info(f'Found mayor version on server {e.args[0]}. Upgrade version first')
+                except NoServerFound as e:
+                    pass
+                except CatalogFetchError as e:
+                    self.logger.error(f'Error fetching catalog from {e.args[0].server}: {e.args[0]}')
+                except (KeyboardInterrupt, TerminateInterrupt):
+                    pass
+                except Exception as e:
+                    self.logger.exception("Exception while trying to execute catalog update")
+                finally:
+                    self._updating.clear()
 
     # END Class Inheritance #
     #########################
@@ -109,6 +153,18 @@ class CatalogManager(mpt.TimerWorker):
     #         self._session = self.Session()
     #     return self._session
 
+    def upgrade_process(self):
+        self.logger.debug("Starting check catalog from neighbours")
+        # cluster information
+        cluster_hearthbeat_id = get_now().strftime(defaults.DATETIME_FORMAT)
+        # check version update before catalog update to match database revision
+        data = asyncio.run(self._async_get_neighbour_healthcheck(cluster_hearthbeat_id))
+        if data:
+            self.check_new_version(data)
+            self.catalog_update(data)
+        else:
+            raise NoServerFound()
+
     @property
     def server(self) -> Server:
         if self._server is None:
@@ -119,24 +175,8 @@ class CatalogManager(mpt.TimerWorker):
     def catalog_ver(self) -> dt.datetime:
         return db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
 
-    def upgrade_version(self, data: t.Dict[Server, ntwrk.Response]):
-        mayor_version, mayor_server = None, None
-        for server, response in data.items():
-            if response.code == 200 and 'version' in response.msg:
-                remote_version = parse_version(response.msg['version'])
-                if remote_version > parse_version(__version__):
-                    if mayor_version is None or mayor_version < remote_version:
-                        mayor_version, mayor_server = remote_version, server
-        if mayor_version:
-            self.logger.info(f'Found mayor version on server {mayor_server}. Upgrade version first')
-            # file, v = get_software(mayor_server, get_root_auth())
-            # if file:
-            #     run_elevator(file, mayor_version, self.logger)
-            #     return True
-        return False
-
-    async def _async_get_neighbour_catalog_data_mark(self, cluster_heartbeat_id: str = None) -> t.Dict[
-        Server, ntwrk.Response]:
+    async def _async_get_neighbour_healthcheck(self, cluster_heartbeat_id: str = None) -> t.Dict[
+        Server, dict]:
 
         server_responses = {}
         servers = Server.get_neighbours()
@@ -155,41 +195,40 @@ class CatalogManager(mpt.TimerWorker):
             if resp.ok:
                 id_response = resp.msg.get('server', {}).get('id', '')
                 if id_response and str(server.id) != id_response:
-                    resp.exception = errors.HealthCheckMismatch(
+                    e = HealthCheckMismatch(
                         expected={'id': str(server.id), 'name': server.name},
                         actual=resp.msg.get('server', {}))
-                    resp.msg = None
-                    resp.code = None
+                    self.logger.warning(str(e))
+                else:
+                    server_responses.update({server: resp.msg})
             else:
                 self.logger.warning(f"Unable to get Healthcheck from server {server.name}: {resp}")
-
         return server_responses
 
-    def catalog_update(self, data: t.Dict[Server, ntwrk.Response]):
+    def check_new_version(self, data: t.Dict[Server, dict]):
+        mayor_version, mayor_server = None, None
+        for server, hc in data.items():
+            remote_version = parse_version(hc['version'])
+            if remote_version > parse_version(__version__):
+                if mayor_version is None or mayor_version < remote_version:
+                    mayor_version, mayor_server = remote_version, server
+        if mayor_version:
+            raise NewVersionFound(str(mayor_server))
+
+    def catalog_update(self, data: t.Dict[Server, dict]):
         reference_server = None
         if self.catalog_ver:
-            for server, response in data.items():
-                if response.code == 200 and 'catalog_version' in response.msg:
-                    new_catalog_ver = dt.datetime.strptime(response.msg['catalog_version'],
-                                                           defaults.DATEMARK_FORMAT)
-                    if new_catalog_ver > self.catalog_ver:
-                        if response.msg['version'] == __version__:
-                            reference_server = server
-                        else:
-                            self.logger.debug(
-                                f"Server {server} has different software version {response.msg['version']}")
-                else:
-                    msg = f"Error while trying to get healthcheck from server {server.name}. "
-                    if response.code:
-                        msg = msg + f"Response from server (code {response.code}): {response.msg}"
-                    else:
-                        msg = msg + f"Exception: {response.code}"
-                    self.logger.warning(msg)
+            for server, hc_msg in data.items():
+
+                new_catalog_ver = dt.datetime.strptime(hc_msg['catalog_version'],
+                                                       defaults.DATEMARK_FORMAT)
+                if new_catalog_ver > self.catalog_ver:
+                    reference_server = server
             if reference_server:
                 self.logger.info(f"New catalog found from server {reference_server.name}: {self.catalog_ver}")
                 self._update_catalog_from_server(reference_server)
             else:
-                self.logger.debug(f"No server with higher catalog found")
+                raise NoServerFound()
 
     def _update_catalog_from_server(self, server):
         with lock_scope(Scope.UPGRADE, [self.server]):
@@ -201,7 +240,7 @@ class CatalogManager(mpt.TimerWorker):
                 delta_catalog = resp.msg
                 self.db_update_catalog(delta_catalog)
             else:
-                self.logger.error(f"Unable to get a valid response from server {server}: {resp}")
+                raise CatalogFetchError(resp)
 
     def db_update_catalog(self, catalog, check_mismatch=True):
         update_db_catalog(catalog, check_mismatch=check_mismatch, logger=self.logger)

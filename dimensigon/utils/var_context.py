@@ -57,7 +57,7 @@ class Context:
         return repr(self.dict())
 
     def dict(self):
-        return {k: copy.deepcopy(dict(v)) for k, v in self._container.items()}
+        return {k: copy.deepcopy(dict(v)) for k, v in self._container.items() if v}
 
     def get(self, key, default=None):
         return self.input.get(key, default)

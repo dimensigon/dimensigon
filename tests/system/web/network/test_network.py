@@ -1,17 +1,16 @@
-import responses
-from aioresponses import aioresponses
+from unittest import TestCase
 
 from dimensigon.domain.entities import Dimension, Server, Route, Gate
 from dimensigon.utils.helpers import get_now
 from dimensigon.web import create_app, db
 from dimensigon.web.network import ping
-from tests.base import TestDimensigonBase
-from tests.helpers import generate_dimension_json_data, set_callbacks
+from tests.base import virtual_network
+from tests.helpers import generate_dimension_json_data, set_test_scoped_session, app_scope
 
 now = get_now()
 
 
-class TestPing(TestDimensigonBase):
+class TestPing(TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -20,6 +19,7 @@ class TestPing(TestDimensigonBase):
     def fill_database(self, node):
         db.create_all()
         d = Dimension.from_json(self.dim)
+        d.current = True
         s1 = Server(id='00000000-0000-0000-0000-000000000001', name='node1', created_on=now, me=node == 'node1')
         g11 = Gate(id='00000000-0000-0000-0000-000000000011', server=s1, port=5000, dns=s1.name)
         s2 = Server(id='00000000-0000-0000-0000-000000000002', name='node2', created_on=now, me=node == 'node2')
@@ -48,15 +48,16 @@ class TestPing(TestDimensigonBase):
 
     def setUp(self) -> None:
         self.maxDiff = None
-        super().setUp()
+        set_test_scoped_session(db)
+        self.app1 = create_app('test')
+        self.app1.config['SERVER_NAME'] = 'node1'
+        self.app_context = self.app1.app_context()
+        self.app_context.push()
         self.app2 = create_app('test')
-        self.app2.name = 'dimensigon2'
-        self.client2 = self.app2.test_client()
+        self.app2.config['SERVER_NAME'] = 'node2'
         self.app3 = create_app('test')
-        self.app3.name = 'dimensigon3'
-        self.client3 = self.app3.test_client()
+        self.app3.config['SERVER_NAME'] = 'node3'
 
-        # fill data
         self.fill_database('node1')
 
         with self.app2.app_context():
@@ -65,19 +66,21 @@ class TestPing(TestDimensigonBase):
         with self.app3.app_context():
             self.fill_database('node3')
 
-    @aioresponses()
-    @responses.activate
-    def test_ping(self, m):
-        set_callbacks([('node1', self.client), ('node2', self.client2), ('node3', self.client3)], m)
+    def tearDown(self) -> None:
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
 
-        cost, time = ping(self.s1)
-        self.assertEqual(0, cost)
+    def test_ping(self):
+        with virtual_network(self.app1, self.app2, self.app3):
+            cost, time = ping(self.s1)
+            self.assertEqual(0, cost)
 
-        cost, time = ping(self.s2)
-        self.assertEqual(0, cost)
+            cost, time = ping(self.s2)
+            self.assertEqual(0, cost)
 
-        cost, time = ping(self.s3)
-        self.assertEqual(1, cost)
+            cost, time = ping(self.s3)
+            self.assertEqual(1, cost)
 
-        cost, time = ping(self.s4)
-        self.assertEqual(None, cost)
+            cost, time = ping(self.s4)
+            self.assertEqual(None, cost)

@@ -1,28 +1,11 @@
 from flask import url_for
-from flask_jwt_extended import create_access_token
 
 from dimensigon.domain.entities import Orchestration
-from dimensigon.domain.entities.bootstrap import set_initial
-from dimensigon.network.auth import HTTPBearerAuth
-from dimensigon.web import create_app, db
-from tests.base import TestCaseLockBypass
+from dimensigon.web import db
+from tests.base import TestResourceBase
 
 
-class Test(TestCaseLockBypass):
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
-        set_initial()
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
+class Test(TestResourceBase):
 
     def test_orchestration_resource_list(self):
         resp = self.client.get(url_for('api_1_0.orchestrationlist'), headers=self.auth.header)
@@ -36,24 +19,23 @@ class Test(TestCaseLockBypass):
 
         resp = self.client.get(url_for('api_1_0.orchestrationlist'), headers=self.auth.header)
 
-        self.assertEqual([o.to_json(add_target=True, add_params=True)], resp.get_json())
+        self.assertEqual([o.to_json(add_params=True)], resp.get_json())
 
     def test_orchestration_resource(self):
         resp = self.client.post(url_for('api_1_0.orchestrationlist'),
-                                json=dict(name='orchestration_name',
-                                          version=1, description='desc'),
+                                json=dict(name='orchestration_name', description='desc'),
                                 headers=self.auth.header)
 
-        self.assertIn('orchestration_id', resp.get_json())
+        self.assertIn('id', resp.get_json())
 
-        o_id = resp.get_json()['orchestration_id']
+        o_id = resp.get_json()['id']
 
         o = Orchestration.query.get(o_id)
 
         resp = self.client.get(url_for('api_1_0.orchestrationresource', orchestration_id=o_id),
                                headers=self.auth.header)
         db.session.refresh(o)
-        self.assertDictEqual(o.to_json(add_target=True, add_params=True), resp.get_json())
+        self.assertDictEqual(o.to_json(add_params=True), resp.get_json())
 
         self.assertTrue(o.stop_on_error)
         self.assertTrue(o.stop_undo_on_error)

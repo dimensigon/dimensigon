@@ -475,6 +475,64 @@ class NativeDeleteOperation(IOperationEncapsulation):
 
 class ShellOperation(IOperationEncapsulation):
 
+    def _run(self, code, user=None, shebang=None, timeout=None):
+        stdout = None
+        stderr = None
+        rc = None
+        tmp = tempfile.NamedTemporaryFile('w', delete=False, suffix='.' + os.path.basename(shebang))
+        tmp.write(f"#!{shebang}\n")
+        tmp.write(code)
+        tmp.close()
+        os.chmod(tmp.name, 0o755)
+        out_fh = open(tmp.name + '.out', 'w')
+
+        if user:
+            cmd = f"sudo -niu {user} {tmp.name}"
+        else:
+            cmd = tmp.name
+
+        with subprocess.Popen(cmd, stdout=out_fh, stderr=subprocess.STDOUT, encoding='utf-8',
+                              shell=True, env=os.environ) as p:
+            try:
+                p.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                subprocess.run(f"sudo -u {user} kill {p.pid}", shell=True) if user else p.terminate()
+                try:
+                    p.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
+                                                                                                       signal.SIGKILL)
+                    p.communicate()
+                    raise TimeoutError(f"Timeout of {timeout} seconds while executing shell")
+                except Exception as e:
+                    subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
+                                                                                                       signal.SIGKILL)
+                    raise RuntimeError(f"Error waiting process {p.pid} to terminate\n{format_exception(e)}")
+                else:
+                    raise TimeoutError(f"Timeout of {timeout} seconds while executing shell")
+            except Exception as e:
+                subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
+                                                                                                   signal.SIGKILL)
+                p.communicate()
+                stderr += "\n" + format_exception(e)
+
+            rc = p.poll()
+            out_fh.close()
+            with open(tmp.name + '.out', 'r') as fh:
+                stdout = fh.read()
+
+        try:
+            os.remove(tmp.name)
+        except:
+            pass
+
+        try:
+            os.remove(tmp.name + '.out')
+        except:
+            pass
+
+        return stdout, stderr, rc
+
     def _execute(self, params: Kwargs, timeout=None, context: Context = None) -> CompletedProcess:
         tokens = self.rpl_params(**params, env=context.env)
 
@@ -490,61 +548,11 @@ class ShellOperation(IOperationEncapsulation):
                 timeout = None
         cp = CompletedProcess()
         cp.set_start_time()
-        tmp = tempfile.NamedTemporaryFile('w', delete=False, suffix='.' + os.path.basename(shebang))
-        tmp.write(f"#!{shebang}\n")
-        tmp.write(tokens)
-        tmp.close()
-        os.chmod(tmp.name, 0o755)
-        out_fh = open(tmp.name + '.out', 'w')
-
-        if user:
-            cmd = f"sudo -niu {user} {tmp.name}"
-        else:
-            cmd = tmp.name
-
-        with subprocess.Popen(cmd, stdout=out_fh, stderr=subprocess.STDOUT, encoding='utf-8',
-                              shell=True) as p:
-            try:
-                p.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                subprocess.run(f"sudo -u {user} kill {p.pid}", shell=True) if user else p.terminate()
-                try:
-                    p.communicate(timeout=5)
-                except subprocess.TimeoutExpired:
-                    subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
-                                                                                                       signal.SIGKILL)
-                    p.communicate()
-                    cp.stderr = f"Timeout of {timeout} seconds while executing shell"
-                    cp.success = False
-                except Exception as e:
-                    subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
-                                                                                                       signal.SIGKILL)
-                    cp.stderr = f"Error waiting process {p.pid} to terminate\n{format_exception(e)}"
-                    cp.success = False
-                else:
-                    cp.stderr = f"Timeout of {timeout} seconds while executing shell"
-                    cp.success = False
-            except Exception as e:
-                subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
-                                                                                                   signal.SIGKILL)
-                p.communicate()
-                cp.stderr += "\n" + format_exception(e)
-
-            cp.rc = p.poll()
-            out_fh.close()
-            with open(tmp.name + '.out', 'r') as fh:
-                cp.stdout = fh.read()
-
         try:
-            os.remove(tmp.name)
-        except:
-            pass
-
-        try:
-
-            os.remove(tmp.name + '.out')
-        except:
-            pass
+            cp.stdout, cp.stderr, cp.rc = self._run(tokens, user, shebang, timeout)
+        except Exception as e:
+            cp.stderr = str(e)
+            cp.success = False
         cp.set_end_time()
 
         self.evaluate_result(cp, context)

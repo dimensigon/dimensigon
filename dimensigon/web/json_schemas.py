@@ -233,6 +233,11 @@ _step_post = {
                                                 {"type": "integer", "minimum": 1}]
                                       }
                             },
+        "children_step_ids": {"type": "array",
+                              "items": {"anyOf": [Id,
+                                                  {"type": "integer", "minimum": 1}]
+                                        }
+                              },
         "target": {"anyOf": [{"type": "string"},
                              {"type": "array", "items": {"type": "string"}}]}
     },
@@ -276,7 +281,7 @@ step_put = {
                                                 {"type": "integer", "minimum": 1}]
                                       }
                             },
-        "child_step_ids": {"type": "array",
+        "children_step_ids": {"type": "array",
                            "items": {"anyOf": [Id,
                                                {"type": "integer", "minimum": 1}]
                                      }
@@ -318,7 +323,7 @@ step_patch = {
                                                 {"type": "integer", "minimum": 1}]
                                       }
                             },
-        "child_step_ids": {"type": "array",
+        "children_step_ids": {"type": "array",
                            "items": {"anyOf": [Id,
                                                {"type": "integer", "minimum": 1}]
                                      }
@@ -471,6 +476,8 @@ launch_orchestration_post = {
                              },
                   },
                   },
+        "orchestration": {"type": "string"},
+        "version": {"type": "integer"},
         "params": {"type": ["object", "null"]},
         "background": {"type": "boolean"},
         "skip_validation": {"type": "boolean"},
@@ -567,12 +574,12 @@ log_post = {
 users_post = {
     "type": "object",
     "properties": {
-        "user": {"type": "string"},
+        "name": {"type": "string"},
         "password": {"type": "string"},
         "email": {"type": "string",
                   "format": "email"}
     },
-    "required": ["user", "password", "email"],
+    "required": ["name", "password", "email"],
     "additionalProperties": False
 }
 

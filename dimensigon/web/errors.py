@@ -5,7 +5,7 @@ from datetime import datetime
 from http.client import HTTPException
 
 import flask
-from flask import Blueprint, jsonify, current_app
+from flask import Blueprint, jsonify, current_app, has_app_context
 from jsonschema import ValidationError
 from sqlalchemy.orm.exc import NoResultFound
 from werkzeug.exceptions import InternalServerError
@@ -53,7 +53,7 @@ class BaseError(Exception):
             return msg if msg else payload
 
 
-def format_error_content(error, debug=False):
+def format_error_content(error, with_traceback=False):
     content = {
         'error': {
             'type': error.__class__.__name__,
@@ -63,13 +63,14 @@ def format_error_content(error, debug=False):
 
     if error.payload:
         content['error'].update(error.payload)
-    if debug:
+    if with_traceback:
         content['error'].update(traceback=format_exception(error))
     return content
 
 
 def format_error_response(error) -> flask.Response:
-    content = format_error_content(error)
+    with_traceback = current_app.config['DEBUG'] if has_app_context() else False
+    content = format_error_content(error, with_traceback)
     rv = jsonify(content)
     rv.status_code = error.status_code or 500
 
@@ -136,6 +137,13 @@ class GenericError(BaseError):
         return self._payload
 
 
+class GenericExceptionError(GenericError):
+    status_code = 500
+
+    def __init__(self, message: str, exception: Exception):
+        super().__init__(message, 500, exception=format_exception(exception, current_app.config['DEBUG']))
+
+
 class ServerNormalizationError(BaseError):
     status_code = 404
 
@@ -192,9 +200,9 @@ class EntityAlreadyExists(BaseError):
 class EntityNotFound(BaseError):
     status_code = 404
 
-    def __init__(self, entity: str, ident, columns: t.List[str] = None):
+    def __init__(self, entity: str, ident, columns: t.Iterable[str] = None):
         self.entity = entity
-        self.id = ident
+        self.ident = ident
         if is_iterable_not_string(columns):
             self.columns = columns
         elif is_string_types(columns):
@@ -207,7 +215,7 @@ class EntityNotFound(BaseError):
 
     @property
     def payload(self) -> t.Optional[dict]:
-        return dict(entity=self.entity, id=self.id)
+        return dict(entity=self.entity, ident=self.ident)
 
 
 class NoDataFound(BaseError):
@@ -218,6 +226,16 @@ class NoDataFound(BaseError):
 
     def _format_error_msg(self) -> str:
         return f"No data found"
+
+
+class ColumnFilterError(BaseError):
+
+    def __init__(self, column: str, entity: str):
+        self.column = column
+        self.entity = entity
+
+    def _format_error_msg(self) -> str:
+        return f"Invalid filter column"
 
 
 class UnknownServer(BaseError):
@@ -251,17 +269,6 @@ class ObsoleteCatalog(BaseError):
     def payload(self) -> t.Optional[dict]:
         return {'current': self.actual_catalog.strftime(defaults.DATEMARK_FORMAT),
                 'old': self.obsolete_catalog.strftime(defaults.DATEMARK_FORMAT)}
-
-
-class CatalogMismatch(BaseError):
-    status_code = 500
-
-    def __init__(self, local_entities, remote_entities):
-        self.local_entities = local_entities
-        self.remote_entities = remote_entities
-
-    def _format_error_msg(self) -> str:
-        return "List entities do not match"
 
 
 #################
@@ -462,7 +469,7 @@ class RemoteServerTimeout(BaseError):
 
 
 class MissingSourceMapping(BaseError):
-    status_code = 404
+    status_code = 400
 
     def __init__(self, parameter):
         self.parameter = parameter
@@ -472,7 +479,7 @@ class MissingSourceMapping(BaseError):
 
 
 class MappingError(BaseError):
-    status_code = 404
+    status_code = 400
 
     def __init__(self, parameter, step: 'Step' = None, ):
         self.parameter = parameter
@@ -488,7 +495,7 @@ class MappingError(BaseError):
 
 
 class MissingParameters(BaseError):
-    status_code = 404
+    status_code = 400
 
     def __init__(self, parameters, step: 'Step' = None, server: 'Server' = None):
         self.parameters = parameters
@@ -592,6 +599,19 @@ class TransferNotInValidState(TransferBase):
 #################
 # Common Errors #
 #################
+
+
+class FolderCreationError(BaseError):
+    status_code = 500
+
+    def __init__(self, folder: str, exception: Exception):
+        self.folder = folder
+        self.exception = format_exception(exception)
+
+    def _format_error_msg(self) -> str:
+        return "Unable to create folder"
+
+
 class UnreachableDestination(BaseError):
     status_code = 503
 
@@ -664,17 +684,6 @@ class ProxyForwardingError(BaseError):
     def payload(self) -> t.Optional[dict]:
         return {'server': {'id': str(self.dest.id), 'name': self.dest.name},
                 'exception': str(self.exception) if str(self.exception) else self.exception.__class__.__name__}
-
-
-class HealthCheckMismatch(BaseError):
-    status_code = 500
-
-    def __init__(self, expected: t.Dict[str, str], actual: t.Dict[str, str]):
-        self.expected = expected
-        self.actual = actual
-
-    def _format_error_msg(self) -> str:
-        return "Healtcheck response does not match with the server requested"
 
 
 class ParameterMustBeSet(BaseError):

@@ -100,12 +100,14 @@ class LogResource(Resource):
         if 'recursive' in data and log.recursive != data.get('recursive'):
             log.recursive = data.get('recursive')
         if 'mode' in data and log.mode != data.get('mode'):
-            log.mode = data.get('mode')
+            log.mode = Mode[data.get('mode')]
         if log.mode == Mode.FOLDER:
             if 'dest_folder' in data and log.dest_folder != data.get('dest_folder'):
                 log.dest_folder = data.get('dest_folder')
             if log.dest_folder == None:
-                raise errors.ParameterMustBeSet("property 'dest_folder' must be set when mode=FOLDER")
+                raise errors.ParameterMustBeSet("property dest_folder must be set when mode=FOLDER")
+        elif 'dest_folder' in data and data['dest_folder']:
+            raise errors.InvalidValue(f"property dest_folder can not be set with {log.mode.name} mode")
         if log in db.session.dirty:
             db.session.commit()
             return {}, 204

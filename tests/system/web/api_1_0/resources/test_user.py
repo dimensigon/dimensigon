@@ -1,36 +1,26 @@
 from flask import url_for
 from flask_jwt_extended import create_access_token
 
-from dimensigon.domain.entities import Server, User
+from dimensigon.domain.entities import User
 from dimensigon.network.auth import HTTPBearerAuth
-from dimensigon.web import create_app, db
-from tests.base import TestCaseLockBypass
+from dimensigon.web import db, errors
+from tests.base import TestResourceBase
 
 
-class TestLogResourceList(TestCaseLockBypass):
+class TestUserResourceList(TestResourceBase):
 
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
+    def setUp(self) -> None:
+        self.initials = dict(self.initials)
+        self.initials.update(user=False)
+        super().setUp()
 
-        db.create_all()
-        s = Server('server', port=8000, me=True)
-        db.session.add(s)
-
+    def fill_database(self):
         self.user = User(name='user', active=False)
         db.session.add(self.user)
 
-        db.session.commit()
-        self.auth = HTTPBearerAuth(create_access_token(self.user.id))
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
+    @property
+    def auth(self):
+        return HTTPBearerAuth(create_access_token(self.user.id))
 
     def test_get(self):
         resp = self.client.get(url_for('api_1_0.userlist'), headers=self.auth.header)
@@ -46,23 +36,13 @@ class TestLogResourceList(TestCaseLockBypass):
         self.assertListEqual([root.to_json()], resp.get_json())
 
         # test with filter on a server
-        resp = self.client.get(url_for('api_1_0.userlist') + f"?filter[user]=root",
+        resp = self.client.get(url_for('api_1_0.userlist') + f"?filter[name]=root",
                                headers=self.auth.header)
         db.session.refresh(root)
         self.assertListEqual([root.to_json()], resp.get_json())
 
     def test_post(self):
-        new_user_json = {"user": 'root',
-                         "password": "1234",
-                         "email": 'root@dimensigon.com',
-                         "name": "Root"
-                         }
-
-        resp = self.client.post(url_for('api_1_0.userlist'), headers=self.auth.header,
-                                json=new_user_json)
-        self.assertEqual(400, resp.status_code)
-
-        new_user_json = {"user": 'root',
+        new_user_json = {"name": 'root',
                          "password": "1234",
                          "email": 'root@dimensigon.com',
                          }
@@ -70,30 +50,42 @@ class TestLogResourceList(TestCaseLockBypass):
         resp = self.client.post(url_for('api_1_0.userlist'), headers=self.auth.header,
                                 json=new_user_json)
         self.assertEqual(201, resp.status_code)
-        user = User.query.get(resp.get_json().get('user_id'))
-        self.assertEqual('root', user.user)
+        user = User.query.get(resp.get_json().get('id'))
+        self.assertEqual('root', user.name)
         self.assertEqual("root@dimensigon.com", user.email)
         self.assertIsNotNone(user._password)
         self.assertNotEqual('1234', user._password)
         self.assertTrue(user.active)
 
+    def test_post_user_already_exists(self):
+        root = User('root')
+        db.session.add(root)
+        db.session.commit()
 
-class TestUserResource(TestCaseLockBypass):
+        new_user_json = {"name": 'root',
+                         "password": "1234",
+                         "email": 'root@dimensigon.com',
+                         }
 
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        db.create_all()
-        s = Server('server', port=8000, me=True)
-        db.session.add(s)
+        resp = self.client.post(url_for('api_1_0.userlist'), headers=self.auth.header,
+                                json=new_user_json)
+        self.validate_error_response(resp, errors.EntityAlreadyExists('User', 'root', ['name']))
+
+
+class TestUserResource(TestResourceBase):
+
+    def setUp(self) -> None:
+        self.initials = dict(self.initials)
+        self.initials.update(user=False)
+        super().setUp()
+
+    def fill_database(self):
         self.user = User('user', active=False)
         db.session.add(self.user)
-        db.session.commit()
-        self.auth = HTTPBearerAuth(create_access_token(self.user.id))
+
+    @property
+    def auth(self):
+        return HTTPBearerAuth(create_access_token(self.user.id))
 
     def test_get(self):
         resp = self.client.get(url_for('api_1_0.userresource', user_id=str(self.user.id)), headers=self.auth.header)

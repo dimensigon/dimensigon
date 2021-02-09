@@ -1,30 +1,24 @@
 import base64
 import hashlib
 import os
+from unittest import mock
 from unittest.mock import patch
 
 from flask import url_for
-from flask_jwt_extended import create_access_token
 from pyfakefs.fake_filesystem_unittest import TestCase
 
-from dimensigon.domain.entities import Software, SoftwareServerAssociation, Server, Transfer, TransferStatus
-from dimensigon.domain.entities.bootstrap import set_initial
-from dimensigon.network.auth import HTTPBearerAuth
-from dimensigon.web import create_app, db
+from dimensigon.domain.entities import Software, SoftwareServerAssociation, Transfer, TransferStatus
+from dimensigon.web import db, errors
+from tests.base import OneNodeMixin, LockBypassMixin, ValidateResponseMixin
 
+app = mock.MagicMock()
+app.dm.config.path.return_value = '/'
 
-class TestTransferList(TestCase):
+@patch('dimensigon.web.api_1_0.resources.transfer.current_app', return_value=app)
+class TestTransferList(OneNodeMixin, LockBypassMixin, ValidateResponseMixin, TestCase):
 
     def setUp(self) -> None:
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
-
-        db.create_all()
-        set_initial()
-        db.session.commit()
+        super().setUp()
 
         self.source_path = '/software'
         self.filename = 'filename.zip'
@@ -32,11 +26,10 @@ class TestTransferList(TestCase):
         self.size = len(self.content)
         self.checksum = hashlib.md5(self.content).hexdigest()
 
-        self.server = Server.get_current()
         self.soft = Software(name='test_software', version=1, filename='software.zip', size=self.size,
                              checksum=self.checksum)
 
-        self.ssa = SoftwareServerAssociation(software=self.soft, server=self.server,
+        self.ssa = SoftwareServerAssociation(software=self.soft, server=self.s1,
                                              path=self.source_path)
 
         self.dest_path = '/dest_repo'
@@ -50,12 +43,13 @@ class TestTransferList(TestCase):
         self.fs.create_dir(self.dest_path)
         self.fs.create_file(os.path.join(self.source_path, self.filename), contents=self.content)
         self.fs.create_file(os.path.join(self.source_path, self.soft.filename), contents=self.content)
+        self.app.config['DEBUG'] = False
 
     def tearDown(self) -> None:
         db.session.remove()
         db.drop_all()
 
-    def test_get_transfers(self):
+    def test_get_transfers(self, mock_app):
         t = Transfer(software=self.soft, dest_path=self.dest_path, num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
         db.session.commit()
@@ -64,7 +58,8 @@ class TestTransferList(TestCase):
         self.assertEqual(200, resp.status_code)
         self.assertListEqual([t.to_json()], resp.get_json())
 
-    def test_post_create_software_transfer(self):
+
+    def test_post_create_software_transfer(self, mock_app):
         self.fs.create_file(os.path.join('/new_dest_path', self.soft.filename + '_chunk.1'))
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id),
@@ -80,7 +75,7 @@ class TestTransferList(TestCase):
 
         self.assertFalse(os.path.exists(os.path.join('/new_dest_path', self.soft.filename + '_chunk.1')))
 
-    def test_post_create_software_transfer_with_chunks_already_inside(self):
+    def test_post_create_software_transfer_with_chunks_already_inside(self, mock_app):
         self.fs.create_file(os.path.join(self.dest_path, self.soft.filename + '_chunk.1'))
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id),
@@ -96,7 +91,7 @@ class TestTransferList(TestCase):
 
         self.assertFalse(os.path.exists(os.path.join(self.dest_path, self.soft.filename + '_chunk.1')))
 
-    def test_post_create_software_transfer_with_pending_transfer(self, ):
+    def test_post_create_software_transfer_with_pending_transfer(self, mock_app):
         t = Transfer(software=self.soft, dest_path=self.dest_path, num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
         db.session.commit()
@@ -105,9 +100,9 @@ class TestTransferList(TestCase):
                                 json={"software_id": str(self.soft.id), 'dest_path': self.dest_path,
                                       'num_chunks': 16}, headers=self.auth.header)
         self.assertEqual(409, resp.status_code)
-        self.assertDictEqual({"error": f"There is already a transfer sending software {self.soft.id}"}, resp.get_json())
+        self.validate_error_response(resp, errors.TransferSoftwareAlreadyOpen(self.soft.id))
 
-    def test_post_create_software_transfer_with_pending_transfer_cancel(self):
+    def test_post_create_software_transfer_with_pending_transfer_cancel(self, mock_app):
         t = Transfer(software=self.soft, dest_path=self.dest_path, num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
         db.session.commit()
@@ -118,7 +113,7 @@ class TestTransferList(TestCase):
         self.assertEqual(202, resp.status_code)
         self.assertEqual(TransferStatus.CANCELLED, t.status)
 
-    def test_post_create_filename_transfer_with_pending_transfer(self):
+    def test_post_create_filename_transfer_with_pending_transfer(self, mock_app):
         t = Transfer(software=self.filename, size=self.size, checksum=self.checksum, dest_path=self.dest_path,
                      num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
@@ -131,11 +126,10 @@ class TestTransferList(TestCase):
                                       'dest_path': self.dest_path,
                                       'num_chunks': 16}, headers=self.auth.header)
         self.assertEqual(409, resp.status_code)
-        self.assertDictEqual(
-            {"error": f"There is already a transfer sending file {os.path.join(self.dest_path, self.filename)}"},
-            resp.get_json())
+        self.validate_error_response(resp,
+                                     errors.TransferFileAlreadyOpen(os.path.join(self.dest_path, self.filename)))
 
-    def test_post_create_filename_transfer_with_pending_transfer_cancel(self):
+    def test_post_create_filename_transfer_with_pending_transfer_cancel(self, mock_app):
         t = Transfer(software=self.filename, size=self.size, checksum=self.checksum, dest_path=self.dest_path,
                      num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
@@ -151,38 +145,13 @@ class TestTransferList(TestCase):
         self.assertEqual(202, resp.status_code)
         self.assertEqual(TransferStatus.CANCELLED, t.status)
 
-    def test_post_filename_and_software_not_specified(self, ):
-        resp = self.client.post(url_for('api_1_0.transferlist'),
-                                json={'filename': self.filename,
-                                      'dest_path': self.dest_path,
-                                      'num_chunks': 16}, headers=self.auth.header)
-        self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({'error': 'size and checksum must be specified when a filename set'}, resp.get_json())
-
-        resp = self.client.post(url_for('api_1_0.transferlist'),
-                                json={'filename': self.filename,
-                                      'size': self.size,
-                                      'dest_path': self.dest_path,
-                                      'num_chunks': 16}, headers=self.auth.header)
-        self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({'error': 'size and checksum must be specified when a filename set'}, resp.get_json())
-
-        resp = self.client.post(url_for('api_1_0.transferlist'),
-                                json={'filename': self.filename,
-                                      'checksum': self.checksum,
-                                      'dest_path': self.dest_path,
-                                      'num_chunks': 16}, headers=self.auth.header)
-        self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({'error': 'size and checksum must be specified when a filename set'}, resp.get_json())
-
-    def test_post_filename_without_size_or_checksum(self):
+    def test_post_filename_without_size_or_checksum(self, mock_app):
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={'dest_path': self.dest_path,
                                       'num_chunks': 16}, headers=self.auth.header)
-        self.assertEqual(404, resp.status_code)
-        self.assertDictEqual({'error': 'Neither filename nor software specified for the transfer'}, resp.get_json())
+        self.validate_error_response(resp, errors.ValidationError)
 
-    def test_post_file_exists(self):
+    def test_post_file_exists(self, mock_app):
         self.fs.create_file(os.path.join(self.dest_path, self.filename))
         self.fs.create_file(os.path.join(self.dest_path, self.soft.filename))
 
@@ -193,16 +162,16 @@ class TestTransferList(TestCase):
                                       'dest_path': self.dest_path,
                                       'num_chunks': 16}, headers=self.auth.header)
         self.assertEqual(409, resp.status_code)
-        self.assertDictEqual({"error": "File already exists. Use force=True if needed"}, resp.get_json())
+        self.validate_error_response(resp, errors.TransferFileAlreadyExists(os.path.join(self.dest_path, self.filename)))
 
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id),
                                       'dest_path': self.dest_path,
                                       'num_chunks': 16}, headers=self.auth.header)
         self.assertEqual(409, resp.status_code)
-        self.assertDictEqual({"error": "File already exists. Use force=True if needed"}, resp.get_json())
+        self.validate_error_response(resp, errors.TransferFileAlreadyExists(os.path.join(self.dest_path, self.soft.filename)))
 
-    def test_post_file_exists_force(self):
+    def test_post_file_exists_force(self, mock_app):
         self.fs.create_file(os.path.join(self.dest_path, self.filename))
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"filename": self.filename,
@@ -212,7 +181,8 @@ class TestTransferList(TestCase):
                                       'num_chunks': 16,
                                       'force': False}, headers=self.auth.header)
         self.assertEqual(409, resp.status_code)
-        self.assertDictEqual({"error": "File already exists. Use force=True if needed"}, resp.get_json())
+
+        self.validate_error_response(resp, errors.TransferFileAlreadyExists(os.path.join(self.dest_path, self.filename)))
 
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"filename": self.filename,
@@ -236,9 +206,9 @@ class TestTransferList(TestCase):
                                           'force': True}, headers=self.auth.header)
             self.assertEqual(500, resp.status_code)
             file = os.path.join(self.dest_path, self.soft.filename)
-            self.assertDictEqual({"error": f"Unable to remove {file}: Not allowed"}, resp.get_json())
+            self.validate_error_response(resp, errors.GenericExceptionError(f"Unable to remove {file}", PermissionError('Not allowed')))
 
-    def test_post_create_transfer_error_with_pending_transfer(self):
+    def test_post_create_transfer_error_with_pending_transfer(self, mock_app):
         t = Transfer(software=self.soft, dest_path=self.dest_path, num_chunks=16, status=TransferStatus.IN_PROGRESS)
         db.session.add(t)
         db.session.commit()
@@ -247,32 +217,23 @@ class TestTransferList(TestCase):
                                 json={"software_id": str(self.soft.id), 'dest_path': self.dest_path,
                                       'num_chunks': 16}, headers=self.auth.header)
         self.assertEqual(409, resp.status_code)
-        self.assertDictEqual({"error": f"There is already a transfer sending software {self.soft.id}"}, resp.get_json())
+        self.validate_error_response(resp, errors.TransferSoftwareAlreadyOpen(self.soft.id))
 
     @patch('dimensigon.web.api_1_0.resources.transfer.os.makedirs', autospec=True)
-    def test_post_create_software_error_on_create_dest_folder(self, mock_makedirs):
+    def test_post_create_software_error_on_create_dest_folder(self, mock_makedirs, mock_app):
         mock_makedirs.side_effect = PermissionError('Not allowed')
         resp = self.client.post(url_for('api_1_0.transferlist'),
                                 json={"software_id": str(self.soft.id),
                                       'dest_path': self.dest_path,
                                       'num_chunks': 16}, headers=self.auth.header)
         self.assertEqual(500, resp.status_code)
-        self.assertDictEqual({'error': f"Unable to create dest path {self.dest_path}: Not allowed"}, resp.get_json())
+        self.validate_error_response(resp, errors.FolderCreationError(self.dest_path, mock_makedirs.side_effect))
 
 
-class TestTransferResource(TestCase):
+class TestTransferResource(OneNodeMixin, LockBypassMixin, ValidateResponseMixin, TestCase):
 
     def setUp(self) -> None:
-        self.setUpPyfakefs()
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
-
-        db.create_all()
-        set_initial()
-        db.session.commit()
+        super().setUp()
 
         self.source_path = '/software'
         self.filename = 'filename.zip'
@@ -281,11 +242,11 @@ class TestTransferResource(TestCase):
         self.checksum = hashlib.md5(self.content).hexdigest()
         self.dest_path = '/dest_repo'
 
+        self.setUpPyfakefs()
         self.fs.create_dir(self.source_path)
         self.fs.create_dir(self.dest_path)
         self.fs.create_file(os.path.join(self.source_path, self.filename), contents=self.content)
 
-        self.server = Server.get_current()
         self.transfer = Transfer(software=self.filename, size=self.size, checksum=self.checksum,
                                  dest_path=self.dest_path,
                                  num_chunks=16, status=TransferStatus.WAITING_CHUNKS)

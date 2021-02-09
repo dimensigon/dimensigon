@@ -1,5 +1,7 @@
 import json
 import sqlite3
+import sys
+import unittest
 from unittest import TestCase, mock
 from unittest.case import TestCase
 from unittest.mock import Mock
@@ -330,22 +332,25 @@ print("END")
 
 
 class TestShellOperation(TestCase):
+
+    @unittest.skipIf(sys.platform.startswith('win'), "no support on Windows")
     def test_execute(self):
         mock_context = mock.Mock()
         mock_context.env = {}
-        nc = dimensigon.use_cases.operations.ShellOperation('echo -n "{{input.message}}"', expected_stdout=None,
+        so = dimensigon.use_cases.operations.ShellOperation('echo -n "{{input.message}}"', expected_stdout=None,
                                                             expected_rc=None,
                                                             system_kwargs={})
-        cp = nc._execute(dict(input={'message': 'this is a test message'}), context=mock_context)
+        cp = so._execute(dict(input={'message': 'this is a test message'}), context=mock_context)
         self.assertTrue(cp.success)
         self.assertEqual('this is a test message', cp.stdout)
         self.assertIsNone(cp.stderr)
         self.assertEqual(0, cp.rc)
 
-        nc = dimensigon.use_cases.operations.ShellOperation('sleep 10', expected_stdout=None,
+        so = dimensigon.use_cases.operations.ShellOperation('sleep 10', expected_stdout=None,
                                                             expected_rc=None,
                                                             system_kwargs={})
-        cp = nc._execute(dict(input={}), context=mock_context, timeout=0.01)
+        cp = so._execute(dict(input={}), context=mock_context, timeout=0.01)
         self.assertFalse(cp.success)
-        self.assertEqual('', cp.stdout)
+        self.assertIsNone(cp.stdout)
         self.assertEqual('Timeout of 0.01 seconds while executing shell', cp.stderr)
+        self.assertIsNone(cp.rc)

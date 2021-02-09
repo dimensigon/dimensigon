@@ -8,7 +8,7 @@ from dimensigon.web import db
 from dimensigon.web.decorators import lock_catalog
 
 
-class TestSecurizer(TestCase):
+class TestLockCatalog(TestCase):
     def setUp(self):
         """Create and configure a new self.app instance for each test."""
         # create a temporary file to isolate the database for each test
@@ -41,16 +41,14 @@ class TestSecurizer(TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    @mock.patch('dimensigon.web.decorators.get_servers_from_scope')
     @mock.patch('dimensigon.web.decorators.lock_scope')
-    def test_lock_catalog(self, mock_lock_scope, mock_get_servers_from_scope):
+    def test_lock_catalog(self, mock_lock_scope):
         mock_lock_scope.return_value.__enter__.return_value = 1
-        mock_get_servers_from_scope.return_value = [self.srv1]
         resp = self.client.get('/',
                                headers={"Authorization": f"Bearer {create_access_token(1)}"})
 
         self.assertEqual(200, resp.status_code)
-        mock_lock_scope.assert_called_once_with(Scope.CATALOG, [self.srv1])
+        mock_lock_scope.assert_called_once_with(Scope.CATALOG)
         self.assertDictEqual({'msg': 'default response'}, resp.get_json())
 
     @mock.patch('dimensigon.web.decorators.get_servers_from_scope')

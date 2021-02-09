@@ -4,7 +4,8 @@ import typing as t
 from flask import Flask, g
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import MetaData, event
+from sqlalchemy import MetaData
+from sqlalchemy.pool import StaticPool
 
 from dimensigon.utils.event_handler import EventHandler
 from dimensigon.web import errors, threading
@@ -25,7 +26,7 @@ meta = MetaData(naming_convention={
 })
 
 db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta,
-                engine_options={'connect_args': {'check_same_thread': False}, 'isolation_level': 'READ UNCOMMITTED'})
+                engine_options=dict(connect_args={'check_same_thread': False}, isolation_level='READ UNCOMMITTED'))
 # db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta)
 # db = SQLAlchemy(query_class=BaseQueryJSON)
 jwt = JWTManager()
@@ -197,5 +198,3 @@ def load_global_data_into_context():
     set_source()
     g.server = Server.get_current()
     g.dimension = Dimension.get_current()
-
-

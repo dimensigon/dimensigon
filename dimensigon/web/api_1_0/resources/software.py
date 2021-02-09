@@ -35,7 +35,7 @@ class SoftwareList(Resource):
     @forward_or_dispatch()
     def get(self):
         query = filter_query(Software, request.args)
-        return [soft.to_json(servers=check_param_in_uri('servers'), no_delete=True) for soft in query.all()]
+        return [soft.to_json(servers=check_param_in_uri('servers'), no_delete=False) for soft in query.all()]
 
     @forward_or_dispatch()
     @jwt_required

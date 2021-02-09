@@ -605,20 +605,22 @@ def sync_list(ident, source_server, detail):
     dprint(resp)
 
 
-def vault_list_scopes():
-    resp = ntwrk.get('api_1_0.vaultlist', dict(params='scopes'))
-    dprint(resp)
-
-
-def vault_list_vars(scope='global'):
-    resp = ntwrk.get('api_1_0.vaultlist', dict(params='vars', scope=scope))
-    dprint(resp)
+def vault_list(scopes, scope='global'):
+    if scopes:
+        resp = ntwrk.get('api_1_0.vaultlist', dict(params='scopes'))
+        dprint(resp)
+    else:
+        resp = ntwrk.get('api_1_0.vaultlist', {"filter[scope]": scope})
+        if resp.ok:
+            dprint({d['name']: d['value'] for d in resp.msg})
+        else:
+            dprint(resp)
 
 
 def vault_read(variable, scope='global'):
     resp = ntwrk.get('api_1_0.vaultresource', dict(name=variable, scope=scope))
     if resp.ok:
-        dprint(resp['value'])
+        dprint(resp.msg['value'])
     else:
         dprint(resp)
 
@@ -789,7 +791,7 @@ nested_dict = {
                      'Example: --params="string-key:\'string-value\'" --param="integer-key:12345" ' \
                      '--param="list-key:[1,2,3]" --param="dict-key:{\'foo\': 1}"'},
             {'argument': '--no-wait', 'dest': 'background', 'action': 'store_true'},
-            {'argument': '--skip-validation', 'action': 'store_false',
+            {'argument': '--skip-validation', 'action': 'store_true',
              'help': 'skips input validation and runs orchestration regardless of schema definition'},
             {'argument': '--vault-scope', 'dest': 'scope',
              'help': 'scope used for fetching vault data. defaults to \'global\''},
@@ -875,17 +877,22 @@ nested_dict = {
             transfer_list
         ]},
     'vault': {
-        'list': {'scopes': [vault_list_scopes],
-                 'vars': [{'argument': '--scope'}, vault_list_vars]},
+        'list': [[{'argument': '--scopes', 'action': 'store_true'},
+                  {'argument': '--scope', 'default': 'global',
+                   'help': "scope to filter. If not set, 'global' will be used"}],
+                 vault_list],
         'read': [{'argument': 'variable'},
-                 {'argument': ['--scope', '-s'], 'default': 'global'},
+                 {'argument': ['--scope', '-s'], 'default': 'global',
+                  'help': "scope to filter. If not set, 'global' will be used"},
                  vault_read],
         'write': [{'argument': 'variable'},
                   {'argument': 'value'},
-                  {'argument': ['--scope', '-s'], 'default': 'global'},
+                  {'argument': ['--scope', '-s'], 'default': 'global',
+                   'help': "scope to filter. If not set, 'global' will be used"},
                   vault_write],
         'delete': [{'argument': 'variable'},
-                   {'argument': ['--scope', '-s'], 'default': 'global'},
+                   {'argument': ['--scope', '-s'], 'default': 'global',
+                    'help': "scope to filter. If not set, 'global' will be used"},
                    vault_delete]
 
     }

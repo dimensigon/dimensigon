@@ -1,128 +1,132 @@
 import datetime as dt
 import functools
-import re
-from functools import partial
-from unittest import TestCase
+import os
+import traceback
+from unittest import mock
 from unittest.mock import patch
 
 import responses
-from aioresponses import aioresponses, CallbackResult
+from aioresponses import aioresponses
+from flask_jwt_extended import create_access_token
+from pyfakefs.fake_filesystem_unittest import TestCase
 
-from dimensigon.__main__ import join, Gate, token as generate_token, Locker, User
-from dimensigon.domain.entities import Server, Dimension, Catalog
-from dimensigon.utils.helpers import generate_dimension
-from dimensigon.web import create_app, db
+from dimensigon.__main__ import join
+from dimensigon.domain.entities import Server, Dimension
+from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.domain.entities.user import JOIN
+from dimensigon.use_cases.catalog import update_db_catalog
+from dimensigon.web import db, create_app
+from tests.base import OneNodeMixin, virtual_network
+from tests.helpers import set_callbacks
+
+now = dt.datetime(2019, 5, 1, tzinfo=dt.timezone.utc)
 
 
-class TestApi(TestCase):
+class TestJoin(OneNodeMixin, TestCase):
 
-    @patch('dimensigon.domain.entities.get_now')
-    def setUp(self, mock_now):
-        """Create and configure a new app instance for each test."""
-        mock_now.return_value = dt.datetime(2019, 4, 1, tzinfo=dt.timezone.utc)
-        # create the app with common test config
+    def setUp(self):
+        self.maxDiff = None
         self.app_join = create_app('test')
-        self.app_join.config['SECURIZER'] = True
-        self.app_join.config['SERVER_NAME'] = 'new'
+        self.app_join.config['SERVER_NAME'] = 'join'
+        self.app_join_context = self.app_join.app_context()
+        self.client_join = self.app_join.test_client()
         with self.app_join.app_context():
             db.create_all()
-            Locker.set_initial()
-            User.set_initial()
-            Server.set_initial()
-            me = Server.get_current()
-            # remove Gates
-            [db.session.delete(g) for g in me.gates]
-            g = Gate(me, port=8000, dns='new')
-            db.session.add(g)
+            set_initial(server=False)
+            self.join_server_id = Server.set_initial()
             db.session.commit()
-            self.server_new = Server.get_current().to_json()
+            self.mock_dm = mock.MagicMock()
+            self.mock_dm.flask_app = self.app_join
+            self.mock_dm.engine = db.engine
+            self.mock_dm.catalog_manager.db_update_catalog = update_db_catalog
 
-        self.app = create_app('test')
-        self.app.config['SERVER_NAME'] = 'node1'
+        super().setUp()
         self.app.config['SECURIZER'] = True
-        mock_now.return_value = dt.datetime(2019, 3, 1, tzinfo=dt.timezone.utc)
-        with self.app.app_context():
-            db.create_all()
-            Locker.set_initial()
-            User.set_initial()
-            Server.set_initial()
-            me = Server.get_current()
-            # remove Gates
-            [db.session.delete(g) for g in me.gates]
-            g = Gate(me, port=8000, dns='node1')
-            db.session.add(g)
-            db.session.commit()
-            dim = generate_dimension('test')
-            dim.current = True
-            db.session.add(dim)
-            db.session.commit()
-            self.dimension = dim.to_json()
-            self.server_node1 = Server.get_current().to_json()
+        self.app_join.config['SECURIZER'] = True
+        self.token = create_access_token(JOIN, user_claims={'applicant': 'me'})
+        self.setUpPyfakefs()
 
-        self.client = self.app.test_client()
+        open('/origin_key', 'w').write('keyfile')
+        open('/origin_cert', 'w').write('certfile')
 
-    def tearDown(self) -> None:
-        with self.app_join.app_context():
-            db.session.remove()
-            db.drop_all()
-        with self.app.app_context():
-            db.session.remove()
-            db.drop_all()
-
+    @patch('dimensigon.__main__.time.sleep')
+    @patch('dimensigon.web.helpers.current_app')
+    @patch('dimensigon.web.api_1_0.urls.use_cases.current_app')
     @patch('dimensigon.domain.entities.route.check_host')
     @patch('dimensigon.domain.entities.get_now')
-    # @patch('dimensigon.rsa.newkeys')
-    @aioresponses()
-    def test_join_command(self, mock_now, mock_check, m):
-        mock_now.return_value = dt.datetime(2019, 5, 1, tzinfo=dt.timezone.utc)
+    def test_join_command(self, mock_now, mock_check, mock_current_app, mock_current_app2, mock_time_sleep):
+        with virtual_network(self.app, self.app_join):
+            mock_now.return_value = now
+            mock_check.return_value = True
+            mock_current_app.dm.config.http_conf.get.side_effect = ['/origin_key', '/origin_cert']
+            self.mock_dm.config.http_conf.__getitem__.side_effect = {'keyfile': '/dest_key',
+                                                                     'certfile': '/dest_cert'}.__getitem__
+            mock_current_app2.dm.cluster_manager.get_alive.return_value = [self.s1.id]
 
-        mock_check.return_value = True
+            join(self.mock_dm, 'node1', self.token, port=5000)
 
-        def callback_client(method, client, url, **kwargs):
-            kwargs.pop('allow_redirects')
+            # check if new server created
+            server_new = Server.query.get(self.join_server_id)
+            self.assertEqual(server_new.last_modified_at, now)
 
-            func = getattr(client, method.lower())
-            r = func(url.path, headers=kwargs['headers'], json=kwargs['json'])
+            with self.app_join.app_context():
+                self.dim.pop('current')
+                self.assertDictEqual(self.dim, Dimension.get_current().to_json())
+                s = Server.query.get(self.s1.id)
+                self.assertEqual(0, s.route.cost)
 
-            return CallbackResult(method.upper(), status=r.status_code, body=r.data, content_type=r.content_type,
-                                  headers=r.headers)
+            self.assertTrue(os.path.exists('/dest_key'))
+            self.assertTrue(os.path.exists('/dest_cert'))
 
-        m.post(re.compile('^https?://node1.*'),
-               callback=functools.partial(callback_client, 'POST', self.client), repeat=True)
+    @patch('dimensigon.__main__.requests.get')
+    @patch('dimensigon.__main__.time.sleep')
+    def test_join_command_error_getting_public_key(self, mock_sleep, mock_get):
+        mock_get.return_value = mock.MagicMock()
+        mock_get.return_value.status_code.return_code = 400
+        mock_get.return_value.__str__ = ''
 
-        def request_callback(request, client):
+        with self.assertRaises(SystemExit):
+            join(self.mock_dm, 'node1', self.token, port=5000)
+
+    @patch('dimensigon.__main__.time.sleep')
+    @responses.activate
+    def test_join_command_error_getting_dimension(self, mock_sleep):
+
+        def requests_callback_client(client, request):
             method_func = getattr(client, request.method.lower())
-            resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
+            try:
+                resp = method_func(request.path_url, data=request.body, headers=dict(request.headers))
+            except Exception as e:
+                return 500, {}, traceback.format_exc()
 
             return resp.status_code, resp.headers, resp.data
 
-        with responses.RequestsMock() as rsps:
-            rsps.add_callback(responses.POST,
-                              re.compile('^https?://node1.*'),
-                              callback=partial(request_callback, client=self.client))
-            rsps.add_callback(responses.GET,
-                              re.compile('^https?://node1.*'),
-                              callback=partial(request_callback, client=self.client))
+        responses.add_callback('GET', 'https://node1:5000/api/v1.0/join/public',
+                               callback=functools.partial(requests_callback_client, self.client))
 
-            with self.app.app_context():
-                runner = self.app.test_cli_runner()
-                result = runner.invoke(generate_token, [], catch_exceptions=False)
-                token = result.stdout.strip()
+        responses.add('POST', 'https://node1:5000/api/v1.0/join', status=400)
+        with self.assertRaises(SystemExit):
+            join(self.mock_dm, 'node1', self.token, port=5000)
 
-            runner = self.app_join.test_cli_runner()
 
-            result = runner.invoke(join, ['--no-ssl', 'node1:5000', token], catch_exceptions=False)
-
-        with self.app.app_context():
-            # check if new server created
-            server_new = Server.query.get(self.server_new.get('id'))
-            self.assertEqual(server_new.last_modified_at, dt.datetime(2019, 5, 1, tzinfo=dt.timezone.utc))
-
+    @patch('dimensigon.web.api_1_0.urls.use_cases.current_app')
+    @patch('dimensigon.domain.entities.route.check_host')
+    @patch('dimensigon.domain.entities.get_now')
+    @patch('dimensigon.__main__.time.sleep')
+    @aioresponses()
+    @responses.activate
+    def test_join_command_error_updating_catalog(self, mock_time_sleep, mock_now, mock_check, mock_current_app, m):
+        # set d
+        set_callbacks([("node1", self.client), (r"(127\.0\.0\.1|node2)", self.client_join)], m)
+        mock_now.return_value = now
+        mock_check.return_value = True
+        mock_current_app.dm.config.http_conf.get.side_effect = ['/origin_key', '/origin_cert']
+        self.mock_dm.config.http_conf.__getitem__.side_effect = {'keyfile': '/dest_key',
+                                                                 'certfile': '/dest_cert'}.__getitem__
         with self.app_join.app_context():
-            self.assertDictEqual(self.dimension, Dimension.get_current().to_json())
-            s = Server.query.get(self.server_node1.get('id'))
-            self.assertEqual(0, s.route.cost)
-            self.assertListEqual([('Gate',), ('Server',), ('User',)],
-                                 db.session.query(Catalog.entity).order_by('entity').all())
-            self.assertEqual(dt.datetime(2019, 5, 1, tzinfo=dt.timezone.utc),
-                             Catalog.query.filter_by(entity='Server').one().last_modified_at)
+            self.mock_dm.catalog_manager = mock.Mock()
+            self.mock_dm.catalog_manager.db_update_catalog.side_effect = RuntimeError()
+
+        with self.assertRaises(SystemExit):
+            join(self.mock_dm, 'node1', self.token, port=5000)
+

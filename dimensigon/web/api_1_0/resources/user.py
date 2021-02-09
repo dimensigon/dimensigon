@@ -3,7 +3,7 @@ from flask_jwt_extended import jwt_required
 from flask_restful import Resource
 
 from dimensigon.domain.entities.user import User
-from dimensigon.web import db
+from dimensigon.web import db, errors
 from dimensigon.web.decorators import forward_or_dispatch, securizer, validate_schema, lock_catalog
 from dimensigon.web.helpers import filter_query
 from dimensigon.web.json_schemas import users_post, user_patch
@@ -26,6 +26,8 @@ class UserList(Resource):
     def post(self):
         data = request.get_json()
         password = data.pop("password")
+        if User.query.filter_by(name=data['name']).all():
+            raise errors.EntityAlreadyExists("User", data['name'], ['name'])
         u = User(**data)
         u.set_password(password)
         db.session.add(u)

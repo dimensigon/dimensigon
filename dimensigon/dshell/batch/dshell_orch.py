@@ -52,7 +52,7 @@ def main(args):
             try:
                 content = open(argv['FILE'], 'r').read()
             except Exception as e:
-                exit(str(e))
+                sys.exit(str(e))
             try:
                 data = json.loads(content)
             except Exception as e:

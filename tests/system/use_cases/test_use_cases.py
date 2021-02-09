@@ -9,9 +9,6 @@ from tests.base import TestDimensigonBase
 class TestRoutes(TestDimensigonBase):
 
     def test_routes_get(self):
-        s1 = Server(id='123e4567-e89b-12d3-a456-426655440001', name='server1', me=True)
-        g1 = Gate(id='123e4567-e89b-12d3-a456-426655440011', server=s1, port=5001,
-                  dns=s1.name)
         s2 = Server(id='123e4567-e89b-12d3-a456-426655440002', name='server2')
         g2 = Gate(id='123e4567-e89b-12d3-a456-426655440012', server=s2, port=5002,
                   dns=s2.name)
@@ -24,23 +21,23 @@ class TestRoutes(TestDimensigonBase):
         g4 = Gate(id='123e4567-e89b-12d3-a456-426655440014', server=s4, port=5001,
                   dns=s4.name)
         Route(s4, s2, cost=1)
-        db.session.add_all([s1, s2, s3, s4])
+        db.session.add_all([s2, s3, s4])
         db.session.commit()
 
         response = self.client.get(url_for('api_1_0.routes', _external=False),
                                    headers=self.auth.header)
         data = response.get_json()
-        self.assertDictEqual({'server_id': '123e4567-e89b-12d3-a456-426655440001',
+        self.assertDictEqual({'server': {'id': self.s1.id, 'name': self.s1.name},
                               'route_list': [
-                                  dict(destination_id='123e4567-e89b-12d3-a456-426655440002',
-                                       gate_id='123e4567-e89b-12d3-a456-426655440012',
+                                  dict(destination_id=s2.id,
+                                       gate_id=g2.id,
                                        proxy_server_id=None, cost=0),
-                                  dict(destination_id='123e4567-e89b-12d3-a456-426655440003',
-                                       gate_id='123e4567-e89b-12d3-a456-426655440013',
+                                  dict(destination_id=s3.id,
+                                       gate_id=g3.id,
                                        proxy_server_id=None, cost=0),
-                                  dict(destination_id='123e4567-e89b-12d3-a456-426655440004',
+                                  dict(destination_id=s4.id,
                                        gate_id=None,
-                                       proxy_server_id='123e4567-e89b-12d3-a456-426655440002', cost=1)]}, data)
+                                       proxy_server_id=s2.id, cost=1)]}, data)
 
     # @patch('dimensigon.web.api_1_0.urls.use_cases.threading')
     # @patch('dimensigon.web.api_1_0.urls.use_cases.ping_server')

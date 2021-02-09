@@ -5,9 +5,8 @@ import logging
 import socket
 import typing as t
 
-from flask import current_app, url_for, g, has_app_context
+from flask import current_app, url_for, g
 from sqlalchemy import or_
-from sqlalchemy.orm.exc import NoResultFound
 
 from dimensigon.utils.typos import ScalarListType, Gate as TGate, UtcDateTime, Id
 from dimensigon.web import db, errors
@@ -17,9 +16,10 @@ from .route import Route, RouteContainer
 from ... import defaults
 from ...utils.helpers import get_ips, get_now, is_iterable_not_string
 
+
 class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = 'D_server'
-    order = 10
+    order = 1
 
     name = db.Column(db.String(255), nullable=False, unique=True)
     granules = db.Column(ScalarListType())
@@ -176,9 +176,10 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
                 return root_path + url_for(view, **values)
 
     @classmethod
-    def get_neighbours(cls, exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None, session=None) -> \
-    t.List[
-        'Server']:
+    def get_neighbours(cls, exclude: t.Union[t.Union[Id, 'Server'], t.List[t.Union[Id, 'Server']]] = None,
+                       session=None) -> \
+            t.List[
+                'Server']:
         """returns neighbour servers
 
         Args:

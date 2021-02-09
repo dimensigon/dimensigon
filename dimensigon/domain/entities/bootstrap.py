@@ -2,7 +2,7 @@ from contextlib import contextmanager
 
 from flask import has_app_context, current_app
 
-from dimensigon.domain.entities import Server, Locker, User, ActionTemplate
+from dimensigon.domain.entities import Server, Locker, User, ActionTemplate, Parameter
 from dimensigon.web import db
 
 
@@ -27,7 +27,7 @@ def _bootstrap_database():
     db.create_all()
 
 
-def set_initial(app=None, session=None, server=True, user=True, action_template=False):
+def set_initial(app=None, session=None, server=True, user=True, action_template=True, parameter=True):
     """Used for generate database on testing"""
     with prepare_context(app) as ctx:
         _bootstrap_database()
@@ -38,6 +38,7 @@ def set_initial(app=None, session=None, server=True, user=True, action_template=
             User.set_initial()
         if action_template:
             ActionTemplate.set_initial()
-
+        if parameter:
+            Parameter.set_initial()
         if ctx:
             db.session.commit()

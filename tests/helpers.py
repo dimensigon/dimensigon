@@ -1,4 +1,5 @@
 import functools
+import os
 import re
 import sys
 import threading
@@ -22,7 +23,6 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon import defaults
 from dimensigon.domain.entities import update_datemark
-from dimensigon.use_cases.operations import CompletedProcess
 from dimensigon.utils.helpers import get_entities, get_distributed_entities
 from dimensigon.web import db
 
@@ -85,8 +85,7 @@ def authorization_header(identity='test'):
     return {"Authorization": f"Bearer {access_token}"}
 
 
-def set_callbacks(target: t.List[t.Tuple[str, FlaskClient]], m: aioresponses = None):
-    import responses
+def set_callbacks(target: t.List[t.Tuple[str, FlaskClient]], ar: aioresponses = None, r=None):
     method_list = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 
     def requests_callback_client(client, request):
@@ -110,14 +109,18 @@ def set_callbacks(target: t.List[t.Tuple[str, FlaskClient]], m: aioresponses = N
         return CallbackResult(method.upper(), status=r.status_code, body=r.data, content_type=r.content_type,
                               headers=r.headers)
 
+    if not r:
+        import responses
+        r = responses
+
     for dest_regexp, client in target:
 
         for method in method_list:
-            responses.add_callback(method, re.compile(f'https?://{dest_regexp}.*'),
-                                   callback=functools.partial(requests_callback_client, client))
-        if m:
+            r.add_callback(method, re.compile(f'https?://{dest_regexp}.*'),
+                           callback=functools.partial(requests_callback_client, client))
+        if ar:
             for method in method_list:
-                func = getattr(m, method.lower())
+                func = getattr(ar, method.lower())
                 func(re.compile(f'https?://{dest_regexp}.*'),
                      callback=functools.partial(callback_client, method, client), repeat=True)
 
@@ -156,25 +159,56 @@ def load_data(catalog: t.Dict[str, t.List[t.Dict]]):
                 update_datemark(True)
 
 
-def app_scope(x):
+def app_scope(session=None):
     try:
         return str(hash(flask._app_ctx_stack.top.app)) + str(threading.get_ident())
     except:
         return str(threading.get_ident())
 
 
-def request_scope(x):
+def request_scope(session=None):
     try:
-        return str(hash(flask._request_ctx_stack.top.request)) + str(hash(flask._app_ctx_stack.top.app)) + str(
+        return str(hash(flask._request_ctx_stack.top.request)) + '.' + str(
+            hash(flask._app_ctx_stack.top.app)) + '.' + str(
             threading.get_ident())
     except:
-        return app_scope(x)
+        return app_scope(session=session)
 
 
 def set_test_scoped_session(db_, func=app_scope, check_same_thread=False):
     connect_args = db_._engine_options.get('connect_args', {})
-    connect_args.update(check_same_thread=check_same_thread)
+    connect_args.update(check_same_thread=check_same_thread, )
     db_._engine_options['connect_args'] = connect_args
     db_.session = db_.create_scoped_session(dict(scopefunc=func))
 
 
+def remove_db_file(url):
+    pattern = re.compile(
+        r"""
+            (?P<name>[\w\+]+)://
+            (?:
+                (?P<username>[^:/]*)
+                (?::(?P<password>.*))?
+            @)?
+            (?:
+                (?:
+                    \[(?P<ipv6host>[^/]+)\] |
+                    (?P<ipv4host>[^/:]+)
+                )?
+                (?::(?P<port>[^/]*))?
+            )?
+            (?:/(?P<database>.*))?
+            """,
+        re.X,
+    )
+
+    match = pattern.search(url)
+    if match:
+        try:
+            database = match['database']
+        except IndexError:
+            return None
+        try:
+            os.remove(database)
+        except:
+            pass

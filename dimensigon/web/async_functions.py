@@ -38,10 +38,10 @@ async def async_send_file(dest_server: Server, transfer_id: Id, file,
     chunks = chunks or math.ceil(os.path.getsize(file) / chunk_size)
     retries = retries
     sem = asyncio.Semaphore(max_senders)
-    responses = {}
     l_chunks = [c for c in range(0, chunks)]
     async with aiohttp.ClientSession() as session:
         while retries > 0:
+            responses = {}
             retry_chunks = []
             for chunk in l_chunks:
                 task = asyncio.create_task(

@@ -5,29 +5,14 @@ from dimensigon.domain.entities import Orchestration, Step, ActionTemplate, Acti
 from dimensigon.domain.entities.bootstrap import set_initial
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.web import create_app, db
-from tests.base import TestCaseLockBypass
+from tests.base import TestCaseLockBypass, TestResourceBase
 
 
-class Test(TestCaseLockBypass):
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        self.auth = HTTPBearerAuth(create_access_token('00000000-0000-0000-0000-000000000001'))
+class Test(TestResourceBase):
+    def fill_database(self):
         self.o = Orchestration(name='name', version=1, description='desc')
         self.at = ActionTemplate(name='action_name', version=1, action_type=ActionType.SHELL, code='')
-
         db.session.add_all([self.o, self.at])
-        set_initial()
-        db.session.commit()
-
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
 
     def test_step_resource_list(self):
         resp = self.client.get(url_for('api_1_0.steplist'), headers=self.auth.header)
@@ -49,9 +34,9 @@ class Test(TestCaseLockBypass):
                                           action_template_id=str(self.at.id)),
                                 headers=self.auth.header)
 
-        self.assertIn('step_id', resp.get_json())
+        self.assertIn('id', resp.get_json())
 
-        s_id = resp.get_json()['step_id']
+        s_id = resp.get_json()['id']
 
         s = Step.query.get(s_id)
 
@@ -76,7 +61,7 @@ class Test(TestCaseLockBypass):
         db.session.commit()
 
         resp = self.client.patch(url_for('api_1_0.stepresource', step_id=s_id),
-                                 json={"child_step_ids": [str(s2.id)]},
+                                 json={"children_step_ids": [str(s2.id)]},
                                  headers=self.auth.header)
 
         self.assertEqual(204, resp.status_code)
@@ -97,10 +82,10 @@ class Test(TestCaseLockBypass):
                                           undo=False,
                                           action_template_id=str(self.at.id),
                                           parent_step_ids=[s_id],
-                                          child_step_ids=[str(s2.id)]),
+                                          children_step_ids=[str(s2.id)]),
                                 headers=self.auth.header)
 
-        s4: Step = Step.query.get(resp.get_json()['step_id'])
+        s4: Step = Step.query.get(resp.get_json()['id'])
 
         self.assertEqual(201, resp.status_code)
         self.assertListEqual([s2], s4.children)
@@ -110,7 +95,7 @@ class Test(TestCaseLockBypass):
                                json=dict(undo=True,
                                          action_template_id=str(self.at.id),
                                          parent_step_ids=[str(s2.id)],
-                                         child_step_ids=[str(s3.id)]),
+                                         children_step_ids=[str(s3.id)]),
                                headers=self.auth.header)
 
         db.session.refresh(s4)
@@ -142,7 +127,7 @@ class Test(TestCaseLockBypass):
                                            undo=False,
                                            action_template_id=str(self.at.id),
                                            parent_step_ids=[1],
-                                           child_step_ids=[3])
+                                           children_step_ids=[3])
                                       ],
                                 headers=self.auth.header)
 

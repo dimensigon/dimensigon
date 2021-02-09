@@ -76,8 +76,8 @@ class Software(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
         self.size = size
         self.checksum = checksum
 
-    def to_json(self, servers=False):
-        data = super().to_json()
+    def to_json(self, servers=False, **kwargs):
+        data = super().to_json(**kwargs)
         data.update({'name': self.name, 'version': self.version, 'family': self.family,
                      'filename': self.filename, 'size': self.size, 'checksum': self.checksum})
         if servers:

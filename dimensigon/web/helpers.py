@@ -19,6 +19,7 @@ from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.utils.asyncio import run
 from dimensigon.utils.helpers import is_iterable_not_string, get_now
 from dimensigon.utils.typos import Id
+from dimensigon.web import errors
 from dimensigon.web.errors import EntityNotFound, NoDataFound
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,7 @@ def filter_query(entity, req_args: dict, exclude: t.Container = None):
     for k, v in filters:
         column = getattr(entity, k, None)
         if not column or k in (exclude or []):
-            return {'error': f'Invalid filter column: {k}'}, 404
+            raise errors.ColumnFilterError(k, entity.__name__)
         if ',' in v:
             values = v.split(',')
             query = query.filter(column.in_(values))

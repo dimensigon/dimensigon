@@ -47,7 +47,7 @@ class TransferList(Resource):
                 raise errors.TransferSoftwareAlreadyOpen(str(soft.id))
             elif pending and json_data['cancel_pending']:
                 for trans in pending:
-                    trans.status = TransferStatus.CANCELED
+                    trans.status = TransferStatus.CANCELLED
                     trans.ended_on = get_now()
         else:
             dest_path = json_data['dest_path']
@@ -60,7 +60,7 @@ class TransferList(Resource):
                 raise errors.TransferFileAlreadyOpen(os.path.join(json_data['dest_path'], json_data['filename']))
             elif pending and json_data.get('cancel_pending', False):
                 for trans in pending:
-                    trans.status = TransferStatus.CANCELED
+                    trans.status = TransferStatus.CANCELLED
                     trans.ended_on = get_now()
 
         file = os.path.join(dest_path, soft.filename if soft else json_data['filename'])
@@ -76,7 +76,7 @@ class TransferList(Resource):
                 except Exception as e:
                     msg = f"Unable to remove {file}"
                     current_app.logger.exception(msg)
-                    return {'error': msg + f": {e}"}, 500
+                    raise errors.GenericExceptionError(msg, exception=e)
 
         # remove chunk files if exist
         for dirpath, dirnames, filenames in os.walk(dest_path):
@@ -99,9 +99,7 @@ class TransferList(Resource):
         try:
             os.makedirs(t.dest_path, exist_ok=True)
         except Exception as e:
-            msg = f"Unable to create dest path {t.dest_path}"
-            current_app.logger.exception(msg)
-            return {'error': msg + f": {e}"}, 500
+            raise errors.FolderCreationError(t.dest_path, e)
 
         db.session.add(t)
         db.session.commit()

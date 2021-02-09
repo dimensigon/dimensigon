@@ -21,10 +21,16 @@ class ActionType(Enum):
     NATIVE = 6
 
 
-
 class ActionTemplate(UUIDistributedEntityMixin, db.Model):
+    SEND_SOFTWARE = '00000000-0000-0000-000a-000000000001'
+    WAIT_SERVERS = '00000000-0000-0000-000a-000000000002'
+    ORCHESTRATION = '00000000-0000-0000-000a-000000000003'
+    WAIT_ROUTE2SERVERS = '00000000-0000-0000-000a-000000000004'
+    DELETE_SERVERS = '00000000-0000-0000-000a-000000000005'
+
     __tablename__ = 'D_action_template'
     order = 10
+
     name = db.Column(db.String(40), nullable=False)
     version = db.Column(db.Integer, nullable=False)
     action_type = db.Column(typos.Enum(ActionType), nullable=False)
@@ -103,7 +109,7 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
             session = db.session
 
         with bypass_datamark_update(session):
-            at = session.query(cls).get('00000000-0000-0000-000a-000000000001')
+            at = session.query(cls).get(cls.SEND_SOFTWARE)
             if at is None:
                 at = ActionTemplate(name='send software', version=1, action_type=ActionType.NATIVE,
                                     expected_rc=201, last_modified_at=defaults.INITIAL_DATEMARK,
@@ -114,7 +120,7 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                                       "version": {"type": "string",
                                                                   "description": "software version to take"},
                                                       "server": {"type": "string",
-                                                                    "description": "destination server id"},
+                                                                 "description": "destination server id"},
                                                       "dest_path": {"type": "string",
                                                                     "description": "destination path to send software"},
                                                       "chunk_size": {"type": "integer"},
@@ -123,12 +129,12 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                             "required": ["software", "server"],
                                             "output": ["file"]
                                             },
-                                    id='00000000-0000-0000-000a-000000000001',
+                                    id=cls.SEND_SOFTWARE,
                                     post_process="import json\nif cp.success:\n  json_data=json.loads(cp.stdout)\n  vc.set('file', "
                                                  "json_data.get('file'))")
 
                 session.add(at)
-            at = session.query(cls).get('00000000-0000-0000-000a-000000000002')
+            at = session.query(cls).get(cls.WAIT_SERVERS)
             if at is None:
                 at = ActionTemplate(name='wait servers', version=1, action_type=ActionType.NATIVE,
                                     description="waits server_names to join to the dimension",
@@ -138,9 +144,9 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                                       },
                                             "required": ["server_names"]
                                             },
-                                    id='00000000-0000-0000-000a-000000000002')
+                                    id=cls.WAIT_SERVERS)
                 session.add(at)
-            at = session.query(cls).get('00000000-0000-0000-000a-000000000003')
+            at = session.query(cls).get(cls.ORCHESTRATION)
             if at is None:
                 at = ActionTemplate(name='orchestration', version=1, action_type=ActionType.ORCHESTRATION,
                                     description="launches an orchestration",
@@ -167,9 +173,9 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                             "required": ["orchestration", "hosts"]
                                             },
                                     last_modified_at=defaults.INITIAL_DATEMARK,
-                                    id='00000000-0000-0000-000a-000000000003')
+                                    id=cls.ORCHESTRATION)
                 session.add(at)
-            at = session.query(cls).get('00000000-0000-0000-000a-000000000004')
+            at = session.query(cls).get(cls.WAIT_ROUTE2SERVERS)
             if at is None:
                 at = ActionTemplate(name='wait route to servers', version=1, action_type=ActionType.NATIVE,
                                     description="waits until we have a valid route to a server",
@@ -179,9 +185,9 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                             "required": ["server_names"]
                                             },
                                     last_modified_at=defaults.INITIAL_DATEMARK,
-                                    id='00000000-0000-0000-000a-000000000004')
+                                    id=cls.WAIT_ROUTE2SERVERS)
                 session.add(at)
-            at = session.query(cls).get('00000000-0000-0000-000a-000000000005')
+            at = session.query(cls).get(cls.DELETE_SERVERS)
             if at is None:
                 at = ActionTemplate(name='delete servers', version=1, action_type=ActionType.NATIVE,
                                     description="deletes server_names from the dimension",
@@ -191,5 +197,5 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                             "required": ["server_names"]
                                             },
                                     last_modified_at=defaults.INITIAL_DATEMARK,
-                                    id='00000000-0000-0000-000a-000000000005')
+                                    id=cls.DELETE_SERVERS)
                 session.add(at)

@@ -89,6 +89,8 @@ def delete_old_temp_servers():
             servers_to_be_created.pop(s_id, None)
 
 
+_lock_delete = threading.Lock()
+
 fetched_catalog = (get_now(), None)
 _lock = threading.Lock()
 
@@ -134,11 +136,17 @@ def join():
 
         with _lock:
             if fetched_catalog[1] is None or fetched_catalog[0] < get_now() - dt.timedelta(minutes=1):
-                c = fetch_catalog(defaults.INITIAL_DATEMARK)
+                c = fetch_catalog()
                 fetched_catalog = (get_now(), c)
             else:
                 c = fetched_catalog[1]
         data.update(catalog=c)
+
+        if _lock_delete.acquire(False):
+            try:
+                delete_old_temp_servers()
+            finally:
+                _lock_delete.release()
 
         server_data = s.to_json(add_gates=True)
         servers_to_be_created.update({s.id: server_data})
@@ -340,13 +348,17 @@ def catalog(data_mark):
 
 
 @log_time()
-def fetch_catalog(data_mark):
+def fetch_catalog(data_mark=None):
     data = {}
     now = get_now()
     for name, obj in get_distributed_entities():
         c = Catalog.query.get(name)
         # db.session.query to bypass deleted objects to spread deleted changes
-        repo_data = obj.query.filter(obj.last_modified_at > data_mark).filter(obj.last_modified_at <= now).all()
+        if data_mark:
+            query = obj.query.filter(obj.last_modified_at > data_mark)
+        else:
+            query = obj.query
+        repo_data = query.filter(obj.last_modified_at <= now).all()
         if name == 'User':
             data.update({name: [e.to_json(password=True) for e in repo_data]})
         else:
@@ -479,6 +491,7 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', params, conte
                              event_id,
                              timeout=None):
     execution: StepExecution = db.session.merge(step_execution)
+    exec_id = execution.id
     source = db.session.merge(source)
     start = get_now()
     try:
@@ -489,18 +502,20 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', params, conte
     finally:
         execution.load_completed_result(cp)
 
-    try:
-        db.session.commit()
-    except Exception as e:
-        current_app.logger.exception(f"Error on commit for execution {execution.id}")
-
     data = dict(step_execution=execution.to_json())
     if execution.child_orch_execution:
         data['step_execution'].update(orch_execution=execution.child_orch_execution.to_json(add_step_exec=True))
+
+    # commit after data is dumped
+    try:
+        db.session.commit()
+    except Exception as e:
+        current_app.logger.exception(f"Error on commit for execution {exec_id}")
+
     resp, code = ntwrk.post(server=source, view_or_url='api_1_0.events', view_data={'event_id': event_id},
                             json=data)
     if code != 202:
-        current_app.logger.error(f"Error while sending result for execution {execution.id}: {code}, {resp}")
+        current_app.logger.error(f"Error while sending result for execution {exec_id}: {code}, {resp}")
     return data
 
 
@@ -536,14 +551,35 @@ def launch_operation():
         return r, 200
 
 
+@api_bp.route('/launch/orchestration', defaults={'orchestration_id': None}, methods=['POST'])
 @api_bp.route('/launch/orchestration/<orchestration_id>', methods=['POST'])
 @forward_or_dispatch()
 @jwt_required
 @securizer
 @validate_schema(launch_orchestration_post)
 def launch_orchestration(orchestration_id):
-    orchestration = Orchestration.query.get_or_raise(orchestration_id)
     data = request.get_json()
+    if orchestration_id:
+        orchestration = Orchestration.query.get_or_raise(orchestration_id)
+    else:
+        iden = (data.get('orchestration'),)
+        columns = ('orchestration',)
+        query = Orchestration.query.filter_by(name=data.get('orchestration'))
+        if 'version' in data:
+            iden += (data.get('version'),)
+            columns += ('version',)
+            query = query.filter_by(version=data.get('version'))
+        query = query.order_by(Orchestration.version.desc())
+        if query.count() <= 1:
+            orchestration = query.one_or_none()
+        else:
+            orchestration = query.first()
+        if not orchestration:
+            raise errors.EntityNotFound('Orchestration', iden, columns)
+
+    if not orchestration.steps:
+        return errors.GenericError('orchestration does not have steps to execute', orchestration_id=orchestration_id)
+
     params = data.get('params') or {}
     hosts = data.get('hosts', Server.get_current().id)
 
@@ -571,9 +607,6 @@ def launch_orchestration(orchestration_id):
     #     rest = list(rest)
     #     rest.sort()
     #     return {'error': f"Parameter(s) not specified: {', '.join(rest)}"}, 404
-
-    if not orchestration.steps:
-        return errors.GenericError('orchestration does not have steps to execute', orchestration_id=orchestration_id)
 
     execution_id = str(uuid.uuid4())
 
@@ -615,7 +648,7 @@ def wrap_sudo(user, cmd):
     if isinstance(cmd, str):
         return f"sudo -Siu {username} -- sh -c {shlex.quote(cmd)}"
     else:
-        args = ["sudo", "-Siu", username, "--", "bash" "-c", shlex.quote(cmd)]
+        args = ["sudo", "-Siu", username, "--", "bash" "-c", ] + cmd
         return args
 
 

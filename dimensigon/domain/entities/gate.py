@@ -13,7 +13,7 @@ if t.TYPE_CHECKING:
 
 class Gate(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     __tablename__ = "D_gate"
-    order = 20
+    order = 2
 
     server_id = db.Column(UUID)
     dns = db.Column(db.String(100))

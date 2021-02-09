@@ -18,7 +18,8 @@ class VaultList(Resource):
     def get(self):
         if check_param_in_uri('scopes'):
             return [r[0] for r in
-                    Vault.query.filter_by(user_id=get_jwt_identity()).filter_by(deleted=0).order_by(Vault.scope)]
+                    db.session.query(distinct(Vault.scope)).filter_by(user_id=get_jwt_identity()).filter_by(
+                        deleted=0).all()]
         elif check_param_in_uri('vars'):
             query = db.session.query(distinct(Vault.name)).filter_by(user_id=get_jwt_identity()).filter_by(deleted=0)
             if 'scope' in request.args:
@@ -27,7 +28,7 @@ class VaultList(Resource):
         else:
             query = filter_query(Vault, request.args, exclude=["user_id", "value"]).filter_by(
                 user_id=get_jwt_identity())
-            return [vault.to_json(no_delete=True) for vault in query.all()]
+            return [vault.to_json(no_delete=True, human=check_param_in_uri('human')) for vault in query.all()]
 
     @forward_or_dispatch()
     @jwt_required

@@ -9,16 +9,13 @@ from dimensigon.web import db
 from tests.base import TestDimensigonBase
 
 
-class TestApi(TestDimensigonBase):
+class TestCatalog(TestDimensigonBase):
 
     @patch('dimensigon.web.api_1_0.urls.use_cases.get_distributed_entities')
     @patch('dimensigon.domain.entities.get_now')
     def test_catalog(self, mock_now, mock_get):
         mock_now.return_value = dt.datetime(2019, 4, 2, tzinfo=dt.timezone.utc)
         mock_get.return_value = [('ActionTemplate', ActionTemplate)]
-        # add data
-        s = Server('test', post=8000, me=True)
-        db.session.add(s)
 
         at1 = ActionTemplate(name='ActionTest1', version=1, action_type=ActionType.ORCHESTRATION, code='')
         db.session.add(at1)

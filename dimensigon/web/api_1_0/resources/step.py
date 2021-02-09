@@ -1,3 +1,5 @@
+import uuid
+
 from flask import request
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
@@ -44,18 +46,23 @@ class StepList(Resource):
                 json_step['action_template'] = ActionTemplate.query.get_or_raise(json_step.pop('action_template_id'))
             elif 'action_type' in json_step:
                 json_step['action_type'] = ActionType[json_step.pop('action_type')]
-            dependencies[rid] = {'parent_step_ids': json_step.pop('parent_step_ids', []),
-                                 'child_step_ids': json_step.pop('child_step_ids', [])}
+            dep = {'parent_step_ids': json_step.pop('parent_step_ids', []),
+                                 'children_step_ids': json_step.pop('children_step_ids', [])}
             s = o.add_step(**json_step)
             db.session.add(s)
             new_id_steps.append(str(s.id))
             if rid:
                 rid2step[rid] = s
+            else:
+                rid2step[new_id_steps[-1]] = s
+                rid = new_id_steps[-1]
+            dependencies[rid] = dep
 
-            continue
 
         # process dependencies
         for rid, dep in dependencies.items():
+            if rid not in rid2step:
+                continue
             step = rid2step[rid]
             parents = []
             for p_s_id in dep['parent_step_ids']:
@@ -65,7 +72,7 @@ class StepList(Resource):
                     parents.append(Step.query.get_or_raise(p_s_id))
             o.set_parents(step, parents)
             children = []
-            for c_s_id in dep['child_step_ids']:
+            for c_s_id in dep['children_step_ids']:
                 if c_s_id in rid2step:
                     children.append(rid2step[c_s_id])
                 else:
@@ -74,7 +81,7 @@ class StepList(Resource):
 
         db.session.commit()
 
-        return {'step_id': new_id_steps[0]} if isinstance(json_data, dict) else {'step_ids': new_id_steps}, 201
+        return {'id': new_id_steps[0]} if len(new_id_steps) == 1 else {'ids': new_id_steps}, 201
 
 
 class StepResource(Resource):
@@ -105,21 +112,23 @@ class StepResource(Resource):
             parent_steps.append(cs)
             s.orchestration.set_parents(s, parent_steps)
 
-        child_step_ids = json_data.pop('child_step_ids', [])
-        child_steps = []
-        for child_step_id in child_step_ids:
-            cs = Step.query.get_or_raise(child_step_id)
-            child_steps.append(cs)
-            s.orchestration.set_children(s, child_steps)
+        children_step_ids = json_data.pop('children_step_ids', [])
+        children_steps = []
+        for children_step_id in children_step_ids:
+            cs = Step.query.get_or_raise(children_step_id)
+            children_steps.append(cs)
+            s.orchestration.set_children(s, children_steps)
 
         s.stop_on_error = json_data.pop('stop_on_error', None)
         s.stop_undo_on_error = json_data.pop('stop_undo_on_error', None)
         s.undo_on_error = json_data.pop('undo_on_error', None)
         aux = json_data.get('expected_stdout', None)
-        s.expected_stdout = aux if isinstance(aux, str) else '\n'.join(aux)
+        s.expected_stdout = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
+
+
 
         aux = json_data.get('expected_stderr', None)
-        s.expected_stderr = aux if isinstance(aux, str) else '\n'.join(aux)
+        s.expected_stderr = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
 
         s.expected_rc = json_data.pop('expected_rc', None)
         s.parameters = json_data.pop('parameters', None)
@@ -128,13 +137,13 @@ class StepResource(Resource):
         s.name = json_data.pop('name', None)
 
         aux = json_data.get('pre_process', None)
-        s.pre_process = aux if isinstance(aux, str) else '\n'.join(aux)
+        s.pre_process = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
 
         aux = json_data.get('post_process', None)
-        s.post_process = aux if isinstance(aux, str) else '\n'.join(aux)
+        s.post_process = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
 
         aux = json_data.get('description', None)
-        s.description = aux if isinstance(aux, str) else '\n'.join(aux)
+        s.description = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
 
         db.session.commit()
 
@@ -159,36 +168,36 @@ class StepResource(Resource):
                 ps = Step.query.get_or_raise(parent_step_id)
                 parent_steps.append(ps)
                 s.orchestration.add_parents(s, parent_steps)
-        if 'child_step_ids' in json_data:
-            child_step_ids = json_data.pop('child_step_ids')
-            child_steps = []
-            for child_step_id in child_step_ids:
-                cs = Step.query.get_or_raise(child_step_id)
-                child_steps.append(cs)
-                s.orchestration.add_children(s, child_steps)
+        if 'children_step_ids' in json_data:
+            children_step_ids = json_data.pop('children_step_ids')
+            children_steps = []
+            for children_step_id in children_step_ids:
+                cs = Step.query.get_or_raise(children_step_id)
+                children_steps.append(cs)
+                s.orchestration.add_children(s, children_steps)
 
         for k, v in json_data.items():
             setattr(s, k, v)
 
         if 'expected_stdout' in json_data and s.expected_stdout != json_data.get('expected_stdout'):
             aux = json_data.get('expected_stdout')
-            s.expected_stdout = aux if isinstance(aux, str) else '\n'.join(aux)
+            s.expected_stdout = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
 
         if 'expected_stderr' in json_data and s.expected_stderr != json_data.get('expected_stderr'):
             aux = json_data.get('expected_stderr')
-            s.expected_stderr = aux if isinstance(aux, str) else '\n'.join(aux)
+            s.expected_stderr = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
 
         if 'pre_process' in json_data and s.pre_process != json_data.get('pre_process'):
             aux = json_data.get('pre_process')
-            s.pre_process = aux if isinstance(aux, str) else '\n'.join(aux)
+            s.pre_process = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
 
         if 'post_process' in json_data and s.post_process != json_data.get('post_process'):
             aux = json_data.get('post_process')
-            s.post_process = aux if isinstance(aux, str) else '\n'.join(aux)
+            s.post_process = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
 
         if 'description' in json_data and s.description != json_data.get('description'):
             aux = json_data.get('description')
-            s.description = aux if isinstance(aux, str) else '\n'.join(aux)
+            s.description = aux if isinstance(aux, str) or aux is None else '\n'.join(aux)
 
         db.session.commit()
 

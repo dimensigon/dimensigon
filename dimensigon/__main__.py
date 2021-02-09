@@ -1,7 +1,6 @@
 import argparse
 import base64
 import datetime as dt
-import functools
 import ipaddress
 import logging
 import os
@@ -9,13 +8,13 @@ import platform
 import random
 import sys
 import time
+from dataclasses import dataclass
 
 import coolname
 import prompt_toolkit
 import requests
 import rsa
 import yaml
-from dataclasses import dataclass
 from flask import Flask
 from flask_jwt_extended import create_access_token
 from sqlalchemy import exc, sql
@@ -177,11 +176,11 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 if resp.status_code != 200:
                     if resp.status_code in (401, 422):
                         logger.error(f"Error on authentication: {str_resp(resp)}")
-                        sys.exit(1)
+                        sys.exit(9)
                     else:
                         logger.error(f"Error trying to get dimensigon public key: {str_resp(resp)}")
                 else:
-                    continue
+                    break
             if i < times - 1:
                 d = int(random.random() * 25 * (i + 1))
                 logger.info(f"Retrying in {d} seconds.")
@@ -256,7 +255,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                     dm.catalog_manager.db_update_catalog(resp_data['catalog'])  # implicit commit
                 except Exception as e:
                     logger.exception(f"Unable to upgrade catalog.")
-                    exit(1)
+                    sys.exit(3)
                 else:
                     logger.info('Catalog updated.')
                 # set reference server as a neighbour
@@ -264,7 +263,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 if not reference_server:
                     db.session.rollback()
                     logger.info(f"Server id {reference_server_id} not found in catalog.")
-                    exit(1)
+                    sys.exit(4)
                 Route(destination=reference_server, cost=0)
                 # update_route_table_cost(True)
                 Parameter.set("join_server", f'{reference_server.id}')
@@ -301,6 +300,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
             db.session.commit()
         else:
             logger.error(f"No dimension in response data.")
+            sys.exit(5)
 
 
 def token(dm: Dimensigon, dimension_id_or_name: str, applicant=None, expire_time=None):
@@ -399,6 +399,7 @@ def gate(dm: Dimensigon, action, ip_or_dns, port, hidden=True):
                 query = query.filter_by(hidden=hidden)
             [g.delete() for g in query.all()]
             db.session.commit()
+
 
 def run(dm: Dimensigon):
     # check if there is a dimension

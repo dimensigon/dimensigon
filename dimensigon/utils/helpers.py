@@ -396,8 +396,11 @@ def session_scope(session=None):
         session.close()
 
 
-def format_exception(exc: Exception) -> str:
-    return ''.join(traceback.format_exception(exc, exc, exc.__traceback__))
+def format_exception(exc: Exception, with_traceback=True) -> str:
+    if with_traceback:
+        return ''.join(traceback.format_exception(exc, exc, exc.__traceback__))
+    else:
+        return str(exc) or exc.__qualname__
 
 
 def str_resp(resp: requests.Response):
