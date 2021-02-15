@@ -26,6 +26,7 @@ class Locker(db.Model):
     scope = db.Column(typos.Enum(Scope, name=True), primary_key=True)
     state = db.Column(typos.Enum(State), nullable=False)
     applicant = db.Column(Pickle)
+    disabled = db.Column(db.Boolean, default=False)
 
     @classmethod
     def set_initial(cls, session=None, unlock=False):
@@ -40,6 +41,12 @@ class Locker(db.Model):
             elif unlock:
                 if l.state != State.UNLOCKED:
                     l.state = State.UNLOCKED
+
+    def to_dict(self):
+        data = dict(scope=self.scope.name, state=self.state.name, disabled=self.disabled)
+        if self.applicant:
+            data.update(applicant=self.applicant)
+        return data
 
     def __repr__(self):
         return f"Locker({self.scope.name}, {self.state.name})"

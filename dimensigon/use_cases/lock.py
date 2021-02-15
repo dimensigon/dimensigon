@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Catalog
-from dimensigon.domain.entities.locker import Scope
+from dimensigon.domain.entities.locker import Scope, Locker
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.web.helpers import get_servers_from_scope
 from dimensigon.utils.asyncio import run, create_task
@@ -100,6 +100,9 @@ def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=No
     raise errors.LockError(scope, action, [r for r in pool_responses if r.code not in (200, 210)])
 
 
+def locker_scope_enabled(scope: Scope):
+    return not getattr(Locker.query.get(scope), 'disabled', None)
+
 def lock(scope: Scope, servers: t.List[Server] = None, applicant=None, retries=0, delay=3, identity=None) -> UUID:
     """
     locks the Locker if allowed
@@ -184,9 +187,16 @@ def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]]
         s.close()
 
 
+
+
 @contextmanager
 def lock_scope(scope: Scope, servers: t.Union[t.List[Server], Server] = None,
                bypass: t.Union[t.List[Server], Server] = None, retries=0, delay=3, applicant=None, identity=None):
+
+    if not locker_scope_enabled(scope):
+        yield None
+        return
+
     if servers is not None:
         servers = servers if is_iterable_not_string(servers) else [servers]
         if len(servers) == 0:

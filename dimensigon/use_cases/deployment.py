@@ -27,6 +27,7 @@ from dimensigon import defaults
 from dimensigon.domain.entities import Server, Orchestration, Step, StepExecution, OrchExecution, User, Scope
 from dimensigon.network.auth import HTTPBearerAuth
 from dimensigon.use_cases import lock as lock
+from dimensigon.use_cases.lock import locker_scope_enabled
 from dimensigon.use_cases.operations import CompletedProcess, IOperationEncapsulation, create_operation
 from dimensigon.utils.dag import DAG
 from dimensigon.utils.event_handler import Event
@@ -1125,13 +1126,15 @@ def _deploy_orchestration(orchestration: Orchestration,
     # convert UUID into str as in_ filter does not handle UUID type
     all = [str(s) for s in hosts['all']]
     servers = Server.query.filter(Server.id.in_(all)).all()
-    try:
-        applicant = lock.lock(Scope.ORCHESTRATION, servers, applicant=var_context.env.get('root_orch_execution_id'),
-                              retries=lock_retries, delay=lock_delay)
-    except errors.LockError as e:
-        kwargs.update(success=False, message=str(e))
-        rse.update_orch_execution(**kwargs)
-        raise
+    scope_enabled = locker_scope_enabled(Scope.ORCHESTRATION)
+    if scope_enabled:
+        try:
+            applicant = lock.lock(Scope.ORCHESTRATION, servers, applicant=var_context.env.get('root_orch_execution_id'),
+                                  retries=lock_retries, delay=lock_delay)
+        except errors.LockError as e:
+            kwargs.update(success=False, message=str(e))
+            rse.update_orch_execution(**kwargs)
+            raise
     try:
         kwargs['success'] = cc.invoke(timeout=timeout)
         if not kwargs['success'] and orchestration.undo_on_error:
@@ -1148,6 +1151,7 @@ def _deploy_orchestration(orchestration: Orchestration,
             pass
 
     finally:
-        lock.unlock(Scope.ORCHESTRATION, applicant=applicant, servers=servers)
+        if scope_enabled:
+            lock.unlock(Scope.ORCHESTRATION, applicant=applicant, servers=servers)
 
     return execution.id

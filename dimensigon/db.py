@@ -345,11 +345,10 @@ def _drop_index(engine, table_name, index_name):
 
 
 def _apply_update(engine, new_version, old_version):
-    pass
-    # if new_version == 2:
-    #     _rename_columns(engine, 'D_server', [('unreachable', 'alive')])
-    # elif new_version == 3:
-    #     _add_columns(engine, 'D_server', ['created_on DATETIME'])
+    if new_version == 2:
+        _add_columns(engine, 'L_locker', ['disabled BOOLEAN'])
+        with engine.connect() as connection:
+            connection.execute(f"UPDATE L_locker SET disabled = 0")
     #     _delete_columns(engine, 'D_server', ['alive'])
     #     with engine.connect() as connection:
     #         date = defaults.INITIAL_DATEMARK.strftime('%Y-%m-%d %H:%M:%S.%f')

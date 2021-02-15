@@ -1,6 +1,8 @@
 import argparse
 import base64
 import datetime as dt
+import functools
+import inspect
 import ipaddress
 import logging
 import os
@@ -8,13 +10,14 @@ import platform
 import random
 import sys
 import time
-from dataclasses import dataclass
+import typing as t
 
 import coolname
 import prompt_toolkit
 import requests
 import rsa
 import yaml
+from dataclasses import dataclass
 from flask import Flask
 from flask_jwt_extended import create_access_token
 from sqlalchemy import exc, sql
@@ -329,9 +332,8 @@ def token(dm: Dimensigon, dimension_id_or_name: str, applicant=None, expire_time
         if not join_user:
             exit("Unable to create join token. Populate database first.")
         print(create_access_token(join_user.id,
-                                  expires_delta=dt.timedelta(
-                                      minutes=expire_time or defaults.JOIN_TOKEN_EXPIRE_TIME),
-                                  user_claims={'applicant': applicant}))
+                                  expires_delta=dt.timedelta(minutes=expire_time or defaults.JOIN_TOKEN_EXPIRE_TIME),
+                                  additional_claims={'applicant': applicant}))
 
 
 def catalog(dm: Dimensigon, ip, port, http=False):
@@ -415,8 +417,31 @@ def run(dm: Dimensigon):
         sys.exit(1)
 
 
+def locker_list(dm: Dimensigon):
+    dm.create_flask_instance()
+    with dm.flask_app.app_context():
+        dprint([l.to_dict() for l in Locker.query.all()])
+
+
+def locker_action(dm, action: str, locks: t.List[str]):
+    """ disables or enables the lock mechanism on a certain scopes
+
+    :param dm: Dimensigon object
+    :param action: 'disable' if you want to disable
+    :param locks: list of scopes to enable/disable
+    :return:
+    """
+    dm.create_flask_instance()
+    with dm.flask_app.app_context():
+        for lock in locks:
+            l = Locker.query.get(lock)
+            l.disabled = True if action == 'disable' else False
+        db.session.commit()
+
+
 def get_arguments() -> argparse.Namespace:
     from dimensigon import __version__
+
     parser = argparse.ArgumentParser(prog='dimensigon')
     parser.add_argument('--version', action='version',
                         version='%(prog)s {version}'.format(version=__version__))
@@ -505,15 +530,17 @@ def get_arguments() -> argparse.Namespace:
     #     parser.add_argument(
     #         "--daemon", action="store_true", help="Run Dimensigon as daemon"
     #     )
+    parser.set_defaults(func=run)
 
     subparser = parser.add_subparsers(dest='command')
     join_parser = subparser.add_parser("join", help="Joins to the dimension.")
+    join_parser.set_defaults(func=join)
     join_parser.add_argument(
-        "SERVER",
+        "server",
         help="Reference Server which will allow to join the dimension. You must specify server name or IP"
     )
     join_parser.add_argument(
-        "TOKEN",
+        "token",
         help="Authentication Token used for authentication to the reference server"
     )
     join_parser.add_argument(
@@ -533,18 +560,27 @@ def get_arguments() -> argparse.Namespace:
     )
 
     new_parser = subparser.add_parser('new', help="Creates a new dimension")
-    new_parser.add_argument('dimension', nargs='?', default=None, help="name of the dimension")
+    new_parser.set_defaults(func=new)
+    new_parser.add_argument(
+        'name',
+        nargs='?',
+        default=None,
+        help="name of the dimension"
+    )
 
     token_parser = subparser.add_parser('token', help="Generates a join token.")
+    token_parser.set_defaults(func=token)
     token_parser.add_argument(
-        'dimension',
+        'dimension_id_or_name',
         nargs='?',
         default=None
     )
-    token_parser.add_argument("--expire-time",
-                              metavar='MINUTES',
-                              type=int,
-                              help="Join token expire time in minutes")
+    token_parser.add_argument(
+        "--expire-time",
+        metavar='MINUTES',
+        type=int,
+        help="Join token expire time in minutes"
+    )
     token_parser.add_argument(
         '--applicant',
         help="applicant identifier used for join operations",
@@ -552,31 +588,84 @@ def get_arguments() -> argparse.Namespace:
     )
 
     catalog_parser = subparser.add_parser("catalog", help="Forces updates catalog with specified ip and port.")
-    catalog_parser.add_argument("IP",
-                                help="ip to force catalog update")
-    catalog_parser.add_argument("--port",
-                                type=int,
-                                default=defaults.DEFAULT_PORT)
-    catalog_parser.add_argument("--http",
-                                action='store_true')
+    catalog_parser.set_defaults(func=catalog)
+    catalog_parser.add_argument(
+        "ip",
+        help="ip to force catalog update")
+    catalog_parser.add_argument(
+        "--port",
+        type=int,
+        default=defaults.DEFAULT_PORT
+    )
+    catalog_parser.add_argument(
+        "--http",
+        action='store_true'
+    )
 
     gate_parser = subparser.add_parser("gate", help="handle server gates")
-    gate_subparser = gate_parser.add_subparsers(dest='subcommand')
+    gate_parser.set_defaults(func=gate)
+    gate_subparser = gate_parser.add_subparsers(dest='action')
 
     gate_create_parser = gate_subparser.add_parser("create", help="create a new gate for the current server")
-    gate_create_parser.add_argument("IP_DNS", metavar="(IP | DNS)")
-    gate_create_parser.add_argument("port", metavar='[port]', nargs='?', type=int, default=defaults.DEFAULT_PORT)
-    gate_create_parser.add_argument("--hidden", action="store_true", )
+    gate_create_parser.add_argument(
+        "ip_or_dns",
+        metavar="(IP | DNS)"
+    )
+    gate_create_parser.add_argument(
+        "port",
+        metavar='[port]',
+        nargs='?', type=int,
+        default=defaults.DEFAULT_PORT
+    )
+    gate_create_parser.add_argument(
+        "--hidden", action="store_true"
+    )
 
     gate_list_parser = gate_subparser.add_parser("list", help="list all server gates")
 
     gate_port_parser = gate_subparser.add_parser("port", help="update port from all gates in the current server")
-    gate_port_parser.add_argument("port", type=int, help="sets the port on all gates")
+    gate_port_parser.add_argument(
+        "port",
+        type=int,
+        help="sets the port on all gates"
+    )
 
     gate_delete_parser = gate_subparser.add_parser("delete", help="delete a current server gate")
-    gate_delete_parser.add_argument("IP_DNS", metavar="(IP | DNS)")
-    gate_delete_parser.add_argument("port", metavar='[port]', nargs='?', type=int)
-    gate_delete_parser.add_argument("--hidden", action="store_true", )
+    gate_delete_parser.add_argument(
+        "ip_or_dns",
+        metavar="(IP | DNS)")
+    gate_delete_parser.add_argument(
+        "port",
+        metavar='[port]',
+        nargs='?',
+        type=int)
+    gate_delete_parser.add_argument(
+        "--hidden",
+        action="store_true"
+    )
+
+    lock_parser = subparser.add_parser("locker", help="enables or disables scope")
+    lock_subparser = lock_parser.add_subparsers(dest='action', help="enables or disables scope")
+    lock_list_parser = lock_subparser.add_parser("list", help="list all scopes")
+    lock_list_parser.set_defaults(func=locker_list)
+
+    lock_disable_parser = lock_subparser.add_parser("disable", help="list all scopes")
+    lock_disable_parser.set_defaults(func=locker_action)
+    lock_disable_parser.add_argument(
+        "locks",
+        nargs='+',
+        choices=[e.name for e in Scope],
+        help="list of all scopes to be disabled"
+    )
+
+    lock_enable_parser = lock_subparser.add_parser("enable", help="list all scopes")
+    lock_enable_parser.set_defaults(func=locker_action)
+    lock_enable_parser.add_argument(
+        "locks",
+        nargs='+',
+        choices=[e.name for e in Scope],
+        help="list of all scopes to be enabled"
+    )
 
     arguments = parser.parse_args()
 
@@ -584,6 +673,41 @@ def get_arguments() -> argparse.Namespace:
     #     setattr(arguments, "daemon", False)
 
     return arguments
+
+
+def call_func_with_signature(namespace):
+    func = namespace.__dict__.pop('func')
+    sig = inspect.signature(func)
+    args = []
+    kwargs = {}
+    arg_sig = False
+    kw_sig = False
+
+    for param in sig.parameters.values():
+        if param.kind == param.POSITIONAL_ONLY or (
+                param.kind == param.POSITIONAL_OR_KEYWORD and param.default == param.empty):
+            args.append(getattr(namespace, param.name, None))
+        elif param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY):
+            kwargs.update({param.name: getattr(namespace, param.name, None)})
+        elif param.kind == param.VAR_POSITIONAL:
+            arg_sig = True
+        elif param.kind == param.VAR_KEYWORD:
+            kw_sig = True
+
+    if arg_sig and not kw_sig:
+        arg_sig = list(args.__dict__.values())
+        kw_sig = {}
+    elif not arg_sig and kw_sig:
+        arg_sig = []
+        kw_sig = args.__dict__
+    else:
+        arg_sig = []
+        kw_sig = {}
+    args = args + arg_sig
+    try:
+        func(*args, **{**kwargs, **kw_sig})
+    except Exception as e:
+        dprint(e)
 
 
 @dataclass
@@ -627,21 +751,8 @@ def main():
                                           # refresh_interval=args.dm_refresh_interval,
                                           force_scan=args.force_scan))
 
-    if args.command is None:
-        run(dm)
-    elif args.command == 'join':
-        join(dm, server=args.SERVER, token=args.TOKEN, port=args.port, ssl=args.ssl, verify=args.verify)
-    elif args.command == 'token':
-        token(dm, dimension_id_or_name=args.dimension, applicant=args.applicant, expire_time=args.expire_time)
-    elif args.command == 'new':
-        new(dm, args.dimension)
-    elif args.command == 'catalog':
-        catalog(dm, ip=args.IP, port=args.port, http=args.http)
-    elif args.command == 'gate':
-        gate(dm, action=args.subcommand, ip_or_dns=getattr(args, 'IP_DNS', None), port=getattr(args, 'port', None),
-             hidden=getattr(args, 'hidden', None))
-    else:
-        exit("Use -h to show help")
+    args.dm = dm # add the dimensigon object will be passed to the functions
+    call_func_with_signature(args)
 
 
 if __name__ == '__main__':

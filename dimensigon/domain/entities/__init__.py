@@ -31,7 +31,7 @@ from .transfer import Transfer, Status as TransferStatus
 from .user import User
 from .vault import Vault
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _LOGGER = logging.getLogger('dm.catalog')
 
