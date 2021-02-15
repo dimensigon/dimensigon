@@ -1,6 +1,7 @@
 pyfakefs
 aioresponses
 responses
+coverage
 pytest
 pytest-xdist
 asynctest
