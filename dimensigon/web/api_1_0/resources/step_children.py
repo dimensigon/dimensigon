@@ -10,14 +10,14 @@ from dimensigon.web.json_schemas import step_children
 
 class StepRelationshipChildren(Resource):
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, step_id):
         s: Step = Step.query.get_or_raise(step_id)
         return dict(child_step_ids=[str(cs.id) for cs in s.children]), 200
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(step_children)
     @lock_catalog
@@ -34,7 +34,7 @@ class StepRelationshipChildren(Resource):
         return dict(child_step_ids=[str(cs.id) for cs in s.children]), 200
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(step_children)
     @lock_catalog
@@ -51,7 +51,7 @@ class StepRelationshipChildren(Resource):
         return dict(child_step_ids=[str(cs.id) for cs in s.children]), 200
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(step_children)
     @lock_catalog

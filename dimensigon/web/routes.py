@@ -1,8 +1,8 @@
 import datetime as dt
 
 from flask import Blueprint, request, current_app, jsonify, g
-from flask_jwt_extended import create_access_token, create_refresh_token, jwt_refresh_token_required, get_jwt_identity, \
-    jwt_optional
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, \
+    jwt_required
 
 import dimensigon
 from dimensigon import defaults
@@ -25,7 +25,7 @@ def home():
 @root_bp.route('/healthcheck', methods=['GET', 'POST'])
 # @log_time('full')
 @forward_or_dispatch()
-@jwt_optional
+@jwt_required(optional=True)
 @securizer
 @validate_schema(POST=healthcheck_post)
 # @log_time('after validation')
@@ -54,8 +54,8 @@ def healthcheck():
         neighbours = sorted([s.name for s in Server.get_neighbours()])
         cluster = {'alive': sorted(
             [getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_alive()]),
-                   'in_coma': sorted(
-                       [getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_zombies()])}
+            'in_coma': sorted(
+                [getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_zombies()])}
     data.update(server=server, neighbours=neighbours, cluster=cluster,
                 now=get_now().strftime(defaults.DATETIME_FORMAT))
 
@@ -98,7 +98,7 @@ def login():
 
 @root_bp.route('/refresh', methods=['POST'])
 @forward_or_dispatch()
-@jwt_refresh_token_required
+@jwt_required(refresh=True)
 def refresh():
     user = User.query.get(get_jwt_identity())
     ret = {

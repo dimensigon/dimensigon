@@ -105,12 +105,12 @@ class TestNetwork(TestCase):
         responses.add(responses.GET, self.url, json=msg, status=status)
         m.get(self.url, payload=msg, status=status)
 
-        resp = get(self.server, 'home')
+        resp = get(self.server, 'home', auth=self.auth)
 
         self.assertEqual(status, resp.code)
         self.assertDictEqual(msg, resp.msg)
 
-        resp = run(async_get(self.server, 'home'))
+        resp = run(async_get(self.server, 'home', auth=self.auth))
 
         self.assertEqual(status, resp.code)
         self.assertDictEqual(msg, resp.msg)

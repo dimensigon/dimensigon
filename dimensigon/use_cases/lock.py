@@ -4,7 +4,7 @@ import typing as t
 from contextlib import contextmanager
 from uuid import UUID
 
-from flask_jwt_extended import create_access_token, get_jwt_identity
+from flask_jwt_extended import create_access_token, get_jwt_identity, verify_jwt_in_request
 from sqlalchemy.orm import sessionmaker
 
 
@@ -46,7 +46,7 @@ async def request_locker(servers: t.Union[Server, t.List[Server]], action, scope
     return server_responses
 
 
-def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=None):
+def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=None, identity=None):
     """
 
     Parameters
@@ -72,7 +72,10 @@ def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=No
 
     applicant = applicant or [str(s.id) for s in servers]
 
-    token = create_access_token(get_jwt_identity())
+    if identity:
+        token = create_access_token(identity)
+    else:
+        token = create_access_token(get_jwt_identity())
     auth = HTTPBearerAuth(token)
     if action == 'U':
         pool_responses = run(
@@ -97,7 +100,7 @@ def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=No
     raise errors.LockError(scope, action, [r for r in pool_responses if r.code not in (200, 210)])
 
 
-def lock(scope: Scope, servers: t.List[Server] = None, applicant=None, retries=0, delay=3) -> UUID:
+def lock(scope: Scope, servers: t.List[Server] = None, applicant=None, retries=0, delay=3, identity=None) -> UUID:
     """
     locks the Locker if allowed
     Parameters
@@ -128,7 +131,7 @@ def lock(scope: Scope, servers: t.List[Server] = None, applicant=None, retries=0
     _try = 1
     while True:
         try:
-            lock_unlock(action='L', scope=scope, servers=servers, applicant=applicant)
+            lock_unlock(action='L', scope=scope, servers=servers, applicant=applicant, identity=identity)
         except errors.LockError as e:
             if _try < retries:
                 _try += 1
@@ -137,7 +140,7 @@ def lock(scope: Scope, servers: t.List[Server] = None, applicant=None, retries=0
             else:
                 error_servers = [r.server for r in e.responses]
                 locked_servers = list(set(server for server in servers) - set(error_servers))
-                lock_unlock('U', scope, servers=locked_servers, applicant=applicant)
+                lock_unlock('U', scope, servers=locked_servers, applicant=applicant, identity=identity)
                 raise e
         else:
             break
@@ -145,7 +148,7 @@ def lock(scope: Scope, servers: t.List[Server] = None, applicant=None, retries=0
     return applicant
 
 
-def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]] = None):
+def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]] = None, identity=None):
     """
     unlocks the Locker if allowed
     Parameters
@@ -174,7 +177,7 @@ def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]]
         raise RuntimeError('no server to unlock')
 
     try:
-        lock_unlock(action='U', scope=scope, servers=servers, applicant=applicant)
+        lock_unlock(action='U', scope=scope, servers=servers, applicant=applicant, identity=identity)
     except errors.LockError as e:
         logger.warning(f"Unable to unlock: {e}")
     if s:
@@ -183,7 +186,7 @@ def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]]
 
 @contextmanager
 def lock_scope(scope: Scope, servers: t.Union[t.List[Server], Server] = None,
-               bypass: t.Union[t.List[Server], Server] = None, retries=0, delay=3, applicant=None):
+               bypass: t.Union[t.List[Server], Server] = None, retries=0, delay=3, applicant=None, identity=None):
     if servers is not None:
         servers = servers if is_iterable_not_string(servers) else [servers]
         if len(servers) == 0:
@@ -194,8 +197,8 @@ def lock_scope(scope: Scope, servers: t.Union[t.List[Server], Server] = None,
     logger.debug(f"Requesting Lock on {scope.name} to the following servers: {[s.name for s in servers]}")
     _try = 1
 
-    applicant = lock(scope, servers=servers, applicant=applicant, retries=retries, delay=delay)
+    applicant = lock(scope, servers=servers, applicant=applicant, retries=retries, delay=delay, identity=identity)
     try:
         yield applicant
     finally:
-        unlock(scope, servers=servers, applicant=applicant)
+        unlock(scope, servers=servers, applicant=applicant, identity=identity)

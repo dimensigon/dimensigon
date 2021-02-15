@@ -21,7 +21,7 @@ logger = logging.getLogger('dm.lock')
 
 @api_bp.route('/locker', methods=['GET'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 def locker():
     data = []
@@ -45,7 +45,7 @@ def revert_preventing(app, scope, applicant):
 
 @api_bp.route('/locker/prevent', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 @validate_schema(POST=locker_prevent_post)
 def locker_prevent():
@@ -93,7 +93,7 @@ counter = mp.Value('i', 0)
 
 @api_bp.route('/locker/lock', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 @validate_schema(POST=locker_unlock_lock_post)
 def locker_lock():
@@ -127,7 +127,7 @@ def locker_lock():
 
 @api_bp.route('/locker/unlock', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 @validate_schema(POST=locker_unlock_lock_post)
 def locker_unlock():

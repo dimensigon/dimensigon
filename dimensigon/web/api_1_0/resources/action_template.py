@@ -12,14 +12,14 @@ from dimensigon.web.json_schemas import action_template_patch, action_template_p
 class ActionTemplateList(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self):
         query = filter_query(ActionTemplate, request.args)
         return [at.to_json(split_lines=check_param_in_uri('split_lines')) for at in query.all()]
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(action_template_post)
     @lock_catalog
@@ -44,13 +44,13 @@ class ActionTemplateList(Resource):
 
 class ActionTemplateResource(Resource):
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, action_template_id):
         return ActionTemplate.query.get_or_raise(action_template_id).to_json(
             split_lines=check_param_in_uri('split_lines'))
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     @validate_schema(action_template_patch)

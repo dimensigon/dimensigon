@@ -30,7 +30,7 @@ def set_software_server(soft, server, path, recalculate_data=False):
 
 class SoftwareList(Resource):
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     def get(self):
@@ -38,7 +38,7 @@ class SoftwareList(Resource):
         return [soft.to_json(servers=check_param_in_uri('servers'), no_delete=False) for soft in query.all()]
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(software_post)
     @lock_catalog
@@ -63,13 +63,13 @@ class SoftwareList(Resource):
 
 # /software/<software_id>
 class SoftwareResource(Resource):
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     def get(self, software_id):
         return Software.query.get_or_raise(software_id).to_json(no_delete=True)
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     def delete(self, software_id):
@@ -81,7 +81,7 @@ class SoftwareResource(Resource):
 
 # software/<software_id>/servers
 class SoftwareServersResource(Resource):
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     def get(self, software_id):
@@ -89,7 +89,7 @@ class SoftwareServersResource(Resource):
         return [ssa.server.to_json(no_delete=True) for ssa in soft.ssas]
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(software_servers_put)
     @lock_catalog
@@ -111,7 +111,7 @@ class SoftwareServersResource(Resource):
         return {}, 204
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(software_servers_patch)
     @lock_catalog
@@ -127,7 +127,7 @@ class SoftwareServersResource(Resource):
         return {}, 204
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(software_servers_delete)
     @lock_catalog

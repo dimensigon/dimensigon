@@ -6,6 +6,7 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon.domain.entities import Server, Scope, Locker, State, Dimension, Route
 from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.domain.entities.user import ROOT
 from dimensigon.use_cases.lock import lock_scope
 from dimensigon.utils.helpers import generate_dimension
 from dimensigon.web import create_app, db, load_global_data_into_context
@@ -53,7 +54,7 @@ class TestLockScope(ThreeNodeMixin, TestCase):
         self.assertEqual(None, l.applicant)
 
         with self.app.test_request_context('/api/v1.0/lock'):
-            with lock_scope(Scope.CATALOG):
+            with lock_scope(Scope.CATALOG, identity=ROOT):
                 l = Locker.query.get(Scope.CATALOG)
                 self.assertEqual(State.LOCKED, l.state)
                 self.assertEqual([str(Server.get_current().id), str(self.s2.id), str(self.s3.id)], l.applicant)
@@ -102,7 +103,7 @@ class TestLockScope(ThreeNodeMixin, TestCase):
 
         with self.app.test_request_context('/api/v1.0/lock'):
             load_global_data_into_context()
-            with lock_scope(Scope.CATALOG):
+            with lock_scope(Scope.CATALOG, identity=ROOT):
                 l = Locker.query.get(Scope.CATALOG)
                 self.assertEqual(State.LOCKED, l.state)
                 self.assertEqual([str(Server.get_current().id), str(self.s2.id), str(self.s3.id)], l.applicant)
@@ -121,7 +122,7 @@ class TestLockScopeFullChain(VirtualNetworkMixin, TwoNodeMixin, TestCase):
         # load dimension into variable
         with self.app.test_request_context('/api/v1.0/lock'):
             load_global_data_into_context()
-            with lock_scope(Scope.CATALOG):
+            with lock_scope(Scope.CATALOG, identity=ROOT):
                 l = Locker.query.get(Scope.CATALOG)
                 self.assertEqual(State.LOCKED, l.state)
                 self.assertEqual([self.s1.id, self.s2.id], l.applicant)

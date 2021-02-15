@@ -237,6 +237,7 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
         # common parameters
         kwargs = self.system_kwargs
         kwargs['timeout'] = timeout or kwargs.get('timeout')
+        kwargs['identity'] = context.env.get('executor_id')
 
         resp, exception = None, None
 
@@ -358,7 +359,7 @@ class NativeWaitOperation(IOperationEncapsulation):
                             found_names = []
                         else:
                             raise
-                    found_names = set([t[0] for t in found_names])
+                    found_names = set([t[0] for t in found_names]) if found_names else set()
                     pending_names = pending_names - found_names
                     if pending_names and (time.time() - start) < timeout:
                         time.sleep(self.system_kwargs.get('sleep_time', 15))

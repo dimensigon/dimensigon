@@ -13,7 +13,7 @@ from dimensigon.web.json_schemas import orchestration_post, orchestration_patch
 class OrchestrationList(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self):
         query = filter_query(Orchestration, request.args).order_by(Orchestration.created_at)
@@ -23,7 +23,7 @@ class OrchestrationList(Resource):
                 in query.all()]
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(orchestration_post)
     @lock_catalog
@@ -44,7 +44,7 @@ class OrchestrationList(Resource):
 
 class OrchestrationResource(Resource):
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, orchestration_id):
         return Orchestration.query.get_or_raise(orchestration_id).to_json(check_param_in_uri('target'),
@@ -52,7 +52,7 @@ class OrchestrationResource(Resource):
                                                                           split_lines=check_param_in_uri('split_lines'))
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(orchestration_patch)
     @lock_catalog

@@ -263,10 +263,17 @@ def prepare_request(server: t.Union[Server, str], view_or_url, view_data, kwargs
 
     securizer = kwargs.pop('securizer', True)
 
-    if 'auth' in kwargs and kwargs['auth'] is not None:
-        kwargs['auth'](kwargs)
+    if 'identity' in kwargs:
+        identity = kwargs.pop('identity')
+        generate_http_auth(identity=identity)(kwargs)
     else:
-        generate_http_auth()(kwargs)
+        if 'auth' in kwargs and kwargs['auth'] is not None:
+            kwargs['auth'](kwargs)
+        else:
+            try:
+                generate_http_auth()(kwargs)
+            except Exception:
+                pass
 
     if 'json' in kwargs and kwargs['json'] and securizer:
         kwargs['json'] = pack_msg(kwargs['json'])

@@ -21,14 +21,14 @@ from dimensigon.web.json_schemas import transfers_post, transfer_post, transfer_
 class TransferList(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self):
         query = filter_query(Transfer, request.args)
         return [t.to_json() for t in query.order_by(Transfer.created_on).all()]
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(transfers_post)
     def post(self):
@@ -112,13 +112,13 @@ CHUNK_READ_BUFFER = d.CHUNK_SIZE
 class TransferResource(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, transfer_id):
         return Transfer.query.get_or_raise(transfer_id).to_json()
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(transfer_patch)
     def patch(self, transfer_id):
@@ -129,7 +129,7 @@ class TransferResource(Resource):
         return {'transfer_id': transfer_id, 'status': str(trans.status)}, 200
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(transfer_post)
     def post(self, transfer_id):
@@ -164,7 +164,7 @@ class TransferResource(Resource):
         return {'message': msg}, 201
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def put(self, transfer_id):
         """ends the transfer creating the file"""

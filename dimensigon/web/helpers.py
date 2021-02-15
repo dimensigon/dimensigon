@@ -235,7 +235,10 @@ def get_auth_from_request():
 
 
 def generate_http_auth(identity=None, **kwargs) -> HTTPBearerAuth:
-    identity = identity or get_jwt_identity()
+    try:
+        identity = identity or get_jwt_identity()
+    except RuntimeError:
+        raise RuntimeError("Unable to create token. Reason: No identity provided")
     if not kwargs:
         kwargs['minutes'] = 15
     return HTTPBearerAuth(create_access_token(identity=identity, expires_delta=dt.timedelta(**kwargs)))

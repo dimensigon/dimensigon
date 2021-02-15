@@ -20,7 +20,7 @@ class TestLockCatalog(TestCase):
         self.jwt = JWTManager(self.app)
 
         @self.app.route('/', methods=['GET'])
-        @jwt_required
+        @jwt_required()
         @lock_catalog
         def hello():
             return {'msg': 'default response'}
@@ -51,7 +51,7 @@ class TestLockCatalog(TestCase):
         mock_lock_scope.assert_called_once_with(Scope.CATALOG)
         self.assertDictEqual({'msg': 'default response'}, resp.get_json())
 
-    @mock.patch('dimensigon.web.decorators.get_servers_from_scope')
+    @mock.patch('dimensigon.use_cases.lock.get_servers_from_scope')
     @mock.patch('dimensigon.web.decorators.lock_scope')
     def test_lock_catalog_with_applicant(self, mock_lock_scope, mock_get_servers_from_scope):
         Locker.set_initial()
@@ -65,7 +65,7 @@ class TestLockCatalog(TestCase):
         mock_get_servers_from_scope.return_value = [self.srv1]
         resp = self.client.get('/',
                                headers={
-                                   "Authorization": f"Bearer {create_access_token(1, user_claims={'applicant': 2})}"})
+                                   "Authorization": f"Bearer {create_access_token(1, additional_claims={'applicant': 2})}"})
 
         self.assertEqual(200, resp.status_code)
         mock_lock_scope.assert_not_called()

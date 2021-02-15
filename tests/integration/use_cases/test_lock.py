@@ -7,6 +7,7 @@ from flask_jwt_extended import create_access_token
 
 from dimensigon.domain.entities import Server, Scope, Locker, State, Route, Catalog
 from dimensigon.domain.entities.bootstrap import set_initial
+from dimensigon.domain.entities.user import ROOT
 from dimensigon.use_cases.lock import lock_unlock, lock
 from dimensigon.web import create_app, db, errors
 from dimensigon.web.network import Response
@@ -57,7 +58,8 @@ class TestLockUnlock(TestCase):
         m.post(self.n1.url('api_1_0.locker_lock'), callback=callback_lock)
         m.post(self.n2.url('api_1_0.locker_lock'), callback=callback_lock)
 
-        ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2], applicant=[str(self.n1.id), str(self.n2.id)])
+        ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2], applicant=[str(self.n1.id), str(self.n2.id)],
+                          identity=ROOT)
 
         self.assertIsNone(ret)
 
@@ -67,7 +69,7 @@ class TestLockUnlock(TestCase):
         m.post(self.n2.url('api_1_0.locker_prevent'), status=409, payload={'error': 'Unable to request for lock'})
 
         with self.assertRaises(errors.LockerError) as e:
-            ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2])
+            ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2], identity=ROOT)
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
         self.assertEqual('prevent', e.exception.action)
@@ -82,7 +84,7 @@ class TestLockUnlock(TestCase):
         m.post(self.n2.url('api_1_0.locker_prevent'), status=500, body="Error message")
 
         with self.assertRaises(errors.LockError) as e:
-            ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2])
+            ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2], identity=ROOT)
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
         self.assertListEqual(
@@ -95,7 +97,7 @@ class TestLockUnlock(TestCase):
         m.post(self.n2.url('api_1_0.locker_prevent'), exception=aiohttp.ClientConnectionError('test'))
 
         with self.assertRaises(errors.LockError) as e:
-            ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2])
+            ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2], identity=ROOT)
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
         self.assertEqual(1, len(e.exception.responses))
@@ -114,7 +116,7 @@ class TestLockUnlock(TestCase):
         m.post(self.n2.url('api_1_0.locker_lock'), status=409, payload={'error': 'Unable to lock'})
 
         with self.assertRaises(errors.LockError) as e:
-            ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2])
+            ret = lock_unlock('L', Scope.ORCHESTRATION, [self.n1, self.n2], identity=ROOT)
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
         self.assertListEqual([Response(msg={'error': 'Unable to lock'}, code=409, server=self.n2,
@@ -131,7 +133,7 @@ class TestLockUnlock(TestCase):
         m.post(self.n1.url('api_1_0.locker_unlock'), callback=callback_unlock)
         m.post(self.n2.url('api_1_0.locker_unlock'), callback=callback_unlock)
 
-        ret = lock_unlock('U', Scope.ORCHESTRATION, [self.n1, self.n2])
+        ret = lock_unlock('U', Scope.ORCHESTRATION, [self.n1, self.n2], identity=ROOT)
 
         self.assertIsNone(ret)
 
@@ -141,7 +143,8 @@ class TestLockUnlock(TestCase):
         m.post(self.n1.url('api_1_0.locker_unlock'), status=409, payload={'error': 'Unable to unlock.'})
 
         with self.assertRaises(errors.LockError) as e:
-            ret = lock_unlock('U', Scope.ORCHESTRATION, [self.n1, self.n2], [str(self.n1.id), str(self.n2.id)])
+            lock_unlock('U', Scope.ORCHESTRATION, [self.n1, self.n2], [str(self.n1.id), str(self.n2.id)],
+                        identity=ROOT)
 
         self.assertEqual(Scope.ORCHESTRATION, e.exception.scope)
         self.assertListEqual([Response(msg={'error': 'Unable to unlock.'}, code=409, server=self.n1,
@@ -169,7 +172,6 @@ class TestLock(FlaskAppMixin, TestCase):
 
     @aioresponses()
     def test_lock_catalog(self, m):
-
         def callback_prevent(url, **kwargs):
             assert kwargs['json'] == {'scope': 'CATALOG', 'datemark': self.datemark,
                                       'applicant': [Server.get_current().id, self.n1.id,
@@ -188,7 +190,7 @@ class TestLock(FlaskAppMixin, TestCase):
         m.post(self.n1.url('api_1_0.locker_lock'), callback=callback_lock)
         m.post(self.n2.url('api_1_0.locker_lock'), callback=callback_lock)
 
-        applicant = lock(Scope.CATALOG, [Server.get_current(), self.n1, self.n2])
+        applicant = lock(Scope.CATALOG, [Server.get_current(), self.n1, self.n2], identity=ROOT)
 
         self.assertEqual(applicant, [Server.get_current().id, self.n1.id, self.n2.id])
 
@@ -213,7 +215,7 @@ class TestLock(FlaskAppMixin, TestCase):
         m.post(self.n2.url('api_1_0.locker_unlock'), callback=callback_unlock)
 
         with self.assertRaises(errors.LockError):
-            applicant = lock(Scope.CATALOG, [Server.get_current(), self.n1, self.n2])
+            lock(Scope.CATALOG, [Server.get_current(), self.n1, self.n2], identity=ROOT)
 
         c = Locker.query.get(Scope.CATALOG)
         self.assertEqual(State.UNLOCKED, c.state)
@@ -235,7 +237,7 @@ class TestLock(FlaskAppMixin, TestCase):
         self.n1.route.proxy_server = None
 
         with self.assertRaises(errors.LockError) as e:
-            applicant = lock(Scope.CATALOG, servers=[self.n1, self.n2])
+            lock(Scope.CATALOG, servers=[self.n1, self.n2], identity=ROOT)
 
         self.assertEqual(Scope.CATALOG, e.exception.scope)
         self.assertEqual(errors.LockError.action_map['P'], e.exception.action)

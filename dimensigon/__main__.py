@@ -191,7 +191,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
         pub_key = rsa.PublicKey.load_pkcs1(resp.content)
 
         # Generate Public and Private Temporal Keys
-        tmp_pub, tmp_priv = rsa.newkeys(2048, poolsize=2)
+        tmp_pub, tmp_priv = rsa.newkeys(2048)
         symmetric_key = generate_symmetric_key()
         s = Server.get_current()
         data = s.to_json(add_gates=True)

@@ -1,53 +1,44 @@
-import json
 import sqlite3
 import sys
 import unittest
-from unittest import TestCase, mock
+from unittest import mock
 from unittest.case import TestCase
 from unittest.mock import Mock
 
 import flask
-import responses
-from flask_jwt_extended import create_access_token
 
 import dimensigon.use_cases
-from dimensigon.domain.entities import User, ActionTemplate, Server, Software, SoftwareServerAssociation, Scope
+from dimensigon.domain.entities import ActionTemplate, Server, Software, SoftwareServerAssociation, Scope
 from dimensigon.domain.entities.bootstrap import set_initial
-from dimensigon.network.auth import HTTPBearerAuth
+from dimensigon.domain.entities.user import ROOT
 from dimensigon.use_cases.operations import RequestOperation, NativeWaitOperation, NativeSoftwareSendOperation
-from dimensigon.web import create_app, db, errors
+from dimensigon.web import db, errors
 from dimensigon.web.network import Response
-from tests.base import FlaskAppMixin
+from tests.base import FlaskAppMixin, TestDimensigonBase
 
 
-class TestNativeSoftwareSendOperation(TestCase):
-    def setUp(self):
-        """Create and configure a new app instance for each test."""
-        # create the app with common test config
-        self.app = create_app('test')
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        self.client = self.app.test_client()
-        db.create_all()
-        set_initial(user=True, action_template=True)
-        self.server = Server.get_current()
-        self.auth = HTTPBearerAuth(create_access_token(User.get_by_name('root').id))
+class Context:
 
-    def tearDown(self) -> None:
-        db.session.remove()
-        db.drop_all()
-        self.app_context.pop()
+    def __init__(self, env=None):
+        self.env = env or {}
+
+
+class TestNativeSoftwareSendOperation(TestDimensigonBase):
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.context = Context(dict(executor_id=ROOT))
 
     @mock.patch('dimensigon.use_cases.operations.ntwrk.get')
     @mock.patch('dimensigon.use_cases.operations.ntwrk.post')
     def test_execute_send_software(self, mock_post, mock_get):
         at = ActionTemplate.query.get('00000000-0000-0000-000a-000000000001')
         soft = Software(name='test', version=1, filename='test.zip')
-        node1 = Server('node1', port=5000)
-        node2 = Server('node2', port=5000)
+        node1 = Server('nodeA', port=5000)
+        node2 = Server('nodeB', port=5000)
         ssa1 = SoftwareServerAssociation(software=soft, server=node1, path='/')
         ssa2 = SoftwareServerAssociation(software=soft, server=node2, path='/')
-        ssa3 = SoftwareServerAssociation(software=soft, server=self.server, path='/')
+        ssa3 = SoftwareServerAssociation(software=soft, server=self.s1, path='/')
         db.session.add_all([soft, node1, node2, ssa1, ssa2, ssa3])
 
         mock_post.return_value = Response(msg={'transfer_id': 1}, code=at.expected_rc)
@@ -59,7 +50,7 @@ class TestNativeSoftwareSendOperation(TestCase):
                 },
                 {
                     "cost": 1,
-                    "destination_id": f"{self.server.id}",
+                    "destination_id": f"{self.s1.id}",
                 }
             ],
         }, code=200, server=node2)
@@ -71,13 +62,13 @@ class TestNativeSoftwareSendOperation(TestCase):
 
         cp = ro._execute(
             dict(input=dict(software=soft.id, server=node2.id, dest_path='dest', chunk_size=20, max_senders=2)),
-            timeout=None)
+            timeout=None, context=self.context)
 
         mock_post.assert_called_once_with(node1, 'api_1_0.send',
                                           json=dict(software_id=str(soft.id), dest_server_id=str(node2.id),
                                                     background=False, include_transfer_data=True, force=True,
                                                     dest_path='dest', chunk_size=20, max_senders=2),
-                                          timeout=None)
+                                          timeout=None, identity=ROOT)
         self.assertTrue(cp.success)
         self.assertEqual(flask.json.dumps(mock_post.return_value.msg), cp.stdout)
 
@@ -91,15 +82,15 @@ class TestNativeSoftwareSendOperation(TestCase):
 
         with self.subTest("pass an invalid id"):
             soft_id = '00000000-0000-0000-0000-000000000001'
-            cp = ro._execute(dict(input=dict(software=soft_id, server=self.server.id)),
-                             timeout=None)
+            cp = ro._execute(dict(input=dict(software=soft_id, server=self.s1.id)),
+                             timeout=None, context=self.context)
 
             self.assertFalse(cp.success)
             self.assertEqual(f"software id '{soft_id}' not found", cp.stderr)
 
         with self.subTest("pass an invalid name"):
-            cp = ro._execute(dict(input=dict(software='software', server=self.server.id)),
-                             timeout=None)
+            cp = ro._execute(dict(input=dict(software='software', server=self.s1.id)),
+                             timeout=None, context=self.context)
 
             self.assertFalse(cp.success)
             self.assertEqual(f"No software found for 'software'", cp.stderr)
@@ -108,8 +99,8 @@ class TestNativeSoftwareSendOperation(TestCase):
         db.session.add(soft)
 
         with self.subTest("pass an invalid version"):
-            cp = ro._execute(dict(input=dict(software='test', version="2.1", server=self.server.id)),
-                             timeout=None)
+            cp = ro._execute(dict(input=dict(software='test', version="2.1", server=self.s1.id)),
+                             timeout=None, context=self.context)
 
             self.assertFalse(cp.success)
             self.assertEqual(f"No software found for 'test' and version '2.1'", cp.stderr)
@@ -118,7 +109,7 @@ class TestNativeSoftwareSendOperation(TestCase):
         at = ActionTemplate.query.get('00000000-0000-0000-000a-000000000001')
         soft = Software(name='test', version='1', filename='test.zip')
         soft2 = Software(name='test', version='2', filename='test.zip')
-        node1 = Server('node1', port=5000)
+        node1 = Server('nodeA', port=5000)
         ssa1 = SoftwareServerAssociation(software=soft2, server=node1, path='/')
         db.session.add_all([soft, soft2, node1, ssa1])
 
@@ -127,7 +118,7 @@ class TestNativeSoftwareSendOperation(TestCase):
                                          expected_stderr=at.expected_stderr,
                                          expected_rc=at.expected_rc)
 
-        cp = ro._execute(dict(input=dict(software='test', server='a')))
+        cp = ro._execute(dict(input=dict(software='test', server='a')), context=self.context)
 
         self.assertFalse(cp.success)
         self.assertEqual(f"destination server 'a' not found", cp.stderr)
@@ -136,7 +127,7 @@ class TestNativeSoftwareSendOperation(TestCase):
     def test_execute_send_software_no_ssa(self, mock_get):
         at = ActionTemplate.query.get('00000000-0000-0000-000a-000000000001')
         soft = Software(name='test', version=1, filename='test.zip')
-        node1 = Server('node1', port=5000)
+        node1 = Server('nodeA', port=5000)
         db.session.add_all([soft, node1])
 
         mock_get.return_value = Response(code=400)
@@ -146,7 +137,7 @@ class TestNativeSoftwareSendOperation(TestCase):
                                          expected_stderr=at.expected_stderr,
                                          expected_rc=at.expected_rc)
 
-        cp = ro._execute(dict(input=dict(software=soft.id, server=self.server.id)))
+        cp = ro._execute(dict(input=dict(software=soft.id, server=self.s1.id)), context=self.context)
 
         self.assertFalse(cp.success)
         self.assertEqual(f'{soft.id} has no server association', cp.stderr)
@@ -156,7 +147,7 @@ class TestNativeSoftwareSendOperation(TestCase):
     def test_execute_send_software_error(self, mock_post, mock_get):
         at = ActionTemplate.query.get('00000000-0000-0000-000a-000000000001')
         soft = Software(name='test', version=1, filename='test.zip')
-        node1 = Server('node1', port=5000)
+        node1 = Server('nodeA', port=5000)
         ssa1 = SoftwareServerAssociation(software=soft, server=node1, path='/')
         db.session.add_all([soft, node1, ssa1])
 
@@ -168,12 +159,12 @@ class TestNativeSoftwareSendOperation(TestCase):
                                          expected_stderr=at.expected_stderr,
                                          expected_rc=at.expected_rc)
 
-        cp = ro._execute(dict(input=dict(software=str(soft.id), server=str(node1.id))), timeout=10)
+        cp = ro._execute(dict(input=dict(software=str(soft.id), server=str(node1.id))), timeout=10, context=self.context)
 
         mock_post.assert_called_once_with(node1, 'api_1_0.send',
                                           json=dict(software_id=str(soft.id), dest_server_id=str(node1.id),
                                                     background=False, include_transfer_data=True, force=True),
-                                          timeout=10)
+                                          timeout=10, identity=ROOT)
         self.assertFalse(cp.success)
         self.assertEqual(flask.json.dumps(mock_post.return_value.msg), cp.stdout)
 

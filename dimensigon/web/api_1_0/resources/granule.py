@@ -11,7 +11,7 @@ from dimensigon.web.decorators import securizer, forward_or_dispatch
 class GranuleList(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self):
         granules = itertools.chain(*[s.granules for s in Server.query.all()])

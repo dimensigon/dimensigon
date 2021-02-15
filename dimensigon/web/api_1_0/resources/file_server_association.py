@@ -14,14 +14,14 @@ from dimensigon.web.json_schemas import file_server_associations_post, file_serv
 
 class FileServerAssociationList(Resource):
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     def get(self, file_id):
         query = filter_query(FileServerAssociation, request.args).filter_by(file_id=file_id)
         return [fsa.to_json(human=check_param_in_uri('human'), no_delete=True) for fsa in query.all()]
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     @validate_schema(file_server_associations_post)
@@ -38,7 +38,7 @@ class FileServerAssociationList(Resource):
             [fs.add(*k) for k in new]
         return {}, 204
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     @validate_schema(file_server_associations_patch)
@@ -55,7 +55,7 @@ class FileServerAssociationList(Resource):
             [fs.add(*k) for k in new]
         return {}, 204
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     @validate_schema(file_server_associations_delete)

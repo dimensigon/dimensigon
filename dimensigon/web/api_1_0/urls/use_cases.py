@@ -29,6 +29,7 @@ from dimensigon import defaults as d, defaults
 from dimensigon.domain.entities import Software, Server, SoftwareServerAssociation, Catalog, Route, StepExecution, \
     Orchestration, OrchExecution, User, ActionTemplate, ActionType, Vault
 from dimensigon.use_cases.deployment import deploy_orchestration, validate_input_chain
+from dimensigon.use_cases.use_cases import async_send_file
 from dimensigon.utils import asyncio, subprocess
 from dimensigon.utils.dag import DAG
 from dimensigon.utils.event_handler import Event
@@ -36,7 +37,6 @@ from dimensigon.utils.helpers import get_distributed_entities, is_iterable_not_s
 from dimensigon.utils.var_context import Context
 from dimensigon.web import db, executor, errors, threading
 from dimensigon.web.api_1_0 import api_bp
-from dimensigon.web.async_functions import async_send_file
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog, log_time
 from dimensigon.web.helpers import check_param_in_uri, normalize_hosts, search
 from dimensigon.web.json_schemas import launch_command_post, routes_post, routes_patch, \
@@ -52,7 +52,7 @@ def home():
 
 
 @api_bp.route('/join/token', methods=['GET'])
-@jwt_required
+@jwt_required()
 def join_token():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         user_join = User.get_by_name('join')
@@ -68,7 +68,7 @@ def join_token():
 
 
 @api_bp.route('/join/public', methods=['GET'])
-@jwt_required
+@jwt_required()
 def join_public():
     if User.query.get(get_jwt_identity()) == User.get_by_name('join'):
         return g.dimension.public.save_pkcs1(), 200, {'content-type': 'application/octet-stream'}
@@ -97,7 +97,7 @@ _lock = threading.Lock()
 
 @api_bp.route('/join', methods=['POST'])
 @securizer
-@jwt_required
+@jwt_required()
 def join():
     global fetched_catalog
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000004':
@@ -160,7 +160,7 @@ _lock_add_node = threading.Lock()
 
 
 @api_bp.route('/join/acknowledge/<server_id>', methods=['POST'])
-@jwt_required
+@jwt_required()
 @lock_catalog
 def join_acknowledge(server_id):
     server_data = servers_to_be_created.get(server_id, None)
@@ -176,7 +176,7 @@ def join_acknowledge(server_id):
 
 @api_bp.route('/manager/server_ignore_lock', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 @validate_schema(manager_server_ignore_lock_post)
 def manager_server_ignore_lock():
@@ -194,7 +194,7 @@ def manager_server_ignore_lock():
 
 @api_bp.route('/send', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 @validate_schema(send_post)
 def send():
@@ -274,10 +274,10 @@ def send():
     if json_data.get('background', True):
         executor.submit(asyncio.run,
                         async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
-                                        chunk_size=chunk_size, max_senders=max_senders))
+                                        chunk_size=chunk_size, max_senders=max_senders, identity=get_jwt_identity()))
     else:
         asyncio.run(async_send_file(dest_server=dest_server, transfer_id=transfer_id, file=file,
-                                    chunk_size=chunk_size, max_senders=max_senders))
+                                    chunk_size=chunk_size, max_senders=max_senders, identity=get_jwt_identity()))
 
     if json_data.get('include_transfer_data', False):
         resp = ntwrk.get(dest_server, "api_1_0.transferresource", view_data=dict(transfer_id=transfer_id))
@@ -292,7 +292,7 @@ def send():
 
 @api_bp.route('/software/dimensigon', methods=['GET'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 def software_dimensigon():
     # sends the last software
@@ -315,7 +315,7 @@ def software_dimensigon():
 
 @api_bp.route('/catalog', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 def catalog_update():
     catalog_ver = Catalog.max_catalog()
@@ -332,7 +332,7 @@ def catalog_update():
 
 @api_bp.route('/catalog/<string:data_mark>', methods=['GET'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 def catalog(data_mark):
     # Input Validation
@@ -372,7 +372,7 @@ _cluster_logger = logging.getLogger('dm.cluster')
 @api_bp.route('/cluster', methods=['POST'])
 # @log_time('full')
 # @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 # @securizer
 # @log_time('after securizer')
 # @validate_schema(cluster_post)
@@ -394,7 +394,7 @@ def cluster():
 
 
 @api_bp.route('/cluster/in/<server_id>', methods=['POST'])
-@jwt_required
+@jwt_required()
 @securizer
 def cluster_in(server_id):
     user = User.get_current()
@@ -418,7 +418,7 @@ def cluster_in(server_id):
 
 
 @api_bp.route('/cluster/out/<server_id>', methods=['POST'])
-@jwt_required
+@jwt_required()
 @securizer
 def cluster_out(server_id):
     user = User.get_current()
@@ -444,7 +444,7 @@ def cluster_out(server_id):
 
 # @api_bp.route('/routes/<server_id>', methods=['GET'])
 # @forward_or_dispatch()
-# @jwt_required
+# @jwt_required()
 # @securizer
 # def routes_neighbour(server_id):
 #     server = Server.query.get_or_raise(server_id)
@@ -461,7 +461,7 @@ def cluster_out(server_id):
 @api_bp.route('/routes', methods=['GET', 'POST', 'PATCH'])
 # @log_time('full')
 @forward_or_dispatch('GET', 'POST')
-@jwt_required
+@jwt_required()
 @securizer
 @validate_schema(POST=routes_post, PATCH=routes_patch)
 # @log_time('after validation')
@@ -489,6 +489,7 @@ def routes():
 def run_command_and_callback(operation: 'IOperationEncapsulation', params, context: Context, source: Server,
                              step_execution: StepExecution,
                              event_id,
+                             identity,
                              timeout=None):
     execution: StepExecution = db.session.merge(step_execution)
     exec_id = execution.id
@@ -512,8 +513,8 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', params, conte
     except Exception as e:
         current_app.logger.exception(f"Error on commit for execution {exec_id}")
 
-    resp, code = ntwrk.post(server=source, view_or_url='api_1_0.events', view_data={'event_id': event_id},
-                            json=data)
+    resp, code = ntwrk.post(server=source, view_or_url='api_1_0.events', view_data={'event_id': event_id}, json=data,
+                            identity=identity)
     if code != 202:
         current_app.logger.error(f"Error while sending result for execution {exec_id}: {code}, {resp}")
     return data
@@ -521,7 +522,7 @@ def run_command_and_callback(operation: 'IOperationEncapsulation', params, conte
 
 @api_bp.route('/launch/operation', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 def launch_operation():
     data = request.get_json()
@@ -537,7 +538,7 @@ def launch_operation():
     db.session.add_all([orch_exec, se])
     db.session.commit()
     future = executor.submit(run_command_and_callback, operation, params, var_context, g.source, se,
-                             data['event_id'],
+                             data['event_id'], identity=get_jwt_identity(),
                              timeout=data.get('timeout', None))
     try:
         r = future.result(1)
@@ -554,7 +555,7 @@ def launch_operation():
 @api_bp.route('/launch/orchestration', defaults={'orchestration_id': None}, methods=['POST'])
 @api_bp.route('/launch/orchestration/<orchestration_id>', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 @validate_schema(launch_orchestration_post)
 def launch_orchestration(orchestration_id):
@@ -654,7 +655,7 @@ def wrap_sudo(user, cmd):
 
 @api_bp.route('/launch/command', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 @validate_schema(launch_command_post)
 def launch_command():
@@ -754,7 +755,7 @@ def launch_command():
 
 @api_bp.route('/events/<event_id>', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 def events(event_id):
     e = Event(event_id, data=request.get_json())
@@ -764,7 +765,7 @@ def events(event_id):
 
 @api_bp.route('/orchestrations/full', methods=['POST'])
 @forward_or_dispatch()
-@jwt_required
+@jwt_required()
 @securizer
 @validate_schema(orchestration_full)
 @lock_catalog

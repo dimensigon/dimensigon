@@ -14,14 +14,14 @@ from dimensigon.web.json_schemas import step_post, step_put, step_patch
 class StepList(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self):
         query = filter_query(Step, request.args)
         return [s.to_json(split_lines=check_param_in_uri('split_lines')) for s in query.all()]
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(step_post)
     @lock_catalog
@@ -86,13 +86,13 @@ class StepList(Resource):
 
 class StepResource(Resource):
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, step_id):
         return Step.query.get_or_raise(step_id).to_json(split_lines=check_param_in_uri('split_lines'))
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(step_put)
     @lock_catalog
@@ -150,7 +150,7 @@ class StepResource(Resource):
         return {}, 204
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(step_patch)
     @lock_catalog
@@ -204,7 +204,7 @@ class StepResource(Resource):
         return {}, 204
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @lock_catalog
     def delete(self, step_id):

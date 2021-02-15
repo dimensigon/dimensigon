@@ -13,7 +13,7 @@ from dimensigon.web.json_schemas import vault_post, vaults_post, vault_put
 class VaultList(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self):
         if check_param_in_uri('scopes'):
@@ -31,7 +31,7 @@ class VaultList(Resource):
             return [vault.to_json(no_delete=True, human=check_param_in_uri('human')) for vault in query.all()]
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(vaults_post)
     @lock_catalog
@@ -50,14 +50,14 @@ class VaultList(Resource):
 class VaultResource(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, name, scope='global'):
         return Vault.query.get_or_raise((get_jwt_identity(), scope, name)).to_json(human=check_param_in_uri('human'),
                                                                                    no_delete=True)
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(vault_post)
     @lock_catalog
@@ -70,7 +70,7 @@ class VaultResource(Resource):
         return {}, 204
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(vault_put)
     @lock_catalog
@@ -85,7 +85,7 @@ class VaultResource(Resource):
         return {}, 204
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @lock_catalog
     def delete(self, name, scope='global'):

@@ -10,13 +10,12 @@ import typing as t
 import requests
 import rsa
 from flask import current_app, url_for, g, request
-from flask_jwt_extended import get_jwt_claims
+from flask_jwt_extended import get_jwt
 from jsonschema import validate
 
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate
 from dimensigon.network.exceptions import NotValidMessage
-from dimensigon.web.helpers import get_servers_from_scope
 from dimensigon.use_cases.lock import lock_scope
 from dimensigon.utils.helpers import get_now
 from dimensigon.web import db, errors, network as ntwrk, executor, get_root_auth
@@ -291,7 +290,7 @@ def lock_catalog(f):
     @functools.wraps(f)
     def wrapper(*args, **kw):
         # check if applicant in jwt
-        claims = get_jwt_claims()
+        claims = get_jwt()
         if claims:
             if claims.get('applicant'):
                 locker = Locker.query.get(Scope.CATALOG)

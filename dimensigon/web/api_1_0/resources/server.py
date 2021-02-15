@@ -12,7 +12,7 @@ from dimensigon.web.json_schemas import server_patch, servers_delete
 class ServerList(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self):
         query = filter_query(Server, request.args)
@@ -23,7 +23,7 @@ class ServerList(Resource):
                 query.all()]
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(servers_delete)
     @lock_catalog
@@ -43,7 +43,7 @@ class ServerList(Resource):
 
 class ServerResource(Resource):
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, server_id):
         return Server.query.get_or_raise(server_id).to_json(add_gates=check_param_in_uri('gates'),
@@ -52,7 +52,7 @@ class ServerResource(Resource):
                                                             add_ignore=True)
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(server_patch)
     @lock_catalog
@@ -86,7 +86,7 @@ class ServerResource(Resource):
             return {}, 204
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @lock_catalog
     def delete(self, server_id):

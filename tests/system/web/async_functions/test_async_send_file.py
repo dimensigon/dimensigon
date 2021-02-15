@@ -6,10 +6,11 @@ from aioresponses import aioresponses, CallbackResult
 from pyfakefs.fake_filesystem_unittest import TestCase
 
 from dimensigon.domain.entities import Server, Transfer, TransferStatus
+from dimensigon.domain.entities.user import ROOT
 from dimensigon.utils.asyncio import run
 from dimensigon.utils.helpers import md5
 from dimensigon.web import db
-from dimensigon.web.async_functions import async_send_file
+from dimensigon.use_cases.use_cases import async_send_file
 from tests.base import TwoNodeMixin, virtual_network
 
 
@@ -45,7 +46,7 @@ class TestAsyncSendFile(TwoNodeMixin, TestCase):
 
             run(async_send_file(dest_server=self.s2, transfer_id=transfer_id,
                                 file=os.path.join(self.source_path, self.filename), chunk_size=4,
-                                auth=self.auth))
+                                identity=ROOT))
 
             self.assertTrue(os.path.exists(os.path.join(self.dest_path, self.filename)))
             self.assertEqual(self.size, os.path.getsize(os.path.join(self.dest_path, self.filename)))
@@ -68,7 +69,7 @@ class TestAsyncSendFile(TwoNodeMixin, TestCase):
 
             run(async_send_file(dest_server=self.s2, transfer_id=transfer_id,
                                 file=os.path.join(self.source_path, self.filename), chunk_size=80,
-                                auth=self.auth))
+                                identity=ROOT))
 
             self.assertTrue(os.path.exists(os.path.join(self.dest_path, self.filename)))
             self.assertEqual(self.size, os.path.getsize(os.path.join(self.dest_path, self.filename)))
@@ -130,7 +131,7 @@ class TestAsyncSendFile(TwoNodeMixin, TestCase):
 
         run(async_send_file(dest_server=self.s2, transfer_id=transfer_id,
                             file=os.path.join(self.source_path, self.filename), chunk_size=14,
-                            auth=self.auth, retries=3))
+                            identity=ROOT, retries=3))
 
         self.assertTrue(os.path.exists(os.path.join(self.dest_path, self.filename)))
         self.assertEqual(self.size, os.path.getsize(os.path.join(self.dest_path, self.filename)))

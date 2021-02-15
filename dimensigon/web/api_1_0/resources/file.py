@@ -18,7 +18,7 @@ _logger = logging.getLogger('dm.fileSync')
 
 
 @api_bp.route("/file/<file_id>/sync", methods=['POST'])
-@jwt_required
+@jwt_required()
 @securizer
 @forward_or_dispatch()
 @validate_schema(file_sync)
@@ -47,7 +47,7 @@ def file_sync(file_id):
 
 class FileList(Resource):
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     def get(self):
@@ -57,7 +57,7 @@ class FileList(Resource):
                 query.all()]
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     @validate_schema(files_post)
     @lock_catalog
@@ -76,14 +76,14 @@ class FileList(Resource):
 
 class FileResource(Resource):
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     def get(self, file_id):
         return File.query.get_or_raise(file_id).to_json(human=check_param_in_uri('human'), delete_data=False,
                                                         destinations=True)
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     @validate_schema(file_post)
@@ -102,7 +102,7 @@ class FileResource(Resource):
             return {}, 204
         return {}, 202
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     @validate_schema(file_patch)
@@ -127,7 +127,7 @@ class FileResource(Resource):
             return {}, 204
         return {}, 202
 
-    @jwt_required
+    @jwt_required()
     @securizer
     @forward_or_dispatch()
     @lock_catalog

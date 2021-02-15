@@ -43,7 +43,7 @@ class TestJoin(OneNodeMixin, TestCase):
         super().setUp()
         self.app.config['SECURIZER'] = True
         self.app_join.config['SECURIZER'] = True
-        self.token = create_access_token(JOIN, user_claims={'applicant': 'me'})
+        self.token = create_access_token(JOIN, additional_claims={'applicant': 'me'})
         self.setUpPyfakefs()
 
         open('/origin_key', 'w').write('keyfile')

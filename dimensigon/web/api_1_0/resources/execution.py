@@ -10,7 +10,7 @@ from dimensigon.web.helpers import filter_query, check_param_in_uri
 class StepExecutionList(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self):
         query = filter_query(StepExecution, request.args)
@@ -20,7 +20,7 @@ class StepExecutionList(Resource):
 
 class StepExecutionResource(Resource):
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, execution_id):
         return StepExecution.query.get_or_raise(execution_id).to_json(human=check_param_in_uri('human'),
@@ -30,7 +30,7 @@ class StepExecutionResource(Resource):
 class OrchestrationExecutionRelationship(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, orchestration_id):
         query = filter_query(OrchExecution, request.args)
@@ -41,7 +41,7 @@ class OrchestrationExecutionRelationship(Resource):
 class OrchExecStepExecRelationship(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, execution_id):
         query = filter_query(StepExecution, request.args)
@@ -52,7 +52,7 @@ class OrchExecStepExecRelationship(Resource):
 class OrchExecutionList(Resource):
 
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self):
         query = filter_query(OrchExecution, request.args)
@@ -64,7 +64,7 @@ class OrchExecutionList(Resource):
 
 class OrchExecutionResource(Resource):
     @forward_or_dispatch()
-    @jwt_required
+    @jwt_required()
     @securizer
     def get(self, execution_id):
         return OrchExecution.query.get_or_raise(execution_id).to_json(add_step_exec=check_param_in_uri('steps'),
