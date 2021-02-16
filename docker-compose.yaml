@@ -1,0 +1,9 @@
+version: '3.1'
+services:
+  test:
+    build: .
+    volumes:
+      - ./dimensigon:/python_project/dimensigon
+      - ./tests:/python_project/tests
+    stdin_open: true
+    tty: true

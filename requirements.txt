@@ -14,6 +14,7 @@ jinja2
 jinja2schema
 jsonschema
 netifaces
+packaging==20.9
 passlib
 prompt_toolkit
 Pygments
@@ -21,7 +22,8 @@ python-dateutil
 PyYAML
 requests
 RestrictedPython
-rsa
+rsa==4.7.1
 schema
 setuptools
 six
+watchdog==2.0.0
