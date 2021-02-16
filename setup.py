@@ -14,7 +14,7 @@ def find_version():
             # __version__ = '0.1.0'
             match = re.search(r"__version__\s*=\s*(['\"])([^\1]+)\1", line)
             if match:
-                return match.group(1)
+                return match.group(2)
     assert False, 'cannot find version'
 
 
@@ -27,7 +27,7 @@ def find_author_email():
             if not m_email:
                 m_email = re.search(r"__email__\s*=\s*(['\"])([^\1]*)\1", line)
             if m_author and m_email:
-                return m_author.group(1), m_email.group(1)
+                return m_author.group(2), m_email.group(2)
     assert False, 'cannot find author or email'
 
 
@@ -36,7 +36,7 @@ def find_licence():
         for line in fp:
             match = re.search(r"__license__\s*=\s*(['\"])([^\1]*)\1", line)
             if match:
-                return match.group(1)
+                return match.group(2)
     assert False, 'cannot find license'
 
 
