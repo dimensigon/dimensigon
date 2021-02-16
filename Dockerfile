@@ -1,5 +1,5 @@
 FROM python:3.7.6-buster
-MAINTAINER python_student
+MAINTAINER JOAN PRAT joan.prat@knowtrade.eu
 
 RUN mkdir /python_project/
 RUN mkdir /python_project/dimensigon
@@ -18,5 +18,5 @@ RUN pip install --upgrade pip
 RUN cd /python_project; pip install -e .
 RUN pip3 install -r requirements-test.txt
 
-CMD "make test"
+CMD ["/usr/bin/make", "test"]
 ENV PYTHONDONTWRITEBYTECODE=true

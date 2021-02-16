@@ -359,48 +359,58 @@ def catalog(dm: Dimensigon, ip, port, http=False):
             exit(f"Unable to get catalog from {resp.url}: {resp}")
 
 
-def gate(dm: Dimensigon, action, ip_or_dns, port, hidden=True):
+def gate_create(dm: Dimensigon, ip_or_dns, port, hidden=True):
     dm.create_flask_instance()
     with dm.flask_app.app_context():
-
-        if action == 'create':
-            ip, dns = None, None
-            try:
-                ip = ipaddress.ip_address(ip_or_dns)
-            except:
-                dns = ip_or_dns
-            g = Gate(server=Server.get_current(), ip=ip, dns=dns, port=port, hidden=hidden)
-            db.session.add(g)
-            try:
-                db.session.commit()
-            except exc.IntegrityError:
-                exit(f"{ip or dns}:{port} already exists")
-            else:
-                print(f"{g.ip or g.dns}:{g.port}{' (hidden)' if g.hidden else ''} created succesfully")
-        elif action == 'port':
-            db.engine.execute(sql.text(f"UPDATE D_gate set port = :port WHERE main.D_gate.server_id = :server_id"),
-                              port=port,
-                              server_id=Server.get_current().id)
+        ip, dns = None, None
+        try:
+            ip = ipaddress.ip_address(ip_or_dns)
+        except:
+            dns = ip_or_dns
+        g = Gate(server=Server.get_current(), ip=ip, dns=dns, port=port, hidden=hidden)
+        db.session.add(g)
+        try:
             db.session.commit()
-        elif action == 'list':
-            dprint([f"{g.ip or g.dns}:{g.port}{' (hidden)' if g.hidden else ''}" for g in
-                    Gate.query.filter_by(server_id=Server.get_current().id).all()])
-        elif action == 'delete':
-            ip, dns = None, None
-            try:
-                ip = ipaddress.ip_address(ip_or_dns)
-            except:
-                dns = ip_or_dns
+        except exc.IntegrityError:
+            exit(f"{ip or dns}:{port} already exists")
+        else:
+            print(f"{g.ip or g.dns}:{g.port}{' (hidden)' if g.hidden else ''} created succesfully")
 
-            query = Gate.query
-            if ip or dns:
-                query = query.filter_by(ip=ip, dns=dns)
-            if port:
-                query = query.filter_by(port=port)
-            if hidden:
-                query = query.filter_by(hidden=hidden)
-            [g.delete() for g in query.all()]
-            db.session.commit()
+
+def gate_port(dm: Dimensigon, port):
+    dm.create_flask_instance()
+    with dm.flask_app.app_context():
+        db.engine.execute(sql.text(f"UPDATE D_gate set port = :port WHERE main.D_gate.server_id = :server_id"),
+                          port=port,
+                          server_id=Server.get_current().id)
+        db.session.commit()
+
+
+def gate_list(dm: Dimensigon):
+    dm.create_flask_instance()
+    with dm.flask_app.app_context():
+        dprint([f"{g.ip or g.dns}:{g.port}{' (hidden)' if g.hidden else ''}" for g in
+                Gate.query.filter_by(server_id=Server.get_current().id).all()])
+
+
+def gate_delete(dm: Dimensigon, ip_or_dns, port, hidden=True):
+    dm.create_flask_instance()
+    with dm.flask_app.app_context():
+        ip, dns = None, None
+        try:
+            ip = ipaddress.ip_address(ip_or_dns)
+        except:
+            dns = ip_or_dns
+
+        query = Gate.query
+        if ip or dns:
+            query = query.filter_by(ip=ip, dns=dns)
+        if port:
+            query = query.filter_by(port=port)
+        if hidden:
+            query = query.filter_by(hidden=hidden)
+        [g.delete() for g in query.all()]
+        db.session.commit()
 
 
 def run(dm: Dimensigon):
@@ -443,6 +453,7 @@ def get_arguments() -> argparse.Namespace:
     from dimensigon import __version__
 
     parser = argparse.ArgumentParser(prog='dimensigon')
+    parser.set_defaults(func=run)
     parser.add_argument('--version', action='version',
                         version='%(prog)s {version}'.format(version=__version__))
     parser.add_argument(
@@ -530,7 +541,6 @@ def get_arguments() -> argparse.Namespace:
     #     parser.add_argument(
     #         "--daemon", action="store_true", help="Run Dimensigon as daemon"
     #     )
-    parser.set_defaults(func=run)
 
     subparser = parser.add_subparsers(dest='command')
     join_parser = subparser.add_parser("join", help="Joins to the dimension.")
@@ -603,10 +613,11 @@ def get_arguments() -> argparse.Namespace:
     )
 
     gate_parser = subparser.add_parser("gate", help="handle server gates")
-    gate_parser.set_defaults(func=gate)
-    gate_subparser = gate_parser.add_subparsers(dest='action')
+    gate_parser.set_defaults(func=gate_parser.print_usage)
+    gate_subparser = gate_parser.add_subparsers()
 
     gate_create_parser = gate_subparser.add_parser("create", help="create a new gate for the current server")
+    gate_create_parser.set_defaults(func=gate_create)
     gate_create_parser.add_argument(
         "ip_or_dns",
         metavar="(IP | DNS)"
@@ -622,8 +633,10 @@ def get_arguments() -> argparse.Namespace:
     )
 
     gate_list_parser = gate_subparser.add_parser("list", help="list all server gates")
+    gate_list_parser.set_defaults(func=gate_list)
 
     gate_port_parser = gate_subparser.add_parser("port", help="update port from all gates in the current server")
+    gate_port_parser.set_defaults(func=gate_port)
     gate_port_parser.add_argument(
         "port",
         type=int,
@@ -631,6 +644,7 @@ def get_arguments() -> argparse.Namespace:
     )
 
     gate_delete_parser = gate_subparser.add_parser("delete", help="delete a current server gate")
+    gate_delete_parser.set_defaults(func=gate_delete)
     gate_delete_parser.add_argument(
         "ip_or_dns",
         metavar="(IP | DNS)")
@@ -644,8 +658,9 @@ def get_arguments() -> argparse.Namespace:
         action="store_true"
     )
 
-    lock_parser = subparser.add_parser("locker", help="enables or disables scope")
-    lock_subparser = lock_parser.add_subparsers(dest='action', help="enables or disables scope")
+    locker_parser = subparser.add_parser("locker", help="enables or disables scope")
+    locker_parser.set_defaults(func=locker_parser.print_usage)
+    lock_subparser = locker_parser.add_subparsers(dest='action', help="enables or disables scope")
     lock_list_parser = lock_subparser.add_parser("list", help="list all scopes")
     lock_list_parser.set_defaults(func=locker_list)
 
@@ -751,7 +766,7 @@ def main():
                                           # refresh_interval=args.dm_refresh_interval,
                                           force_scan=args.force_scan))
 
-    args.dm = dm # add the dimensigon object will be passed to the functions
+    args.dm = dm  # add the dimensigon object will be passed to the functions
     call_func_with_signature(args)
 
 

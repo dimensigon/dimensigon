@@ -126,3 +126,17 @@ class TestLockScopeFullChain(VirtualNetworkMixin, TwoNodeMixin, TestCase):
                 l = Locker.query.get(Scope.CATALOG)
                 self.assertEqual(State.LOCKED, l.state)
                 self.assertEqual([self.s1.id, self.s2.id], l.applicant)
+
+
+class TestLockBypass(TestDimensigonBase):
+
+    @mock.patch('dimensigon.web.helpers.current_app')
+    def test_lock_bypass(self, mock_app):
+        l = Locker.query.get(Scope.CATALOG)
+        l.disabled = True
+        db.session.commit()
+
+        with lock_scope(Scope.CATALOG, identity=ROOT):
+            db.session.refresh(l)
+            self.assertEqual(State.UNLOCKED, l.state)
+

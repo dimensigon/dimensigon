@@ -1,6 +1,7 @@
-version: '3.1'
+version: '3.5'
 services:
-  test:
+  dimensigon:
+    image: dimensigon/dimensigon
     build: .
     volumes:
       - ./dimensigon:/python_project/dimensigon
