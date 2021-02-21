@@ -404,7 +404,7 @@ orchestration_post = {
 orchestration_step = {
     "type": "object",
     "properties": {
-        "id": {"type": ["string", "integer"]},
+        "id": {"type": "string"},
         "undo": {"type": "boolean"},
         "name": {"type": "string"},
         "stop_on_error": {"type": "boolean"},
@@ -422,7 +422,7 @@ orchestration_step = {
         "pre_process": Multiline,
         "post_process": Multiline,
         "parent_step_ids": {"type": "array",
-                            "items": {"type": ["string", "integer"]}
+                            "items": {"type": "string"}
                             },
         "target": {"type": ["string", "array", "null"],
                    "items": {"type": "string"}}

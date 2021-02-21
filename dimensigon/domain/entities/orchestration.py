@@ -455,8 +455,9 @@ class Orchestration(UUIDistributedEntityMixin, db.Model):
         outer_schema['required'] = sorted(list(outer_schema['required']))
         outer_schema['output'] = sorted(list(outer_schema['output']))
         for c in ('required', 'output', 'input'):
-            if not outer_schema[c]:
-                outer_schema.pop(c)
+            # clean data
+            if not outer_schema.get(c):
+                outer_schema.pop(c, None)
 
         return outer_schema
 
