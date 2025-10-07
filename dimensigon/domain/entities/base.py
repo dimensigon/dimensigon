@@ -14,6 +14,8 @@ from dimensigon.web.helpers import QueryWithSoftDelete
 
 class SoftDeleteMixin:
     __prefix__ = '_old_'
+    # SQLAlchemy 2.0 compatibility: Allow legacy type annotations
+    __allow_unmapped__ = True
     deleted = Column(Boolean(), default=False)
     query_class = QueryWithSoftDelete
 
@@ -91,6 +93,8 @@ class SoftDeleteMixin:
 
 
 class DistributedEntityMixin:
+    # SQLAlchemy 2.0 compatibility: Allow legacy type annotations
+    __allow_unmapped__ = True
     order = None
     last_modified_at = Column(UtcDateTime(), nullable=False)
 
@@ -116,6 +120,8 @@ class DistributedEntityMixin:
 
 
 class UUIDEntityMixin:
+    # SQLAlchemy 2.0 compatibility: Allow legacy type annotations
+    __allow_unmapped__ = True
     id = Column(UUID, primary_key=True, default=lambda: str(uuid.uuid4()))
 
     def __init__(self, *args, id=None, **kwargs):

@@ -25,10 +25,20 @@ meta = MetaData(naming_convention={
     "pk": "pk_%(table_name)s"
 })
 
-db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta,
-                engine_options=dict(connect_args={'check_same_thread': False}, isolation_level='READ UNCOMMITTED'))
-# db = SQLAlchemy(query_class=BaseQueryJSON, metadata=meta)
-# db = SQLAlchemy(query_class=BaseQueryJSON)
+# Flask-SQLAlchemy 3.x compatibility
+# Note: query_class parameter removed in 3.x, use model.query directly
+db = SQLAlchemy(
+    metadata=meta,
+    engine_options={
+        'connect_args': {'check_same_thread': False},
+        'isolation_level': 'READ UNCOMMITTED'
+    }
+)
+
+# Add BaseQueryJSON functionality via model base class instead
+# This maintains backward compatibility while supporting Flask-SQLAlchemy 3.x
+db.Query = BaseQueryJSON
+
 jwt = JWTManager()
 executor = Executor()
 
@@ -127,11 +137,21 @@ class DimensigonFlask(Flask):
 def _initialize_blueprint(app):
     from dimensigon.web.routes import root_bp
     from dimensigon.web.api_1_0 import api_bp as api_1_0_bp
+    # DM-WebManager GUI components
+    from dimensigon.web.admin.data_dictionary import data_dict_bp
+    from dimensigon.web.admin.executions_viewer import executions_bp
+    from dimensigon.web.admin.routes import admin_routes_bp
 
     app.register_blueprint(root_bp)
     handle_exception = app.handle_exception
     handle_user_exception = app.handle_user_exception
     app.register_blueprint(api_1_0_bp)
+
+    # Register new API v2 endpoints and admin GUI routes
+    app.register_blueprint(data_dict_bp)
+    app.register_blueprint(executions_bp)
+    app.register_blueprint(admin_routes_bp)
+
     app.handle_exception = handle_exception
     app.handle_user_exception = handle_user_exception
 
@@ -161,6 +181,10 @@ def create_app(config_name):
     jwt.init_app(app)
     executor.init_app(app)
     app.events = EventHandler()
+
+    # Initialize DM-WebManager Admin GUI
+    from dimensigon.web.admin import init_admin
+    init_admin(app)
 
     # with app.app_context():
     #     def do_connect(dbapi_connection, connection_record):

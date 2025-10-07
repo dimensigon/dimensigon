@@ -1,5 +1,5 @@
-FROM python:3.7.6-buster
-MAINTAINER JOAN PRAT joan.prat@knowtrade.eu
+FROM python:3.11-slim
+LABEL maintainer="JOAN PRAT joan.prat@knowtrade.eu"
 
 RUN mkdir /python_project/
 RUN mkdir /python_project/dimensigon

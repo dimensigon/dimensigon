@@ -1,0 +1,110 @@
+{% extends 'admin/base.html' %}
+
+{% block head_css %}
+{{ super() }}
+<style>
+    /* Custom DM-WebManager styling */
+    .navbar-brand {
+        font-weight: bold;
+        color: #4CAF50 !important;
+    }
+
+    .execution-success {
+        color: #4CAF50;
+        font-weight: bold;
+    }
+
+    .execution-failed {
+        color: #f44336;
+        font-weight: bold;
+    }
+
+    .execution-running {
+        color: #FF9800;
+        font-weight: bold;
+    }
+
+    .data-dictionary-link {
+        background-color: #2196F3;
+        color: white;
+        padding: 10px 20px;
+        margin: 10px 0;
+        display: inline-block;
+        text-decoration: none;
+        border-radius: 4px;
+    }
+
+    .data-dictionary-link:hover {
+        background-color: #1976D2;
+        color: white;
+        text-decoration: none;
+    }
+
+    .stats-card {
+        background: #f5f5f5;
+        padding: 15px;
+        margin: 10px 0;
+        border-radius: 4px;
+        border-left: 4px solid #4CAF50;
+    }
+
+    .badge-orchestration {
+        background-color: #9C27B0;
+    }
+
+    .badge-action {
+        background-color: #FF5722;
+    }
+
+    .badge-execution {
+        background-color: #03A9F4;
+    }
+</style>
+{% endblock %}
+
+{% block brand %}
+<a class="navbar-brand" href="{{ admin_view.admin.url }}">
+    🎯 DM-WebManager
+</a>
+{% endblock %}
+
+{% block menu %}
+{{ super() }}
+<li class="nav-item">
+    <a class="nav-link" href="/api/v2/data-dictionary/entities" target="_blank">
+        📚 Data Dictionary API
+    </a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="/api/v2/executions/stats" target="_blank">
+        📊 Execution Stats
+    </a>
+</li>
+{% endblock %}
+
+{% block tail %}
+{{ super() }}
+<script>
+    // Auto-refresh for execution monitoring views
+    if (window.location.href.includes('orchexecutionview') ||
+        window.location.href.includes('stepexecutionview')) {
+
+        // Refresh every 30 seconds if viewing executions
+        setTimeout(function() {
+            location.reload();
+        }, 30000);
+    }
+
+    // Add visual indicators for execution status
+    document.addEventListener('DOMContentLoaded', function() {
+        const successElements = document.querySelectorAll('td:contains("✅")');
+        successElements.forEach(el => el.classList.add('execution-success'));
+
+        const failedElements = document.querySelectorAll('td:contains("❌")');
+        failedElements.forEach(el => el.classList.add('execution-failed'));
+
+        const runningElements = document.querySelectorAll('td:contains("⏳")');
+        runningElements.forEach(el => el.classList.add('execution-running'));
+    });
+</script>
+{% endblock %}

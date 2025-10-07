@@ -95,7 +95,7 @@ def filter_query(entity, req_args: dict, exclude: t.Container = None):
     filters = []
     for k, v in req_args.items():
         if k.startswith('filter['):
-            m = re.search('^filter\[(\w+)\]$', k)
+            m = re.search(r'^filter\[(\w+)\]$', k)  # Raw string to fix escape sequence
             if m:
                 filters.append((m.group(1), v))
     query = entity.query
