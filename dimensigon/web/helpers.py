@@ -10,8 +10,12 @@ from json import JSONEncoder
 
 from flask import current_app, request
 from flask_jwt_extended import create_access_token, get_jwt_identity
-from flask_sqlalchemy import BaseQuery
-from sqlalchemy import not_
+try:
+    from flask_sqlalchemy import BaseQuery
+except ImportError:
+    # Flask-SQLAlchemy 3.1+ moved BaseQuery to query.Query
+    from flask_sqlalchemy.query import Query as BaseQuery
+from sqlalchemy import not_, inspect
 from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
@@ -70,8 +74,9 @@ class QueryWithSoftDelete(BaseQueryJSON):
 
     def with_deleted(self):
         from dimensigon.web import db
-        return self.__class__(db.class_mapper(self._mapper_zero().class_),
-                              session=db.session(), _with_deleted=True)
+        # Flask-SQLAlchemy 3.0+ compatibility: Use inspect() instead of _mapper_zero()
+        mapper = inspect(self).mapper if hasattr(self, 'mapper') else inspect(self.column_descriptions[0]['type'])
+        return self.__class__(mapper.class_, session=db.session(), _with_deleted=True)
 
     def _get(self, *args, **kwargs):
         # this calls the original query.get function from the base class
