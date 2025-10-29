@@ -1,0 +1,298 @@
+# Dimensigon Logging Configuration
+# Python logging configuration in YAML format
+#
+# Usage:
+#   dimensigon --logconfig-file logconfig.yaml
+#
+# Or in Docker:
+#   Mount this file and set environment variable:
+#   -v ./logconfig.yaml:/app/logconfig.yaml:ro
+#   -e LOGCONFIG_FILE=/app/logconfig.yaml
+
+version: 1
+disable_existing_loggers: false
+
+# Formatters define the log message format
+formatters:
+  default:
+    format: '%(asctime)s [%(process)d] [%(module)s:%(lineno)d] [%(funcName)s] [%(name)s] [%(levelname)s] %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S %z'
+
+  simple:
+    format: '%(asctime)s [%(levelname)s] %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+
+  detailed:
+    format: '%(asctime)s [PID:%(process)d] [TID:%(thread)d] [%(pathname)s:%(lineno)d] [%(funcName)s] [%(name)s] [%(levelname)s] %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S.%f %z'
+
+  json:
+    class: pythonjsonlogger.jsonlogger.JsonFormatter
+    format: '%(asctime)s %(name)s %(levelname)s %(message)s %(pathname)s %(lineno)d %(funcName)s'
+
+  access:
+    format: '%(message)s'
+
+# Handlers define where log messages go
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: default
+    stream: ext://sys.stdout
+
+  console_error:
+    class: logging.StreamHandler
+    level: ERROR
+    formatter: detailed
+    stream: ext://sys.stderr
+
+  file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: default
+    filename: /var/log/dimensigon/dimensigon.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 10
+    encoding: utf8
+
+  file_detailed:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: detailed
+    filename: /var/log/dimensigon/dimensigon-debug.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+    encoding: utf8
+
+  access_file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: access
+    filename: /var/log/dimensigon/access.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 10
+    encoding: utf8
+
+  error_file:
+    class: logging.handlers.RotatingFileHandler
+    level: ERROR
+    formatter: detailed
+    filename: /var/log/dimensigon/error.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 10
+    encoding: utf8
+
+  # Syslog handler (for systemd journal or remote syslog)
+  syslog:
+    class: logging.handlers.SysLogHandler
+    level: WARNING
+    formatter: simple
+    address: /dev/log  # Unix socket, or use ('localhost', 514) for remote
+    facility: local0
+
+  # Timed rotating file handler (daily rotation)
+  timed_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    level: INFO
+    formatter: default
+    filename: /var/log/dimensigon/dimensigon.log
+    when: midnight
+    interval: 1
+    backupCount: 30
+    encoding: utf8
+
+  # Email handler for critical errors (optional)
+  # email:
+  #   class: logging.handlers.SMTPHandler
+  #   level: CRITICAL
+  #   formatter: detailed
+  #   mailhost: smtp.example.com
+  #   fromaddr: dimensigon@example.com
+  #   toaddrs:
+  #     - admin@example.com
+  #   subject: Dimensigon Critical Error
+
+# Loggers define logging behavior for specific modules
+loggers:
+  # Gunicorn loggers
+  gunicorn.error:
+    level: INFO
+    handlers: [console, file, error_file]
+    propagate: false
+    qualname: gunicorn.error
+
+  gunicorn.access:
+    level: INFO
+    handlers: [access_file]
+    propagate: false
+    qualname: gunicorn.access
+
+  # Dimensigon application loggers
+  dimensigon:
+    level: INFO
+    handlers: [console, file, error_file]
+    propagate: false
+    qualname: dimensigon
+
+  dimensigon.web:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+    qualname: dimensigon.web
+
+  dimensigon.domain:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+    qualname: dimensigon.domain
+
+  dimensigon.network:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+    qualname: dimensigon.network
+
+  dimensigon.dshell:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+    qualname: dimensigon.dshell
+
+  # Database query logging (set to DEBUG to see SQL queries)
+  sqlalchemy.engine:
+    level: WARNING
+    handlers: [file_detailed]
+    propagate: false
+    qualname: sqlalchemy.engine
+
+  sqlalchemy.pool:
+    level: WARNING
+    handlers: [file_detailed]
+    propagate: false
+    qualname: sqlalchemy.pool
+
+  sqlalchemy.dialects:
+    level: WARNING
+    handlers: [file_detailed]
+    propagate: false
+    qualname: sqlalchemy.dialects
+
+  sqlalchemy.orm:
+    level: WARNING
+    handlers: [file_detailed]
+    propagate: false
+    qualname: sqlalchemy.orm
+
+  # Flask loggers
+  flask:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+    qualname: flask
+
+  flask.app:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+    qualname: flask.app
+
+  werkzeug:
+    level: WARNING
+    handlers: [access_file]
+    propagate: false
+    qualname: werkzeug
+
+  # Third-party library loggers (reduce noise)
+  urllib3:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+    qualname: urllib3
+
+  requests:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+    qualname: requests
+
+  asyncio:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+    qualname: asyncio
+
+  aiohttp:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+    qualname: aiohttp
+
+# Root logger (fallback for all other loggers)
+root:
+  level: INFO
+  handlers: [console, file, error_file]
+
+# ============================================================================
+# CONFIGURATION NOTES
+# ============================================================================
+#
+# Log Levels (in order of severity):
+#   DEBUG    - Detailed information for debugging
+#   INFO     - General informational messages
+#   WARNING  - Warning messages (potential issues)
+#   ERROR    - Error messages (application errors)
+#   CRITICAL - Critical errors (system failures)
+#
+# Handler Classes:
+#   StreamHandler           - Output to stdout/stderr
+#   FileHandler            - Write to a file
+#   RotatingFileHandler    - Rotate by size
+#   TimedRotatingFileHandler - Rotate by time
+#   SysLogHandler          - Send to syslog
+#   SMTPHandler            - Send emails for errors
+#
+# Formatter Variables:
+#   %(asctime)s     - Human-readable time
+#   %(created)f     - Time when record was created
+#   %(filename)s    - Filename portion of pathname
+#   %(funcName)s    - Function name
+#   %(levelname)s   - Text logging level (DEBUG, INFO, etc.)
+#   %(lineno)d      - Source line number
+#   %(message)s     - The logged message
+#   %(module)s      - Module name
+#   %(name)s        - Logger name
+#   %(pathname)s    - Full pathname of source file
+#   %(process)d     - Process ID
+#   %(thread)d      - Thread ID
+#
+# Performance Considerations:
+#   - Use appropriate log levels (avoid DEBUG in production)
+#   - Set propagate: false to avoid duplicate log messages
+#   - Use RotatingFileHandler to prevent log files from growing indefinitely
+#   - Consider using syslog for centralized logging
+#   - For high-performance needs, consider async logging
+#
+# Production Recommendations:
+#   1. Set root level to INFO or WARNING
+#   2. Enable DEBUG only for specific modules during troubleshooting
+#   3. Use separate handlers for different log levels
+#   4. Implement log rotation to manage disk space
+#   5. Send critical errors to alerting system
+#   6. Consider centralized logging (ELK, Splunk, etc.)
+#
+# Development/Debug Mode:
+#   - Set root level to DEBUG
+#   - Enable sqlalchemy.engine DEBUG to see SQL queries
+#   - Use console handler for immediate feedback
+#   - Use detailed formatter for more context
+#
+# Example Usage:
+#   # In Python code
+#   import logging
+#   logger = logging.getLogger('dimensigon.mymodule')
+#   logger.info('Informational message')
+#   logger.debug('Debug message')
+#   logger.error('Error message', exc_info=True)  # Include traceback
+#
+# ============================================================================

@@ -5,6 +5,8 @@ tmp
 bin
 venv*
 *.db
+*.db-shm
+*.db-wal
 .env
 .failed_versions
 *.log

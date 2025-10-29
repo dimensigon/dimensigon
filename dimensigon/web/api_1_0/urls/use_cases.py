@@ -20,7 +20,7 @@ from collections import OrderedDict
 
 from flask import request, current_app, g
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
-from pkg_resources import parse_version
+from packaging.version import Version
 
 import dimensigon
 import dimensigon.use_cases.cluster
@@ -302,7 +302,7 @@ def software_dimensigon():
     for file in os.listdir():
         if 'dimensigon-' in file:
             m = re.search(r'v?\d+\.\d+[.-][ab]?\d+', file)
-            if m and parse_version(m.group()) >= parse_version(max_version or dimensigon.__version__):
+            if m and Version(m.group()) >= Version(max_version or dimensigon.__version__):
                 max_version = m.group()
                 max_file = file
     if max_file:

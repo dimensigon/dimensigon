@@ -27,6 +27,7 @@ class TestJoin(OneNodeMixin, TestCase):
     def setUp(self):
         self.maxDiff = None
         self.app_join = create_app('test')
+        self.app_join.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
         self.app_join.config['SERVER_NAME'] = 'join'
         self.app_join_context = self.app_join.app_context()
         self.client_join = self.app_join.test_client()

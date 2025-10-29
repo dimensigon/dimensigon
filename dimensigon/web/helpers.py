@@ -10,11 +10,7 @@ from json import JSONEncoder
 
 from flask import current_app, request
 from flask_jwt_extended import create_access_token, get_jwt_identity
-try:
-    from flask_sqlalchemy import BaseQuery
-except ImportError:
-    # Flask-SQLAlchemy 3.1+ moved BaseQuery to query.Query
-    from flask_sqlalchemy.query import Query as BaseQuery
+from flask_sqlalchemy.query import Query as BaseQuery
 from sqlalchemy import not_, inspect
 from sqlalchemy.orm import sessionmaker
 
