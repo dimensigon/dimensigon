@@ -2,18 +2,18 @@ import concurrent.futures
 import re
 from functools import update_wrapper
 
-from flask import copy_current_request_context, has_request_context
-from flask.globals import _app_ctx_stack
+from flask import copy_current_request_context, has_request_context, current_app
 
 from dimensigon.web.extensions.flask_executor.futures import FutureCollection, FutureProxy
 from dimensigon.web.extensions.flask_executor.helpers import InstanceProxy, str2bool
 
 
 def copy_current_app_context(fn):
-    app_context = _app_ctx_stack.top
+    # Flask 2.3+ compatible: Use current_app._get_current_object()
+    app = current_app._get_current_object()
 
     def wrapper(*args, **kwargs):
-        with app_context:
+        with app.app_context():
             return fn(*args, **kwargs)
 
     return update_wrapper(wrapper, fn)
