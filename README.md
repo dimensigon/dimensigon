@@ -80,20 +80,74 @@ pip install -e .
 pip install dimensigon
 ```
 
-### Basic Usage
+### Getting Started (3 Simple Steps)
+
+Dimensigon uses a "dimension" concept - think of it as your management realm where all servers coordinate.
+
+#### Step 1: Create Your First Dimension
 
 ```bash
-# Initialize configuration
-dimensigon init
+# Create a new dimension (your management cluster)
+dimensigon new my-cluster
 
+# You'll be prompted for a root password:
+Password for root user: ********
+Re-type same password: ********
+
+# Output:
+# New dimension created successfully
+#
+# ----- JOIN TOKEN (valid for 30 minutes) -----
+# eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+# ---------------- END TOKEN --------------------
+```
+
+**What just happened?**
+- Created a dimension named "my-cluster"
+- Generated RSA keys and SSL certificates
+- Set up root user credentials
+- Generated a JOIN token (save this if you want to add more servers!)
+
+#### Step 2: Start Dimensigon
+
+```bash
 # Start the server
 dimensigon start
 
-# Access web interface
-# http://localhost:5000
+# Server will start on port 20194 (default)
+# Press Ctrl+C to stop when needed
 ```
 
-For detailed instructions, see the [Quick Start Guide](docs/guides/QUICK_START.md).
+#### Step 3: Access the Web Interface
+
+Open your browser to:
+- **Dashboard**: https://localhost:20194/dm-webmanager/dashboard
+- **Admin Panel**: https://localhost:20194/admin
+- **API v2.0**: https://localhost:20194/api/v2/
+
+**Default Credentials:**
+- Username: `root`
+- Password: (the one you set in Step 1)
+
+**Note**: You'll see an SSL certificate warning - this is expected for development. Click "Advanced" → "Proceed" to continue.
+
+### Adding More Servers to Your Cluster
+
+```bash
+# On Server 1 (the one you just created), generate a token:
+dimensigon token my-cluster
+
+# Copy the token, then on Server 2:
+dimensigon join 192.168.1.100 <paste-token-here> --port 20194
+
+# Your cluster now has 2 servers working together!
+```
+
+### Need Help?
+
+- **Complete Tutorial**: [Getting Started Guide](docs/guides/GETTING_STARTED.md) - Hands-on beginner tutorial
+- **Dimension Concepts**: [Dimension Lifecycle](docs/guides/DIMENSION_LIFECYCLE.md) - Understanding dimensions
+- **Quick Reference**: [Quick Start Guide](docs/guides/QUICK_START.md) - Fast reference
 
 ## System Requirements
 

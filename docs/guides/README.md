@@ -7,11 +7,30 @@ This directory contains user guides, tutorials, and quick start documentation fo
 ### Getting Started
 
 - **[QUICK_START.md](./QUICK_START.md)** - Quick start guide to get up and running
-  - Installation steps
-  - Basic configuration
-  - First server setup
-  - Simple orchestration example
-  - Troubleshooting tips
+  - Installation steps and verification
+  - Creating your first dimension
+  - Starting the server
+  - Accessing the web interface
+  - Adding servers to your cluster
+  - Common commands and troubleshooting
+
+- **[DIMENSION_LIFECYCLE.md](./DIMENSION_LIFECYCLE.md)** ⭐ NEW - Complete dimension management guide
+  - Understanding dimensions (concept and architecture)
+  - Dimension lifecycle stages (new → running → joined)
+  - Creating and managing dimensions
+  - Token generation and management
+  - Joining servers to dimensions
+  - Gate (network endpoint) management
+  - Troubleshooting and best practices
+
+- **[GETTING_STARTED.md](./GETTING_STARTED.md)** ⭐ NEW - Hands-on beginner tutorial
+  - Tutorial 1: Single server setup (development)
+  - Tutorial 2: Two-server cluster (testing)
+  - Tutorial 3: Three-server production cluster
+  - Creating and executing orchestrations
+  - Real-world examples with expected output
+  - Common errors and solutions
+  - Tips, tricks, and next steps
 
 ### Web Interface
 
@@ -37,9 +56,19 @@ This directory contains user guides, tutorials, and quick start documentation fo
 If you're new to Dimensigon, follow this learning path:
 
 1. **Start Here**: [QUICK_START.md](./QUICK_START.md)
-   - Understand what Dimensigon does
-   - Install Dimensigon on your first server
-   - Run your first orchestration command
+   - Install Dimensigon
+   - Create your first dimension
+   - Start the server and access the web interface
+
+2. **Understand Dimensions**: [DIMENSION_LIFECYCLE.md](./DIMENSION_LIFECYCLE.md)
+   - Learn what dimensions are
+   - Understand the dimension lifecycle
+   - Learn token management and clustering
+
+3. **Hands-On Tutorial**: [GETTING_STARTED.md](./GETTING_STARTED.md)
+   - Follow step-by-step tutorials
+   - Build single and multi-server clusters
+   - Create your first orchestrations
 
 2. **Explore the Web Interface**: [DM_WEBMANAGER_README.md](./DM_WEBMANAGER_README.md)
    - Access the web dashboard
