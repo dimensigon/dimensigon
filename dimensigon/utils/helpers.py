@@ -11,7 +11,7 @@ import string
 import sys
 import traceback
 import typing as t
-from collections import Iterable
+from collections.abc import Iterable  # Python 3.3+ - fixed deprecation warning
 from contextlib import contextmanager
 
 import netifaces

@@ -1,0 +1,243 @@
+# Systemd service unit file for Dimensigon 2.0
+#
+# Installation:
+#   1. Copy this file to /etc/systemd/system/dimensigon.service
+#   2. Adjust paths and settings below for your environment
+#   3. Run: sudo systemctl daemon-reload
+#   4. Run: sudo systemctl enable dimensigon
+#   5. Run: sudo systemctl start dimensigon
+#
+# Management:
+#   Start:   sudo systemctl start dimensigon
+#   Stop:    sudo systemctl stop dimensigon
+#   Restart: sudo systemctl restart dimensigon
+#   Status:  sudo systemctl status dimensigon
+#   Logs:    sudo journalctl -u dimensigon -f
+
+[Unit]
+Description=Dimensigon 2.0 - Distributed Orchestration Platform
+Documentation=https://github.com/dimensigon/dimensigon
+Documentation=file:///opt/dimensigon/DEPLOYMENT_GUIDE.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=dimensigon
+Group=dimensigon
+WorkingDirectory=/opt/dimensigon
+
+# Python virtual environment activation
+# Adjust this path if your venv is located elsewhere
+Environment="PATH=/opt/dimensigon/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="VIRTUAL_ENV=/opt/dimensigon/venv"
+
+# Flask configuration
+Environment="FLASK_CONFIG=production"
+Environment="FLASK_APP=dimensigon.web"
+Environment="PYTHONDONTWRITEBYTECODE=1"
+Environment="PYTHONUNBUFFERED=1"
+
+# Load environment variables from file
+# Create this file with your secrets and configuration
+EnvironmentFile=-/opt/dimensigon/.env
+EnvironmentFile=-/etc/dimensigon/dimensigon.conf
+
+# Dimensigon Configuration
+# Override these in /etc/dimensigon/dimensigon.conf
+Environment="DM_PORT=20194"
+Environment="CONFIG_DIR=/opt/dimensigon/.dimensigon"
+
+# Security: Secret key MUST be set in environment file
+# Environment="DM_SECRET_KEY=your-secret-key-here"
+
+# Database Configuration
+# IMPORTANT: Set this in /etc/dimensigon/dimensigon.conf
+# Environment="SQLALCHEMY_DATABASE_URI=postgresql://user:pass@localhost/dimensigon"
+
+# Gunicorn Configuration
+Environment="WORKERS=4"
+Environment="GUNICORN_TIMEOUT=120"
+Environment="EXECUTOR_MAX_WORKERS=32"
+
+# Logging
+Environment="LOG_LEVEL=INFO"
+
+# Gunicorn command
+# Adjust workers based on CPU cores: (2 x cores) + 1
+ExecStart=/opt/dimensigon/venv/bin/gunicorn \
+    --bind 0.0.0.0:20194 \
+    --workers 4 \
+    --threads 2 \
+    --worker-class sync \
+    --worker-tmp-dir /dev/shm \
+    --timeout 120 \
+    --keepalive 5 \
+    --max-requests 1000 \
+    --max-requests-jitter 100 \
+    --pid /run/dimensigon/dimensigon.pid \
+    --access-logfile /var/log/dimensigon/access.log \
+    --error-logfile /var/log/dimensigon/error.log \
+    --log-level info \
+    --capture-output \
+    --enable-stdio-inheritance \
+    --name dimensigon \
+    "dimensigon.web:create_app('production')"
+
+# Alternative: Run with dimensigon CLI (for direct control)
+# ExecStart=/opt/dimensigon/venv/bin/dimensigon \
+#     --config-dir /opt/dimensigon/.dimensigon \
+#     --port 20194 \
+#     --access-logfile /var/log/dimensigon/access.log \
+#     --error-logfile /var/log/dimensigon/error.log
+
+# Restart configuration
+Restart=on-failure
+RestartSec=10s
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Process management
+PIDFile=/run/dimensigon/dimensigon.pid
+RuntimeDirectory=dimensigon
+RuntimeDirectoryMode=0755
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Restrict system calls (comment out if causing issues)
+# SystemCallFilter=@system-service
+# SystemCallErrorNumber=EPERM
+
+# Restrict file system access
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/dimensigon /var/log/dimensigon /run/dimensigon
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Memory and CPU limits (optional, adjust based on your needs)
+# MemoryMax=2G
+# CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dimensigon
+
+# Notification and watchdog
+NotifyAccess=main
+WatchdogSec=30s
+
+# Timeout settings
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+# Graceful shutdown
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Pre-start checks
+ExecStartPre=/bin/mkdir -p /var/log/dimensigon
+ExecStartPre=/bin/mkdir -p /run/dimensigon
+ExecStartPre=/bin/chown dimensigon:dimensigon /var/log/dimensigon
+ExecStartPre=/bin/chown dimensigon:dimensigon /run/dimensigon
+
+# Post-stop cleanup
+ExecStopPost=/bin/rm -f /run/dimensigon/dimensigon.pid
+
+[Install]
+WantedBy=multi-user.target
+Alias=dimensigon.service
+
+# ============================================================================
+# CONFIGURATION NOTES
+# ============================================================================
+#
+# 1. User and Group:
+#    Create the dimensigon user if it doesn't exist:
+#      sudo useradd -r -m -s /bin/bash -d /opt/dimensigon dimensigon
+#
+# 2. Directory Permissions:
+#    Ensure proper ownership:
+#      sudo chown -R dimensigon:dimensigon /opt/dimensigon
+#      sudo mkdir -p /var/log/dimensigon
+#      sudo chown -R dimensigon:dimensigon /var/log/dimensigon
+#
+# 3. Environment File:
+#    Create /etc/dimensigon/dimensigon.conf with your settings:
+#      sudo mkdir -p /etc/dimensigon
+#      sudo nano /etc/dimensigon/dimensigon.conf
+#
+#    Example content:
+#      DM_SECRET_KEY=your-secret-key-here
+#      SQLALCHEMY_DATABASE_URI=postgresql://user:pass@localhost/dimensigon
+#      DM_PORT=20194
+#      WORKERS=4
+#
+#    Set proper permissions:
+#      sudo chmod 600 /etc/dimensigon/dimensigon.conf
+#      sudo chown root:root /etc/dimensigon/dimensigon.conf
+#
+# 4. Log Rotation:
+#    Create /etc/logrotate.d/dimensigon:
+#      /var/log/dimensigon/*.log {
+#          daily
+#          rotate 30
+#          compress
+#          delaycompress
+#          notifempty
+#          missingok
+#          create 0640 dimensigon dimensigon
+#          sharedscripts
+#          postrotate
+#              systemctl reload dimensigon > /dev/null 2>&1 || true
+#          endscript
+#      }
+#
+# 5. Firewall:
+#    Allow Dimensigon port:
+#      sudo firewall-cmd --permanent --add-port=20194/tcp
+#      sudo firewall-cmd --reload
+#    Or with ufw:
+#      sudo ufw allow 20194/tcp
+#
+# 6. SELinux (RHEL/CentOS):
+#    If SELinux is enabled:
+#      sudo semanage port -a -t http_port_t -p tcp 20194
+#      sudo setsebool -P httpd_can_network_connect 1
+#
+# 7. Performance Tuning:
+#    Adjust WORKERS based on CPU cores:
+#      WORKERS=$(($(nproc) * 2 + 1))
+#
+#    For high-traffic environments, increase file descriptors:
+#      LimitNOFILE=262144
+#
+# 8. Monitoring:
+#    Check service status:
+#      systemctl status dimensigon
+#
+#    View logs:
+#      journalctl -u dimensigon -f
+#      tail -f /var/log/dimensigon/dimensigon.log
+#
+#    Check resource usage:
+#      systemctl show dimensigon -p MemoryCurrent -p CPUUsageNSec
+#
+# 9. Backup:
+#    Before updates, backup configuration:
+#      sudo cp /opt/dimensigon/.dimensigon /backup/dimensigon-config-$(date +%Y%m%d)
+#
+# 10. Updates:
+#     To update Dimensigon:
+#       sudo systemctl stop dimensigon
+#       cd /opt/dimensigon
+#       sudo -u dimensigon git pull
+#       sudo -u dimensigon venv/bin/pip install --upgrade -r requirements.txt
+#       sudo systemctl start dimensigon
+#
+# ============================================================================

@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  dimensigon:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: dimensigon-2.0
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-dimensigon-secret-key-change-in-production}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/dimensigon.db}
+    volumes:
+      - dimensigon_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  dimensigon_data:
+    driver: local

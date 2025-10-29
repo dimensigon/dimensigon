@@ -4,7 +4,7 @@ import multiprocessing as mp
 import time
 import typing as t
 
-from pkg_resources import parse_version
+from packaging.version import Version
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -208,8 +208,8 @@ class CatalogManager(mpt.TimerWorker):
     def check_new_version(self, data: t.Dict[Server, dict]):
         mayor_version, mayor_server = None, None
         for server, hc in data.items():
-            remote_version = parse_version(hc['version'])
-            if remote_version > parse_version(__version__):
+            remote_version = Version(hc['version'])
+            if remote_version > Version(__version__):
                 if mayor_version is None or mayor_version < remote_version:
                     mayor_version, mayor_server = remote_version, server
         if mayor_version:

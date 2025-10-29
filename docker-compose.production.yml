@@ -1,0 +1,226 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: dimensigon-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dimensigon}
+      POSTGRES_USER: ${POSTGRES_USER:-dimensigon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password required}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dimensigon} -d ${POSTGRES_DB:-dimensigon}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - dimensigon_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis Cache (for future optimization and session storage)
+  redis:
+    image: redis:7-alpine
+    container_name: dimensigon-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-dimensigon-redis}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - dimensigon_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # Dimensigon Application
+  dimensigon:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.11}
+    image: dimensigon:2.0.0
+    container_name: dimensigon-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Flask Configuration
+      FLASK_CONFIG: ${FLASK_CONFIG:-production}
+      FLASK_APP: dimensigon.web
+      PYTHONDONTWRITEBYTECODE: 1
+      PYTHONUNBUFFERED: 1
+
+      # Security
+      DM_SECRET_KEY: ${DM_SECRET_KEY:?Secret key required}
+
+      # Database Configuration
+      SQLALCHEMY_DATABASE_URI: postgresql://${POSTGRES_USER:-dimensigon}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dimensigon}
+      SQLALCHEMY_TRACK_MODIFICATIONS: "False"
+
+      # Redis Configuration (for future use)
+      REDIS_URL: redis://:${REDIS_PASSWORD:-dimensigon-redis}@redis:6379/0
+
+      # Server Configuration
+      DM_PORT: ${DM_PORT:-20194}
+      HTTP_HOST: ${HTTP_HOST:-0.0.0.0}
+      PREFERRED_URL_SCHEME: https
+
+      # Gunicorn Configuration
+      WORKERS: ${WORKERS:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+      GUNICORN_KEEPALIVE: ${GUNICORN_KEEPALIVE:-5}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ACCESS_LOGFILE: ${ACCESS_LOGFILE:--}
+      ERROR_LOGFILE: ${ERROR_LOGFILE:--}
+
+      # Application Settings
+      EXECUTOR_MAX_WORKERS: ${EXECUTOR_MAX_WORKERS:-32}
+      AUTOUPGRADE: ${AUTOUPGRADE:-True}
+      SECURIZER: ${SECURIZER:-True}
+      SCHEDULER: ${SCHEDULER:-True}
+
+      # SSL Settings
+      SSL_VERIFY: ${SSL_VERIFY:-False}
+      SSL_REDIRECT: ${SSL_REDIRECT:-False}
+    volumes:
+      # Configuration and data persistence
+      - dimensigon_config:/app/.dimensigon
+      - dimensigon_logs:/var/log/dimensigon
+      - dimensigon_data:/app/data
+
+      # SSL certificates (mount your certificates here)
+      - ${SSL_CERT_PATH:-./ssl/cert.pem}:/app/.dimensigon/.ssl/cert.pem:ro
+      - ${SSL_KEY_PATH:-./ssl/key.pem}:/app/.dimensigon/.ssl/key.pem:ro
+
+      # Optional: Custom logging configuration
+      # - ./logconfig.yaml:/app/logconfig.yaml:ro
+    ports:
+      - "${DIMENSIGON_PORT:-20194}:${DM_PORT:-20194}"
+    networks:
+      - dimensigon_network
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:${DM_PORT:-20194}/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 4096
+        hard: 4096
+
+  # Nginx Reverse Proxy (optional but recommended for production)
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: dimensigon-nginx
+    restart: unless-stopped
+    depends_on:
+      - dimensigon
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ${SSL_CERT_PATH:-./ssl/cert.pem}:/etc/nginx/ssl/cert.pem:ro
+      - ${SSL_KEY_PATH:-./ssl/key.pem}:/etc/nginx/ssl/key.pem:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - dimensigon_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  dimensigon_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/postgres
+
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/redis
+
+  dimensigon_config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/dimensigon/config
+
+  dimensigon_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/dimensigon/logs
+
+  dimensigon_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/dimensigon/data
+
+  nginx_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/nginx/logs

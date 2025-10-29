@@ -1,0 +1,79 @@
+Metadata-Version: 2.4
+Name: dimensigon
+Version: 0.3.4
+Summary: Distributed Management and orchestration through RESTful, Mesh Networking and with a flair of IoT.
+Home-page: https://github.com/dimensigon/dimensigon
+Author: Joan Prat
+Author-email: joan.prat@dimensigon.com
+License: GNU General Public License v3 or later (GPLv3+)
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)
+Classifier: Operating System :: POSIX
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: aiohttp<4.0.0,>=3.9.5
+Requires-Dist: click<9.0.0,>=8.1.7
+Requires-Dist: coolname<2.0.0,>=1.1.0
+Requires-Dist: cryptography<43.0.0,>=42.0.0
+Requires-Dist: dill<0.4.0,>=0.3.8
+Requires-Dist: docopt<0.7.0,>=0.6.2
+Requires-Dist: gunicorn<23.0.0,>=22.0.0
+Requires-Dist: Flask<3.0.0,>=2.3.0
+Requires-Dist: Flask-JWT-Extended<5.0.0,>=4.6.0
+Requires-Dist: Flask-RESTful<0.4.0,>=0.3.10
+Requires-Dist: Flask-SQLAlchemy<3.1.0,>=3.0.0
+Requires-Dist: jinja2<4.0.0,>=3.1.4
+Requires-Dist: jinja2schema<0.2.0,>=0.1.4
+Requires-Dist: jsonschema<5.0.0,>=4.21.0
+Requires-Dist: netifaces<0.12.0,>=0.11.0
+Requires-Dist: packaging<25.0,>=24.0
+Requires-Dist: passlib<2.0.0,>=1.7.4
+Requires-Dist: PyYAML<7.0.0,>=6.0.1
+Requires-Dist: prompt_toolkit<4.0.0,>=3.0.47
+Requires-Dist: Pygments<3.0.0,>=2.18.0
+Requires-Dist: python-dateutil<3.0.0,>=2.9.0
+Requires-Dist: requests<3.0.0,>=2.32.0
+Requires-Dist: RestrictedPython<8.0.0,>=7.0
+Requires-Dist: rsa<5.0.0,>=4.9
+Requires-Dist: schema<0.8.0,>=0.7.7
+Requires-Dist: six<2.0.0,>=1.16.0
+Requires-Dist: watchdog<5.0.0,>=4.0.0
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: license
+Dynamic: license-file
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+**Dimensigon (DM)** is our backend technology at store.dimensigon.com to bootstrap ELASTIC Services.
+
+As main features:
+
+- Polyglot or Heterogeneous orquestrations
+- Mesh Networking
+- Decentralization of IoT or IoT 2.0 as we understand it for our own implementation.
+- Distributed-Decentralized Server Management, High-complex orchestrations
+- Full RESTful and easily embeddable
+- Distributed Vault for Configuration Management or Secrets
+- Log Federation
+- Double Encryption (SSL + Encrypted messaging by default)
+- ACLs for higher granularity and security control on top of OS Security.
+
+
+All these functionality makes **Dimensigon (DM)** a good standard for companies serving as Coordination layer for all automation technologies (Polyglot).
+**Dimensigon** (DM) lowers the costs of administration and simplify the management of high-complex environments like Hybrid Multi-Cloud.
+ 
+
+**Dimensigon (DM)** is a 100% Python and REAL Open Source project.
+
+**REAL Open Source** => No Freemium or Enterprise versions would be available in the future

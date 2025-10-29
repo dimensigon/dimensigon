@@ -68,9 +68,18 @@ def pack_msg(data,
     if no priv_key specified it does not encrypt the data. 'key' and 'signature' will not append to the structure.
     if symmetric_key or cipher_key given, 'key' will not append to the structure
     """
+    # Security: Always try JSON first (safe serialization)
+    # Only use pickle as fallback for non-JSON-serializable objects
     try:
         dumped_data: bytes = json.dumps(data).encode('utf-8')
-    except TypeError:
+    except (TypeError, ValueError):
+        # WARNING: Using pickle for non-JSON-serializable data
+        # Consider making objects JSON-serializable to improve security
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Using pickle serialization for {type(data).__name__}. "
+            "Consider implementing JSON serialization for better security."
+        )
         dumped_data: bytes = pickle.dumps(data)
 
     # get symmetric_key
@@ -154,9 +163,23 @@ def unpack_msg(msg, pub_key: rsa.PublicKey = None, priv_key: rsa.PrivateKey = No
     else:
         unloaded_data = base64.b64decode(enveloped_data.encode('ascii'))
 
+    # Security: Try JSON first (safe deserialization)
+    # Only fall back to pickle for backward compatibility with legacy messages
     try:
-        data = pickle.loads(unloaded_data)
-    except pickle.PickleError:
         data = json.loads(unloaded_data)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # WARNING: pickle.loads() can execute arbitrary code
+        # This fallback exists only for backward compatibility
+        # TODO: Remove pickle support in future version after migration period
+        import logging
+        logging.getLogger(__name__).warning(
+            "Received message using pickle serialization. "
+            "This is deprecated and will be removed in a future version. "
+            "Please upgrade all nodes to use JSON serialization."
+        )
+        try:
+            data = pickle.loads(unloaded_data)
+        except pickle.PickleError as e:
+            raise NotValidMessage(f"Unable to deserialize message: {e}")
 
     return data

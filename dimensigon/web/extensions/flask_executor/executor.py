@@ -2,18 +2,18 @@ import concurrent.futures
 import re
 from functools import update_wrapper
 
-from flask import copy_current_request_context, has_request_context
-from flask.globals import _app_ctx_stack
+from flask import copy_current_request_context, has_request_context, current_app
 
 from dimensigon.web.extensions.flask_executor.futures import FutureCollection, FutureProxy
 from dimensigon.web.extensions.flask_executor.helpers import InstanceProxy, str2bool
 
 
 def copy_current_app_context(fn):
-    app_context = _app_ctx_stack.top
+    # Flask 2.3+ compatible: Use current_app._get_current_object()
+    app = current_app._get_current_object()
 
     def wrapper(*args, **kwargs):
-        with app_context:
+        with app.app_context():
             return fn(*args, **kwargs)
 
     return update_wrapper(wrapper, fn)
@@ -110,7 +110,7 @@ class Executor(InstanceProxy, concurrent.futures._base.Executor):
         return fn
 
     def submit(self, fn, *args, **kwargs):
-        """Schedules the callable, fn, to be executed as fn(\*args \**kwargs)
+        r"""Schedules the callable, fn, to be executed as fn(\*args \**kwargs)
         and returns a :class:`~flask_executor.futures.FutureProxy` object, a
         :class:`~concurrent.futures.Future` subclass representing
         the execution of the callable.
@@ -142,7 +142,7 @@ class Executor(InstanceProxy, concurrent.futures._base.Executor):
         return FutureProxy(future, self)
 
     def submit_stored(self, future_key, fn, *args, **kwargs):
-        """Submits the callable using :meth:`Executor.submit` and stores the
+        r"""Submits the callable using :meth:`Executor.submit` and stores the
         Future in the executor via a
         :class:`~flask_executor.futures.FutureCollection` object available at
         :data:`Executor.futures`. These futures can be retrieved anywhere
@@ -179,7 +179,7 @@ class Executor(InstanceProxy, concurrent.futures._base.Executor):
         return future
 
     def map(self, fn, *iterables, **kwargs):
-        """Submits the callable, fn, and an iterable of arguments to the
+        r"""Submits the callable, fn, and an iterable of arguments to the
         executor and returns the results inside a generator.
         See also :meth:`concurrent.futures.Executor.map`.
         Callables are wrapped a copy of the current application context and the

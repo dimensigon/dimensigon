@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DM-WebManager - Dimensigon Administration</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg-dark: #0a0118;
+            --bg-darker: #050010;
+            --purple-neon: #b084ff;
+            --purple-deep: #4c2889;
+            --purple-darker: #2d1552;
+            --purple-light: #d4b3ff;
+            --cyan-neon: #00ffff;
+            --pink-neon: #ff00ff;
+            --blue-neon: #3b82f6;
+            --text-primary: #e5e7eb;
+            --text-secondary: #9ca3af;
+            --border-neon: rgba(176, 132, 255, 0.3);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, var(--bg-darker) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, var(--purple-darker) 0%, var(--purple-deep) 100%);
+            border-bottom: 2px solid var(--purple-neon);
+            box-shadow: 0 4px 20px rgba(176, 132, 255, 0.2);
+        }
+
+        .sidebar {
+            background: linear-gradient(180deg, var(--purple-darker) 0%, var(--bg-dark) 100%);
+            min-height: calc(100vh - 56px);
+            border-right: 1px solid var(--border-neon);
+            box-shadow: 4px 0 20px rgba(176, 132, 255, 0.1);
+        }
+
+        .sidebar a {
+            color: var(--text-primary);
+            text-decoration: none;
+            padding: 15px 20px;
+            display: block;
+            transition: all 0.3s ease;
+            border-left: 3px solid transparent;
+            font-weight: 500;
+        }
+
+        .sidebar a:hover {
+            background: rgba(176, 132, 255, 0.1);
+            border-left-color: var(--cyan-neon);
+            color: var(--purple-light);
+            box-shadow: inset 0 0 20px rgba(176, 132, 255, 0.1);
+        }
+
+        .sidebar a.active {
+            background: linear-gradient(90deg, rgba(176, 132, 255, 0.2) 0%, transparent 100%);
+            border-left-color: var(--purple-neon);
+            color: var(--purple-light);
+            box-shadow: inset 0 0 30px rgba(176, 132, 255, 0.15);
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, rgba(45, 21, 82, 0.6) 0%, rgba(10, 1, 24, 0.8) 100%);
+            border: 1px solid var(--border-neon);
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(176, 132, 255, 0.1);
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px) scale(1.02);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(176, 132, 255, 0.3);
+            border-color: var(--purple-neon);
+        }
+
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            background: linear-gradient(135deg, var(--purple-neon) 0%, var(--cyan-neon) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 20px rgba(176, 132, 255, 0.5);
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        .badge-success {
+            background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+        }
+
+        .badge-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        }
+
+        .badge-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+        }
+
+        .badge-info {
+            background: linear-gradient(135deg, var(--blue-neon) 0%, #60a5fa 100%);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+
+        .table {
+            background: rgba(10, 1, 24, 0.5);
+            border: 1px solid var(--border-neon);
+            border-radius: 8px;
+            overflow: hidden;
+            color: var(--text-primary);
+        }
+
+        .table thead {
+            background: linear-gradient(135deg, var(--purple-darker) 0%, var(--purple-deep) 100%);
+            border-bottom: 2px solid var(--purple-neon);
+        }
+
+        .table thead th {
+            color: var(--purple-light);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            padding: 15px;
+        }
+
+        .table tbody tr {
+            border-bottom: 1px solid rgba(176, 132, 255, 0.1);
+            transition: all 0.2s ease;
+        }
+
+        .table tbody tr:hover {
+            background: rgba(176, 132, 255, 0.1);
+            box-shadow: inset 0 0 20px rgba(176, 132, 255, 0.1);
+        }
+
+        .table tbody td {
+            padding: 12px 15px;
+            vertical-align: middle;
+        }
+
+        .orchestration-badge {
+            background: linear-gradient(135deg, var(--purple-neon) 0%, var(--pink-neon) 100%);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            box-shadow: 0 0 15px rgba(176, 132, 255, 0.4);
+            display: inline-block;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner-border {
+            border-color: var(--purple-neon);
+            border-right-color: transparent;
+            box-shadow: 0 0 20px rgba(176, 132, 255, 0.5);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--purple-deep) 0%, var(--purple-neon) 100%);
+            border: 1px solid var(--purple-neon);
+            box-shadow: 0 4px 15px rgba(176, 132, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(176, 132, 255, 0.5);
+            background: linear-gradient(135deg, var(--purple-neon) 0%, var(--cyan-neon) 100%);
+        }
+
+        .btn-outline-light {
+            border-color: var(--purple-light);
+            color: var(--purple-light);
+            transition: all 0.3s ease;
+        }
+
+        .btn-outline-light:hover {
+            background: var(--purple-light);
+            color: var(--purple-darker);
+            box-shadow: 0 0 20px rgba(212, 179, 255, 0.5);
+        }
+
+        .form-control, .form-select {
+            background: rgba(10, 1, 24, 0.6);
+            border: 1px solid var(--border-neon);
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus, .form-select:focus {
+            background: rgba(10, 1, 24, 0.8);
+            border-color: var(--purple-neon);
+            color: var(--text-primary);
+            box-shadow: 0 0 20px rgba(176, 132, 255, 0.3);
+        }
+
+        .form-control::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .card {
+            background: linear-gradient(135deg, rgba(45, 21, 82, 0.6) 0%, rgba(10, 1, 24, 0.8) 100%);
+            border: 1px solid var(--border-neon);
+            border-radius: 10px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: var(--purple-neon);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 20px rgba(176, 132, 255, 0.2);
+        }
+
+        .card-title {
+            color: var(--purple-light);
+            font-weight: 600;
+        }
+
+        .card-text {
+            color: var(--text-secondary);
+        }
+
+        .list-group-item {
+            background: rgba(10, 1, 24, 0.4);
+            border-color: rgba(176, 132, 255, 0.2);
+            color: var(--text-primary);
+        }
+
+        .list-group-item:hover {
+            background: rgba(176, 132, 255, 0.1);
+        }
+
+        h2, h5 {
+            color: var(--purple-light);
+            font-weight: 700;
+        }
+
+        code {
+            background: rgba(176, 132, 255, 0.2);
+            color: var(--cyan-neon);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            border: 1px solid rgba(176, 132, 255, 0.3);
+        }
+
+        /* Glow animations */
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(176, 132, 255, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(176, 132, 255, 0.6); }
+        }
+
+        .stat-card:hover .stat-number {
+            animation: glow 2s infinite;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-darker);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, var(--purple-deep) 0%, var(--purple-neon) 100%);
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--purple-neon);
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="bi bi-diagram-3-fill"></i>
+                <strong>DM-WebManager</strong> - Dimensigon Administration
+            </a>
+            <div class="d-flex">
+                <span class="navbar-text text-white me-3" id="currentUser"></span>
+                <button class="btn btn-outline-light btn-sm" onclick="logout()">
+                    <i class="bi bi-box-arrow-right"></i> Logout
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar p-0">
+                <a href="#" onclick="showView('dashboard')" class="active" id="nav-dashboard">
+                    <i class="bi bi-speedometer2"></i> Dashboard
+                </a>
+                <a href="#" onclick="showView('orchestrations')" id="nav-orchestrations">
+                    <i class="bi bi-diagram-3"></i> Orchestrations
+                </a>
+                <a href="#" onclick="showView('actions')" id="nav-actions">
+                    <i class="bi bi-lightning"></i> Action Templates
+                </a>
+                <a href="#" onclick="showView('executions')" id="nav-executions">
+                    <i class="bi bi-play-circle"></i> Executions
+                </a>
+                <a href="#" onclick="showView('dictionary')" id="nav-dictionary">
+                    <i class="bi bi-book"></i> Data Dictionary
+                </a>
+                <hr style="border-color: #34495e;">
+                <a href="#" onclick="refreshCurrentView()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </a>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-10 p-4">
+                <!-- Dashboard View -->
+                <div id="view-dashboard" class="view-content">
+                    <h2 class="mb-4"><i class="bi bi-speedometer2"></i> Dashboard</h2>
+
+                    <div class="row" id="statsContainer">
+                        <div class="col-md-3">
+                            <div class="stat-card text-center">
+                                <div class="stat-number text-primary" id="stat-total">-</div>
+                                <div class="stat-label">Total Executions</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-card text-center">
+                                <div class="stat-number text-warning" id="stat-running">-</div>
+                                <div class="stat-label">Running Now</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-card text-center">
+                                <div class="stat-number text-success" id="stat-success">-</div>
+                                <div class="stat-label">Successful</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-card text-center">
+                                <div class="stat-number text-danger" id="stat-failed">-</div>
+                                <div class="stat-label">Failed</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="stat-card">
+                                <h5><i class="bi bi-trophy"></i> Top Orchestrations</h5>
+                                <div id="topOrchestrations" class="mt-3"></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="stat-card">
+                                <h5><i class="bi bi-exclamation-triangle"></i> Recent Failures</h5>
+                                <div id="recentFailures" class="mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Orchestrations View -->
+                <div id="view-orchestrations" class="view-content" style="display: none;">
+                    <h2 class="mb-4"><i class="bi bi-diagram-3"></i> Orchestrations</h2>
+                    <div class="stat-card">
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="search-orchestrations"
+                                   placeholder="Search orchestrations...">
+                        </div>
+                        <div class="loading" id="loading-orchestrations">
+                            <div class="spinner-border text-primary" role="status"></div>
+                        </div>
+                        <div id="orchestrationsTable"></div>
+                    </div>
+                </div>
+
+                <!-- Action Templates View -->
+                <div id="view-actions" class="view-content" style="display: none;">
+                    <h2 class="mb-4"><i class="bi bi-lightning"></i> Action Templates</h2>
+                    <div class="stat-card">
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="search-actions"
+                                   placeholder="Search action templates...">
+                        </div>
+                        <div class="loading" id="loading-actions">
+                            <div class="spinner-border text-primary" role="status"></div>
+                        </div>
+                        <div id="actionsTable"></div>
+                    </div>
+                </div>
+
+                <!-- Executions View -->
+                <div id="view-executions" class="view-content" style="display: none;">
+                    <h2 class="mb-4"><i class="bi bi-play-circle"></i> Executions</h2>
+                    <div class="stat-card">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <select class="form-select" id="filter-status">
+                                    <option value="">All Status</option>
+                                    <option value="running">Running</option>
+                                    <option value="success">Success</option>
+                                    <option value="failed">Failed</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <input type="text" class="form-control" id="search-executions"
+                                       placeholder="Search executions...">
+                            </div>
+                        </div>
+                        <div class="loading" id="loading-executions">
+                            <div class="spinner-border text-primary" role="status"></div>
+                        </div>
+                        <div id="executionsTable"></div>
+                    </div>
+                </div>
+
+                <!-- Data Dictionary View -->
+                <div id="view-dictionary" class="view-content" style="display: none;">
+                    <h2 class="mb-4"><i class="bi bi-book"></i> Data Dictionary</h2>
+                    <div class="stat-card">
+                        <p class="text-muted">Browse the Dimensigon data model schema and documentation.</p>
+                        <div class="loading" id="loading-dictionary">
+                            <div class="spinner-border text-primary" role="status"></div>
+                        </div>
+                        <div id="dictionaryContent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // API Configuration
+        const API_BASE = window.location.origin;
+        let authToken = localStorage.getItem('dm_token');
+        let currentView = 'dashboard';
+
+        // API Helper
+        async function apiCall(endpoint, options = {}) {
+            const headers = {
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                ...options,
+                headers
+            });
+
+            if (response.status === 401) {
+                // Token expired, redirect to login
+                window.location.href = '/login';
+                return null;
+            }
+
+            return response.json();
+        }
+
+        // View Management
+        function showView(viewName) {
+            // Hide all views
+            document.querySelectorAll('.view-content').forEach(view => {
+                view.style.display = 'none';
+            });
+
+            // Remove active class from all nav items
+            document.querySelectorAll('.sidebar a').forEach(link => {
+                link.classList.remove('active');
+            });
+
+            // Show selected view
+            document.getElementById(`view-${viewName}`).style.display = 'block';
+            document.getElementById(`nav-${viewName}`).classList.add('active');
+            currentView = viewName;
+
+            // Load data for the view
+            loadViewData(viewName);
+        }
+
+        function loadViewData(viewName) {
+            switch(viewName) {
+                case 'dashboard':
+                    loadDashboard();
+                    break;
+                case 'orchestrations':
+                    loadOrchestrations();
+                    break;
+                case 'actions':
+                    loadActionTemplates();
+                    break;
+                case 'executions':
+                    loadExecutions();
+                    break;
+                case 'dictionary':
+                    loadDataDictionary();
+                    break;
+            }
+        }
+
+        function refreshCurrentView() {
+            loadViewData(currentView);
+        }
+
+        // Dashboard
+        async function loadDashboard() {
+            const stats = await apiCall('/api/v2/executions/stats?hours=24');
+            if (!stats) return;
+
+            document.getElementById('stat-total').textContent = stats.total_executions || 0;
+            document.getElementById('stat-running').textContent = stats.running || 0;
+            document.getElementById('stat-success').textContent = stats.successful || 0;
+            document.getElementById('stat-failed').textContent = stats.failed || 0;
+
+            // Top Orchestrations
+            let topHtml = '<ul class="list-group">';
+            (stats.top_orchestrations || []).slice(0, 5).forEach(orch => {
+                topHtml += `
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        ${orch.name} v${orch.version}
+                        <span class="badge bg-primary rounded-pill">${orch.count}</span>
+                    </li>
+                `;
+            });
+            topHtml += '</ul>';
+            document.getElementById('topOrchestrations').innerHTML = topHtml;
+
+            // Recent Failures
+            let failuresHtml = '<ul class="list-group">';
+            (stats.recent_failures || []).forEach(failure => {
+                failuresHtml += `
+                    <li class="list-group-item">
+                        <strong>${failure.orchestration || 'Unknown'}</strong><br>
+                        <small class="text-muted">${new Date(failure.start_time).toLocaleString()}</small><br>
+                        <small class="text-danger">${failure.message || 'No error message'}</small>
+                    </li>
+                `;
+            });
+            failuresHtml += '</ul>';
+            document.getElementById('recentFailures').innerHTML = failuresHtml;
+        }
+
+        // Orchestrations
+        async function loadOrchestrations() {
+            document.getElementById('loading-orchestrations').classList.add('show');
+            const data = await apiCall('/api/1.0/orchestrations');
+            document.getElementById('loading-orchestrations').classList.remove('show');
+
+            if (!data) return;
+
+            let html = '<table class="table table-hover"><thead><tr>';
+            html += '<th>Name</th><th>Version</th><th>Description</th><th>Steps</th><th>Actions</th>';
+            html += '</tr></thead><tbody>';
+
+            (data || []).forEach(orch => {
+                html += `
+                    <tr>
+                        <td><span class="orchestration-badge">${orch.name}</span></td>
+                        <td>${orch.version}</td>
+                        <td>${orch.description || '-'}</td>
+                        <td><span class="badge bg-info">${orch.steps?.length || 0}</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="viewOrchestrationDetails('${orch.id}')">
+                                <i class="bi bi-eye"></i> View
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('orchestrationsTable').innerHTML = html;
+        }
+
+        // Action Templates
+        async function loadActionTemplates() {
+            document.getElementById('loading-actions').classList.add('show');
+            const data = await apiCall('/api/1.0/action_templates');
+            document.getElementById('loading-actions').classList.remove('show');
+
+            if (!data) return;
+
+            let html = '<table class="table table-hover"><thead><tr>';
+            html += '<th>Name</th><th>Version</th><th>Type</th><th>Description</th>';
+            html += '</tr></thead><tbody>';
+
+            (data || []).forEach(action => {
+                html += `
+                    <tr>
+                        <td><strong>${action.name}</strong></td>
+                        <td>${action.version}</td>
+                        <td><span class="badge bg-secondary">${action.action_type || '-'}</span></td>
+                        <td>${action.description || '-'}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('actionsTable').innerHTML = html;
+        }
+
+        // Executions
+        async function loadExecutions() {
+            document.getElementById('loading-executions').classList.add('show');
+            const status = document.getElementById('filter-status').value;
+            const url = status ? `/api/v2/executions?status=${status}` : '/api/v2/executions';
+            const data = await apiCall(url);
+            document.getElementById('loading-executions').classList.remove('show');
+
+            if (!data) return;
+
+            let html = '<table class="table table-hover"><thead><tr>';
+            html += '<th>Orchestration</th><th>Start Time</th><th>Duration</th><th>Status</th><th>Server</th>';
+            html += '</tr></thead><tbody>';
+
+            (data.executions || []).forEach(exec => {
+                const statusBadge = exec.status === 'success' ? 'bg-success' :
+                                  exec.status === 'failed' ? 'bg-danger' : 'bg-warning';
+                const duration = exec.duration ? `${exec.duration.toFixed(2)}s` : 'Running...';
+
+                html += `
+                    <tr>
+                        <td>${exec.orchestration?.name || 'Unknown'} v${exec.orchestration?.version || '?'}</td>
+                        <td>${new Date(exec.start_time).toLocaleString()}</td>
+                        <td>${duration}</td>
+                        <td><span class="badge ${statusBadge}">${exec.status}</span></td>
+                        <td>${exec.server?.name || '-'}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            if (data.total > data.per_page) {
+                html += `<p class="text-muted">Showing ${data.executions.length} of ${data.total} executions</p>`;
+            }
+            document.getElementById('executionsTable').innerHTML = html;
+        }
+
+        // Data Dictionary
+        async function loadDataDictionary() {
+            document.getElementById('loading-dictionary').classList.add('show');
+            const data = await apiCall('/api/v2/data-dictionary/entities');
+            document.getElementById('loading-dictionary').classList.remove('show');
+
+            if (!data) return;
+
+            let html = '<div class="row">';
+            (data.entities || []).forEach(entity => {
+                html += `
+                    <div class="col-md-6 mb-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">${entity.name}</h5>
+                                <p class="card-text text-muted">${entity.description || 'No description'}</p>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="text-muted">Table: <code>${entity.table}</code></span>
+                                    <span class="badge bg-info">${entity.count} records</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            document.getElementById('dictionaryContent').innerHTML = html;
+        }
+
+        // Event Listeners
+        document.getElementById('filter-status')?.addEventListener('change', loadExecutions);
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', () => {
+            loadDashboard();
+            // Auto-refresh dashboard every 30 seconds
+            setInterval(() => {
+                if (currentView === 'dashboard') {
+                    loadDashboard();
+                }
+            }, 30000);
+        });
+
+        function logout() {
+            localStorage.removeItem('dm_token');
+            window.location.href = '/login';
+        }
+    </script>
+</body>
+</html>

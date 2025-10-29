@@ -176,10 +176,21 @@ def request_scope(session=None):
 
 
 def set_test_scoped_session(db_, func=app_scope, check_same_thread=False):
+    # Flask-SQLAlchemy 3.0+ compatibility
     connect_args = db_._engine_options.get('connect_args', {})
     connect_args.update(check_same_thread=check_same_thread, )
     db_._engine_options['connect_args'] = connect_args
-    db_.session = db_.create_scoped_session(dict(scopefunc=func))
+
+    # Flask-SQLAlchemy 3.0 removed create_scoped_session
+    # Use the session factory approach instead
+    try:
+        # Try Flask-SQLAlchemy 2.x method
+        db_.session = db_.create_scoped_session(dict(scopefunc=func))
+    except AttributeError:
+        # Flask-SQLAlchemy 3.0+ - session is already scoped
+        # Just ensure the session uses our scopefunc
+        from sqlalchemy.orm import scoped_session
+        db_.session = scoped_session(db_.session.session_factory, scopefunc=func)
 
 
 def remove_db_file(url):
