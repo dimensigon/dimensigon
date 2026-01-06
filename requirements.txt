@@ -19,7 +19,7 @@ Flask-RESTful>=0.3.10,<0.4.0
 Flask-SQLAlchemy>=3.0.0,<3.1.0  # Major version update with breaking changes
 
 # Template and validation - Security updates
-jinja2>=3.1.4,<4.0.0  # SECURITY: Updated from 2.11.3 (CVE fixes)
+jinja2>=3.1.6,<4.0.0  # SECURITY: Updated to fix CVE-2025-27516 (sandbox breakout)
 jinja2schema>=0.1.4,<0.2.0
 jsonschema>=4.21.0,<5.0.0
 
