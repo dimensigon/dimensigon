@@ -1,3 +1,0 @@
-[console_scripts]
-dimensigon = dimensigon.__main__:main
-dshell = dimensigon.dshell.batch.dshell:main

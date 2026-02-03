@@ -16,7 +16,6 @@ from contextlib import contextmanager
 
 import netifaces
 import requests
-import six
 from cryptography.fernet import Fernet
 from flask import current_app
 
@@ -40,7 +39,7 @@ class AttributeDict(dict):
 
 
 def is_string_types(var):
-    return isinstance(var, six.string_types)
+    return isinstance(var, str)
 
 
 def is_iterable(var):

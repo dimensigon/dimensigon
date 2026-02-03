@@ -5,4 +5,3 @@ responses
 coverage
 pytest
 pytest-xdist
-asynctest
