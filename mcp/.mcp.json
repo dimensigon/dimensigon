@@ -1,0 +1,15 @@
+{
+  "dimensigon": {
+    "command": "python3.11",
+    "args": ["-m", "dm_mcp.server"],
+    "cwd": "/home/app/dimensigon/mcp",
+    "env": {
+      "DM_HOST": "localhost",
+      "DM_PORT": "20194",
+      "DM_USERNAME": "root",
+      "DM_PASSWORD": "",
+      "DM_SCHEME": "https",
+      "DM_VERIFY_SSL": "false"
+    }
+  }
+}

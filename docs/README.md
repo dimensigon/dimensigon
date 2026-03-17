@@ -40,6 +40,9 @@ Dimensigon (DM) is a powerful backend technology designed for elastic service bo
 - [Vulnerability Fixes](./security/VULNERABILITY_FIXES.md) - Security patches and fixes
 - [Security Checklist](./security/SECURITY_CHECKLIST.md) - Security best practices and validation
 
+### MCP (Model Context Protocol)
+- [MCP Server](./mcp/README.md) - AI-powered automation via MCP tools
+
 ### Development
 - [Code Quality Report](./development/CODE_QUALITY_REPORT.md) - Code quality metrics and analysis
 
@@ -73,6 +76,8 @@ docs/
 ├── development/              # Developer resources
 │   ├── README.md            # Development documentation index
 │   └── CODE_QUALITY_REPORT.md
+├── mcp/                      # MCP server documentation
+│   └── README.md            # MCP tools reference and setup
 └── guides/                   # User guides and tutorials
     ├── README.md            # Guides documentation index
     ├── QUICK_START.md
@@ -89,7 +94,7 @@ docs/
 
 ## Version Information
 
-This documentation is maintained for Dimensigon 2.0+
+This documentation is maintained for Dimensigon 2.1+
 
 ## Contributing
 
