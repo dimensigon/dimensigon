@@ -470,6 +470,12 @@
                 <a href="#" onclick="showView('topology')" id="nav-topology">
                     <i class="bi bi-diagram-2"></i> Topology
                 </a>
+                <a href="#" onclick="showView('terminal')" id="nav-terminal">
+                    <i class="bi bi-terminal"></i> Terminal
+                </a>
+                <a href="#" onclick="showView('federation')" id="nav-federation">
+                    <i class="bi bi-globe"></i> Federation
+                </a>
                 <hr style="border-color: #34495e;">
                 <a href="#" onclick="refreshCurrentView()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -481,6 +487,50 @@
                 <!-- Dashboard View -->
                 <div id="view-dashboard" class="view-content">
                     <h2 class="mb-4"><i class="bi bi-speedometer2"></i> Dashboard</h2>
+
+                    <!-- Natural Language Orchestration Runner -->
+                    <div class="stat-card mb-3" id="nl-runner-card">
+                        <h6 class="mb-2"><i class="bi bi-chat-dots"></i> Natural Language Runner</h6>
+                        <div class="d-flex gap-2">
+                            <input type="text" id="nl-input" class="form-control"
+                                   placeholder="Describe what you want to run... e.g. 'Run health check on all web servers'"
+                                   onkeydown="if(event.key==='Enter')resolveNLCommand()">
+                            <button onclick="resolveNLCommand()" class="btn btn-outline-info" id="nl-resolve-btn">
+                                <i class="bi bi-lightning"></i> Resolve
+                            </button>
+                        </div>
+                        <div id="nl-result" class="mt-3" style="display:none;"></div>
+                    </div>
+
+                    <!-- NL Confirmation Dialog -->
+                    <div id="nl-confirm-dialog" class="stat-card mb-3" style="display:none; border-color: var(--cyan-neon);">
+                        <h6><i class="bi bi-check-circle"></i> Confirm Execution</h6>
+                        <div class="row mt-2">
+                            <div class="col-md-4">
+                                <strong style="color: var(--purple-light);">Orchestration:</strong>
+                                <div id="nl-confirm-orch" class="mt-1"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <strong style="color: var(--purple-light);">Targets:</strong>
+                                <div id="nl-confirm-targets" class="mt-1"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <strong style="color: var(--purple-light);">Parameters:</strong>
+                                <div id="nl-confirm-params" class="mt-1"></div>
+                            </div>
+                        </div>
+                        <div id="nl-alternatives" class="mt-2" style="display:none;">
+                            <small style="color: var(--text-secondary);">Alternatives:</small>
+                            <div id="nl-alternatives-list"></div>
+                        </div>
+                        <div class="mt-3 d-flex gap-2">
+                            <button onclick="confirmAndRun()" class="btn btn-primary" id="nl-confirm-btn">
+                                <i class="bi bi-play-fill"></i> Confirm &amp; Run
+                            </button>
+                            <button onclick="dismissNLDialog()" class="btn btn-outline-light btn-sm">Cancel</button>
+                        </div>
+                        <div id="nl-exec-result" class="mt-2" style="display:none;"></div>
+                    </div>
 
                     <div class="row" id="statsContainer">
                         <div class="col-md-3">
@@ -910,6 +960,36 @@
                     </div>
                 </div>
 
+                <!-- Terminal View -->
+                <div id="view-terminal" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-terminal"></i> DShell Terminal</h2>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-warning" onclick="clearTerminal()">
+                                <i class="bi bi-trash"></i> Clear
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="closeTerminalSession()">
+                                <i class="bi bi-x-circle"></i> Close Session
+                            </button>
+                        </div>
+                    </div>
+                    <div id="terminal-container" style="background: #0d1117; border: 1px solid #30363d; border-radius: 8px; font-family: 'Courier New', Courier, monospace; padding: 0; overflow: hidden;">
+                        <div style="background: #161b22; padding: 8px 16px; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 8px;">
+                            <span style="width: 12px; height: 12px; border-radius: 50%; background: #f85149;"></span>
+                            <span style="width: 12px; height: 12px; border-radius: 50%; background: #d29922;"></span>
+                            <span style="width: 12px; height: 12px; border-radius: 50%; background: #3fb950;"></span>
+                            <span style="color: #8b949e; margin-left: 8px; font-size: 0.85rem;" id="terminal-title">DShell Web Mode</span>
+                        </div>
+                        <div id="terminal-output" style="padding: 16px; min-height: 400px; max-height: 500px; overflow-y: auto; color: #3fb950; font-size: 0.9rem; line-height: 1.6;"></div>
+                        <div style="border-top: 1px solid #30363d; padding: 8px 16px; display: flex; align-items: center; gap: 8px; background: #161b22;">
+                            <span style="color: #3fb950; font-weight: bold;">$</span>
+                            <input type="text" id="terminal-input" placeholder="Type a command..." autocomplete="off"
+                                style="flex: 1; background: transparent; border: none; outline: none; color: #c9d1d9; font-family: 'Courier New', Courier, monospace; font-size: 0.9rem;"
+                                onkeydown="handleTerminalKeydown(event)">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Data Dictionary View -->
                 <div id="view-dictionary" class="view-content" style="display: none;">
                     <h2 class="mb-4"><i class="bi bi-book"></i> Data Dictionary</h2>
@@ -919,6 +999,60 @@
                             <div class="spinner-border text-primary" role="status"></div>
                         </div>
                         <div id="dictionaryContent"></div>
+                    </div>
+                </div>
+
+                <!-- Federation View -->
+                <div id="view-federation" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-globe"></i> Federation</h2>
+                        <button class="btn btn-sm btn-outline-info" onclick="loadFederation()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+
+                    <!-- Add Peer Form -->
+                    <div class="stat-card mb-4">
+                        <h5 class="mb-3">Add Peer</h5>
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-4">
+                                <label class="form-label text-secondary">Name</label>
+                                <input type="text" class="form-control" id="peer-name" placeholder="Peer name">
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label text-secondary">Endpoint URL</label>
+                                <input type="text" class="form-control" id="peer-endpoint" placeholder="https://peer.example.com/api">
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-primary w-100" onclick="addPeer()">
+                                    <i class="bi bi-plus-circle"></i> Initiate Peering
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Peers Table -->
+                    <div class="stat-card">
+                        <div class="loading" id="loading-federation">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="text-secondary mt-2">Loading peers...</p>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="federation-table" style="display: none;">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Endpoint</th>
+                                        <th>Status</th>
+                                        <th>Last Seen</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="federation-tbody"></tbody>
+                            </table>
+                        </div>
+                        <p class="text-secondary" id="federation-empty" style="display: none;">No federation peers configured.</p>
                     </div>
                 </div>
             </div>
@@ -1051,6 +1185,12 @@
                     break;
                 case 'topology':
                     loadTopology();
+                    break;
+                case 'terminal':
+                    initTerminal();
+                    break;
+                case 'federation':
+                    loadFederation();
                     break;
             }
         }
@@ -2327,6 +2467,84 @@
             window.location.href = '/dm-webmanager/login';
         }
         // --- AI Chat Sidebar ---
+        // --- Federation ---
+        async function loadFederation() {
+            const loadingEl = document.getElementById('loading-federation');
+            const tableEl = document.getElementById('federation-table');
+            const tbodyEl = document.getElementById('federation-tbody');
+            const emptyEl = document.getElementById('federation-empty');
+            loadingEl.classList.add('show');
+            tableEl.style.display = 'none';
+            emptyEl.style.display = 'none';
+            tbodyEl.innerHTML = '';
+
+            const data = await apiCall('/dm-webmanager/api/federation/peers');
+            loadingEl.classList.remove('show');
+            if (!data || data.length === 0) {
+                emptyEl.style.display = 'block';
+                return;
+            }
+            tableEl.style.display = 'table';
+
+            data.forEach(peer => {
+                const statusBadge = {
+                    'connected': '<span class="badge bg-success">Connected</span>',
+                    'pending': '<span class="badge bg-warning text-dark">Pending</span>',
+                    'disconnected': '<span class="badge bg-secondary">Disconnected</span>',
+                    'revoked': '<span class="badge bg-danger">Revoked</span>',
+                }[peer.status] || '<span class="badge bg-secondary">' + (peer.status || 'unknown') + '</span>';
+
+                let actions = '';
+                if (peer.status === 'pending') {
+                    actions += `<button class="btn btn-sm btn-outline-success me-1" onclick="acceptPeer('${peer.id}')"><i class="bi bi-check-circle"></i> Accept</button>`;
+                }
+                if (peer.status !== 'revoked') {
+                    actions += `<button class="btn btn-sm btn-outline-danger" onclick="revokePeer('${peer.id}')"><i class="bi bi-x-circle"></i> Revoke</button>`;
+                }
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${peer.name || ''}</td>
+                    <td><code>${peer.endpoint || ''}</code></td>
+                    <td>${statusBadge}</td>
+                    <td>${peer.last_seen || 'Never'}</td>
+                    <td>${peer.created_at || ''}</td>
+                    <td>${actions}</td>
+                `;
+                tbodyEl.appendChild(row);
+            });
+        }
+
+        async function addPeer() {
+            const name = document.getElementById('peer-name').value.trim();
+            const endpoint = document.getElementById('peer-endpoint').value.trim();
+            if (!name || !endpoint) {
+                alert('Name and Endpoint are required.');
+                return;
+            }
+            const resp = await apiCall('/dm-webmanager/api/federation/peers', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, endpoint}),
+            });
+            if (resp) {
+                document.getElementById('peer-name').value = '';
+                document.getElementById('peer-endpoint').value = '';
+                loadFederation();
+            }
+        }
+
+        async function acceptPeer(id) {
+            const resp = await apiCall(`/dm-webmanager/api/federation/peers/${id}/accept`, {method: 'POST'});
+            if (resp) loadFederation();
+        }
+
+        async function revokePeer(id) {
+            if (!confirm('Revoke this peer? All federation links will be deactivated.')) return;
+            const resp = await apiCall(`/dm-webmanager/api/federation/peers/${id}/revoke`, {method: 'POST'});
+            if (resp) loadFederation();
+        }
+
         let aiChatOpen = false;
         let aiMessageCount = 0;
 
@@ -2438,6 +2656,267 @@
                 sendBtn.disabled = false;
                 sendBtn.innerHTML = '<i class="bi bi-send"></i>';
             }
+        }
+        // --- DShell Terminal ---
+        let terminalSessionId = null;
+        let terminalHistory = [];
+        let terminalHistoryIndex = -1;
+
+        async function initTerminal() {
+            if (terminalSessionId) {
+                document.getElementById('terminal-input').focus();
+                return;
+            }
+            const outputEl = document.getElementById('terminal-output');
+            outputEl.innerHTML = '<span style="color: #8b949e;">Initializing session...</span>';
+            try {
+                const resp = await fetch('/dm-webmanager/api/terminal/create', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    outputEl.innerHTML = '<span style="color: #f85149;">Error: ' + escapeHtml(data.error || 'Failed to create session') + '</span>';
+                    return;
+                }
+                terminalSessionId = data.session_id;
+                terminalHistory = [];
+                terminalHistoryIndex = -1;
+                outputEl.innerHTML = '<span style="color: #3fb950;">DShell Web Mode initialized. Type "help" for available commands.</span>\n';
+                document.getElementById('terminal-input').focus();
+            } catch (e) {
+                outputEl.innerHTML = '<span style="color: #f85149;">Error: ' + escapeHtml(e.message) + '</span>';
+            }
+        }
+
+        async function sendTerminalCommand() {
+            const inputEl = document.getElementById('terminal-input');
+            const outputEl = document.getElementById('terminal-output');
+            const command = inputEl.value.trim();
+            if (!command) return;
+            if (!terminalSessionId) {
+                await initTerminal();
+                if (!terminalSessionId) return;
+            }
+
+            // Show command in output
+            outputEl.innerHTML += '<div><span style="color: #58a6ff;">$ </span><span style="color: #c9d1d9;">' + escapeHtml(command) + '</span></div>';
+
+            terminalHistory.push(command);
+            terminalHistoryIndex = terminalHistory.length;
+            inputEl.value = '';
+
+            if (command === 'clear') {
+                outputEl.innerHTML = '';
+            }
+
+            try {
+                const resp = await fetch('/dm-webmanager/api/terminal/' + terminalSessionId + '/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({command: command})
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    outputEl.innerHTML += '<div style="color: #f85149;">' + escapeHtml(data.error || 'Error') + '</div>';
+                } else if (data.output) {
+                    const lines = escapeHtml(data.output).split('\n');
+                    outputEl.innerHTML += '<div style="color: #3fb950; white-space: pre-wrap;">' + lines.join('\n') + '</div>';
+                }
+            } catch (e) {
+                outputEl.innerHTML += '<div style="color: #f85149;">Error: ' + escapeHtml(e.message) + '</div>';
+            }
+            outputEl.scrollTop = outputEl.scrollHeight;
+        }
+
+        function handleTerminalKeydown(event) {
+            if (event.key === 'Enter') {
+                sendTerminalCommand();
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (terminalHistory.length > 0 && terminalHistoryIndex > 0) {
+                    terminalHistoryIndex--;
+                    document.getElementById('terminal-input').value = terminalHistory[terminalHistoryIndex];
+                }
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                if (terminalHistoryIndex < terminalHistory.length - 1) {
+                    terminalHistoryIndex++;
+                    document.getElementById('terminal-input').value = terminalHistory[terminalHistoryIndex];
+                } else {
+                    terminalHistoryIndex = terminalHistory.length;
+                    document.getElementById('terminal-input').value = '';
+                }
+            }
+        }
+
+        function clearTerminal() {
+            document.getElementById('terminal-output').innerHTML = '';
+        }
+
+        async function closeTerminalSession() {
+            if (!terminalSessionId) return;
+            try {
+                await fetch('/dm-webmanager/api/terminal/' + terminalSessionId, {method: 'DELETE'});
+            } catch (e) { /* ignore */ }
+            terminalSessionId = null;
+            terminalHistory = [];
+            terminalHistoryIndex = -1;
+            document.getElementById('terminal-output').innerHTML = '<span style="color: #8b949e;">Session closed.</span>';
+        }
+
+        // --- Natural Language Orchestration Runner ---
+        let nlResolvedData = null;
+
+        async function resolveNLCommand() {
+            const input = document.getElementById('nl-input');
+            const userInput = input.value.trim();
+            if (!userInput) return;
+
+            const btn = document.getElementById('nl-resolve-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Resolving...';
+
+            const resultDiv = document.getElementById('nl-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<span class="text-secondary">Resolving command...</span>';
+
+            try {
+                const resp = await apiFetch('/dm-webmanager/api/ai/resolve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({input: userInput}),
+                });
+
+                if (!resp || resp.error) {
+                    resultDiv.innerHTML = '<span style="color:#ef4444;">' + escapeHtml(resp ? resp.error : 'Failed to reach endpoint') + '</span>';
+                    return;
+                }
+
+                nlResolvedData = resp;
+                renderNLConfirmation(resp);
+
+            } catch (e) {
+                resultDiv.innerHTML = '<span style="color:#ef4444;">Error: ' + escapeHtml(e.message || 'Unknown error') + '</span>';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-lightning"></i> Resolve';
+            }
+        }
+
+        function renderNLConfirmation(data) {
+            const resultDiv = document.getElementById('nl-result');
+            const dialog = document.getElementById('nl-confirm-dialog');
+
+            if (!data.orchestration_id) {
+                resultDiv.innerHTML = '<span style="color: var(--text-secondary);">No matching orchestration found. Try rephrasing your command.</span>';
+                dialog.style.display = 'none';
+                return;
+            }
+
+            const confidencePct = Math.round(data.confidence * 100);
+            const confidenceColor = data.confidence >= 0.8 ? '#10b981' : (data.confidence >= 0.5 ? '#f59e0b' : '#ef4444');
+
+            resultDiv.innerHTML = '<span style="color:' + confidenceColor + ';">' +
+                'Matched: <strong>' + escapeHtml(data.orchestration_name) + '</strong> (' + confidencePct + '% confidence)</span>';
+
+            document.getElementById('nl-confirm-orch').innerHTML =
+                '<span class="orchestration-badge">' + escapeHtml(data.orchestration_name) + '</span>' +
+                ' <small style="color:' + confidenceColor + ';">(' + confidencePct + '%)</small>';
+
+            const targetsDiv = document.getElementById('nl-confirm-targets');
+            if (data.targets && data.targets.length > 0) {
+                targetsDiv.innerHTML = data.targets.map(function(t) {
+                    return '<span class="badge bg-secondary me-1">' + escapeHtml(t.name) + '</span>';
+                }).join('');
+            } else {
+                targetsDiv.innerHTML = '<span class="text-secondary">No targets specified</span>';
+            }
+
+            const paramsDiv = document.getElementById('nl-confirm-params');
+            const paramKeys = Object.keys(data.params || {});
+            if (paramKeys.length > 0) {
+                paramsDiv.innerHTML = paramKeys.map(function(k) {
+                    return '<code>' + escapeHtml(k) + '=' + escapeHtml(data.params[k]) + '</code>';
+                }).join('<br>');
+            } else {
+                paramsDiv.innerHTML = '<span class="text-secondary">None</span>';
+            }
+
+            const altDiv = document.getElementById('nl-alternatives');
+            const altList = document.getElementById('nl-alternatives-list');
+            if (data.alternatives && data.alternatives.length > 0) {
+                altDiv.style.display = 'block';
+                altList.innerHTML = data.alternatives.map(function(a) {
+                    return '<button class="btn btn-outline-light btn-sm me-1 mt-1" onclick="selectAlternative(\'' +
+                        escapeHtml(a.id) + '\', \'' + escapeHtml(a.name) + '\')">' +
+                        escapeHtml(a.name) + ' (' + Math.round(a.confidence * 100) + '%)</button>';
+                }).join('');
+            } else {
+                altDiv.style.display = 'none';
+            }
+
+            document.getElementById('nl-exec-result').style.display = 'none';
+            dialog.style.display = 'block';
+        }
+
+        function selectAlternative(orchId, orchName) {
+            if (nlResolvedData) {
+                nlResolvedData.orchestration_id = orchId;
+                nlResolvedData.orchestration_name = orchName;
+                nlResolvedData.confidence = 1.0;
+                nlResolvedData.alternatives = [];
+                renderNLConfirmation(nlResolvedData);
+            }
+        }
+
+        async function confirmAndRun() {
+            if (!nlResolvedData || !nlResolvedData.orchestration_id) return;
+
+            const btn = document.getElementById('nl-confirm-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Executing...';
+
+            const execResult = document.getElementById('nl-exec-result');
+            execResult.style.display = 'block';
+            execResult.innerHTML = '<span class="text-secondary">Dispatching execution...</span>';
+
+            try {
+                const resp = await apiFetch('/dm-webmanager/api/ai/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        orchestration_id: nlResolvedData.orchestration_id,
+                        targets: nlResolvedData.targets || [],
+                        params: nlResolvedData.params || {},
+                        confirmed: true,
+                    }),
+                });
+
+                if (!resp || resp.error) {
+                    execResult.innerHTML = '<span style="color:#ef4444;">' + escapeHtml(resp ? resp.error : 'Failed to dispatch') + '</span>';
+                    return;
+                }
+
+                execResult.innerHTML = '<span style="color:#10b981;"><i class="bi bi-check-circle"></i> ' +
+                    'Execution dispatched: <strong>' + escapeHtml(resp.orchestration_name) + '</strong>' +
+                    ' (ID: <code>' + escapeHtml(resp.execution_id) + '</code>)</span>';
+
+                setTimeout(function() { loadDashboard(); }, 2000);
+
+            } catch (e) {
+                execResult.innerHTML = '<span style="color:#ef4444;">Error: ' + escapeHtml(e.message || 'Unknown error') + '</span>';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-play-fill"></i> Confirm &amp; Run';
+            }
+        }
+
+        function dismissNLDialog() {
+            document.getElementById('nl-confirm-dialog').style.display = 'none';
+            document.getElementById('nl-result').style.display = 'none';
+            document.getElementById('nl-input').value = '';
+            nlResolvedData = null;
         }
     </script>
 </body>

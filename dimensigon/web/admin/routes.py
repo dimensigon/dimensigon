@@ -3,7 +3,7 @@ Admin routes for DM-WebManager dashboard
 """
 import time
 
-from flask import Blueprint, render_template, redirect, url_for, request, jsonify, make_response
+from flask import Blueprint, render_template, redirect, url_for, request, jsonify, make_response, g
 from flask_jwt_extended import (
     create_access_token, create_refresh_token, get_jwt_identity,
     get_jwt, set_access_cookies, set_refresh_cookies, unset_jwt_cookies,
@@ -24,6 +24,7 @@ from dimensigon.web import db
 from dimensigon.web.admin.auth import (
     webmanager_auth_required, require_role, token_blacklist
 )
+from dimensigon.web.admin.terminal import session_manager
 from dimensigon.web.decorators import audit_log
 
 admin_routes_bp = Blueprint('admin_routes', __name__, url_prefix='/dm-webmanager')
@@ -1304,6 +1305,114 @@ def ai_chat():
     return jsonify(mock_response), 200
 
 
+# --- Natural Language Orchestration Runner ---
+
+@admin_routes_bp.route('/api/ai/resolve', methods=['POST'])
+@webmanager_auth_required
+def ai_nl_resolve():
+    """Resolve a natural language command into an orchestration execution plan.
+
+    Accepts: {input: "Run health check on all web servers"}
+    Returns: {orchestration_id, orchestration_name, confidence, targets, params, alternatives}
+    """
+    from dimensigon.ai.nl_runner import resolve_intent
+
+    data = request.get_json(silent=True) or {}
+    user_input = data.get('input', '').strip()
+
+    if not user_input:
+        return jsonify({'error': 'Missing "input" field'}), 400
+
+    # Fetch orchestrations from DB
+    orchestrations_list = []
+    orch_rows = db.session.execute(
+        select(Orchestration).order_by(Orchestration.name, Orchestration.version.desc())
+    ).scalars().all()
+    seen_names = set()
+    for orch in orch_rows:
+        if orch.name not in seen_names:
+            seen_names.add(orch.name)
+            try:
+                schema = orch.schema
+            except Exception:
+                schema = {}
+            orchestrations_list.append({
+                'name': orch.name,
+                'id': str(orch.id),
+                'description': orch.description or '',
+                'schema': schema or {},
+            })
+
+    # Fetch servers from DB
+    servers_list = []
+    server_rows = db.session.execute(
+        select(Server).order_by(Server.name)
+    ).scalars().all()
+    for srv in server_rows:
+        servers_list.append({
+            'name': srv.name,
+            'id': str(srv.id),
+            'granules': srv.granules or [],
+        })
+
+    result = resolve_intent(user_input, orchestrations_list, servers_list)
+    return jsonify(result), 200
+
+
+@admin_routes_bp.route('/api/ai/execute', methods=['POST'])
+@require_role('operator')
+def ai_nl_execute():
+    """Execute an orchestration resolved by the NL runner.
+
+    Accepts: {orchestration_id, targets: [{id, name}], params: {}, confirmed: true}
+    Dispatches the orchestration execution.
+    """
+    data = request.get_json(silent=True) or {}
+
+    orchestration_id = data.get('orchestration_id')
+    targets = data.get('targets', [])
+    params = data.get('params', {})
+    confirmed = data.get('confirmed', False)
+
+    if not orchestration_id:
+        return jsonify({'error': 'Missing orchestration_id'}), 400
+    if not confirmed:
+        return jsonify({'error': 'Execution must be confirmed (confirmed: true)'}), 400
+
+    orchestration = db.session.get(Orchestration, orchestration_id)
+    if not orchestration:
+        return jsonify({'error': 'Orchestration not found'}), 404
+
+    # Validate target servers exist
+    target_servers = []
+    for t_info in targets:
+        srv = db.session.get(Server, t_info.get('id'))
+        if srv:
+            target_servers.append(srv)
+
+    if not target_servers and targets:
+        return jsonify({'error': 'No valid target servers found'}), 400
+
+    # Create the execution record
+    from dimensigon.domain.entities import OrchExecution
+    identity = get_jwt_identity()
+
+    execution = OrchExecution(
+        orchestration_id=orchestration_id,
+        target=[srv.name for srv in target_servers] if target_servers else None,
+        params=params or None,
+    )
+    db.session.add(execution)
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Execution dispatched',
+        'execution_id': str(execution.id),
+        'orchestration_name': orchestration.name,
+        'targets': [{'id': str(s.id), 'name': s.name} for s in target_servers],
+    }), 202
+
+
 # --- Orchestration Templates / Marketplace API ---
 
 @admin_routes_bp.route('/api/templates', methods=['GET'])
@@ -1574,3 +1683,174 @@ def execution_trends(orchestration_id):
         })
 
     return jsonify({'runs': runs}), 200
+
+
+# --- Training Data Feedback Loop API ---
+
+@admin_routes_bp.route('/api/training/queue', methods=['GET'])
+@require_role('administrator')
+def training_queue():
+    """List pending training candidates with quality scores."""
+    from dimensigon.ai.feedback import get_review_queue
+    candidates = get_review_queue()
+    return jsonify({'candidates': candidates}), 200
+
+
+@admin_routes_bp.route('/api/training/<candidate_id>/approve', methods=['POST'])
+@require_role('administrator')
+def training_approve(candidate_id):
+    """Approve a training candidate."""
+    from dimensigon.ai.feedback import approve_candidate
+    from flask_jwt_extended import get_jwt_identity
+    from dimensigon.domain.entities import User
+
+    user = db.session.get(User, get_jwt_identity())
+    reviewer = user.name if user else 'unknown'
+
+    candidate = approve_candidate(candidate_id, reviewer)
+    if candidate is None:
+        return jsonify({'error': 'Candidate not found or not in pending status'}), 404
+
+    return jsonify({'message': 'Candidate approved', 'candidate': candidate.to_json()}), 200
+
+
+@admin_routes_bp.route('/api/training/<candidate_id>/reject', methods=['POST'])
+@require_role('administrator')
+def training_reject(candidate_id):
+    """Reject a training candidate."""
+    from dimensigon.ai.feedback import reject_candidate
+    from flask_jwt_extended import get_jwt_identity
+    from dimensigon.domain.entities import User
+
+    user = db.session.get(User, get_jwt_identity())
+    reviewer = user.name if user else 'unknown'
+
+    candidate = reject_candidate(candidate_id, reviewer)
+    if candidate is None:
+        return jsonify({'error': 'Candidate not found or not in pending status'}), 404
+
+    return jsonify({'message': 'Candidate rejected', 'candidate': candidate.to_json()}), 200
+
+
+# --- DShell Web Terminal API ---
+
+@admin_routes_bp.route('/api/terminal/create', methods=['POST'])
+@webmanager_auth_required
+def terminal_create():
+    """Create a new DShell web terminal session."""
+    user_id = str(g.current_user.id)
+    try:
+        session_id = session_manager.create_session(user_id)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 429
+    return jsonify({'session_id': session_id}), 201
+
+
+@admin_routes_bp.route('/api/terminal/<session_id>/execute', methods=['POST'])
+@webmanager_auth_required
+def terminal_execute(session_id):
+    """Execute a command in a DShell web terminal session."""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return jsonify({'error': 'Session not found'}), 404
+    if session.user_id != str(g.current_user.id):
+        return jsonify({'error': 'Session not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    command = data.get('command', '')
+    if not command.strip():
+        return jsonify({'error': 'Empty command'}), 400
+
+    output = session.execute(command)
+    return jsonify({'output': output}), 200
+
+
+@admin_routes_bp.route('/api/terminal/<session_id>/history', methods=['GET'])
+@webmanager_auth_required
+def terminal_history(session_id):
+    """Return command history for a DShell web terminal session."""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return jsonify({'error': 'Session not found'}), 404
+    if session.user_id != str(g.current_user.id):
+        return jsonify({'error': 'Session not found'}), 404
+
+    return jsonify({'history': session.get_history()}), 200
+
+
+@admin_routes_bp.route('/api/terminal/<session_id>', methods=['DELETE'])
+@webmanager_auth_required
+def terminal_close(session_id):
+    """Close a DShell web terminal session."""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return jsonify({'error': 'Session not found'}), 404
+    if session.user_id != str(g.current_user.id):
+        return jsonify({'error': 'Session not found'}), 404
+
+    session_manager.close_session(session_id)
+    return jsonify({'message': 'Session closed'}), 200
+
+
+# --- Federation API ---
+
+@admin_routes_bp.route('/api/federation/peers', methods=['GET'])
+@webmanager_auth_required
+def federation_list_peers():
+    """List all federation peers."""
+    from dimensigon.use_cases.federation import list_peers
+    return jsonify(list_peers()), 200
+
+
+@admin_routes_bp.route('/api/federation/peers', methods=['POST'])
+@require_role('administrator')
+def federation_initiate_peering():
+    """Initiate peering with a remote dimension."""
+    from dimensigon.use_cases.federation import initiate_peering
+
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get('endpoint')
+    name = data.get('name')
+    if not endpoint or not name:
+        return jsonify({'error': 'Both "endpoint" and "name" are required'}), 400
+
+    peer_id = initiate_peering(endpoint, name)
+    from dimensigon.use_cases.federation import get_peer_status
+    peer = get_peer_status(peer_id)
+    return jsonify(peer), 201
+
+
+@admin_routes_bp.route('/api/federation/peers/<peer_id>/accept', methods=['POST'])
+@require_role('administrator')
+def federation_accept_peering(peer_id):
+    """Accept a pending peering request."""
+    from dimensigon.use_cases.federation import accept_peering
+
+    peer = accept_peering(peer_id)
+    if not peer:
+        return jsonify({'error': 'Peer not found'}), 404
+    return jsonify(peer.to_json()), 200
+
+
+@admin_routes_bp.route('/api/federation/peers/<peer_id>/revoke', methods=['POST'])
+@require_role('administrator')
+def federation_revoke_peering(peer_id):
+    """Revoke an existing peering relationship."""
+    from dimensigon.use_cases.federation import revoke_peering
+
+    peer = revoke_peering(peer_id)
+    if not peer:
+        return jsonify({'error': 'Peer not found'}), 404
+    return jsonify(peer.to_json()), 200
+
+
+@admin_routes_bp.route('/api/federation/peers/<peer_id>', methods=['GET'])
+@webmanager_auth_required
+def federation_peer_detail(peer_id):
+    """Get detailed info about a peer including its federation links."""
+    from dimensigon.use_cases.federation import get_peer_status
+
+    peer = get_peer_status(peer_id)
+    if not peer:
+        return jsonify({'error': 'Peer not found'}), 404
+    return jsonify(peer), 200
