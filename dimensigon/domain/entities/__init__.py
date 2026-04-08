@@ -30,6 +30,9 @@ from .step import Step
 from .transfer import Transfer, Status as TransferStatus
 from .user import User
 from .vault import Vault
+from .webhook import Webhook, WebhookLog
+from .schedule import Schedule
+from .orch_version import OrchestrationVersion
 
 SCHEMA_VERSION = 2
 
@@ -63,6 +66,10 @@ __all__ = [
     "TransferStatus",
     "User",
     "Vault",
+    "Webhook",
+    "WebhookLog",
+    "Schedule",
+    "OrchestrationVersion",
 ]
 
 catalog = threading.local()

@@ -16,13 +16,64 @@ from datetime import datetime, timedelta, timezone
 
 from dimensigon.domain.entities import User, Orchestration, Step, ActionTemplate, ActionType, Server, Route, Gate
 from dimensigon.domain.entities import OrchExecution
+from dimensigon.domain.entities.webhook import Webhook, WebhookLog
+from dimensigon.domain.entities.orch_version import OrchestrationVersion
 from sqlalchemy import select, func
 from dimensigon.web import db
 from dimensigon.web.admin.auth import (
     webmanager_auth_required, require_role, token_blacklist
 )
+from dimensigon.web.decorators import audit_log
 
 admin_routes_bp = Blueprint('admin_routes', __name__, url_prefix='/dm-webmanager')
+
+
+def _build_orchestration_snapshot(orchestration):
+    """Build a JSON-serializable snapshot of an orchestration and its steps."""
+    steps_data = []
+    for step in orchestration.steps:
+        steps_data.append({
+            'id': str(step.id),
+            'undo': step.undo,
+            'action_template_id': str(step.action_template_id) if step.action_template_id else None,
+            'action_type': step.action_type.name if step.action_type else None,
+            'target': step.target,
+            'parent_step_ids': [str(p.id) for p in step.parent_steps],
+            'children_step_ids': [str(c.id) for c in step.children_steps],
+        })
+    return {
+        'id': str(orchestration.id),
+        'name': orchestration.name,
+        'version': orchestration.version,
+        'description': orchestration.description,
+        'stop_on_error': orchestration.stop_on_error,
+        'stop_undo_on_error': orchestration.stop_undo_on_error,
+        'undo_on_error': orchestration.undo_on_error,
+        'steps': steps_data,
+    }
+
+
+def _create_orchestration_version(orchestration, author=None, message=None):
+    """Create a new OrchestrationVersion snapshot for the given orchestration."""
+    snapshot = _build_orchestration_snapshot(orchestration)
+    # Determine next version number
+    last = db.session.execute(
+        select(OrchestrationVersion)
+        .filter_by(orchestration_id=str(orchestration.id))
+        .order_by(OrchestrationVersion.version_number.desc())
+    ).scalars().first()
+    next_num = (last.version_number + 1) if last else 1
+
+    version = OrchestrationVersion(
+        orchestration_id=str(orchestration.id),
+        version_number=next_num,
+        json_snapshot=snapshot,
+        author=author,
+        message=message,
+    )
+    db.session.add(version)
+    db.session.commit()
+    return version
 
 
 # --- Authentication endpoints ---
@@ -34,6 +85,7 @@ def login_page():
 
 
 @admin_routes_bp.route('/login', methods=['POST'])
+@audit_log('login')
 def login():
     """Authenticate user and set JWT cookies."""
     data = request.get_json(silent=True) or {}
@@ -371,6 +423,16 @@ def builder_save():
 
         db.session.commit()
 
+        # Auto-version: create an OrchestrationVersion snapshot
+        try:
+            _create_orchestration_version(
+                orchestration,
+                author=data.get('author'),
+                message=data.get('message', 'Saved from builder'),
+            )
+        except Exception:
+            pass  # versioning failure should not block the save response
+
         return jsonify({
             'message': 'Orchestration saved successfully',
             'orchestration': {
@@ -383,6 +445,165 @@ def builder_save():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to save orchestration: {str(e)}'}), 500
+
+
+# --- Orchestration Versioning API ---
+
+@admin_routes_bp.route('/api/orchestrations/<orch_id>/versions', methods=['GET'])
+@webmanager_auth_required
+def list_orchestration_versions(orch_id):
+    """List all versions for an orchestration."""
+    orchestration = db.session.get(Orchestration, orch_id)
+    if not orchestration:
+        return jsonify({'error': 'Orchestration not found'}), 404
+
+    versions = db.session.execute(
+        select(OrchestrationVersion)
+        .filter_by(orchestration_id=orch_id)
+        .order_by(OrchestrationVersion.version_number.asc())
+    ).scalars().all()
+
+    result = []
+    for v in versions:
+        result.append({
+            'id': str(v.id),
+            'version_number': v.version_number,
+            'author': v.author,
+            'message': v.message,
+            'created_at': v.created_at.strftime('%Y-%m-%dT%H:%M:%SZ') if v.created_at else None,
+        })
+
+    return jsonify({'versions': result}), 200
+
+
+@admin_routes_bp.route('/api/orchestrations/<orch_id>/versions/<int:v1>/diff/<int:v2>', methods=['GET'])
+@webmanager_auth_required
+def diff_orchestration_versions(orch_id, v1, v2):
+    """Compute diff between two version numbers of an orchestration."""
+    ver1 = db.session.execute(
+        select(OrchestrationVersion)
+        .filter_by(orchestration_id=orch_id, version_number=v1)
+    ).scalars().first()
+    ver2 = db.session.execute(
+        select(OrchestrationVersion)
+        .filter_by(orchestration_id=orch_id, version_number=v2)
+    ).scalars().first()
+
+    if not ver1 or not ver2:
+        return jsonify({'error': 'One or both versions not found'}), 404
+
+    snap1 = ver1.json_snapshot or {}
+    snap2 = ver2.json_snapshot or {}
+
+    # Build step lookup by id
+    steps1 = {s['id']: s for s in snap1.get('steps', [])}
+    steps2 = {s['id']: s for s in snap2.get('steps', [])}
+
+    ids1 = set(steps1.keys())
+    ids2 = set(steps2.keys())
+
+    added = [steps2[sid] for sid in (ids2 - ids1)]
+    removed = [steps1[sid] for sid in (ids1 - ids2)]
+
+    changed = []
+    for sid in (ids1 & ids2):
+        if steps1[sid] != steps2[sid]:
+            changed.append({
+                'step_id': sid,
+                'from': steps1[sid],
+                'to': steps2[sid],
+            })
+
+    # Also check top-level orchestration fields
+    orch_changes = {}
+    for key in ('name', 'version', 'description', 'stop_on_error', 'stop_undo_on_error', 'undo_on_error'):
+        val1 = snap1.get(key)
+        val2 = snap2.get(key)
+        if val1 != val2:
+            orch_changes[key] = {'from': val1, 'to': val2}
+
+    return jsonify({
+        'added': added,
+        'removed': removed,
+        'changed': changed,
+        'orchestration_changes': orch_changes,
+    }), 200
+
+
+@admin_routes_bp.route('/api/orchestrations/<orch_id>/rollback/<int:version_number>', methods=['POST'])
+@require_role('operator')
+def rollback_orchestration(orch_id, version_number):
+    """Rollback an orchestration to a specific version snapshot."""
+    orchestration = db.session.get(Orchestration, orch_id)
+    if not orchestration:
+        return jsonify({'error': 'Orchestration not found'}), 404
+
+    target_version = db.session.execute(
+        select(OrchestrationVersion)
+        .filter_by(orchestration_id=orch_id, version_number=version_number)
+    ).scalars().first()
+
+    if not target_version:
+        return jsonify({'error': f'Version {version_number} not found'}), 404
+
+    snapshot = target_version.json_snapshot
+    if not snapshot:
+        return jsonify({'error': 'Version snapshot is empty'}), 400
+
+    try:
+        # Apply snapshot fields to orchestration
+        orchestration.description = snapshot.get('description')
+        orchestration.stop_on_error = snapshot.get('stop_on_error', True)
+        orchestration.stop_undo_on_error = snapshot.get('stop_undo_on_error', True)
+        orchestration.undo_on_error = snapshot.get('undo_on_error', True)
+
+        # Remove existing steps
+        for step in list(orchestration.steps):
+            db.session.delete(step)
+        db.session.flush()
+
+        # Recreate steps from snapshot
+        snap_steps = snapshot.get('steps', [])
+        id_to_step = {}
+        for s in snap_steps:
+            at_id = s.get('action_template_id')
+            action_template = db.session.get(ActionTemplate, at_id) if at_id else None
+            step = Step(
+                orchestration=orchestration,
+                undo=s.get('undo', False),
+                action_template=action_template,
+                target=s.get('target'),
+            )
+            db.session.add(step)
+            id_to_step[s['id']] = step
+
+        db.session.flush()
+
+        # Wire dependencies
+        for s in snap_steps:
+            step = id_to_step[s['id']]
+            for pid in s.get('parent_step_ids', []):
+                parent = id_to_step.get(pid)
+                if parent and parent not in step.parent_steps:
+                    step.parent_steps.append(parent)
+
+        db.session.commit()
+
+        # Create a new version recording the rollback
+        new_ver = _create_orchestration_version(
+            orchestration,
+            author=None,
+            message=f'Rollback to version {version_number}',
+        )
+
+        return jsonify({
+            'message': f'Rolled back to version {version_number}',
+            'new_version_number': new_ver.version_number,
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Rollback failed: {str(e)}'}), 500
 
 
 # --- Server Topology API ---
@@ -502,3 +723,363 @@ def widget_recent_activity():
         })
 
     return jsonify({'events': events}), 200
+
+
+# --- Schedule CRUD API ---
+
+@admin_routes_bp.route('/api/schedules', methods=['GET'])
+@webmanager_auth_required
+def list_schedules():
+    """List all schedules with orchestration names."""
+    from dimensigon.domain.entities.schedule import Schedule
+
+    schedules = db.session.execute(select(Schedule)).scalars().all()
+    result = []
+    for s in schedules:
+        result.append({
+            'id': str(s.id),
+            'orchestration_id': str(s.orchestration_id),
+            'orchestration_name': s.orchestration.name if s.orchestration else None,
+            'cron_expr': s.cron_expr,
+            'timezone': s.timezone,
+            'enabled': s.enabled,
+            'last_run': s.last_run.strftime('%Y-%m-%dT%H:%M:%SZ') if s.last_run else None,
+            'next_run': s.next_run.strftime('%Y-%m-%dT%H:%M:%SZ') if s.next_run else None,
+            'missed_policy': s.missed_policy,
+            'params': s.params,
+            'created_by': s.created_by,
+            'created_at': s.created_at.strftime('%Y-%m-%dT%H:%M:%SZ') if s.created_at else None,
+        })
+    return jsonify({'schedules': result}), 200
+
+
+@admin_routes_bp.route('/api/schedules', methods=['POST'])
+@webmanager_auth_required
+def create_schedule():
+    """Create a new schedule. Validates cron_expr with croniter."""
+    from dimensigon.domain.entities.schedule import Schedule
+    from dimensigon.use_cases.scheduler import compute_next_run
+    from croniter import croniter
+
+    data = request.get_json(silent=True) or {}
+
+    orchestration_id = data.get('orchestration_id')
+    cron_expr = data.get('cron_expr', '').strip()
+
+    if not orchestration_id:
+        return jsonify({'error': 'orchestration_id is required'}), 400
+    if not cron_expr:
+        return jsonify({'error': 'cron_expr is required'}), 400
+
+    # Validate orchestration exists
+    orch = db.session.get(Orchestration, orchestration_id)
+    if not orch:
+        return jsonify({'error': 'Orchestration not found'}), 404
+
+    # Validate cron expression
+    if not croniter.is_valid(cron_expr):
+        return jsonify({'error': f'Invalid cron expression: {cron_expr}'}), 400
+
+    tz = data.get('timezone', 'UTC')
+    missed_policy = data.get('missed_policy', 'skip')
+    if missed_policy not in ('skip', 'run_once'):
+        return jsonify({'error': 'missed_policy must be "skip" or "run_once"'}), 400
+
+    schedule = Schedule(
+        orchestration_id=orchestration_id,
+        cron_expr=cron_expr,
+        timezone=tz,
+        enabled=data.get('enabled', True),
+        missed_policy=missed_policy,
+        params=data.get('params'),
+        created_by=data.get('created_by'),
+    )
+    schedule.next_run = compute_next_run(cron_expr, tz)
+
+    db.session.add(schedule)
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Schedule created',
+        'schedule': {
+            'id': str(schedule.id),
+            'orchestration_id': str(schedule.orchestration_id),
+            'cron_expr': schedule.cron_expr,
+            'next_run': schedule.next_run.strftime('%Y-%m-%dT%H:%M:%SZ') if schedule.next_run else None,
+        },
+    }), 201
+
+
+@admin_routes_bp.route('/api/schedules/<schedule_id>', methods=['PUT'])
+@webmanager_auth_required
+def update_schedule(schedule_id):
+    """Update an existing schedule."""
+    from dimensigon.domain.entities.schedule import Schedule
+    from dimensigon.use_cases.scheduler import compute_next_run
+    from croniter import croniter
+
+    schedule = db.session.get(Schedule, schedule_id)
+    if not schedule:
+        return jsonify({'error': 'Schedule not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+
+    if 'orchestration_id' in data:
+        orch = db.session.get(Orchestration, data['orchestration_id'])
+        if not orch:
+            return jsonify({'error': 'Orchestration not found'}), 404
+        schedule.orchestration_id = data['orchestration_id']
+
+    if 'cron_expr' in data:
+        cron_expr = data['cron_expr'].strip()
+        if not croniter.is_valid(cron_expr):
+            return jsonify({'error': f'Invalid cron expression: {cron_expr}'}), 400
+        schedule.cron_expr = cron_expr
+
+    if 'timezone' in data:
+        schedule.timezone = data['timezone']
+    if 'enabled' in data:
+        schedule.enabled = bool(data['enabled'])
+    if 'missed_policy' in data:
+        if data['missed_policy'] not in ('skip', 'run_once'):
+            return jsonify({'error': 'missed_policy must be "skip" or "run_once"'}), 400
+        schedule.missed_policy = data['missed_policy']
+    if 'params' in data:
+        schedule.params = data['params']
+
+    # Recompute next_run
+    schedule.next_run = compute_next_run(schedule.cron_expr, schedule.timezone)
+
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Schedule updated',
+        'schedule': {
+            'id': str(schedule.id),
+            'orchestration_id': str(schedule.orchestration_id),
+            'cron_expr': schedule.cron_expr,
+            'enabled': schedule.enabled,
+            'next_run': schedule.next_run.strftime('%Y-%m-%dT%H:%M:%SZ') if schedule.next_run else None,
+        },
+    }), 200
+
+
+@admin_routes_bp.route('/api/schedules/<schedule_id>', methods=['DELETE'])
+@webmanager_auth_required
+def delete_schedule(schedule_id):
+    """Delete a schedule."""
+    from dimensigon.domain.entities.schedule import Schedule
+
+    schedule = db.session.get(Schedule, schedule_id)
+    if not schedule:
+        return jsonify({'error': 'Schedule not found'}), 404
+
+    db.session.delete(schedule)
+    db.session.commit()
+    return jsonify({'message': 'Schedule deleted'}), 200
+
+
+@admin_routes_bp.route('/api/schedules/<schedule_id>/toggle', methods=['PATCH'])
+@webmanager_auth_required
+def toggle_schedule(schedule_id):
+    """Toggle the enabled flag on a schedule."""
+    from dimensigon.domain.entities.schedule import Schedule
+    from dimensigon.use_cases.scheduler import compute_next_run
+
+    schedule = db.session.get(Schedule, schedule_id)
+    if not schedule:
+        return jsonify({'error': 'Schedule not found'}), 404
+
+    schedule.enabled = not schedule.enabled
+    # Recompute next_run when re-enabling
+    if schedule.enabled:
+        schedule.next_run = compute_next_run(schedule.cron_expr, schedule.timezone)
+
+    db.session.commit()
+
+    return jsonify({
+        'message': f'Schedule {"enabled" if schedule.enabled else "disabled"}',
+        'schedule': {
+            'id': str(schedule.id),
+            'enabled': schedule.enabled,
+            'next_run': schedule.next_run.strftime('%Y-%m-%dT%H:%M:%SZ') if schedule.next_run else None,
+        },
+    }), 200
+
+
+# --- Audit Log API ---
+
+@admin_routes_bp.route('/api/audit', methods=['GET'])
+@require_role('administrator')
+def audit_log_list():
+    """Return paginated, filterable audit log entries."""
+    from dimensigon.domain.entities.audit import AuditEntry
+
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(per_page, 200)  # cap max page size
+
+    query = select(AuditEntry).order_by(AuditEntry.timestamp.desc())
+
+    # Filters
+    user_filter = request.args.get('user')
+    if user_filter:
+        query = query.where(AuditEntry.username == user_filter)
+
+    action_filter = request.args.get('action')
+    if action_filter:
+        query = query.where(AuditEntry.action == action_filter)
+
+    resource_type_filter = request.args.get('resource_type')
+    if resource_type_filter:
+        query = query.where(AuditEntry.resource_type == resource_type_filter)
+
+    date_from = request.args.get('date_from')
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+            query = query.where(AuditEntry.timestamp >= dt_from)
+        except (ValueError, TypeError):
+            pass
+
+    date_to = request.args.get('date_to')
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to).replace(tzinfo=timezone.utc)
+            query = query.where(AuditEntry.timestamp <= dt_to)
+        except (ValueError, TypeError):
+            pass
+
+    # Count total matching entries
+    count_query = select(func.count()).select_from(query.subquery())
+    total = db.session.execute(count_query).scalar() or 0
+
+    # Paginate
+    offset = (page - 1) * per_page
+    entries = db.session.execute(query.offset(offset).limit(per_page)).scalars().all()
+
+    return jsonify({
+        'entries': [
+            {
+                'id': e.id,
+                'timestamp': e.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ') if e.timestamp else None,
+                'username': e.username,
+                'action': e.action,
+                'resource_type': e.resource_type,
+                'resource_id': e.resource_id,
+                'ip_address': e.ip_address,
+            }
+            for e in entries
+        ],
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+    }), 200
+
+
+# --- Webhook CRUD API ---
+
+@admin_routes_bp.route('/api/webhooks', methods=['GET'])
+@webmanager_auth_required
+def list_webhooks():
+    """List all webhooks."""
+    webhooks = db.session.execute(select(Webhook)).scalars().all()
+    return jsonify([wh.to_json() for wh in webhooks]), 200
+
+
+@admin_routes_bp.route('/api/webhooks', methods=['POST'])
+@webmanager_auth_required
+def create_webhook():
+    """Create a new webhook."""
+    import uuid as _uuid
+    data = request.get_json(silent=True) or {}
+
+    url = data.get('url', '').strip()
+    if not url:
+        return jsonify({'error': 'url is required'}), 400
+
+    webhook = Webhook(
+        id=str(_uuid.uuid4()),
+        name=data.get('name', '').strip() or None,
+        url=url,
+        event_types=data.get('event_types', []),
+        headers=data.get('headers', {}),
+        retry_max=data.get('retry_max', 5),
+        active=data.get('active', True),
+    )
+    db.session.add(webhook)
+    db.session.commit()
+    return jsonify(webhook.to_json()), 201
+
+
+@admin_routes_bp.route('/api/webhooks/<webhook_id>', methods=['PUT'])
+@webmanager_auth_required
+def update_webhook(webhook_id):
+    """Update an existing webhook."""
+    webhook = db.session.get(Webhook, webhook_id)
+    if not webhook:
+        return jsonify({'error': 'Webhook not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+
+    if 'name' in data:
+        webhook.name = data['name']
+    if 'url' in data:
+        webhook.url = data['url']
+    if 'event_types' in data:
+        webhook.event_types = data['event_types']
+    if 'headers' in data:
+        webhook.headers = data['headers']
+    if 'retry_max' in data:
+        webhook.retry_max = data['retry_max']
+    if 'active' in data:
+        webhook.active = data['active']
+
+    db.session.commit()
+    return jsonify(webhook.to_json()), 200
+
+
+@admin_routes_bp.route('/api/webhooks/<webhook_id>', methods=['DELETE'])
+@webmanager_auth_required
+def delete_webhook(webhook_id):
+    """Delete a webhook and its logs."""
+    webhook = db.session.get(Webhook, webhook_id)
+    if not webhook:
+        return jsonify({'error': 'Webhook not found'}), 404
+
+    db.session.delete(webhook)
+    db.session.commit()
+    return jsonify({'message': 'Webhook deleted'}), 200
+
+
+@admin_routes_bp.route('/api/webhooks/<webhook_id>/test', methods=['POST'])
+@webmanager_auth_required
+def test_webhook(webhook_id):
+    """Send a test event to a webhook."""
+    webhook = db.session.get(Webhook, webhook_id)
+    if not webhook:
+        return jsonify({'error': 'Webhook not found'}), 404
+
+    from dimensigon.use_cases.webhooks import dispatch_event
+    dispatch_event('webhook.test', {
+        'webhook_id': webhook.id,
+        'message': 'This is a test event',
+    })
+    return jsonify({'message': 'Test event dispatched'}), 200
+
+
+@admin_routes_bp.route('/api/webhooks/<webhook_id>/logs', methods=['GET'])
+@webmanager_auth_required
+def webhook_logs(webhook_id):
+    """Get delivery logs for a webhook."""
+    webhook = db.session.get(Webhook, webhook_id)
+    if not webhook:
+        return jsonify({'error': 'Webhook not found'}), 404
+
+    logs = db.session.execute(
+        select(WebhookLog)
+        .where(WebhookLog.webhook_id == webhook_id)
+        .order_by(WebhookLog.created_at.desc())
+        .limit(100)
+    ).scalars().all()
+    return jsonify([log.to_json() for log in logs]), 200

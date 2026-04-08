@@ -919,6 +919,19 @@ class RegisterStepExecution:
         except Exception:
             pass
 
+        # Dispatch webhook events for orchestration completion
+        try:
+            from dimensigon.use_cases.webhooks import dispatch_event
+            if 'success' in kwargs:
+                event_type = 'orchestration.completed' if kwargs['success'] else 'orchestration.failed'
+                dispatch_event(event_type, {
+                    'execution_id': self.json_orch_execution.get('id'),
+                    'success': kwargs['success'],
+                    'message': kwargs.get('message'),
+                })
+        except Exception:
+            pass
+
     def create_step_execution(self, command):
         ident = str(uuid.uuid4())
         with self.session_scope() as s:
