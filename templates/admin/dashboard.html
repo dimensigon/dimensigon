@@ -453,6 +453,45 @@
                     </div>
                 </div>
 
+                <!-- Execution Detail View (Real-time DAG) -->
+                <div id="view-execution-detail" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-diagram-3"></i> Execution Monitor</h2>
+                        <div>
+                            <button class="btn btn-sm btn-outline-warning me-2" id="btn-cancel-exec" onclick="cancelExecution()" style="display:none;">
+                                <i class="bi bi-stop-circle"></i> Cancel
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="showView('executions')">
+                                <i class="bi bi-arrow-left"></i> Back
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Execution summary -->
+                    <div class="stat-card mb-3" id="exec-detail-summary"></div>
+
+                    <!-- Timer -->
+                    <div class="stat-card mb-3">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-secondary">Elapsed Time</span>
+                            <span id="exec-elapsed" class="font-monospace" style="color: var(--cyan-neon);">00:00:00</span>
+                        </div>
+                    </div>
+
+                    <!-- Step DAG -->
+                    <div class="stat-card mb-3">
+                        <h5 class="mb-3">Step Progress</h5>
+                        <div id="step-dag" style="min-height: 100px;"></div>
+                    </div>
+
+                    <!-- Live output -->
+                    <div class="stat-card">
+                        <h5 class="mb-3">Step Output</h5>
+                        <div id="step-output-tabs"></div>
+                        <pre id="step-output" class="p-3 rounded" style="background: var(--bg-darker); color: var(--text-primary); max-height: 400px; overflow-y: auto; font-size: 0.85rem; border: 1px solid var(--border-neon);">Select a step to view output...</pre>
+                    </div>
+                </div>
+
                 <!-- Data Dictionary View -->
                 <div id="view-dictionary" class="view-content" style="display: none;">
                     <h2 class="mb-4"><i class="bi bi-book"></i> Data Dictionary</h2>
@@ -525,8 +564,10 @@
             });
 
             // Show selected view
-            document.getElementById(`view-${viewName}`).style.display = 'block';
-            document.getElementById(`nav-${viewName}`).classList.add('active');
+            const viewEl = document.getElementById(`view-${viewName}`);
+            if (viewEl) viewEl.style.display = 'block';
+            const navEl = document.getElementById(`nav-${viewName}`);
+            if (navEl) navEl.classList.add('active');
             currentView = viewName;
 
             // Load data for the view
@@ -665,7 +706,7 @@
             if (!data) return;
 
             let html = '<table class="table table-hover"><thead><tr>';
-            html += '<th>Orchestration</th><th>Start Time</th><th>Duration</th><th>Status</th><th>Server</th>';
+            html += '<th>Orchestration</th><th>Start Time</th><th>Duration</th><th>Status</th><th>Server</th><th></th>';
             html += '</tr></thead><tbody>';
 
             (data.executions || []).forEach(exec => {
@@ -674,12 +715,13 @@
                 const duration = exec.duration ? `${exec.duration.toFixed(2)}s` : 'Running...';
 
                 html += `
-                    <tr>
+                    <tr style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">
                         <td>${exec.orchestration?.name || 'Unknown'} v${exec.orchestration?.version || '?'}</td>
                         <td>${new Date(exec.start_time).toLocaleString()}</td>
                         <td>${duration}</td>
                         <td><span class="badge ${statusBadge}">${exec.status}</span></td>
                         <td>${exec.server?.name || '-'}</td>
+                        <td><button class="btn btn-sm btn-outline-info"><i class="bi bi-eye"></i></button></td>
                     </tr>
                 `;
             });
@@ -733,6 +775,218 @@
                 }
             }, 30000);
         });
+
+        // --- Real-time Execution Monitoring ---
+        let activeWs = null;
+        let activeExecId = null;
+        let elapsedTimer = null;
+        let execStartTime = null;
+        const stepStates = {};  // step_id -> {status, stdout, stderr, ...}
+
+        async function openExecutionMonitor(executionId) {
+            activeExecId = executionId;
+
+            // Load execution details
+            const exec = await apiCall(`/api/v2/executions/${executionId}`);
+            if (!exec) return;
+
+            // Show the detail view
+            document.querySelectorAll('.view-content').forEach(v => v.style.display = 'none');
+            document.getElementById('view-execution-detail').style.display = 'block';
+
+            // Summary
+            const status = exec.status || 'running';
+            const statusBadge = status === 'success' ? 'bg-success' : status === 'failed' ? 'bg-danger' : 'bg-warning';
+            document.getElementById('exec-detail-summary').innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h4 style="color: var(--purple-light);">${exec.orchestration?.name || 'Unknown'} v${exec.orchestration?.version || '?'}</h4>
+                        <span class="text-secondary">Server: ${exec.server?.name || '-'} | Executor: ${exec.executor?.name || '-'}</span>
+                    </div>
+                    <span class="badge ${statusBadge} fs-6">${status.toUpperCase()}</span>
+                </div>
+            `;
+
+            // Show cancel button for running executions
+            document.getElementById('btn-cancel-exec').style.display = status === 'running' ? 'inline-block' : 'none';
+
+            // Timer
+            execStartTime = new Date(exec.start_time);
+            if (status === 'running') {
+                startElapsedTimer();
+            } else {
+                const elapsed = exec.duration || 0;
+                document.getElementById('exec-elapsed').textContent = formatElapsed(elapsed);
+            }
+
+            // Load steps
+            const stepsData = await apiCall(`/api/v2/executions/${executionId}/steps`);
+            renderStepDag(stepsData?.step_executions || []);
+
+            // Connect WebSocket for live updates if running
+            if (status === 'running') {
+                connectWs(executionId);
+            }
+        }
+
+        function renderStepDag(steps) {
+            const container = document.getElementById('step-dag');
+            if (!steps.length) {
+                container.innerHTML = '<p class="text-secondary">No steps yet...</p>';
+                return;
+            }
+
+            let html = '<div class="d-flex flex-wrap gap-2">';
+            steps.forEach(step => {
+                const s = step.status || (step.end_time ? (step.success ? 'success' : 'failed') : 'running');
+                const color = s === 'success' ? '#22c55e' : s === 'failed' ? '#ef4444' : s === 'running' ? '#eab308' : '#6b7280';
+                const icon = s === 'success' ? 'check-circle-fill' : s === 'failed' ? 'x-circle-fill' : s === 'running' ? 'arrow-repeat' : 'circle';
+                const elapsed = step.total_elapsed ? `${step.total_elapsed.toFixed(1)}s` : '';
+                const stepId = step.step_id || step.id;
+
+                stepStates[stepId] = { stdout: step.stdout || '', stderr: step.stderr || '', status: s };
+
+                html += `
+                    <div class="step-node p-2 rounded text-center" style="border: 2px solid ${color}; background: rgba(${color === '#22c55e' ? '34,197,94' : color === '#ef4444' ? '239,68,68' : color === '#eab308' ? '234,179,8' : '107,114,128'},0.15); min-width: 140px; cursor: pointer;"
+                         onclick="showStepOutput('${stepId}')" id="step-node-${stepId}">
+                        <i class="bi bi-${icon}" style="color: ${color}; font-size: 1.2rem;"></i>
+                        <div class="mt-1" style="font-size: 0.8rem; color: var(--text-primary);">${step.step?.name || step.step_id || 'Step'}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">${step.server?.name || ''} ${elapsed}</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function showStepOutput(stepId) {
+            const state = stepStates[stepId];
+            if (!state) return;
+            let output = '';
+            if (state.stdout) output += state.stdout;
+            if (state.stderr) output += '\n--- STDERR ---\n' + state.stderr;
+            document.getElementById('step-output').textContent = output || '(no output)';
+        }
+
+        function connectWs(executionId) {
+            if (activeWs) { try { activeWs.close(); } catch(e) {} }
+
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            activeWs = new WebSocket(`${proto}//${location.host}/ws/executions/${executionId}`);
+
+            activeWs.onmessage = function(event) {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'ping') return;
+
+                handleWsEvent(msg);
+            };
+
+            activeWs.onclose = function() {
+                activeWs = null;
+            };
+        }
+
+        function handleWsEvent(msg) {
+            const data = msg.data || {};
+
+            if (msg.type === 'step_started') {
+                stepStates[data.step_id] = { status: 'running', stdout: '', stderr: '' };
+                updateStepNode(data.step_id, 'running', data.step_name, data.server_name);
+            }
+            else if (msg.type === 'step_completed' || msg.type === 'step_failed') {
+                const status = data.success ? 'success' : 'failed';
+                if (stepStates[data.step_id]) {
+                    stepStates[data.step_id].status = status;
+                    stepStates[data.step_id].stdout = data.stdout || '';
+                    stepStates[data.step_id].stderr = data.stderr || '';
+                }
+                updateStepNode(data.step_id, status, '', '', data.elapsed);
+            }
+            else if (msg.type === 'orch_completed') {
+                stopElapsedTimer();
+                document.getElementById('btn-cancel-exec').style.display = 'none';
+                const badge = data.success ? 'bg-success' : 'bg-danger';
+                const label = data.success ? 'SUCCESS' : 'FAILED';
+                document.querySelector('#exec-detail-summary .badge')?.classList.remove('bg-warning', 'bg-success', 'bg-danger');
+                document.querySelector('#exec-detail-summary .badge')?.classList.add(badge);
+                if (document.querySelector('#exec-detail-summary .badge'))
+                    document.querySelector('#exec-detail-summary .badge').textContent = label;
+            }
+            else if (msg.type === 'orch_cancelled') {
+                // Visual feedback for cancellation
+            }
+        }
+
+        function updateStepNode(stepId, status, name, serverName, elapsed) {
+            const node = document.getElementById(`step-node-${stepId}`);
+            if (!node) {
+                // Dynamically add new step node
+                const container = document.getElementById('step-dag');
+                if (container.querySelector('.text-secondary')) container.innerHTML = '<div class="d-flex flex-wrap gap-2"></div>';
+                const wrapper = container.querySelector('.d-flex') || container;
+                const div = document.createElement('div');
+                div.id = `step-node-${stepId}`;
+                div.className = 'step-node p-2 rounded text-center';
+                div.style.cssText = 'min-width: 140px; cursor: pointer;';
+                div.onclick = () => showStepOutput(stepId);
+                wrapper.appendChild(div);
+                updateStepNodeContent(div, status, name || stepId, serverName || '', elapsed);
+                return;
+            }
+            updateStepNodeContent(node, status, null, null, elapsed);
+        }
+
+        function updateStepNodeContent(node, status, name, serverName, elapsed) {
+            const color = status === 'success' ? '#22c55e' : status === 'failed' ? '#ef4444' : status === 'running' ? '#eab308' : '#6b7280';
+            const icon = status === 'success' ? 'check-circle-fill' : status === 'failed' ? 'x-circle-fill' : status === 'running' ? 'arrow-repeat' : 'circle';
+            const rgb = status === 'success' ? '34,197,94' : status === 'failed' ? '239,68,68' : status === 'running' ? '234,179,8' : '107,114,128';
+
+            node.style.border = `2px solid ${color}`;
+            node.style.background = `rgba(${rgb},0.15)`;
+
+            const iconEl = node.querySelector('i');
+            if (iconEl) { iconEl.className = `bi bi-${icon}`; iconEl.style.color = color; }
+
+            if (elapsed !== undefined) {
+                const elapsedEl = node.querySelectorAll('div')[1];
+                if (elapsedEl) elapsedEl.textContent = (serverName || elapsedEl.textContent.split(' ')[0] || '') + ` ${elapsed ? elapsed.toFixed(1) + 's' : ''}`;
+            }
+
+            if (name) {
+                const nameEl = node.querySelectorAll('div')[0];
+                if (nameEl) nameEl.textContent = name;
+            }
+        }
+
+        function startElapsedTimer() {
+            stopElapsedTimer();
+            elapsedTimer = setInterval(() => {
+                const now = new Date();
+                const elapsed = (now - execStartTime) / 1000;
+                document.getElementById('exec-elapsed').textContent = formatElapsed(elapsed);
+            }, 1000);
+        }
+
+        function stopElapsedTimer() {
+            if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+        }
+
+        function formatElapsed(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        }
+
+        async function cancelExecution() {
+            if (!activeExecId) return;
+            if (!confirm('Are you sure you want to cancel this execution?')) return;
+            const resp = await apiCall(`/dm-webmanager/executions/${activeExecId}/cancel`, { method: 'POST' });
+            if (resp?.message) {
+                document.getElementById('btn-cancel-exec').disabled = true;
+                document.getElementById('btn-cancel-exec').innerHTML = '<i class="bi bi-hourglass"></i> Cancelling...';
+            }
+        }
 
         async function logout() {
             try {

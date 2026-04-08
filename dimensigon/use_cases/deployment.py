@@ -898,6 +898,18 @@ class RegisterStepExecution:
                 setattr(orch_execution, key, value)
             self.json_orch_execution = orch_execution.to_json()
 
+        # Emit real-time event for orchestration completion
+        try:
+            if 'success' in kwargs and kwargs.get('end_time') is not None:
+                from dimensigon.web.admin.ws import emit_orch_completed
+                emit_orch_completed(
+                    execution_id=self.json_orch_execution.get('id'),
+                    success=kwargs['success'],
+                    message=kwargs.get('message'),
+                )
+        except Exception:
+            pass
+
     def create_step_execution(self, command):
         ident = str(uuid.uuid4())
         with self.session_scope() as s:
@@ -906,6 +918,21 @@ class RegisterStepExecution:
                                start_time=get_now())
             s.add(se)
         self._store[ident] = se
+
+        # Emit real-time event
+        try:
+            from dimensigon.web.admin.ws import emit_step_started
+            emit_step_started(
+                execution_id=self.json_orch_execution.get('id'),
+                step_execution_id=ident,
+                step_id=str(command.id[1]),
+                step_name=getattr(command, 'step_name', ''),
+                server_id=str(command.id[0]),
+                server_name=getattr(command, '_server_name', ''),
+            )
+        except Exception:
+            pass  # Don't let WS errors affect execution
+
         return ident
 
     def save_step_execution(self, command: ImplementationCommand, params=None, pre_process_time=None,
@@ -921,6 +948,23 @@ class RegisterStepExecution:
             se.end_time = get_now()
             if command._cp.stdout and ORCH_EXEC_PATTERN.match(command._cp.stdout):
                 se.child_orch_execution_id = ORCH_EXEC_PATTERN.match(command._cp.stdout)[1]
+
+        # Emit real-time event
+        try:
+            from dimensigon.web.admin.ws import emit_step_completed
+            total_elapsed = sum(filter(None, [pre_process_time, execution_time, post_process_time]))
+            emit_step_completed(
+                execution_id=self.json_orch_execution.get('id'),
+                step_execution_id=command.step_execution_id,
+                step_id=str(command.id[1]),
+                success=getattr(command._cp, 'success', False),
+                rc=getattr(command._cp, 'rc', None),
+                stdout=getattr(command._cp, 'stdout', None),
+                stderr=getattr(command._cp, 'stderr', None),
+                elapsed=total_elapsed,
+            )
+        except Exception:
+            pass  # Don't let WS errors affect execution
 
     def commit_data(self):
         pass

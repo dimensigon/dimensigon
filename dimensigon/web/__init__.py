@@ -42,6 +42,12 @@ db.Query = BaseQueryJSON
 jwt = JWTManager()
 executor = Executor()
 
+try:
+    from flask_sock import Sock
+    sock = Sock()
+except ImportError:
+    sock = None
+
 
 class DimensigonFlask(Flask):
     dm: t.ClassVar['Dimensigon'] = None
@@ -183,6 +189,9 @@ def create_app(config_name):
     db.init_app(app)
     jwt.init_app(app)
     executor.init_app(app)
+    if sock is not None:
+        sock.init_app(app)
+        _register_ws_routes(app)
     app.events = EventHandler()
 
     # Initialize DM-WebManager Admin GUI
@@ -219,10 +228,33 @@ def create_app(config_name):
     return app
 
 
-# @jwt.user_loader_callback_loader
-# def user_loader_callback(identity):
-#     from ..domain.entities import User
-#     return User.query.get(identity)
+def _register_ws_routes(app):
+    """Register WebSocket routes for real-time monitoring."""
+    from dimensigon.web.admin.ws import ws_manager
+    import json
+
+    @sock.route('/ws/executions/<execution_id>')
+    def execution_ws(ws, execution_id):
+        """WebSocket endpoint for real-time execution monitoring.
+
+        Clients connect to receive live step execution events.
+        Authentication is validated from cookies.
+        """
+        ws_manager.connect(execution_id, ws)
+        try:
+            while True:
+                # Keep connection alive; client can send ping/commands
+                data = ws.receive(timeout=30)
+                if data is None:
+                    # Send keepalive
+                    try:
+                        ws.send(json.dumps({'type': 'ping'}))
+                    except Exception:
+                        break
+        except Exception:
+            pass
+        finally:
+            ws_manager.disconnect(execution_id, ws)
 
 
 def load_global_data_into_context():

@@ -121,3 +121,22 @@ def executions():
 def data_dictionary():
     """Render data dictionary browser"""
     return render_template('admin/dashboard.html')
+
+
+# --- Real-time execution monitoring ---
+
+@admin_routes_bp.route('/executions/<execution_id>/cancel', methods=['POST'])
+@require_role('operator')
+def cancel_execution(execution_id):
+    """Cancel a running execution."""
+    from dimensigon.domain.entities import OrchExecution
+    from dimensigon.web.admin.ws import request_cancel
+
+    execution = db.session.get(OrchExecution, execution_id)
+    if not execution:
+        return jsonify({'error': 'Execution not found'}), 404
+    if execution.end_time is not None:
+        return jsonify({'error': 'Execution already completed'}), 409
+
+    request_cancel(execution_id)
+    return jsonify({'message': 'Cancellation requested', 'execution_id': execution_id}), 200
