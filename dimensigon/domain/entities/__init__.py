@@ -34,6 +34,8 @@ from .webhook import Webhook, WebhookLog
 from .schedule import Schedule
 from .orch_version import OrchestrationVersion
 from .template import OrchTemplate
+from .training_candidate import TrainingCandidate
+from .federation import Peer, FederationLink
 
 SCHEMA_VERSION = 2
 
@@ -72,6 +74,9 @@ __all__ = [
     "Schedule",
     "OrchestrationVersion",
     "OrchTemplate",
+    "TrainingCandidate",
+    "Peer",
+    "FederationLink",
 ]
 
 catalog = threading.local()
