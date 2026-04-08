@@ -151,6 +151,14 @@ def _initialize_blueprint(app):
 
     # Health endpoint registered first — no auth required
     app.register_blueprint(health_bp, url_prefix='/health')
+
+    # Prometheus metrics endpoint
+    try:
+        from dimensigon.web.metrics import metrics_bp
+        app.register_blueprint(metrics_bp)
+    except ImportError:
+        pass
+
     app.register_blueprint(root_bp)
     handle_exception = app.handle_exception
     handle_user_exception = app.handle_user_exception
@@ -225,6 +233,13 @@ def create_app(config_name):
     _initialize_blueprint(app)
     _initialize_errorhandlers(app)
 
+    # Register Prometheus metrics hooks
+    try:
+        from dimensigon.web.metrics import register_metrics_hooks
+        register_metrics_hooks(app)
+    except ImportError:
+        pass
+
     return app
 
 
@@ -260,7 +275,7 @@ def _register_ws_routes(app):
 def load_global_data_into_context():
     from flask import request
     # Skip heavy setup for health and WebManager endpoints (they have their own auth)
-    if request.path.startswith('/health') or request.path.startswith('/dm-webmanager'):
+    if request.path.startswith('/health') or request.path.startswith('/metrics') or request.path.startswith('/dm-webmanager'):
         return
     from dimensigon.domain.entities import Server, Dimension
     from dimensigon.web.decorators import set_source

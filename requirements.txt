@@ -18,6 +18,7 @@ Flask-JWT-Extended>=4.6.0,<5.0.0
 Flask-RESTful>=0.3.10,<0.4.0
 Flask-SQLAlchemy>=3.0.0,<3.1.0  # Major version update with breaking changes
 flask-sock>=0.7.0,<1.0.0  # WebSocket support for real-time monitoring
+prometheus-client>=0.20.0,<1.0.0  # Prometheus metrics endpoint
 SQLAlchemy>=2.0,<3.0  # SQLAlchemy 2.x migration
 
 # Template and validation - Security updates

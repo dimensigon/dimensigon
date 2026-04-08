@@ -910,6 +910,15 @@ class RegisterStepExecution:
         except Exception:
             pass
 
+        # Record Prometheus metrics for orchestration execution
+        try:
+            if 'success' in kwargs:
+                from dimensigon.web.metrics import ORCHESTRATION_EXECUTIONS
+                status = 'success' if kwargs['success'] else 'failed'
+                ORCHESTRATION_EXECUTIONS.labels(orchestration_name='unknown', status=status).inc()
+        except Exception:
+            pass
+
     def create_step_execution(self, command):
         ident = str(uuid.uuid4())
         with self.session_scope() as s:
@@ -965,6 +974,15 @@ class RegisterStepExecution:
             )
         except Exception:
             pass  # Don't let WS errors affect execution
+
+        # Record Prometheus metrics for step execution
+        try:
+            from dimensigon.web.metrics import STEP_EXECUTION_DURATION
+            total = sum(filter(None, [pre_process_time, execution_time, post_process_time]))
+            status = 'success' if getattr(command._cp, 'success', False) else 'failed'
+            STEP_EXECUTION_DURATION.labels(step_name=str(command.id[1]), status=status).observe(total)
+        except Exception:
+            pass
 
     def commit_data(self):
         pass
