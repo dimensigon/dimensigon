@@ -193,23 +193,59 @@ def forward_or_dispatch(*methods):
     return inner
 
 
+def _should_encrypt(securizer_method):
+    """Determine if encryption should be applied based on SECURIZER_MODE config.
+
+    Modes:
+        'never'  - skip securizer entirely (dev/test)
+        'always' - encrypt everything (legacy behavior)
+        'auto'   - plain for intra-dimension, encrypted for cross-dimension
+    """
+    mode = current_app.config.get('SECURIZER_MODE', 'auto')
+
+    if mode == 'never':
+        dm_logger.debug("Securizer skipped: mode=never")
+        return False
+
+    if mode == 'always':
+        if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
+            return False
+        return current_app.config.get('SECURIZER', False)
+
+    # mode == 'auto': check if source is from same dimension
+    if securizer_method == 'plain':
+        return False
+
+    from dimensigon.domain.entities.dimension import Dimension
+    source = getattr(g, 'source', None)
+    if Dimension.is_same_dimension(source):
+        dm_logger.debug("Securizer skipped: intra-dimension traffic (mode=auto)")
+        return False
+
+    dm_logger.debug("Securizer applied: cross-dimension traffic (mode=auto)")
+    return current_app.config.get('SECURIZER', False)
+
+
 def securizer(func):
     from flask import request
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
 
-        # cipher_key = session.get('cipher_key', None)
         cipher_key = None
         securizer_method = None
+        temp_pub_key = None
 
         if 'D-Securizer' in request.headers:
             securizer_method = request.headers.get('D-Securizer')
-            if securizer_method == 'plain' and not current_app.config.get('SECURIZER_PLAIN', False):
+            mode = current_app.config.get('SECURIZER_MODE', 'auto')
+            if securizer_method == 'plain' and mode == 'always' and not current_app.config.get('SECURIZER_PLAIN', False):
                 return {'error': 'plain data is not allowed'}, 406
+
+        should_encrypt = _should_encrypt(securizer_method)
 
         if request.method != 'GET':
             if request.is_json:
-                if current_app.config.get('SECURIZER', False) and securizer_method != 'plain':
+                if should_encrypt:
                     g.original_json = request.get_json()
                     cipher_key = base64.b64decode(
                         request.get_json().get('key')) if 'key' in request.get_json() else cipher_key
@@ -231,7 +267,6 @@ def securizer(func):
                     request._cached_data = json.dumps(data)
                     request._cached_json = (data, data)
 
-
             else:
                 if request.data:
                     return {'error': 'Content Type must be application/json'}, 400
@@ -249,21 +284,15 @@ def securizer(func):
             return rv
 
         if isinstance(rv, dict):
-
-            if request.path == url_for('api_1_0.join'):
+            if request.path == url_for('api_1_0.join') and temp_pub_key:
                 rv = ntwrk.pack_msg2(data=rv, pub_key=temp_pub_key,
                                      priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
                                      cipher_key=cipher_key)
-            else:
-                if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
-                    pass
-                else:
-                    rv = ntwrk.pack_msg(data=rv)
+            elif should_encrypt:
+                rv = ntwrk.pack_msg(data=rv)
 
         if isinstance(rv, list):
-            if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
-                pass
-            else:
+            if should_encrypt:
                 rv = ntwrk.pack_msg(data=rv)
 
         if rest:

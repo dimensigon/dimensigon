@@ -32,6 +32,7 @@ class Config(object):
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
     SECURIZER_PLAIN = True
+    SECURIZER_MODE = 'auto'  # 'auto' (default), 'always', or 'never'
     SCHEDULER = True
 
     @classmethod
