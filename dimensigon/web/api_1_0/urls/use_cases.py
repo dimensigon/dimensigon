@@ -21,6 +21,7 @@ from collections import OrderedDict
 from flask import request, current_app, g
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
 from packaging.version import Version
+from sqlalchemy import select, func
 
 import dimensigon
 import dimensigon.use_cases.cluster
@@ -70,7 +71,7 @@ def join_token():
 @api_bp.route('/join/public', methods=['GET'])
 @jwt_required()
 def join_public():
-    if User.query.get(get_jwt_identity()) == User.get_by_name('join'):
+    if db.session.get(User, get_jwt_identity()) == User.get_by_name('join'):
         return g.dimension.public.save_pkcs1(), 200, {'content-type': 'application/octet-stream'}
 
     else:
@@ -103,9 +104,9 @@ def join():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000004':
         js = request.get_json()
         current_app.logger.debug(f"New server wanting to join: {json.dumps(js, indent=2)}")
-        if db.session.query(Server).filter_by(id=js.get('id', None)).count() > 0:
+        if db.session.execute(select(func.count()).select_from(Server).filter_by(id=js.get('id', None))).scalar() > 0:
             raise errors.DuplicatedId(js.get('id', None))
-        if db.session.query(Server).filter_by(name=js.get('name', None)).count() > 0:
+        if db.session.execute(select(func.count()).select_from(Server).filter_by(name=js.get('name', None))).scalar() > 0:
             raise errors.AlreadyExists('name', js.get('name', None))
         s = Server.from_json(js)
         s.created_on = get_now()
@@ -183,7 +184,9 @@ def manager_server_ignore_lock():
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         ignore = request.get_json()['ignore_on_lock']
         for server_id in request.get_json()['server_ids']:
-            server = Server.query.get_or_raise(server_id)
+            server = db.session.get(Server, server_id)
+            if server is None:
+                raise errors.EntityNotFound('Server', server_id)
             server.l_ignore_on_lock = ignore
             db.session.commit()
 
@@ -212,12 +215,16 @@ def send():
     # Validate Data
     json_data = request.get_json()
 
-    dest_server = Server.query.get_or_raise(json_data['dest_server_id'])
+    dest_server = db.session.get(Server, json_data['dest_server_id'])
+    if dest_server is None:
+        raise errors.EntityNotFound('Server', json_data['dest_server_id'])
 
     if 'software_id' in json_data:
-        software = Software.query.get_or_raise(json_data['software_id'])
+        software = db.session.get(Software, json_data['software_id'])
+        if software is None:
+            raise errors.EntityNotFound('Software', json_data['software_id'])
 
-        ssa = SoftwareServerAssociation.query.filter_by(server=g.server, software=software).one_or_none()
+        ssa = db.session.execute(select(SoftwareServerAssociation).filter_by(server=g.server, software=software)).scalars().first()
         # if current server does not have the software, forward request to the closest server who has it
         if not ssa:
             resp = ntwrk.get(dest_server, 'api_1_0.routes', timeout=5)
@@ -352,13 +359,13 @@ def fetch_catalog(data_mark=None):
     data = {}
     now = get_now()
     for name, obj in get_distributed_entities():
-        c = Catalog.query.get(name)
+        c = db.session.get(Catalog, name)
         # db.session.query to bypass deleted objects to spread deleted changes
         if data_mark:
-            query = obj.query.filter(obj.last_modified_at > data_mark)
+            stmt = select(obj).where(obj.last_modified_at > data_mark)
         else:
-            query = obj.query
-        repo_data = query.filter(obj.last_modified_at <= now).all()
+            stmt = select(obj)
+        repo_data = db.session.execute(stmt.where(obj.last_modified_at <= now)).scalars().all()
         if name == 'User':
             data.update({name: [e.to_json(password=True) for e in repo_data]})
         else:
@@ -406,7 +413,7 @@ def cluster_in(server_id):
             raise errors.InvalidDateFormat(data.get('keepalive'), defaults.DATEMARK_FORMAT)
         current_app.dm.cluster_manager.put(server_id, keepalive)
         _cluster_logger.debug(
-            f"{getattr(Server.query.get(server_id), 'name', server_id) or server_id} is a new alive server")
+            f"{getattr(db.session.get(Server, server_id), 'name', server_id) or server_id} is a new alive server")
 
         current_app.dm.route_manager.new_node_in_cluster(server_id, data['routes'])
 
@@ -423,7 +430,9 @@ def cluster_in(server_id):
 def cluster_out(server_id):
     user = User.get_current()
     if user and user.name == 'root':
-        Server.query.get_or_raise(server_id)
+        server = db.session.get(Server, server_id)
+        if server is None:
+            raise errors.EntityNotFound('Server', server_id)
         data = request.get_json()
         if data.get('death', None):
             try:
@@ -468,7 +477,7 @@ def cluster_out(server_id):
 def routes():
     if request.method == 'GET':
         route_table = []
-        for route in Route.query.join(Server.route).order_by(Server.name).filter(Server.deleted == False).all():
+        for route in db.session.execute(select(Route).join(Server.route).order_by(Server.name).where(Server.deleted == False)).scalars().all():
             route_table.append(route.to_json(human=check_param_in_uri('human')))
         data = {'route_list': route_table}
         data.update(server=dict(name=g.server.name, id=str(g.server.id)))
@@ -561,20 +570,23 @@ def launch_operation():
 def launch_orchestration(orchestration_id):
     data = request.get_json()
     if orchestration_id:
-        orchestration = Orchestration.query.get_or_raise(orchestration_id)
+        orchestration = db.session.get(Orchestration, orchestration_id)
+        if orchestration is None:
+            raise errors.EntityNotFound('Orchestration', orchestration_id)
     else:
         iden = (data.get('orchestration'),)
         columns = ('orchestration',)
-        query = Orchestration.query.filter_by(name=data.get('orchestration'))
+        stmt = select(Orchestration).filter_by(name=data.get('orchestration'))
         if 'version' in data:
             iden += (data.get('version'),)
             columns += ('version',)
-            query = query.filter_by(version=data.get('version'))
-        query = query.order_by(Orchestration.version.desc())
-        if query.count() <= 1:
-            orchestration = query.one_or_none()
+            stmt = stmt.filter_by(version=data.get('version'))
+        stmt = stmt.order_by(Orchestration.version.desc())
+        results = db.session.execute(stmt).scalars().all()
+        if len(results) <= 1:
+            orchestration = results[0] if results else None
         else:
-            orchestration = query.first()
+            orchestration = results[0]
         if not orchestration:
             raise errors.EntityNotFound('Orchestration', iden, columns)
 
@@ -637,7 +649,7 @@ def launch_orchestration(orchestration_id):
         except Exception as e:
             current_app.logger.exception(f"Exception got when executing orchestration {orchestration}")
             raise
-    return OrchExecution.query.get(execution_id).to_json(add_step_exec=True, human=check_param_in_uri('human'),
+    return db.session.get(OrchExecution, execution_id).to_json(add_step_exec=True, human=check_param_in_uri('human'),
                                                          split_lines=True), 200
 
 
@@ -664,7 +676,7 @@ def launch_command():
     server_list = []
     if 'target' in data:
         not_found = []
-        servers = Server.query.all()
+        servers = db.session.execute(select(Server)).scalars().all()
         if data['target'] == 'all':
             server_list = servers
         elif is_iterable_not_string(data['target']):
@@ -690,7 +702,7 @@ def launch_command():
     data.pop('target', None)
     start = None
 
-    username = getattr(User.query.get(get_jwt_identity()), 'name', None)
+    username = getattr(db.session.get(User, get_jwt_identity()), 'name', None)
     if not username:
         raise errors.EntityNotFound('User', get_jwt_identity())
     cmd = wrap_sudo(username, data['command'])
@@ -775,7 +787,7 @@ def orchestrations_full():
     generated_version = False
     if 'version' not in json_data:
         generated_version = True
-        json_data['version'] = Orchestration.query.filter_by(name=json_data['name']).count() + 1
+        json_data['version'] = db.session.execute(select(func.count()).select_from(Orchestration).filter_by(name=json_data['name'])).scalar() + 1
     o = Orchestration(**json_data)
     db.session.add(o)
     resp_data = {'id': o.id}
@@ -811,7 +823,11 @@ def orchestrations_full():
         if rid is not None and rid in rid2step.keys():
             raise errors.DuplicatedId(rid)
         if 'action_template_id' in json_step:
-            json_step['action_template'] = ActionTemplate.query.get_or_raise(json_step.pop('action_template_id'))
+            at_id = json_step.pop('action_template_id')
+            at = db.session.get(ActionTemplate, at_id)
+            if at is None:
+                raise errors.EntityNotFound('ActionTemplate', at_id)
+            json_step['action_template'] = at
         elif 'action_type' in json_step:
             json_step['action_type'] = ActionType[json_step.pop('action_type')]
         dependencies[rid] = {'parent_step_ids': [p_id for p_id in json_step.pop('parent_step_ids', [])]}

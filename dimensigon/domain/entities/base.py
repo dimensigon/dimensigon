@@ -9,6 +9,7 @@ from sqlalchemy import Column, Boolean
 
 from dimensigon import defaults
 from dimensigon.utils.typos import UUID, UtcDateTime
+from dimensigon.web import db
 from dimensigon.web.helpers import QueryWithSoftDelete
 
 
@@ -145,7 +146,7 @@ class UUIDistributedEntityMixin(UUIDEntityMixin, DistributedEntityMixin):
     def from_json(cls, kwargs):
         super().from_json(kwargs)
         try:
-            o = cls.query.get(kwargs.get('id'))
+            o = db.session.get(cls, kwargs.get('id'))
         except RuntimeError as e:
             o = None
         if o:

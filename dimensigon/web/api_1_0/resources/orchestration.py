@@ -1,12 +1,13 @@
 from flask import request
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
+from sqlalchemy import select, func
 
 from dimensigon.domain.entities import Orchestration
 from dimensigon.utils.helpers import is_iterable_not_string
 from dimensigon.web import db
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dimensigon.web.helpers import filter_query, check_param_in_uri
+from dimensigon.web.helpers import filter_query, check_param_in_uri, get_or_raise
 from dimensigon.web.json_schemas import orchestration_post, orchestration_patch
 
 
@@ -16,11 +17,11 @@ class OrchestrationList(Resource):
     @jwt_required()
     @securizer
     def get(self):
-        query = filter_query(Orchestration, request.args).order_by(Orchestration.created_at)
+        stmt = filter_query(Orchestration, request.args).order_by(Orchestration.created_at)
         return [o.to_json(add_target=check_param_in_uri('target'), add_params=check_param_in_uri('vars'),
                           add_steps=check_param_in_uri('steps'), add_action=check_param_in_uri('action'),
                           split_lines=check_param_in_uri('split_lines'), add_schema=check_param_in_uri('schema')) for o
-                in query.all()]
+                in db.session.execute(stmt).scalars().all()]
 
     @forward_or_dispatch()
     @jwt_required()
@@ -32,7 +33,9 @@ class OrchestrationList(Resource):
         generated_version = False
         if 'version' not in json_data:
             generated_version = True
-            json_data['version'] = Orchestration.query.filter_by(name=json_data['name']).count() + 1
+            json_data['version'] = db.session.execute(
+                select(func.count()).select_from(select(Orchestration).where(Orchestration.name == json_data['name']).subquery())
+            ).scalar() + 1
         o = Orchestration(**json_data)
         db.session.add(o)
         db.session.commit()
@@ -47,7 +50,7 @@ class OrchestrationResource(Resource):
     @jwt_required()
     @securizer
     def get(self, orchestration_id):
-        return Orchestration.query.get_or_raise(orchestration_id).to_json(check_param_in_uri('target'),
+        return get_or_raise(Orchestration, orchestration_id).to_json(check_param_in_uri('target'),
                                                                           add_schema=check_param_in_uri('schema'),
                                                                           split_lines=check_param_in_uri('split_lines'))
 
@@ -57,7 +60,7 @@ class OrchestrationResource(Resource):
     @validate_schema(orchestration_patch)
     @lock_catalog
     def patch(self, orchestration_id):
-        o = Orchestration.query.get_or_raise(orchestration_id)
+        o = get_or_raise(Orchestration, orchestration_id)
         for k, v in request.get_json().items():
             if k == 'description':
                 v = '\n'.join(v) if is_iterable_not_string(v) else v

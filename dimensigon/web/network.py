@@ -513,7 +513,7 @@ async def parallel_requests(servers: t.List[t.Union[Server, Id]], method: str, k
         return []
 
     if not isinstance(servers[0], Server):
-        servers = [Server.query.get(s) for s in servers]
+        servers = [db.session.get(Server, s) for s in servers]
     else:
         servers = [db.session.merge(s) if s not in db.session else s for s in servers]
 

@@ -4,7 +4,7 @@ import typing as t
 from flask import Flask, g
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, select, func
 from sqlalchemy.pool import StaticPool
 
 from dimensigon.utils.event_handler import EventHandler
@@ -68,7 +68,7 @@ class DimensigonFlask(Flask):
             self.server_id_with_new_gates = None
             if new_gates:
                 if Parameter.get('join_server'):
-                    join_server = Server.query.get(Parameter.get('join_server'))
+                    join_server = db.session.get(Server, Parameter.get('join_server'))
                 else:
                     join_server = None
                 servers = Server.get_neighbours()
@@ -119,7 +119,7 @@ class DimensigonFlask(Flask):
                         break
 
                 if not servers:
-                    if Server.query.count() == 1:
+                    if db.session.execute(select(func.count()).select_from(Server)).scalar() == 1:
                         self.logger.info(f"Creating new gates {new_gates} without performing a lock on catalog")
                         for gate in new_gates:
                             g = me.add_new_gate(gate[0], gate[1])

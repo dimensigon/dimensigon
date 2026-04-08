@@ -7,6 +7,8 @@ from flask import request, current_app, g, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.exc import OperationalError
 
+from sqlalchemy import select
+
 from dimensigon import defaults
 from dimensigon.domain.entities import Catalog
 from dimensigon.domain.entities.locker import Scope, State, Locker
@@ -25,7 +27,7 @@ logger = logging.getLogger('dm.lock')
 @securizer
 def locker():
     data = []
-    for l in Locker.query.all():
+    for l in db.session.execute(select(Locker)).scalars().all():
         data.append({l.scope.name: l.state.name})
     return jsonify(data), 200
 
@@ -33,7 +35,7 @@ def locker():
 def revert_preventing(app, scope, applicant):
     with app.app_context():
         try:
-            l = Locker.query.with_for_update().get(scope)
+            l = db.session.get(Locker, scope, with_for_update=True)
             if l.state == State.PREVENTING and l.applicant == applicant:
                 l.state = State.UNLOCKED
                 l.applicant = None
@@ -50,7 +52,7 @@ def revert_preventing(app, scope, applicant):
 @validate_schema(POST=locker_prevent_post)
 def locker_prevent():
     json_data = request.get_json()
-    l: Locker = Locker.query.get(Scope[json_data['scope']])
+    l: Locker = db.session.get(Locker, Scope[json_data['scope']])
     logger.debug(f"PreventLock requested on {json_data.get('scope')} from {g.source}")
 
     # when orchestration scope check if applicant is the same as the current
@@ -64,7 +66,7 @@ def locker_prevent():
     # check status from current scope
     if l.state == State.UNLOCKED:
         # check priority
-        prioritary_lockers = Locker.query.filter(Locker.scope != l.scope).all()
+        prioritary_lockers = db.session.execute(select(Locker).where(Locker.scope != l.scope)).scalars().all()
         prioritary_lockers = [pl for pl in prioritary_lockers if pl.scope < l.scope]
         cond = any([pl.state in (State.PREVENTING, State.LOCKED) for pl in prioritary_lockers])
         if not cond:
@@ -98,7 +100,7 @@ counter = mp.Value('i', 0)
 @validate_schema(POST=locker_unlock_lock_post)
 def locker_lock():
     json_data = request.get_json()
-    l: Locker = Locker.query.get(Scope[json_data['scope']])
+    l: Locker = db.session.get(Locker, Scope[json_data['scope']])
     logger.debug(f"Lock requested on {json_data.get('scope')} from {g.source}")
 
     if Scope[json_data['scope']] == Scope.ORCHESTRATION \
@@ -132,7 +134,7 @@ def locker_lock():
 @validate_schema(POST=locker_unlock_lock_post)
 def locker_unlock():
     json_data = request.get_json()
-    l: Locker = Locker.query.get(Scope[json_data['scope']])
+    l: Locker = db.session.get(Locker, Scope[json_data['scope']])
     logger.debug(f"Unlock requested on {json_data.get('scope')} from {g.source}")
 
     if 'force' in json_data and json_data['force']:

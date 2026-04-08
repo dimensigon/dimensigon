@@ -3,7 +3,7 @@ import threading
 import time
 from contextlib import contextmanager
 
-from sqlalchemy import event, inspect
+from sqlalchemy import event, inspect, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import Pool
@@ -125,12 +125,12 @@ def receive_after_commit(session):
     # TODO: run this peace of code in a thread to allow the request end while executing the queries
     if hasattr(catalog, 'data'):
         # create a different session as the request session is already commited
-        engine = db.get_engine()
+        engine = db.engine
         Session = sessionmaker(bind=engine)
         s = Session()
         for e, last_modified_at in catalog.data.items():
-            # last_modified_at = s.query(func.max(e.last_modified_at)).scalar()
-            c = s.query(Catalog).filter_by(entity=e.__name__).first()
+            # last_modified_at = s.execute(select(func.max(e.last_modified_at))).scalar()
+            c = s.execute(select(Catalog).filter_by(entity=e.__name__)).scalars().first()
             if c is None:
                 c = Catalog(entity=e.__name__, last_modified_at=last_modified_at)
             else:

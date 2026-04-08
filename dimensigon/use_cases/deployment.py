@@ -21,6 +21,7 @@ from functools import partial
 import jsonschema
 from flask import current_app, has_app_context, g
 from flask_jwt_extended import create_access_token
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
@@ -222,7 +223,7 @@ class ImplementationCommand(ICommand):
                                 self.params['input'].update({dest: getattr(self.var_context, container_name, {})[var]})
                             except KeyError:
                                 if dest in required.get('input', []):
-                                    se = StepExecution.query.get(self.step_execution_id)
+                                    se = db.session.get(StepExecution, self.step_execution_id)
                                     raise errors.MissingParameters([source],
                                                                    se.step, se.server)
                         else:
@@ -244,8 +245,8 @@ class ImplementationCommand(ICommand):
                                     elif var in required.get(container_name, []):
                                         if has_app_context():
                                             raise errors.MissingParameters([f"{container_name}.{var}"],
-                                                                           Step.query.get(self.id[1]),
-                                                                           Server.query.get(self.id[0]))
+                                                                           db.session.get(Step, self.id[1]),
+                                                                           db.session.get(Server, self.id[0]))
                                         else:
                                             raise errors.MissingParameters([f"{container_name}.{var}"])
                         # add variables specified in required
@@ -256,8 +257,8 @@ class ImplementationCommand(ICommand):
                                         {var: getattr(self.var_context, container_name, {})[var]})
                                 except KeyError:
                                     raise errors.MissingParameters([f"{container_name}.{var}"],
-                                                                   Step.query.get(self.id[1]),
-                                                                   Server.query.get(self.id[0]))
+                                                                   db.session.get(Step, self.id[1]),
+                                                                   db.session.get(Server, self.id[0]))
 
                     if schema2validate:
                         jsonschema.validate(self.params, schema2validate)
@@ -677,7 +678,7 @@ class ProxyImplementation:
             ctx = self._app.app_context()
             ctx.push()
         try:
-            self.__dict__['_server'] = Server.query.get(self._server)
+            self.__dict__['_server'] = db.session.get(Server, self._server)
 
             # set a timeout if none to avoid infinite wait in event
             if timeout is None:
@@ -892,7 +893,7 @@ class RegisterStepExecution:
 
     def update_orch_execution(self, **kwargs):
         with self.session_scope() as s:
-            orch_execution = s.query(OrchExecution).get(self.json_orch_execution.get('id'))
+            orch_execution = s.get(OrchExecution, self.json_orch_execution.get('id'))
             for key, value in kwargs.items():
                 setattr(orch_execution, key, value)
             self.json_orch_execution = orch_execution.to_json()
@@ -1061,14 +1062,14 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
     executor = executor or var_context.env.get('executor_id')
     hosts = hosts or var_context.get('hosts')
     if not isinstance(orchestration, Orchestration):
-        orchestration = db.session.query(Orchestration).get(orchestration)
+        orchestration = db.session.get(Orchestration, orchestration)
     if not isinstance(execution, OrchExecution):
         exe = None
         if execution is not None:
-            exe = db.session.query(OrchExecution).get(execution)
+            exe = db.session.get(OrchExecution, execution)
         if exe is None:
             if not isinstance(executor, User):
-                executor = db.session.query(User).get(executor)
+                executor = db.session.get(User, executor)
             if executor is None:
                 raise ValueError('executor must be set')
             if not isinstance(execution_server, Server):
@@ -1080,7 +1081,7 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
                     if execution_server is None:
                         raise ValueError('execution server not found')
                 else:
-                    execution_server = db.session.query(Server).get(execution_server)
+                    execution_server = db.session.get(Server, execution_server)
             exe = OrchExecution(id=execution, orchestration_id=orchestration.id, target=hosts,
                                 params=dict(var_context),
                                 executor_id=executor.id, server_id=execution_server.id)
@@ -1125,7 +1126,7 @@ def _deploy_orchestration(orchestration: Orchestration,
 
     # convert UUID into str as in_ filter does not handle UUID type
     all = [str(s) for s in hosts['all']]
-    servers = Server.query.filter(Server.id.in_(all)).all()
+    servers = db.session.execute(select(Server).where(Server.id.in_(all))).scalars().all()
     scope_enabled = locker_scope_enabled(Scope.ORCHESTRATION)
     if scope_enabled:
         try:

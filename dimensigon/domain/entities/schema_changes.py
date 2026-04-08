@@ -1,3 +1,5 @@
+from sqlalchemy import select
+
 from dimensigon.utils.helpers import get_now
 from dimensigon.utils.typos import UtcDateTime
 from dimensigon.web import db
@@ -14,7 +16,7 @@ class SchemaChanges(db.Model):
     @staticmethod
     def set_initial(session=None):
         from dimensigon.domain.entities import SCHEMA_VERSION
-        count = session.query(SchemaChanges).count()
+        count = session.execute(select(db.func.count()).select_from(SchemaChanges)).scalar()
         # database started
         if count == 0:
             sc = SchemaChanges(schema_version=SCHEMA_VERSION)

@@ -26,7 +26,7 @@ class SecureModelView(ModelView):
             verify_jwt_in_request()
             # Get user identity and check if they exist
             identity = get_jwt_identity()
-            user = User.query.get(identity)
+            user = db.session.get(User, identity)
             return user is not None
         except:
             return False

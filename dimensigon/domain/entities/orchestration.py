@@ -1,7 +1,7 @@
 import copy
 import typing as t
 
-from sqlalchemy import orm
+from sqlalchemy import orm, select
 
 from dimensigon.domain.entities import ActionType
 from dimensigon.domain.entities.base import UUIDistributedEntityMixin
@@ -464,15 +464,15 @@ class Orchestration(UUIDistributedEntityMixin, db.Model):
     @staticmethod
     def get(id_or_name, version=None) -> t.Union['Orchestration', str]:
         if is_valid_uuid(id_or_name):
-            orch = Orchestration.query.get(id_or_name)
+            orch = db.session.get(Orchestration, id_or_name)
             if orch is None:
                 return str(errors.EntityNotFound('Orchestration', id_or_name))
         else:
             if id_or_name:
-                query = Orchestration.query.filter_by(name=id_or_name).order_by(Orchestration.version.desc())
+                query = select(Orchestration).filter_by(name=id_or_name).order_by(Orchestration.version.desc())
                 if version:
-                    query.filter_by(version=version)
-                orch = query.first()
+                    query = query.filter_by(version=version)
+                orch = db.session.execute(query).scalars().first()
                 if orch is None:
                     return f"No orchestration found for '{id_or_name}'" + (f" version '{version}'" if version else None)
             else:

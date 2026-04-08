@@ -132,13 +132,13 @@ class OrchExecution(UUIDEntityMixin, EntityReprMixin, db.Model):
             if isinstance(self.target, dict):
                 for k, v in self.target.items():
                     if is_iterable_not_string(v):
-                        d[k] = [str(Server.query.get(s) or s) for s in v]
+                        d[k] = [str(db.session.get(Server, s) or s) for s in v]
                     else:
-                        d[k] = str(Server.query.get(v) or v)
+                        d[k] = str(db.session.get(Server, v) or v)
             elif isinstance(self.target, list):
-                d = [str(Server.query.get(s) or s) for s in self.target]
+                d = [str(db.session.get(Server, s) or s) for s in self.target]
             else:
-                d = str(Server.query.get(self.target) or self.target)
+                d = str(db.session.get(Server, self.target) or self.target)
             data.update(target=d)
             if self.executor:
                 data.update(executor=str(self.executor))
@@ -212,7 +212,7 @@ class OrchExecution(UUIDEntityMixin, EntityReprMixin, db.Model):
         if 'end_time' in kwargs:
             kwargs['end_time'] = datetime.strptime(kwargs.get('end_time'), defaults.DATETIME_FORMAT)
         try:
-            o = cls.query.get(kwargs.get('id'))
+            o = db.session.get(cls, kwargs.get('id'))
         except RuntimeError as e:
             o = None
         if o:

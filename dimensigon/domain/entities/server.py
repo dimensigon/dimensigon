@@ -6,7 +6,7 @@ import socket
 import typing as t
 
 from flask import current_app, url_for, g
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 
 from dimensigon.utils.typos import ScalarListType, Gate as TGate, UtcDateTime, Id
 from dimensigon.web import db, errors
@@ -189,9 +189,9 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
 
         """
         if session:
-            query = session.query(cls).filter_by(deleted=0)
+            query = select(cls).filter_by(deleted=0)
         else:
-            query = cls.query
+            query = select(cls)
         query = query.join(cls.route).filter(Route.cost == 0)
         if exclude:
             if isinstance(exclude, list):
@@ -204,17 +204,23 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
             else:
                 query = query.filter(Server.id != exclude)
 
-        return query.order_by(cls.name).all()
+        query = query.order_by(cls.name)
+        if session:
+            return session.execute(query).scalars().all()
+        return db.session.execute(query).scalars().all()
 
     @classmethod
     def get_not_neighbours(cls, session=None) -> t.List['Server']:
         if session:
-            query = session.query(cls).filter_by(deleted=0)
+            query = select(cls).filter_by(deleted=0)
         else:
-            query = cls.query
-        return query.outerjoin(cls.route).filter(
+            query = select(cls)
+        query = query.outerjoin(cls.route).filter(
             or_(or_(Route.cost > 0, Route.cost == None), cls.route == None)).filter(cls._me == False).order_by(
-            cls.name).all()
+            cls.name)
+        if session:
+            return session.execute(query).scalars().all()
+        return db.session.execute(query).scalars().all()
 
     @classmethod
     def get_reachable_servers(cls, alive=False,
@@ -229,7 +235,7 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
         Returns:
         list of all reachable servers
         """
-        query = cls.query.join(cls.route).filter(Route.cost.isnot(None))
+        query = select(cls).join(cls.route).filter(Route.cost.isnot(None))
         if exclude:
             if is_iterable_not_string(exclude):
                 c_exclude = [e.id if isinstance(e, Server) else e for e in exclude]
@@ -240,7 +246,7 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
         if alive:
             query = query.filter(Server.id.in_([iden for iden in current_app.dm.cluster_manager.get_alive()]))
 
-        return query.order_by(Server.name).all()
+        return db.session.execute(query.order_by(Server.name)).scalars().all()
 
     def to_json(self, add_gates=False, human=False, add_ignore=False, **kwargs):
         data = super().to_json(**kwargs)
@@ -274,14 +280,14 @@ class Server(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     def get_current(cls, session=None) -> 'Server':
         if session is None:
             session = db.session
-        return session.query(cls).filter_by(_me=True).filter_by(deleted=False).one()
+        return session.execute(select(cls).filter_by(_me=True).filter_by(deleted=False)).scalars().one()
 
     @staticmethod
     def set_initial(session=None, gates=None) -> Id:
         logger = logging.getLogger('dm.db')
         if session is None:
             session = db.session
-        server = session.query(Server).filter_by(_me=True).all()
+        server = session.execute(select(Server).filter_by(_me=True)).scalars().all()
         if len(server) == 0:
             try:
                 server_name = current_app.config.get('SERVER_NAME') or defaults.HOSTNAME

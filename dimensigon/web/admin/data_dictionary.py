@@ -6,7 +6,7 @@ including Orchestrations, Actions, and their schemas.
 """
 from flask import Blueprint, render_template, jsonify, request
 from flask_jwt_extended import jwt_required
-from sqlalchemy import inspect
+from sqlalchemy import inspect, select, func
 from sqlalchemy.orm import class_mapper
 
 from dimensigon.web import db
@@ -110,7 +110,7 @@ def get_orchestration_schema_details(orchestration_id):
     Returns:
         dict: Detailed orchestration schema
     """
-    orch = Orchestration.query.get(orchestration_id)
+    orch = db.session.get(Orchestration, orchestration_id)
     if not orch:
         return None
 
@@ -164,7 +164,7 @@ def get_action_template_schema_details(action_id):
     Returns:
         dict: Detailed action template schema
     """
-    action = ActionTemplate.query.get(action_id)
+    action = db.session.get(ActionTemplate, action_id)
     if not action:
         return None
 
@@ -203,7 +203,7 @@ def list_entities():
             'name': model_class.__name__,
             'table': model_class.__tablename__,
             'description': model_class.__doc__ or '',
-            'count': model_class.query.count()
+            'count': db.session.execute(select(func.count()).select_from(model_class)).scalar()
         })
 
     return jsonify({
@@ -236,17 +236,16 @@ def list_orchestrations():
     per_page = request.args.get('per_page', 50, type=int)
     search = request.args.get('search', '')
 
-    query = Orchestration.query
+    stmt = select(Orchestration)
 
     if search:
-        query = query.filter(
+        stmt = stmt.where(
             (Orchestration.name.contains(search)) |
             (Orchestration.description.contains(search))
         )
 
-    paginated = query.order_by(Orchestration.name).paginate(
-        page=page, per_page=per_page, error_out=False
-    )
+    stmt = stmt.order_by(Orchestration.name)
+    paginated = db.paginate(stmt, page=page, per_page=per_page, error_out=False)
 
     orchestrations = []
     for orch in paginated.items:
@@ -289,20 +288,19 @@ def list_action_templates():
     search = request.args.get('search', '')
     action_type = request.args.get('action_type', '')
 
-    query = ActionTemplate.query
+    stmt = select(ActionTemplate)
 
     if search:
-        query = query.filter(
+        stmt = stmt.where(
             (ActionTemplate.name.contains(search)) |
             (ActionTemplate.description.contains(search))
         )
 
     if action_type:
-        query = query.filter(ActionTemplate.action_type == action_type)
+        stmt = stmt.where(ActionTemplate.action_type == action_type)
 
-    paginated = query.order_by(ActionTemplate.name).paginate(
-        page=page, per_page=per_page, error_out=False
-    )
+    stmt = stmt.order_by(ActionTemplate.name)
+    paginated = db.paginate(stmt, page=page, per_page=per_page, error_out=False)
 
     templates = []
     for template in paginated.items:
@@ -353,10 +351,10 @@ def search_data_dictionary():
     }
 
     # Search orchestrations
-    orch_results = Orchestration.query.filter(
+    orch_results = db.session.execute(select(Orchestration).where(
         (Orchestration.name.contains(query_text)) |
         (Orchestration.description.contains(query_text))
-    ).limit(limit).all()
+    ).limit(limit)).scalars().all()
 
     for orch in orch_results:
         results['orchestrations'].append({
@@ -368,11 +366,11 @@ def search_data_dictionary():
         })
 
     # Search action templates
-    action_results = ActionTemplate.query.filter(
+    action_results = db.session.execute(select(ActionTemplate).where(
         (ActionTemplate.name.contains(query_text)) |
         (ActionTemplate.description.contains(query_text)) |
         (ActionTemplate.code.contains(query_text))
-    ).limit(limit).all()
+    ).limit(limit)).scalars().all()
 
     for action in action_results:
         results['action_templates'].append({

@@ -6,7 +6,7 @@ import threading
 import typing as t
 
 from dataclasses import dataclass
-from sqlalchemy import orm
+from sqlalchemy import orm, select
 from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
@@ -275,7 +275,7 @@ class ClusterManager(Worker):
             debug_data = []
             for cr in data:
                 server = dict(id=cr.id)
-                name = getattr(session.query(Server).get(cr.id), 'name', cr.id)
+                name = getattr(session.get(Server, cr.id), 'name', cr.id)
                 if name:
                     server.update(name=name)
 
@@ -333,6 +333,7 @@ class ClusterManager(Worker):
         from dimensigon.domain.entities import Server
         import dimensigon.web.network as ntwrk
         from dimensigon.domain.entities import Parameter
+        from dimensigon.web import db
 
         try:
             signaled = self._route_initiated.wait(timeout=120)
@@ -347,13 +348,13 @@ class ClusterManager(Worker):
             not_notify = set()
             me = Server.get_current()
 
-            msg = [r.to_json() for r in Route.query.options(orm.lazyload(Route.destination), orm.lazyload(Route.gate),
-                                                            orm.lazyload(Route.proxy_server)).all()]
+            msg = [r.to_json() for r in db.session.execute(select(Route).options(orm.lazyload(Route.destination), orm.lazyload(Route.gate),
+                                                            orm.lazyload(Route.proxy_server))).scalars().all()]
 
             neighbours = Server.get_neighbours()
 
             if Parameter.get('join_server', None):
-                join_server = Server.query.get(Parameter.get('join_server'))
+                join_server = db.session.get(Server, Parameter.get('join_server'))
             else:
                 join_server = None
 

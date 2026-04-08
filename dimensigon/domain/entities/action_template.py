@@ -109,7 +109,7 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
             session = db.session
 
         with bypass_datamark_update(session):
-            at = session.query(cls).get(cls.SEND_SOFTWARE)
+            at = session.get(cls, cls.SEND_SOFTWARE)
             if at is None:
                 at = ActionTemplate(name='send software', version=1, action_type=ActionType.NATIVE,
                                     expected_rc=201, last_modified_at=defaults.INITIAL_DATEMARK,
@@ -134,7 +134,7 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                                  "json_data.get('file'))")
 
                 session.add(at)
-            at = session.query(cls).get(cls.WAIT_SERVERS)
+            at = session.get(cls, cls.WAIT_SERVERS)
             if at is None:
                 at = ActionTemplate(name='wait servers', version=1, action_type=ActionType.NATIVE,
                                     description="waits server_names to join to the dimension",
@@ -146,7 +146,7 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                             },
                                     id=cls.WAIT_SERVERS)
                 session.add(at)
-            at = session.query(cls).get(cls.ORCHESTRATION)
+            at = session.get(cls, cls.ORCHESTRATION)
             if at is None:
                 at = ActionTemplate(name='orchestration', version=1, action_type=ActionType.ORCHESTRATION,
                                     description="launches an orchestration",
@@ -175,7 +175,7 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                     last_modified_at=defaults.INITIAL_DATEMARK,
                                     id=cls.ORCHESTRATION)
                 session.add(at)
-            at = session.query(cls).get(cls.WAIT_ROUTE2SERVERS)
+            at = session.get(cls, cls.WAIT_ROUTE2SERVERS)
             if at is None:
                 at = ActionTemplate(name='wait route to servers', version=1, action_type=ActionType.NATIVE,
                                     description="waits until we have a valid route to a server",
@@ -187,7 +187,7 @@ class ActionTemplate(UUIDistributedEntityMixin, db.Model):
                                     last_modified_at=defaults.INITIAL_DATEMARK,
                                     id=cls.WAIT_ROUTE2SERVERS)
                 session.add(at)
-            at = session.query(cls).get(cls.DELETE_SERVERS)
+            at = session.get(cls, cls.DELETE_SERVERS)
             if at is None:
                 at = ActionTemplate(name='delete servers', version=1, action_type=ActionType.NATIVE,
                                     description="deletes server_names from the dimension",

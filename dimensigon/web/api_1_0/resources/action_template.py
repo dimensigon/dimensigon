@@ -1,11 +1,12 @@
 from flask import request
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
+from sqlalchemy import select, func
 
 from dimensigon.domain.entities import ActionTemplate, ActionType
 from dimensigon.web import db
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dimensigon.web.helpers import filter_query, check_param_in_uri
+from dimensigon.web.helpers import filter_query, check_param_in_uri, get_or_raise
 from dimensigon.web.json_schemas import action_template_patch, action_template_post
 
 
@@ -15,8 +16,8 @@ class ActionTemplateList(Resource):
     @jwt_required()
     @securizer
     def get(self):
-        query = filter_query(ActionTemplate, request.args)
-        return [at.to_json(split_lines=check_param_in_uri('split_lines')) for at in query.all()]
+        stmt = filter_query(ActionTemplate, request.args)
+        return [at.to_json(split_lines=check_param_in_uri('split_lines')) for at in db.session.execute(stmt).scalars().all()]
 
     @forward_or_dispatch()
     @jwt_required()
@@ -31,7 +32,9 @@ class ActionTemplateList(Resource):
         for json_at in json_data:
             json_at['action_type'] = ActionType[json_at['action_type']]
             if 'version' not in json_at:
-                json_at['version'] = ActionTemplate.query.filter_by(name=json_at['name']).count() + 1
+                json_at['version'] = db.session.execute(
+                    select(func.count()).select_from(select(ActionTemplate).where(ActionTemplate.name == json_at['name']).subquery())
+                ).scalar() + 1
             at = ActionTemplate(**json_at)
             db.session.add(at)
             data = {'id': at.id}
@@ -47,7 +50,7 @@ class ActionTemplateResource(Resource):
     @jwt_required()
     @securizer
     def get(self, action_template_id):
-        return ActionTemplate.query.get_or_raise(action_template_id).to_json(
+        return get_or_raise(ActionTemplate, action_template_id).to_json(
             split_lines=check_param_in_uri('split_lines'))
 
     @jwt_required()
@@ -56,7 +59,7 @@ class ActionTemplateResource(Resource):
     @validate_schema(action_template_patch)
     @lock_catalog
     def patch(self, action_template_id):
-        at = ActionTemplate.query.get_or_raise(action_template_id)
+        at = get_or_raise(ActionTemplate, action_template_id)
         data = request.get_json()
         if 'action_type' in data and at.action_type != ActionType[data.get('action_type')]:
             at.action_type = ActionType[data.get('action_type')]

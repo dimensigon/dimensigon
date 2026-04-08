@@ -17,6 +17,7 @@ import jinja2
 import requests
 from dataclasses import dataclass
 from flask import json
+from sqlalchemy import select
 from packaging.version import parse
 
 from dimensigon import defaults
@@ -254,7 +255,7 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
 
         software = input_params.get('software', None)
         if is_valid_uuid(software):
-            soft = Software.query.get(software)
+            soft = db.session.get(Software, software)
             if not soft:
                 cp.stderr = f"software id '{software}' not found"
                 cp.success = False
@@ -264,9 +265,9 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
             version = input_params.get('version', None)
             if version:
                 parsed_ver = parse(str(version))
-                soft_list = [s for s in Software.query.filter_by(name=software).all() if s.parsed_version == parsed_ver]
+                soft_list = [s for s in db.session.execute(select(Software).filter_by(name=software)).scalars().all() if s.parsed_version == parsed_ver]
             else:
-                soft_list = sorted(Software.query.filter_by(name=software).all(), key=lambda x: x.parsed_version)
+                soft_list = sorted(db.session.execute(select(Software).filter_by(name=software)).scalars().all(), key=lambda x: x.parsed_version)
             if soft_list:
                 soft = soft_list[-1]
             else:
@@ -284,9 +285,9 @@ class NativeSoftwareSendOperation(IOperationEncapsulation):
         # Server validation
         server = input_params.get('server', None)
         if is_valid_uuid(server):
-            dest_server = Server.query.get(server)
+            dest_server = db.session.get(Server, server)
         else:
-            dest_server = Server.query.filter_by(name=server).one_or_none()
+            dest_server = db.session.execute(select(Server).filter_by(name=server)).scalars().one_or_none()
         if not dest_server:
             cp.stderr = f"destination server {'id ' if is_valid_uuid(server) else ''}'{server}' not found"
             cp.success = False
@@ -352,8 +353,8 @@ class NativeWaitOperation(IOperationEncapsulation):
             with lock_scope(Scope.CATALOG, retries=3, delay=4, applicant=context.env.get('orch_execution_id')):
                 while len(pending_names) > 0:
                     try:
-                        found_names = db.session.query(Server.name).filter(Server.name.in_(pending_names)).filter(
-                            Server.created_on >= now).all()
+                        found_names = db.session.execute(select(Server.name).where(Server.name.in_(pending_names)).where(
+                            Server.created_on >= now)).all()
                     except sqlite3.OperationalError as e:
                         if str(e) == 'database is locked':
                             found_names = []
@@ -413,8 +414,8 @@ class NativeDmRunningOperation(IOperationEncapsulation):
         found_names = []
         while len(pending_names) > 0:
             try:
-                found_names = db.session.query(Server.name).join(Route, Route.destination_id == Server.id).filter(
-                    Server.name.in_(pending_names)).filter(Route.cost.isnot(None)).order_by(Server.name).all()
+                found_names = db.session.execute(select(Server.name).join(Route, Route.destination_id == Server.id).where(
+                    Server.name.in_(pending_names)).where(Route.cost.isnot(None)).order_by(Server.name)).all()
             except sqlite3.OperationalError as e:
                 if str(e) == 'database is locked':
                     pass
@@ -450,7 +451,7 @@ class NativeDeleteOperation(IOperationEncapsulation):
                 server_names = input_params.get('server_names', [])
                 if not is_iterable_not_string(server_names):
                     server_names = [server_names]
-                to_be_deleted = Server.query.filter(Server.name.in_(server_names)).all()
+                to_be_deleted = db.session.execute(select(Server).where(Server.name.in_(server_names))).scalars().all()
 
                 for s in to_be_deleted:
                     # remove associated routes
@@ -597,7 +598,7 @@ class OrchestrationOperation(IOperationEncapsulation):
                               server_id=context.env.get('server_id'),
                               parent_step_execution_id=context.env.get('step_execution_id'))
         db.session.add(o_exe)
-        se = StepExecution.query.get(context.env.get('step_execution_id'))
+        se = db.session.get(StepExecution, context.env.get('step_execution_id'))
         if se:
             se.child_orch_execution_id = o_exe.id
         db.session.commit()

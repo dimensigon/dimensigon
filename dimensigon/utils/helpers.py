@@ -100,7 +100,8 @@ def generate_url(destination, uri, protocol='https'):
     except IndexError:
         forwarder = destination
     else:
-        forwarder = Server.query.get(forwarder)
+        from dimensigon.web import db
+        forwarder = db.session.get(Server, forwarder)
 
     return f"{protocol}://{forwarder.name}:{forwarder.port}{uri}"
 
@@ -380,16 +381,12 @@ def session_scope(session=None):
     if session is None:
         raise RuntimeError("Session required")
 
-    need_rollback = False
     try:
         yield session
-        if session.transaction:
-            need_rollback = True
-            session.commit()
+        session.commit()
     except Exception as err:
         _LOGGER.error("Error executing query: %s", err)
-        if need_rollback:
-            session.rollback()
+        session.rollback()
         raise
     finally:
         session.close()

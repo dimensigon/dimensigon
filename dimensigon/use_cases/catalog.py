@@ -16,6 +16,7 @@ from dimensigon.use_cases.lock import lock_scope
 from dimensigon.use_cases.mptools import TerminateInterrupt
 from dimensigon.utils import asyncio
 from dimensigon.utils.helpers import get_distributed_entities, get_now
+from sqlalchemy import select
 from dimensigon.web import errors, db, get_root_auth
 from dimensigon.web import network as ntwrk
 
@@ -168,12 +169,12 @@ class CatalogManager(mpt.TimerWorker):
     @property
     def server(self) -> Server:
         if self._server is None:
-            self._server = Server.query.get(self.dm.server_id)
+            self._server = db.session.get(Server, self.dm.server_id)
         return self._server
 
     @property
     def catalog_ver(self) -> dt.datetime:
-        return db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
+        return db.session.execute(select(db.func.max(Catalog.last_modified_at))).scalar()
 
     async def _async_get_neighbour_healthcheck(self, cluster_heartbeat_id: str = None) -> t.Dict[
         Server, dict]:

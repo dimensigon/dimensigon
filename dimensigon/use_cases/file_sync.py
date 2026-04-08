@@ -9,7 +9,7 @@ from collections import OrderedDict
 from concurrent.futures.thread import ThreadPoolExecutor
 
 from dataclasses import dataclass
-from sqlalchemy import orm
+from sqlalchemy import func, orm, select
 from sqlalchemy.orm import sessionmaker
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
@@ -174,30 +174,30 @@ class FileSync(TimerWorker):
     @property
     def server(self) -> Server:
         if self._server is None:
-            self._server = self.session.query(Server).filter_by(_me=1, deleted=0).one_or_none()
+            self._server = self.session.execute(select(Server).filter_by(_me=1, deleted=0)).scalars().one_or_none()
         return self._server
 
     @property
     def my_files_query(self):
-        return self.session.query(File).filter_by(deleted=0).filter_by(
+        return select(File).filter_by(deleted=0).filter_by(
             src_server_id=self.server.id) if self.session else None
         # return File.query.filter_by(src_server_id=self._server_id)
 
     @property
     def file_query(self):
-        return self.session.query(File).filter_by(deleted=0) if self.session else None
+        return select(File).filter_by(deleted=0) if self.session else None
         # return File.query
 
     def get_file(self, file_id):
-        return self.file_query.filter_by(id=file_id).one_or_none() if self.session else None
+        return self.session.execute(self.file_query.filter_by(id=file_id)).scalars().one_or_none() if self.session else None
         # return self.file_query.filter_by(id=file_id).one_or_none()
 
     def _add(self, file_id: Id = None, server_id: Id = None):
         if server_id:
             if file_id is None:
                 # new server alive, send all files
-                for fsa in self.session.query(FileServerAssociation).filter_by(dst_server_id=server_id, deleted=0).join(
-                        File).filter_by(src_server_id=self.server.id).all():
+                for fsa in self.session.execute(select(FileServerAssociation).filter_by(dst_server_id=server_id, deleted=0).join(
+                        File).filter_by(src_server_id=self.server.id)).scalars().all():
                     if not (getattr(fsa.file, 'deleted', True) or fsa.destination_server.deleted):
                         mtime = os.stat(fsa.target).st_mtime_ns
                         if fsa.l_mtime != mtime:
@@ -293,7 +293,7 @@ class FileSync(TimerWorker):
 
         for file_id, server_id in list(self._blacklist.keys()):
             file = self.get_file(file_id)
-            dest = self.session.query(Server).filter_by(deleted=0).filter_by(id=server_id).count()
+            dest = self.session.execute(select(func.count()).select_from(Server).filter_by(deleted=0).filter_by(id=server_id)).scalar()
             bl = self._blacklist[(file_id, server_id)]
             if file and dest:  # file and server in the black list may be deleted
                 # if server_id in getattr(getattr(self.app, 'cluster_manager', None), 'cluster', [server_id]):
@@ -330,7 +330,7 @@ class FileSync(TimerWorker):
             self._file2watch.update({file_id: watch})
 
     def _set_initial_modifications(self):
-        for file in self.my_files_query.all():
+        for file in self.session.execute(self.my_files_query).scalars().all():
             self._schedule_file(file)
             try:
                 if os.path.exists(file.target):
@@ -347,7 +347,7 @@ class FileSync(TimerWorker):
     def _set_watchers(self, force=False):
         if self._last_file_updated is None or time.time() - self._last_file_updated > self.file_watches_refresh_period or force:
             self._last_file_updated = time.time()
-            id2target = {f.id: f.target for f in self.my_files_query.options(orm.load_only("id", "target")).all()}
+            id2target = {f.id: f.target for f in self.session.execute(self.my_files_query.options(orm.load_only(File.id, File.target))).scalars().all()}
             files_from_db = set(id2target.keys())
             files_already_watching = set(self._file2watch.keys())
 
@@ -369,7 +369,7 @@ class FileSync(TimerWorker):
 
     @property
     def my_logs(self):
-        return self.session.query(Log).filter_by(source_server=Server.get_current(session=self.session)).all()
+        return self.session.execute(select(Log).filter_by(source_server=Server.get_current(session=self.session))).scalars().all()
 
     def update_mapper(self):
         logs = self.my_logs
@@ -418,7 +418,7 @@ class FileSync(TimerWorker):
         tasks = OrderedDict()
 
         for log_id, pb in self._mapper.items():
-            log = self.session.query(Log).get(log_id)
+            log = self.session.get(Log, log_id)
             for pytail in pb:
                 data = pytail.fetch()
                 data = data.encode() if isinstance(data, str) else data

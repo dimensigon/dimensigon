@@ -35,7 +35,7 @@ class Parameter(db.Model):
 
     @classmethod
     def _get_parameter(cls, key: str):
-        p = cls.query.get(key)
+        p = db.session.get(cls, key)
         if p:
             return p
         else:
@@ -64,7 +64,7 @@ class Parameter(db.Model):
 
     @classmethod
     def set(cls, key, value):
-        p = cls.query.get(key)
+        p = db.session.get(cls, key)
         if p.dump:
             p.value = p.dump(value)
         else:
@@ -75,15 +75,15 @@ class Parameter(db.Model):
         if session is None:
             session = db.session
 
-        if not session.query(cls).get('last_graceful_shutdown'):
+        if not session.get(cls, 'last_graceful_shutdown'):
             p = Parameter('last_graceful_shutdown')
             session.add(p)
-        if not session.query(cls).get('fetching_catalog'):
+        if not session.get(cls, 'fetching_catalog'):
             p = Parameter('fetching_catalog')
             session.add(p)
-        if not session.query(cls).get('join_server'):
+        if not session.get(cls, 'join_server'):
             p = Parameter('join_server')
             session.add(p)
-        if not session.query(cls).get('new_gates_server'):
+        if not session.get(cls, 'new_gates_server'):
             p = Parameter('new_gates_server')
             session.add(p)

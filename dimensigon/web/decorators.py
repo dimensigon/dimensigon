@@ -14,6 +14,8 @@ from flask_jwt_extended import get_jwt
 from jsonschema import validate
 
 from dimensigon import defaults
+from sqlalchemy import select
+
 from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate
 from dimensigon.network.exceptions import NotValidMessage
 from dimensigon.use_cases.lock import lock_scope
@@ -126,13 +128,13 @@ def set_source():
         proxies = proxies.strip(':')
         source = None
         if source_id:
-            source = Server.query.get(source_id)
+            source = db.session.get(Server, source_id)
         # check hidden ip on server
         if proxies:
             lp = proxies.split(':')
             neighbour = None
             if lp[-1]:
-                neighbour = Server.query.get(lp[-1])
+                neighbour = db.session.get(Server, lp[-1])
             if neighbour:
                 save_if_hidden_ip(request.remote_addr, neighbour)
         if not source:
@@ -141,8 +143,8 @@ def set_source():
             save_if_hidden_ip(request.remote_addr, source)
 
         if not isinstance(source, Server):
-            servers = db.session.query(Server).filter_by(deleted=False).join(Gate.server).filter(
-                Gate.ip == source).all()
+            servers = db.session.execute(select(Server).filter_by(deleted=False).join(Gate.server).where(
+                Gate.ip == source)).scalars().all()
             if len(servers) == 1:
                 source = servers[0]
 
@@ -167,7 +169,7 @@ def forward_or_dispatch(*methods):
                     destination_id = data.get('destination')
 
             if destination_id and destination_id != str(g.server.id) and (not methods or request.method in methods):
-                destination: Server = Server.query.get(destination_id)
+                destination: Server = db.session.get(Server, destination_id)
                 if destination is None:
                     return errors.format_error_response(errors.EntityNotFound('Server', destination_id))
                 try:
@@ -293,7 +295,7 @@ def lock_catalog(f):
         claims = get_jwt()
         if claims:
             if claims.get('applicant'):
-                locker = Locker.query.get(Scope.CATALOG)
+                locker = db.session.get(Locker, Scope.CATALOG)
                 if locker.state == State.LOCKED and locker.applicant == claims.get('applicant'):
                     try:
                         ret = f(*args, **kw)

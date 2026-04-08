@@ -29,6 +29,8 @@ MultiLine = t.Union[str, t.List[str]]
 
 
 class TypeDecorator(types.TypeDecorator):
+    cache_ok = True
+
     def __repr__(self):
         return self.impl.__repr__()
 
