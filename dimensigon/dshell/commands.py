@@ -780,12 +780,15 @@ nested_dict = {
             {'argument': 'file', 'type': argparse.FileType('r')},
             orch_load],
         'run': [
-            {'argument': 'orchestration_id', 'completer': orch_completer},
+            {'argument': 'orchestration_id',
+             'completer': merge_completers([orch_completer, catalog_orch_name_completer])},
             {'argument': 'target', 'metavar': 'TARGET=VALUE', 'action': DictAction, 'nargs': "+",
-             'completer': merge_completers([server_name_completer, granule_completer]),
+             'completer': merge_completers(
+                 [server_name_completer, granule_completer, catalog_target_completer]),
              'help': "Run the orch agains the specified target. If no target specified, hosts will be added to "
                      "'all' target. Example: --target node1 node2 backend=node2,node3 "},
             {'argument': '--param', 'dest': 'params', 'metavar': 'PARAM:VALUE', 'action': ParamAction, "nargs": "+",
+             'completer': merge_completers([catalog_param_completer]),
              'help': 'Parameters passed to the orchestration. Param must start with a lowercase character and ' \
                      'contain only hyphens (-), underscores (_), lowercase characters, and numbers. ' \
                      'Example: --params="string-key:\'string-value\'" --param="integer-key:12345" ' \
