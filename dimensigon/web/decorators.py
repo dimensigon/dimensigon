@@ -88,7 +88,7 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
 def _proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
     url = destination.url() + request.full_path
-    req_data = request.get_json()
+    req_data = request.get_json(silent=True)
 
     if request.path == '/ping':
         server_data = {'id': str(g.server.id), 'name': g.server.name,
@@ -164,7 +164,7 @@ def forward_or_dispatch(*methods):
             else:
                 # Get information from content
                 # Code Compatibility. Use D-Destination header instead
-                data = request.get_json()
+                data = request.get_json(silent=True)
                 if data is not None and 'destination' in data:
                     destination_id = data.get('destination')
 
@@ -280,7 +280,7 @@ def validate_schema(schema_name=None, **methods):
         def wrapper(*args, **kw):
             schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
             if schema:
-                validate(request.get_json(), schema)
+                validate(request.get_json(silent=True), schema)
             return f(*args, **kw)
 
         return wrapper
