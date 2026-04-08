@@ -137,11 +137,14 @@ class DimensigonFlask(Flask):
 def _initialize_blueprint(app):
     from dimensigon.web.routes import root_bp
     from dimensigon.web.api_1_0 import api_bp as api_1_0_bp
+    from dimensigon.web.health import health_bp
     # DM-WebManager GUI components
     from dimensigon.web.admin.data_dictionary import data_dict_bp
     from dimensigon.web.admin.executions_viewer import executions_bp
     from dimensigon.web.admin.routes import admin_routes_bp
 
+    # Health endpoint registered first — no auth required
+    app.register_blueprint(health_bp, url_prefix='/health')
     app.register_blueprint(root_bp)
     handle_exception = app.handle_exception
     handle_user_exception = app.handle_user_exception
@@ -216,6 +219,10 @@ def create_app(config_name):
 
 
 def load_global_data_into_context():
+    from flask import request
+    # Skip heavy setup for health endpoint
+    if request.path.startswith('/health'):
+        return
     from dimensigon.domain.entities import Server, Dimension
     from dimensigon.web.decorators import set_source
     global _dimension, _server
