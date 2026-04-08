@@ -343,6 +343,9 @@
                 <a href="#" onclick="showView('dictionary')" id="nav-dictionary">
                     <i class="bi bi-book"></i> Data Dictionary
                 </a>
+                <a href="#" onclick="showView('builder')" id="nav-builder">
+                    <i class="bi bi-tools"></i> Orch Builder
+                </a>
                 <hr style="border-color: #34495e;">
                 <a href="#" onclick="refreshCurrentView()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -492,6 +495,101 @@
                     </div>
                 </div>
 
+                <!-- Orchestration Builder View -->
+                <div id="view-builder" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-tools"></i> Orchestration Builder</h2>
+                        <div>
+                            <button class="btn btn-sm btn-outline-info me-2" onclick="importOrchestration()">
+                                <i class="bi bi-upload"></i> Import
+                            </button>
+                            <button class="btn btn-sm btn-outline-warning me-2" onclick="validateDag()">
+                                <i class="bi bi-check-circle"></i> Validate
+                            </button>
+                            <button class="btn btn-sm btn-outline-success" onclick="saveOrchestration()">
+                                <i class="bi bi-save"></i> Save
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Orchestration metadata -->
+                    <div class="stat-card mb-3">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" id="builder-name" placeholder="Orchestration name">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Description</label>
+                                <input type="text" class="form-control" id="builder-desc" placeholder="Description">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Options</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="builder-stop-on-error" checked>
+                                    <label class="form-check-label" for="builder-stop-on-error">Stop on error</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Node Palette -->
+                        <div class="col-md-3">
+                            <div class="stat-card" style="min-height: 400px;">
+                                <h6 class="mb-3">Action Templates</h6>
+                                <div id="builder-palette" style="max-height: 350px; overflow-y: auto;">
+                                    <p class="text-secondary">Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Canvas -->
+                        <div class="col-md-9">
+                            <div class="stat-card" style="min-height: 400px; position: relative;">
+                                <div id="builder-canvas" style="min-height: 380px; border: 1px dashed var(--border-neon); border-radius: 8px; padding: 15px; position: relative; overflow: auto;">
+                                    <p class="text-secondary text-center mt-5" id="builder-empty">Click an action template to add a step</p>
+                                    <div id="builder-nodes" class="d-flex flex-wrap gap-3"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Node Editor Panel -->
+                    <div class="stat-card mt-3" id="builder-editor" style="display: none;">
+                        <h6 class="mb-3">Step Configuration</h6>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label class="form-label">Target Servers</label>
+                                <input type="text" class="form-control" id="editor-target" placeholder="server1, server2">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Parent Steps (comma-sep IDs)</label>
+                                <input type="text" class="form-control" id="editor-parents" placeholder="">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Child Steps (comma-sep IDs)</label>
+                                <input type="text" class="form-control" id="editor-children" placeholder="">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Undo Step</label>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="editor-undo">
+                                    <label class="form-check-label" for="editor-undo">Is undo</label>
+                                </div>
+                            </div>
+                            <div class="col-md-1 d-flex align-items-end">
+                                <button class="btn btn-sm btn-outline-danger" onclick="removeSelectedStep()">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Validation messages -->
+                    <div id="builder-messages" class="mt-3"></div>
+                </div>
+
                 <!-- Data Dictionary View -->
                 <div id="view-dictionary" class="view-content" style="display: none;">
                     <h2 class="mb-4"><i class="bi bi-book"></i> Data Dictionary</h2>
@@ -590,6 +688,9 @@
                     break;
                 case 'dictionary':
                     loadDataDictionary();
+                    break;
+                case 'builder':
+                    loadBuilderPalette();
                     break;
             }
         }
@@ -775,6 +876,192 @@
                 }
             }, 30000);
         });
+
+        // --- Orchestration Builder ---
+        let builderSteps = [];  // [{tempId, actionTemplateId, actionName, target, parents, children, undo}]
+        let selectedStepIdx = -1;
+        let nextTempId = 1;
+
+        async function loadBuilderPalette() {
+            const data = await apiCall('/dm-webmanager/api/builder/action-templates');
+            if (!data) return;
+
+            let html = '';
+            const templates = Array.isArray(data) ? data : (data.action_templates || []);
+            templates.forEach(at => {
+                html += `
+                    <div class="p-2 mb-2 rounded" style="border: 1px solid var(--border-neon); cursor: pointer; transition: all 0.2s;"
+                         onclick="addStepFromTemplate('${at.id}', '${at.name}')"
+                         onmouseover="this.style.borderColor='var(--cyan-neon)'"
+                         onmouseout="this.style.borderColor='var(--border-neon)'">
+                        <div style="font-size: 0.85rem; color: var(--purple-light);">${at.name}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">${at.action_type || 'shell'} v${at.version || 1}</div>
+                    </div>
+                `;
+            });
+            document.getElementById('builder-palette').innerHTML = html || '<p class="text-secondary">No templates found</p>';
+        }
+
+        function addStepFromTemplate(atId, atName) {
+            const tempId = `step-${nextTempId++}`;
+            builderSteps.push({
+                tempId, actionTemplateId: atId, actionName: atName,
+                target: [], parents: [], children: [], undo: false
+            });
+            document.getElementById('builder-empty').style.display = 'none';
+            renderBuilderNodes();
+        }
+
+        function renderBuilderNodes() {
+            const container = document.getElementById('builder-nodes');
+            let html = '';
+            builderSteps.forEach((step, idx) => {
+                const selected = idx === selectedStepIdx;
+                const borderColor = selected ? 'var(--cyan-neon)' : 'var(--border-neon)';
+                const bg = selected ? 'rgba(0,255,255,0.08)' : 'rgba(45,21,82,0.4)';
+                const deps = step.parents.length > 0 ? `← ${step.parents.join(', ')}` : '';
+                html += `
+                    <div class="p-3 rounded text-center" style="border: 2px solid ${borderColor}; background: ${bg}; min-width: 160px; cursor: pointer;"
+                         onclick="selectBuilderStep(${idx})">
+                        <div style="font-size: 0.7rem; color: var(--cyan-neon);">${step.tempId}</div>
+                        <div style="font-size: 0.85rem; color: var(--purple-light); font-weight: 600;">${step.actionName}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">${step.target.join(', ') || 'no target'}</div>
+                        ${deps ? `<div style="font-size: 0.65rem; color: var(--text-secondary);">${deps}</div>` : ''}
+                        ${step.undo ? '<span class="badge bg-warning" style="font-size:0.6rem">UNDO</span>' : ''}
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function selectBuilderStep(idx) {
+            selectedStepIdx = idx;
+            const step = builderSteps[idx];
+            document.getElementById('builder-editor').style.display = 'block';
+            document.getElementById('editor-target').value = step.target.join(', ');
+            document.getElementById('editor-parents').value = step.parents.join(', ');
+            document.getElementById('editor-children').value = step.children.join(', ');
+            document.getElementById('editor-undo').checked = step.undo;
+            renderBuilderNodes();
+
+            // Auto-save on change
+            ['editor-target', 'editor-parents', 'editor-children'].forEach(id => {
+                document.getElementById(id).onchange = () => updateSelectedStep();
+            });
+            document.getElementById('editor-undo').onchange = () => updateSelectedStep();
+        }
+
+        function updateSelectedStep() {
+            if (selectedStepIdx < 0) return;
+            const step = builderSteps[selectedStepIdx];
+            step.target = document.getElementById('editor-target').value.split(',').map(s => s.trim()).filter(Boolean);
+            step.parents = document.getElementById('editor-parents').value.split(',').map(s => s.trim()).filter(Boolean);
+            step.children = document.getElementById('editor-children').value.split(',').map(s => s.trim()).filter(Boolean);
+            step.undo = document.getElementById('editor-undo').checked;
+            renderBuilderNodes();
+        }
+
+        function removeSelectedStep() {
+            if (selectedStepIdx < 0) return;
+            const removedId = builderSteps[selectedStepIdx].tempId;
+            builderSteps.splice(selectedStepIdx, 1);
+            // Clean up references
+            builderSteps.forEach(s => {
+                s.parents = s.parents.filter(p => p !== removedId);
+                s.children = s.children.filter(c => c !== removedId);
+            });
+            selectedStepIdx = -1;
+            document.getElementById('builder-editor').style.display = 'none';
+            if (builderSteps.length === 0) document.getElementById('builder-empty').style.display = 'block';
+            renderBuilderNodes();
+        }
+
+        async function validateDag() {
+            const payload = buildOrchestrationJson();
+            const resp = await apiCall('/dm-webmanager/api/builder/validate', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            const msgDiv = document.getElementById('builder-messages');
+            if (resp?.valid) {
+                msgDiv.innerHTML = '<div class="alert" style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#86efac;">✓ DAG is valid</div>';
+            } else {
+                const errors = (resp?.errors || ['Unknown error']).map(e => `<li>${e}</li>`).join('');
+                msgDiv.innerHTML = `<div class="alert" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;">Validation errors:<ul>${errors}</ul></div>`;
+            }
+        }
+
+        async function saveOrchestration() {
+            const payload = buildOrchestrationJson();
+            if (!payload.name) { alert('Orchestration name is required'); return; }
+            const resp = await apiCall('/dm-webmanager/api/builder/save', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            const msgDiv = document.getElementById('builder-messages');
+            if (resp?.id) {
+                msgDiv.innerHTML = `<div class="alert" style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#86efac;">✓ Orchestration saved (ID: ${resp.id})</div>`;
+            } else {
+                const errors = (resp?.errors || [resp?.error || 'Save failed']).map(e => `<li>${e}</li>`).join('');
+                msgDiv.innerHTML = `<div class="alert" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;">Save failed:<ul>${errors}</ul></div>`;
+            }
+        }
+
+        async function importOrchestration() {
+            const id = prompt('Enter Orchestration ID to import:');
+            if (!id) return;
+            const data = await apiCall(`/dm-webmanager/api/builder/orchestrations/${id}`);
+            if (!data || data.error) { alert(data?.error || 'Not found'); return; }
+
+            // Populate form
+            document.getElementById('builder-name').value = data.name || '';
+            document.getElementById('builder-desc').value = data.description || '';
+            document.getElementById('builder-stop-on-error').checked = data.stop_on_error !== false;
+
+            // Import steps
+            builderSteps = [];
+            nextTempId = 1;
+            (data.steps || []).forEach(step => {
+                const tempId = `step-${nextTempId++}`;
+                builderSteps.push({
+                    tempId,
+                    actionTemplateId: step.action_template_id || '',
+                    actionName: step.action_template_name || step.action_template_id || 'Unknown',
+                    target: step.target || [],
+                    parents: (step.parent_step_ids || []).map(String),
+                    children: (step.child_step_ids || []).map(String),
+                    undo: step.undo || false,
+                    originalId: step.id,
+                });
+            });
+
+            // Remap parent/child references from original IDs to tempIds
+            const idMap = {};
+            builderSteps.forEach(s => { if (s.originalId) idMap[s.originalId] = s.tempId; });
+            builderSteps.forEach(s => {
+                s.parents = s.parents.map(p => idMap[p] || p);
+                s.children = s.children.map(c => idMap[c] || c);
+            });
+
+            document.getElementById('builder-empty').style.display = 'none';
+            renderBuilderNodes();
+        }
+
+        function buildOrchestrationJson() {
+            return {
+                name: document.getElementById('builder-name').value,
+                description: document.getElementById('builder-desc').value,
+                stop_on_error: document.getElementById('builder-stop-on-error').checked,
+                steps: builderSteps.map(s => ({
+                    id: s.tempId,
+                    action_template_id: s.actionTemplateId,
+                    target: s.target,
+                    parents: s.parents,
+                    children: s.children,
+                    undo: s.undo,
+                }))
+            };
+        }
 
         // --- Real-time Execution Monitoring ---
         let activeWs = null;
