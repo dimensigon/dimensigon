@@ -33,6 +33,7 @@ from .vault import Vault
 from .webhook import Webhook, WebhookLog
 from .schedule import Schedule
 from .orch_version import OrchestrationVersion
+from .template import OrchTemplate
 
 SCHEMA_VERSION = 2
 
@@ -70,6 +71,7 @@ __all__ = [
     "WebhookLog",
     "Schedule",
     "OrchestrationVersion",
+    "OrchTemplate",
 ]
 
 catalog = threading.local()
