@@ -201,6 +201,13 @@ def create_app(config_name):
     #     event.listen(db.get_engine(), "connect", do_connect)
     #     event.listen(db.get_engine(), "begin", do_begin)
 
+    # Register token blacklist check
+    from dimensigon.web.admin.auth import token_blacklist
+
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload):
+        return token_blacklist.is_blacklisted(jwt_payload.get('jti', ''))
+
     app.before_request(load_global_data_into_context)
     # if not app.config['TESTING']:
     # app.before_first_request(app.dm.cluster_manager.notify_cluster)
@@ -220,8 +227,8 @@ def create_app(config_name):
 
 def load_global_data_into_context():
     from flask import request
-    # Skip heavy setup for health endpoint
-    if request.path.startswith('/health'):
+    # Skip heavy setup for health and WebManager endpoints (they have their own auth)
+    if request.path.startswith('/health') or request.path.startswith('/dm-webmanager'):
         return
     from dimensigon.domain.entities import Server, Dimension
     from dimensigon.web.decorators import set_source

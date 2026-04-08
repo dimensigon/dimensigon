@@ -17,6 +17,12 @@ class Config(object):
     PROPAGATE_EXCEPTIONS = False
 
     JWT_DECODE_LEEWAY = 15
+    JWT_ACCESS_TOKEN_EXPIRES = 28800  # 8 hours
+    JWT_REFRESH_TOKEN_EXPIRES = 2592000  # 30 days
+    JWT_TOKEN_LOCATION = ['headers', 'cookies']
+    JWT_COOKIE_SECURE = True
+    JWT_COOKIE_CSRF_PROTECT = True
+    JWT_COOKIE_SAMESITE = 'Lax'
 
     # executor
     EXECUTOR_MAX_WORKERS = min(32, os.cpu_count() + 4)
@@ -103,6 +109,8 @@ class TestingConfig(Config):
     PREFERRED_URL_SCHEME = 'http'
     SECURIZER = False
     DEBUG = False
+    JWT_COOKIE_SECURE = False
+    JWT_COOKIE_CSRF_PROTECT = False
 
     @classmethod
     def init_app(cls, app):

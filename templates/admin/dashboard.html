@@ -472,28 +472,40 @@
     <script>
         // API Configuration
         const API_BASE = window.location.origin;
-        let authToken = localStorage.getItem('dm_token');
         let currentView = 'dashboard';
 
-        // API Helper
+        // Auto-refresh token every 7 hours (token expires in 8h)
+        const TOKEN_REFRESH_INTERVAL = 7 * 60 * 60 * 1000;
+        setInterval(async () => {
+            try {
+                const resp = await fetch('/dm-webmanager/refresh', {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
+                if (!resp.ok) {
+                    window.location.href = '/dm-webmanager/login';
+                }
+            } catch (e) {
+                console.warn('Token refresh failed:', e);
+            }
+        }, TOKEN_REFRESH_INTERVAL);
+
+        // API Helper (uses httpOnly cookies automatically)
         async function apiCall(endpoint, options = {}) {
             const headers = {
                 'Content-Type': 'application/json',
                 ...options.headers
             };
 
-            if (authToken) {
-                headers['Authorization'] = `Bearer ${authToken}`;
-            }
-
             const response = await fetch(`${API_BASE}${endpoint}`, {
                 ...options,
-                headers
+                headers,
+                credentials: 'same-origin'
             });
 
             if (response.status === 401) {
                 // Token expired, redirect to login
-                window.location.href = '/login';
+                window.location.href = '/dm-webmanager/login';
                 return null;
             }
 
@@ -722,9 +734,16 @@
             }, 30000);
         });
 
-        function logout() {
-            localStorage.removeItem('dm_token');
-            window.location.href = '/login';
+        async function logout() {
+            try {
+                await fetch('/dm-webmanager/logout', {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
+            } catch (e) {
+                // Continue with redirect even if logout call fails
+            }
+            window.location.href = '/dm-webmanager/login';
         }
     </script>
 </body>
