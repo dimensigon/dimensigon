@@ -394,6 +394,44 @@ def run_as(username: str):
     return decorator
 
 
+def audit_log(action, resource_type=None):
+    """Decorator to log user actions to the audit trail."""
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            result = f(*args, **kwargs)
+            try:
+                from dimensigon.domain.entities.audit import AuditEntry
+                from flask import request, g
+                from flask_jwt_extended import get_jwt_identity
+
+                user_id = None
+                try:
+                    identity = get_jwt_identity()
+                    if identity:
+                        user_id = str(identity)
+                except Exception:
+                    pass
+
+                entry = AuditEntry(
+                    user_id=user_id,
+                    username=getattr(getattr(g, 'current_user', None), 'name', None),
+                    action=action,
+                    resource_type=resource_type,
+                    resource_id=kwargs.get('orchestration_id') or kwargs.get('server_id') or kwargs.get('user_id'),
+                    details={'method': request.method, 'path': request.path},
+                    ip_address=request.remote_addr,
+                    user_agent=str(request.user_agent),
+                )
+                db.session.add(entry)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()  # Rollback to clean session state
+            return result
+        return wrapper
+    return decorator
+
+
 logger = logging.getLogger('dm.time')
 
 
