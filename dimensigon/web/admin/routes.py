@@ -12,8 +12,11 @@ from flask_jwt_extended import (
 
 from collections import defaultdict
 
-from dimensigon.domain.entities import User, Orchestration, Step, ActionTemplate, ActionType
-from sqlalchemy import select
+from datetime import datetime, timedelta, timezone
+
+from dimensigon.domain.entities import User, Orchestration, Step, ActionTemplate, ActionType, Server, Route, Gate
+from dimensigon.domain.entities import OrchExecution
+from sqlalchemy import select, func
 from dimensigon.web import db
 from dimensigon.web.admin.auth import (
     webmanager_auth_required, require_role, token_blacklist
@@ -380,3 +383,122 @@ def builder_save():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to save orchestration: {str(e)}'}), 500
+
+
+# --- Server Topology API ---
+
+@admin_routes_bp.route('/api/topology', methods=['GET'])
+@webmanager_auth_required
+def topology():
+    """Return server topology as nodes and edges for visualization."""
+    servers = db.session.execute(select(Server)).scalars().all()
+    routes = db.session.execute(select(Route)).scalars().all()
+
+    nodes = []
+    for srv in servers:
+        gates_list = []
+        for g in srv.gates:
+            gates_list.append({
+                'id': str(g.id),
+                'dns': g.dns,
+                'ip': str(g.ip) if g.ip else None,
+                'port': g.port,
+            })
+        nodes.append({
+            'id': str(srv.id),
+            'name': srv.name,
+            'me': srv._me or False,
+            'gates': gates_list,
+        })
+
+    edges = []
+    for r in routes:
+        edges.append({
+            'destination_id': str(r.destination_id),
+            'proxy_server_id': str(r.proxy_server_id) if r.proxy_server_id else None,
+            'gate_id': str(r.gate_id) if r.gate_id else None,
+            'cost': r.cost,
+        })
+
+    return jsonify({'nodes': nodes, 'edges': edges}), 200
+
+
+# --- Dashboard Widget endpoints ---
+
+@admin_routes_bp.route('/api/widgets/success-rate', methods=['GET'])
+@webmanager_auth_required
+def widget_success_rate():
+    """Return daily success rate for the last 7 days."""
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+
+    executions = db.session.execute(
+        select(OrchExecution).where(OrchExecution.start_time >= seven_days_ago)
+    ).scalars().all()
+
+    # Group by date
+    from collections import defaultdict as _dd
+    by_day = _dd(lambda: {'total': 0, 'success': 0})
+    for ex in executions:
+        day_str = ex.start_time.strftime('%Y-%m-%d')
+        by_day[day_str]['total'] += 1
+        if ex.success is True:
+            by_day[day_str]['success'] += 1
+
+    days = []
+    for i in range(7):
+        d = (now - timedelta(days=6 - i)).strftime('%Y-%m-%d')
+        info = by_day.get(d, {'total': 0, 'success': 0})
+        total = info['total']
+        success = info['success']
+        rate = round((success / total) * 100, 1) if total > 0 else 0
+        days.append({'date': d, 'total': total, 'success': success, 'rate': rate})
+
+    return jsonify({'days': days}), 200
+
+
+@admin_routes_bp.route('/api/widgets/top-failures', methods=['GET'])
+@webmanager_auth_required
+def widget_top_failures():
+    """Return top 5 failing orchestrations."""
+    results = db.session.execute(
+        select(Orchestration.name, func.count(OrchExecution.id).label('cnt'))
+        .join(OrchExecution, OrchExecution.orchestration_id == Orchestration.id)
+        .where(OrchExecution.success == False)  # noqa: E712
+        .group_by(Orchestration.name)
+        .order_by(func.count(OrchExecution.id).desc())
+        .limit(5)
+    ).all()
+
+    failures = [{'name': row[0], 'count': row[1]} for row in results]
+    return jsonify({'failures': failures}), 200
+
+
+@admin_routes_bp.route('/api/widgets/recent-activity', methods=['GET'])
+@webmanager_auth_required
+def widget_recent_activity():
+    """Return the 20 most recent executions."""
+    executions = db.session.execute(
+        select(OrchExecution).order_by(OrchExecution.start_time.desc()).limit(20)
+    ).scalars().all()
+
+    events = []
+    for ex in executions:
+        if ex.success is True:
+            status = 'success'
+        elif ex.success is False:
+            status = 'failed'
+        elif ex.end_time is None:
+            status = 'running'
+        else:
+            status = 'unknown'
+
+        events.append({
+            'id': str(ex.id),
+            'orchestration_name': ex.orchestration.name if ex.orchestration else 'Unknown',
+            'status': status,
+            'start_time': ex.start_time.strftime('%Y-%m-%dT%H:%M:%SZ') if ex.start_time else None,
+            'server_name': ex.server.name if ex.server else None,
+        })
+
+    return jsonify({'events': events}), 200

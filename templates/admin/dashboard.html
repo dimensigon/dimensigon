@@ -346,6 +346,9 @@
                 <a href="#" onclick="showView('builder')" id="nav-builder">
                     <i class="bi bi-tools"></i> Orch Builder
                 </a>
+                <a href="#" onclick="showView('topology')" id="nav-topology">
+                    <i class="bi bi-diagram-2"></i> Topology
+                </a>
                 <hr style="border-color: #34495e;">
                 <a href="#" onclick="refreshCurrentView()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -396,6 +399,36 @@
                             <div class="stat-card">
                                 <h5><i class="bi bi-exclamation-triangle"></i> Recent Failures</h5>
                                 <div id="recentFailures" class="mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dashboard Widgets -->
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="stat-card">
+                                <h5><i class="bi bi-graph-up"></i> Success Rate Trend (7 days)</h5>
+                                <div id="widgetSuccessRate" class="mt-3" style="min-height: 160px;">
+                                    <p class="text-secondary">Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="stat-card">
+                                <h5><i class="bi bi-x-octagon"></i> Top Failing Orchestrations</h5>
+                                <div id="widgetTopFailures" class="mt-3" style="min-height: 160px;">
+                                    <p class="text-secondary">Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="stat-card">
+                                <h5><i class="bi bi-activity"></i> Recent Activity Feed</h5>
+                                <div id="widgetRecentActivity" class="mt-3" style="max-height: 340px; overflow-y: auto;">
+                                    <p class="text-secondary">Loading...</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -590,6 +623,36 @@
                     <div id="builder-messages" class="mt-3"></div>
                 </div>
 
+                <!-- Topology View -->
+                <div id="view-topology" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-diagram-2"></i> Server Topology</h2>
+                        <div class="d-flex align-items-center gap-3">
+                            <input type="text" class="form-control form-control-sm" id="topology-search" placeholder="Search nodes..." style="width: 200px;" oninput="filterTopologyNodes()">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="topology-auto-refresh">
+                                <label class="form-check-label text-secondary" for="topology-auto-refresh">Auto-refresh</label>
+                            </div>
+                            <button class="btn btn-sm btn-outline-info" onclick="loadTopology()">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="topology-graph" style="min-height: 500px; position: relative; overflow: auto;">
+                            <div class="loading" id="loading-topology">
+                                <div class="spinner-border text-primary" role="status"></div>
+                                <p class="text-secondary mt-2">Loading topology...</p>
+                            </div>
+                            <div id="topology-nodes" style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; padding: 20px;"></div>
+                        </div>
+                    </div>
+                    <div class="stat-card mt-3" id="topology-detail" style="display: none;">
+                        <h6 class="mb-3"><i class="bi bi-info-circle"></i> Node Details</h6>
+                        <div id="topology-detail-content"></div>
+                    </div>
+                </div>
+
                 <!-- Data Dictionary View -->
                 <div id="view-dictionary" class="view-content" style="display: none;">
                     <h2 class="mb-4"><i class="bi bi-book"></i> Data Dictionary</h2>
@@ -692,6 +755,9 @@
                 case 'builder':
                     loadBuilderPalette();
                     break;
+                case 'topology':
+                    loadTopology();
+                    break;
             }
         }
 
@@ -735,6 +801,87 @@
             });
             failuresHtml += '</ul>';
             document.getElementById('recentFailures').innerHTML = failuresHtml;
+
+            // Load dashboard widgets
+            loadWidgets();
+        }
+
+        // Dashboard Widgets
+        async function loadWidgets() {
+            // Success Rate Trend
+            try {
+                const sr = await apiCall('/dm-webmanager/api/widgets/success-rate');
+                if (sr && sr.days) {
+                    let html = '<div style="display:flex;align-items:flex-end;gap:6px;height:120px;">';
+                    sr.days.forEach(day => {
+                        const barH = Math.max(day.rate * 1.1, 4);
+                        const color = day.rate >= 80 ? '#10b981' : day.rate >= 50 ? '#f59e0b' : '#ef4444';
+                        html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;">
+                            <span style="font-size:0.65rem;color:var(--text-secondary);margin-bottom:2px;">${day.rate}%</span>
+                            <div style="width:100%;max-width:48px;height:${barH}px;background:${color};border-radius:4px 4px 0 0;transition:height 0.3s;" title="${day.date}: ${day.success}/${day.total}"></div>
+                            <span style="font-size:0.6rem;color:var(--text-secondary);margin-top:4px;">${day.date.slice(5)}</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    document.getElementById('widgetSuccessRate').innerHTML = html;
+                }
+            } catch(e) {
+                document.getElementById('widgetSuccessRate').innerHTML = '<p class="text-secondary">No data available</p>';
+            }
+
+            // Top Failures
+            try {
+                const tf = await apiCall('/dm-webmanager/api/widgets/top-failures');
+                if (tf && tf.failures && tf.failures.length) {
+                    const maxCount = tf.failures[0].count || 1;
+                    let html = '';
+                    tf.failures.forEach(f => {
+                        const pct = Math.round((f.count / maxCount) * 100);
+                        html += `<div style="margin-bottom:10px;">
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:2px;">
+                                <span>${f.name}</span><span style="color:var(--text-secondary);">${f.count} failures</span>
+                            </div>
+                            <div style="background:rgba(239,68,68,0.15);border-radius:4px;height:18px;overflow:hidden;">
+                                <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#ef4444,#f87171);border-radius:4px;transition:width 0.3s;"></div>
+                            </div>
+                        </div>`;
+                    });
+                    document.getElementById('widgetTopFailures').innerHTML = html;
+                } else {
+                    document.getElementById('widgetTopFailures').innerHTML = '<p class="text-secondary">No failures recorded</p>';
+                }
+            } catch(e) {
+                document.getElementById('widgetTopFailures').innerHTML = '<p class="text-secondary">No data available</p>';
+            }
+
+            // Recent Activity Feed
+            try {
+                const ra = await apiCall('/dm-webmanager/api/widgets/recent-activity');
+                if (ra && ra.events && ra.events.length) {
+                    let html = '<div class="list-group">';
+                    ra.events.forEach(ev => {
+                        let badgeClass = 'bg-secondary';
+                        if (ev.status === 'success') badgeClass = 'badge-success';
+                        else if (ev.status === 'failed') badgeClass = 'badge-danger';
+                        else if (ev.status === 'running') badgeClass = 'badge-warning';
+                        const timeStr = ev.start_time ? new Date(ev.start_time).toLocaleString() : '';
+                        html += `<div class="list-group-item d-flex justify-content-between align-items-center" style="background:rgba(10,1,24,0.4);border-color:rgba(176,132,255,0.2);color:var(--text-primary);">
+                            <div>
+                                <strong>${ev.orchestration_name}</strong>
+                                ${ev.server_name ? '<small class="text-secondary ms-2">@ ' + ev.server_name + '</small>' : ''}
+                                <br><small class="text-secondary">${timeStr}</small>
+                            </div>
+                            <span class="badge ${badgeClass}" style="font-size:0.7rem;">${ev.status}</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    document.getElementById('widgetRecentActivity').innerHTML = html;
+                } else {
+                    document.getElementById('widgetRecentActivity').innerHTML = '<p class="text-secondary">No recent activity</p>';
+                }
+            } catch(e) {
+                document.getElementById('widgetRecentActivity').innerHTML = '<p class="text-secondary">No data available</p>';
+            }
         }
 
         // Orchestrations
@@ -1273,6 +1420,157 @@
                 document.getElementById('btn-cancel-exec').disabled = true;
                 document.getElementById('btn-cancel-exec').innerHTML = '<i class="bi bi-hourglass"></i> Cancelling...';
             }
+        }
+
+        // --- Topology ---
+        let topologyData = null;
+        let topologyAutoRefreshTimer = null;
+
+        document.getElementById('topology-auto-refresh').addEventListener('change', function() {
+            if (this.checked) {
+                topologyAutoRefreshTimer = setInterval(() => {
+                    if (currentView === 'topology') loadTopology();
+                }, 15000);
+            } else {
+                if (topologyAutoRefreshTimer) { clearInterval(topologyAutoRefreshTimer); topologyAutoRefreshTimer = null; }
+            }
+        });
+
+        async function loadTopology() {
+            const loadingEl = document.getElementById('loading-topology');
+            const nodesEl = document.getElementById('topology-nodes');
+            loadingEl.classList.add('show');
+            nodesEl.innerHTML = '';
+
+            const data = await apiCall('/dm-webmanager/api/topology');
+            loadingEl.classList.remove('show');
+            if (!data) {
+                nodesEl.innerHTML = '<p class="text-danger">Failed to load topology data.</p>';
+                return;
+            }
+            topologyData = data;
+            renderTopology(data);
+        }
+
+        function renderTopology(data) {
+            const nodesEl = document.getElementById('topology-nodes');
+            nodesEl.innerHTML = '';
+
+            if (!data.nodes || data.nodes.length === 0) {
+                nodesEl.innerHTML = '<p class="text-secondary">No servers found.</p>';
+                return;
+            }
+
+            // Build a cost map: destination_id -> cost
+            const costMap = {};
+            const edgeMap = {};
+            (data.edges || []).forEach(e => {
+                costMap[e.destination_id] = e.cost;
+                edgeMap[e.destination_id] = e;
+            });
+
+            data.nodes.forEach(node => {
+                const isMe = node.me;
+                const cost = costMap[node.id];
+                const hasRoute = cost !== undefined;
+                const isAlive = isMe || (hasRoute && cost !== null);
+
+                const borderColor = isMe ? 'var(--cyan-neon)' : (isAlive ? '#10b981' : '#6b7280');
+                const bgColor = isMe ? 'rgba(0, 255, 255, 0.08)' : (isAlive ? 'rgba(16, 185, 129, 0.08)' : 'rgba(107, 114, 128, 0.08)');
+                const glowColor = isMe ? 'rgba(0, 255, 255, 0.3)' : (isAlive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(107, 114, 128, 0.1)');
+
+                const primaryGate = node.gates && node.gates.length > 0 ? node.gates[0] : null;
+                const ipDisplay = primaryGate ? (primaryGate.dns || primaryGate.ip || 'N/A') + ':' + primaryGate.port : 'No gates';
+                const costDisplay = isMe ? 'LOCAL' : (cost !== null && cost !== undefined ? 'cost: ' + cost : 'unreachable');
+
+                const card = document.createElement('div');
+                card.className = 'topology-node';
+                card.dataset.nodeName = node.name.toLowerCase();
+                card.style.cssText = `
+                    border: 2px solid ${borderColor};
+                    background: ${bgColor};
+                    border-radius: 12px;
+                    padding: 18px;
+                    min-width: 200px;
+                    max-width: 260px;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 15px ${glowColor};
+                    position: relative;
+                `;
+                card.onmouseover = () => { card.style.transform = 'translateY(-4px) scale(1.03)'; card.style.boxShadow = `0 8px 25px ${glowColor}`; };
+                card.onmouseout = () => { card.style.transform = ''; card.style.boxShadow = `0 4px 15px ${glowColor}`; };
+                card.onclick = () => showTopologyDetail(node, edgeMap[node.id]);
+
+                card.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: ${borderColor}; box-shadow: 0 0 8px ${borderColor}; display: inline-block;"></span>
+                        <strong style="font-size: 1rem; color: var(--text-primary);">${node.name}</strong>
+                        ${isMe ? '<span style="font-size: 0.65rem; background: var(--cyan-neon); color: #000; padding: 1px 6px; border-radius: 4px; font-weight: 700;">THIS</span>' : ''}
+                    </div>
+                    <div style="font-family: JetBrains Mono, monospace; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 6px;">
+                        <i class="bi bi-hdd-network"></i> ${ipDisplay}
+                    </div>
+                    <div style="font-size: 0.75rem; color: ${isAlive ? '#34d399' : '#9ca3af'};">
+                        <i class="bi bi-${isAlive ? 'check-circle-fill' : 'question-circle'}"></i> ${costDisplay}
+                    </div>
+                `;
+                nodesEl.appendChild(card);
+            });
+        }
+
+        function filterTopologyNodes() {
+            const query = document.getElementById('topology-search').value.toLowerCase();
+            document.querySelectorAll('.topology-node').forEach(el => {
+                el.style.display = el.dataset.nodeName.includes(query) ? '' : 'none';
+            });
+        }
+
+        function showTopologyDetail(node, edge) {
+            const detailEl = document.getElementById('topology-detail');
+            const contentEl = document.getElementById('topology-detail-content');
+            detailEl.style.display = 'block';
+
+            let gatesHtml = '';
+            if (node.gates && node.gates.length > 0) {
+                gatesHtml = '<table class="table table-sm mt-2"><thead><tr><th>DNS</th><th>IP</th><th>Port</th></tr></thead><tbody>';
+                node.gates.forEach(g => {
+                    gatesHtml += `<tr><td>${g.dns || '-'}</td><td>${g.ip || '-'}</td><td>${g.port}</td></tr>`;
+                });
+                gatesHtml += '</tbody></table>';
+            } else {
+                gatesHtml = '<p class="text-secondary">No gates configured.</p>';
+            }
+
+            let routeHtml = '';
+            if (edge) {
+                routeHtml = `
+                    <div class="mt-3">
+                        <strong>Route:</strong>
+                        Cost: <span class="badge bg-info">${edge.cost !== null ? edge.cost : 'N/A'}</span>
+                        ${edge.proxy_server_id ? '| Proxy: <code>' + edge.proxy_server_id + '</code>' : '| Direct connection'}
+                        ${edge.gate_id ? '| Gate: <code>' + edge.gate_id + '</code>' : ''}
+                    </div>
+                `;
+            } else if (node.me) {
+                routeHtml = '<div class="mt-3"><span class="badge bg-info">Local server (this node)</span></div>';
+            } else {
+                routeHtml = '<div class="mt-3"><span class="badge bg-secondary">No route available</span></div>';
+            }
+
+            contentEl.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>${node.name} ${node.me ? '<span class="badge bg-info">THIS</span>' : ''}</h6>
+                        <p class="text-secondary mb-1">ID: <code>${node.id}</code></p>
+                        ${routeHtml}
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Gates</h6>
+                        ${gatesHtml}
+                    </div>
+                </div>
+            `;
         }
 
         async function logout() {
