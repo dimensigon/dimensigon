@@ -15,9 +15,10 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from dimensigon.domain.entities import User, Orchestration, Step, ActionTemplate, ActionType, Server, Route, Gate
-from dimensigon.domain.entities import OrchExecution
+from dimensigon.domain.entities import OrchExecution, StepExecution  # noqa: F401 - StepExecution used via relationship
 from dimensigon.domain.entities.webhook import Webhook, WebhookLog
 from dimensigon.domain.entities.orch_version import OrchestrationVersion
+from dimensigon.domain.entities.template import OrchTemplate, TEMPLATE_CATEGORIES
 from sqlalchemy import select, func
 from dimensigon.web import db
 from dimensigon.web.admin.auth import (
@@ -1083,3 +1084,493 @@ def webhook_logs(webhook_id):
         .limit(100)
     ).scalars().all()
     return jsonify([log.to_json() for log in logs]), 200
+
+
+# --- AI Troubleshooting API ---
+
+@admin_routes_bp.route('/api/ai/troubleshoot', methods=['POST'])
+@webmanager_auth_required
+def ai_troubleshoot():
+    """Analyze a failed step execution and return troubleshooting suggestions.
+
+    Accepts either:
+      - {step_execution_id: "..."} to look up the failure from the database
+      - {command, stdout, stderr, rc} for ad-hoc analysis
+    """
+    from dimensigon.domain.entities import StepExecution
+    from dimensigon.ai.troubleshoot import analyze_failure
+
+    data = request.get_json(silent=True) or {}
+
+    step_execution_id = data.get('step_execution_id')
+    if step_execution_id:
+        se = db.session.get(StepExecution, step_execution_id)
+        if not se:
+            return jsonify({'error': 'StepExecution not found'}), 404
+
+        step_data = {
+            'command': se.step.code if se.step else None,
+            'stdout': se.stdout,
+            'stderr': se.stderr,
+            'rc': se.rc,
+            'server_name': se.server.name if se.server else None,
+            'step_name': se.step.name if se.step else None,
+            'orchestration_name': (
+                se.orch_execution.orchestration.name
+                if se.orch_execution and se.orch_execution.orchestration else None
+            ),
+        }
+    else:
+        # Ad-hoc analysis from request body
+        step_data = {
+            'command': data.get('command'),
+            'stdout': data.get('stdout'),
+            'stderr': data.get('stderr'),
+            'rc': data.get('rc'),
+            'server_name': data.get('server_name'),
+            'step_name': data.get('step_name'),
+            'orchestration_name': data.get('orchestration_name'),
+        }
+
+    result = analyze_failure(step_data)
+    return jsonify(result), 200
+
+
+@admin_routes_bp.route('/api/ai/apply-fix', methods=['POST'])
+@require_role('operator')
+def ai_apply_fix():
+    """Apply a suggested fix by updating a step's code.
+
+    Accepts: {step_id, orchestration_id, new_command}
+    """
+    data = request.get_json(silent=True) or {}
+
+    step_id = data.get('step_id')
+    orchestration_id = data.get('orchestration_id')
+    new_command = data.get('new_command')
+
+    if not step_id:
+        return jsonify({'error': 'step_id is required'}), 400
+    if not orchestration_id:
+        return jsonify({'error': 'orchestration_id is required'}), 400
+    if not new_command:
+        return jsonify({'error': 'new_command is required'}), 400
+
+    orchestration = db.session.get(Orchestration, orchestration_id)
+    if not orchestration:
+        return jsonify({'error': 'Orchestration not found'}), 404
+
+    step = db.session.get(Step, step_id)
+    if not step:
+        return jsonify({'error': 'Step not found'}), 404
+
+    if str(step.orchestration_id) != str(orchestration_id):
+        return jsonify({'error': 'Step does not belong to the specified orchestration'}), 400
+
+    old_command = step.code
+    step.code = new_command
+    db.session.commit()
+
+    # Auto-version the orchestration after the fix
+    try:
+        _create_orchestration_version(
+            orchestration,
+            author='ai-troubleshoot',
+            message=f'AI fix applied to step {step_id}',
+        )
+    except Exception:
+        pass  # versioning failure should not block the response
+
+    return jsonify({
+        'message': 'Step code updated successfully',
+        'step_id': str(step.id),
+        'old_command': old_command,
+        'new_command': new_command,
+    }), 200
+
+
+# --- AI Chat API ---
+
+# Rate limiting: track request timestamps per user identity
+_ai_rate_limits = defaultdict(list)  # user_id -> [timestamp, ...]
+_AI_RATE_LIMIT = 20   # max requests
+_AI_RATE_WINDOW = 3600  # per hour (seconds)
+
+
+def _check_ai_rate_limit(user_id):
+    """Return True if the user is within the rate limit, False otherwise."""
+    now = time.time()
+    # Prune old entries outside the window
+    _ai_rate_limits[user_id] = [
+        ts for ts in _ai_rate_limits[user_id] if now - ts < _AI_RATE_WINDOW
+    ]
+    if len(_ai_rate_limits[user_id]) >= _AI_RATE_LIMIT:
+        return False
+    _ai_rate_limits[user_id].append(now)
+    return True
+
+
+@admin_routes_bp.route('/api/ai/chat', methods=['POST'])
+@webmanager_auth_required
+def ai_chat():
+    """Context-aware AI chat endpoint for orchestration assistance.
+
+    Accepts JSON body:
+        message (str): User message / instruction.
+        orchestration_context (dict|null): Current orchestration JSON for context.
+        mode (str): 'modify' or 'review'.
+
+    Returns AI-generated suggestions or modifications.
+    When DM_AI_ENABLED is False, returns a helpful mock response.
+    """
+    from flask import current_app
+    import json as _json
+
+    user_id = get_jwt_identity()
+
+    # Rate limiting
+    if not _check_ai_rate_limit(user_id):
+        return jsonify({
+            'error': 'Rate limit exceeded. Maximum 20 requests per hour.',
+        }), 429
+
+    data = request.get_json(silent=True) or {}
+    message = data.get('message', '').strip()
+    orchestration_context = data.get('orchestration_context')
+    mode = data.get('mode', 'review')
+
+    if not message:
+        return jsonify({'error': 'message is required'}), 400
+    if mode not in ('modify', 'review'):
+        return jsonify({'error': 'mode must be "modify" or "review"'}), 400
+
+    ai_enabled = current_app.config.get('DM_AI_ENABLED', False)
+
+    if ai_enabled:
+        # Attempt to call the real AI handler
+        try:
+            from dimensigon.ai.handler import handle_ai_chat
+            result = handle_ai_chat(
+                message=message,
+                orchestration_context=orchestration_context,
+                mode=mode,
+            )
+            return jsonify(result), 200
+        except ImportError:
+            # AI handler module not available; fall through to mock response
+            pass
+        except Exception as e:
+            return jsonify({
+                'error': f'AI handler error: {str(e)}',
+            }), 500
+
+    # Mock response when AI is not configured
+    if mode == 'modify':
+        mock_response = {
+            'type': 'modify',
+            'message': (
+                'AI-powered orchestration modification is not currently configured. '
+                'To enable this feature, set the DM_AI_ENABLED environment variable '
+                'to "true" and ensure an AI backend is available. '
+                'Your instruction was: ' + message
+            ),
+            'modified_orchestration': orchestration_context,
+        }
+    else:
+        mock_response = {
+            'type': 'review',
+            'message': (
+                'AI-powered orchestration review is not currently configured. '
+                'To enable this feature, set the DM_AI_ENABLED environment variable '
+                'to "true" and ensure an AI backend is available. '
+                'Your instruction was: ' + message
+            ),
+            'suggestions': [
+                {
+                    'category': 'info',
+                    'severity': 'info',
+                    'title': 'AI features not enabled',
+                    'description': (
+                        'Configure DM_AI_ENABLED=true to unlock AI-powered '
+                        'orchestration review, modification suggestions, '
+                        'error-handling analysis, and parallelization recommendations.'
+                    ),
+                    'affected_steps': [],
+                }
+            ],
+            'summary': 'AI assistant is not configured. Enable it via DM_AI_ENABLED=true.',
+        }
+
+    return jsonify(mock_response), 200
+
+
+# --- Orchestration Templates / Marketplace API ---
+
+@admin_routes_bp.route('/api/templates', methods=['GET'])
+@webmanager_auth_required
+def list_templates():
+    """List orchestration templates with search, category filter, pagination and sort by rating."""
+    import uuid as _uuid
+
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    per_page = min(per_page, 100)  # cap max page size
+
+    search = request.args.get('search', '').strip()
+    category = request.args.get('category', '').strip()
+
+    query = select(OrchTemplate)
+
+    # Category filter
+    if category and category in TEMPLATE_CATEGORIES:
+        query = query.where(OrchTemplate.category == category)
+
+    # Search filter (name, description, tags)
+    if search:
+        like_pattern = f'%{search}%'
+        query = query.where(
+            db.or_(
+                OrchTemplate.name.ilike(like_pattern),
+                OrchTemplate.description.ilike(like_pattern),
+                OrchTemplate.tags.cast(db.String).ilike(like_pattern),
+            )
+        )
+
+    # Count total matching
+    count_query = select(func.count()).select_from(query.subquery())
+    total = db.session.execute(count_query).scalar() or 0
+
+    # Sort by rating (rating_sum / rating_count approximation: order by rating_sum desc)
+    query = query.order_by(OrchTemplate.rating_sum.desc(), OrchTemplate.created_at.desc())
+
+    # Paginate
+    offset = (page - 1) * per_page
+    templates = db.session.execute(query.offset(offset).limit(per_page)).scalars().all()
+
+    return jsonify({
+        'templates': [t.to_json(include_content=False) for t in templates],
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+    }), 200
+
+
+@admin_routes_bp.route('/api/templates/<template_id>', methods=['GET'])
+@webmanager_auth_required
+def get_template(template_id):
+    """Get a single orchestration template with full json_content."""
+    template = db.session.get(OrchTemplate, template_id)
+    if not template:
+        return jsonify({'error': 'Template not found'}), 404
+
+    return jsonify(template.to_json(include_content=True)), 200
+
+
+@admin_routes_bp.route('/api/templates', methods=['POST'])
+@webmanager_auth_required
+def create_template():
+    """Create / share a new orchestration template."""
+    import uuid as _uuid
+
+    data = request.get_json(silent=True) or {}
+
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+
+    category = data.get('category', 'custom').strip()
+    if category not in TEMPLATE_CATEGORIES:
+        return jsonify({'error': f'Invalid category. Must be one of: {", ".join(TEMPLATE_CATEGORIES)}'}), 400
+
+    json_content = data.get('json_content')
+    if not json_content:
+        return jsonify({'error': 'json_content is required'}), 400
+
+    template = OrchTemplate(
+        id=str(_uuid.uuid4()),
+        name=name,
+        description=data.get('description', '').strip() or None,
+        category=category,
+        tags=data.get('tags', []),
+        json_content=json_content,
+    )
+    db.session.add(template)
+    db.session.commit()
+
+    return jsonify(template.to_json(include_content=True)), 201
+
+
+@admin_routes_bp.route('/api/templates/<template_id>/rate', methods=['POST'])
+@webmanager_auth_required
+def rate_template(template_id):
+    """Rate a template. Accepts {rating: 1} or {rating: -1}."""
+    template = db.session.get(OrchTemplate, template_id)
+    if not template:
+        return jsonify({'error': 'Template not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    rating = data.get('rating')
+    if rating not in (1, -1):
+        return jsonify({'error': 'rating must be 1 or -1'}), 400
+
+    template.rating_sum = (template.rating_sum or 0) + rating
+    template.rating_count = (template.rating_count or 0) + 1
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Rating recorded',
+        'rating': template.rating,
+        'rating_sum': template.rating_sum,
+        'rating_count': template.rating_count,
+    }), 200
+
+
+@admin_routes_bp.route('/api/templates/<template_id>/use', methods=['POST'])
+@webmanager_auth_required
+def use_template(template_id):
+    """Return the template json_content ready for the orchestration builder."""
+    template = db.session.get(OrchTemplate, template_id)
+    if not template:
+        return jsonify({'error': 'Template not found'}), 404
+
+    return jsonify({
+        'template_id': str(template.id),
+        'name': template.name,
+        'json_content': template.json_content,
+    }), 200
+
+
+# --- Execution Comparison & Trends API ---
+
+def _build_execution_summary(execution):
+    """Build a JSON-serializable summary of an OrchExecution with its step executions."""
+    status = 'success' if execution.success is True else ('failed' if execution.success is False else 'running')
+    duration = None
+    if execution.start_time and execution.end_time:
+        duration = (execution.end_time - execution.start_time).total_seconds()
+
+    steps = []
+    for se in execution.step_executions:
+        step_duration = None
+        if se.start_time and se.end_time:
+            step_duration = (se.end_time - se.start_time).total_seconds()
+        step_status = 'success' if se.success is True else ('failed' if se.success is False else 'running')
+        step_name = se.step.step_name if se.step else None
+        steps.append({
+            'step_id': str(se.step_id),
+            'step_name': step_name or str(se.step_id),
+            'status': step_status,
+            'duration': step_duration,
+            'rc': se.rc,
+        })
+
+    return {
+        'id': str(execution.id),
+        'orchestration_name': execution.orchestration.name if execution.orchestration else None,
+        'status': status,
+        'start_time': execution.start_time.strftime('%Y-%m-%dT%H:%M:%SZ') if execution.start_time else None,
+        'duration': duration,
+        'params': execution.params,
+        'steps': steps,
+    }
+
+
+@admin_routes_bp.route('/api/executions/compare', methods=['GET'])
+@webmanager_auth_required
+def compare_executions():
+    """Compare two executions side-by-side and return a structured diff."""
+    exec_id_a = request.args.get('a')
+    exec_id_b = request.args.get('b')
+
+    if not exec_id_a or not exec_id_b:
+        return jsonify({'error': 'Both query params "a" and "b" (execution IDs) are required'}), 400
+
+    execution_a = db.session.get(OrchExecution, exec_id_a)
+    execution_b = db.session.get(OrchExecution, exec_id_b)
+
+    if not execution_a:
+        return jsonify({'error': f'Execution {exec_id_a} not found'}), 404
+    if not execution_b:
+        return jsonify({'error': f'Execution {exec_id_b} not found'}), 404
+
+    summary_a = _build_execution_summary(execution_a)
+    summary_b = _build_execution_summary(execution_b)
+
+    # Compute diff
+    status_changed = summary_a['status'] != summary_b['status']
+
+    # Param diff
+    params_a = summary_a['params'] or {}
+    params_b = summary_b['params'] or {}
+    all_keys = set(list(params_a.keys()) + list(params_b.keys()))
+    param_diff = {}
+    for key in all_keys:
+        val_a = params_a.get(key)
+        val_b = params_b.get(key)
+        if val_a != val_b:
+            param_diff[key] = {'a': val_a, 'b': val_b}
+
+    # Step diffs -- match by step_id
+    steps_a_map = {s['step_id']: s for s in summary_a['steps']}
+    steps_b_map = {s['step_id']: s for s in summary_b['steps']}
+    all_step_ids = list(dict.fromkeys(list(steps_a_map.keys()) + list(steps_b_map.keys())))
+
+    step_diffs = []
+    for sid in all_step_ids:
+        sa = steps_a_map.get(sid, {})
+        sb = steps_b_map.get(sid, {})
+        step_name = sa.get('step_name') or sb.get('step_name') or sid
+        status_a = sa.get('status')
+        status_b = sb.get('status')
+        duration_a = sa.get('duration')
+        duration_b = sb.get('duration')
+        changed = (status_a != status_b) or (duration_a != duration_b)
+        step_diffs.append({
+            'step_name': step_name,
+            'status_a': status_a,
+            'status_b': status_b,
+            'duration_a': duration_a,
+            'duration_b': duration_b,
+            'changed': changed,
+        })
+
+    return jsonify({
+        'execution_a': summary_a,
+        'execution_b': summary_b,
+        'diff': {
+            'status_changed': status_changed,
+            'param_diff': param_diff,
+            'step_diffs': step_diffs,
+        },
+    }), 200
+
+
+@admin_routes_bp.route('/api/executions/trends/<orchestration_id>', methods=['GET'])
+@webmanager_auth_required
+def execution_trends(orchestration_id):
+    """Return duration trend for the last 20 runs of an orchestration."""
+    orchestration = db.session.get(Orchestration, orchestration_id)
+    if not orchestration:
+        return jsonify({'error': 'Orchestration not found'}), 404
+
+    executions = db.session.execute(
+        select(OrchExecution)
+        .where(OrchExecution.orchestration_id == orchestration_id)
+        .order_by(OrchExecution.start_time.desc())
+        .limit(20)
+    ).scalars().all()
+
+    runs = []
+    for ex in reversed(executions):  # oldest first for charting
+        duration = None
+        if ex.start_time and ex.end_time:
+            duration = (ex.end_time - ex.start_time).total_seconds()
+        status = 'success' if ex.success is True else ('failed' if ex.success is False else 'running')
+        runs.append({
+            'id': str(ex.id),
+            'start_time': ex.start_time.strftime('%Y-%m-%dT%H:%M:%SZ') if ex.start_time else None,
+            'duration': duration,
+            'status': status,
+        })
+
+    return jsonify({'runs': runs}), 200

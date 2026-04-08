@@ -305,6 +305,121 @@
         ::-webkit-scrollbar-thumb:hover {
             background: var(--purple-neon);
         }
+
+        /* AI Chat Sidebar */
+        #ai-chat-sidebar {
+            position: fixed;
+            top: 0;
+            right: -380px;
+            width: 380px;
+            height: 100vh;
+            background: linear-gradient(180deg, var(--purple-darker) 0%, var(--bg-dark) 100%);
+            border-left: 2px solid var(--purple-neon);
+            box-shadow: -4px 0 30px rgba(176, 132, 255, 0.2);
+            z-index: 1050;
+            transition: right 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #ai-chat-sidebar.open {
+            right: 0;
+        }
+
+        #ai-chat-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-neon);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        #ai-chat-header h6 {
+            margin: 0;
+            color: var(--purple-light);
+            font-weight: 700;
+        }
+
+        #ai-chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .ai-msg {
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            max-width: 90%;
+            word-wrap: break-word;
+        }
+
+        .ai-msg.user {
+            background: linear-gradient(135deg, var(--purple-deep), var(--purple-neon));
+            color: #fff;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+        .ai-msg.assistant {
+            background: rgba(10, 1, 24, 0.7);
+            border: 1px solid var(--border-neon);
+            color: var(--text-primary);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+
+        .ai-msg.assistant .ai-suggestion {
+            margin-top: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: rgba(176, 132, 255, 0.08);
+            border-left: 3px solid var(--purple-neon);
+            font-size: 0.8rem;
+        }
+
+        .ai-msg.assistant .ai-suggestion.severity-critical {
+            border-left-color: #ef4444;
+        }
+
+        .ai-msg.assistant .ai-suggestion.severity-warning {
+            border-left-color: #f59e0b;
+        }
+
+        .ai-msg.assistant .ai-suggestion.severity-info {
+            border-left-color: var(--cyan-neon);
+        }
+
+        #ai-chat-input-area {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border-neon);
+            flex-shrink: 0;
+        }
+
+        #ai-chat-input-area select {
+            font-size: 0.8rem;
+            padding: 4px 8px;
+        }
+
+        #ai-chat-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 1040;
+        }
+
+        #ai-chat-overlay.open {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -315,8 +430,11 @@
                 <i class="bi bi-diagram-3-fill"></i>
                 <strong>DM-WebManager</strong> - Dimensigon Administration
             </a>
-            <div class="d-flex">
+            <div class="d-flex align-items-center">
                 <span class="navbar-text text-white me-3" id="currentUser"></span>
+                <button onclick="toggleAiChat()" class="btn btn-sm btn-outline-info me-2" title="AI Assistant">
+                    <i class="bi bi-robot"></i> AI
+                </button>
                 <button class="btn btn-outline-light btn-sm" onclick="logout()">
                     <i class="bi bi-box-arrow-right"></i> Logout
                 </button>
@@ -345,6 +463,9 @@
                 </a>
                 <a href="#" onclick="showView('builder')" id="nav-builder">
                     <i class="bi bi-tools"></i> Orch Builder
+                </a>
+                <a href="#" onclick="showView('templates')" id="nav-templates">
+                    <i class="bi bi-collection"></i> Templates
                 </a>
                 <a href="#" onclick="showView('topology')" id="nav-topology">
                     <i class="bi bi-diagram-2"></i> Topology
@@ -469,7 +590,7 @@
                     <h2 class="mb-4"><i class="bi bi-play-circle"></i> Executions</h2>
                     <div class="stat-card">
                         <div class="row mb-3">
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <select class="form-select" id="filter-status">
                                     <option value="">All Status</option>
                                     <option value="running">Running</option>
@@ -477,9 +598,14 @@
                                     <option value="failed">Failed</option>
                                 </select>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <input type="text" class="form-control" id="search-executions"
                                        placeholder="Search executions...">
+                            </div>
+                            <div class="col-md-4 text-end">
+                                <button class="btn btn-sm btn-primary" id="btn-compare-exec" onclick="compareExecutions()" disabled>
+                                    <i class="bi bi-arrow-left-right"></i> Compare Selected (<span id="compare-count">0</span>/2)
+                                </button>
                             </div>
                         </div>
                         <div class="loading" id="loading-executions">
@@ -487,6 +613,22 @@
                         </div>
                         <div id="executionsTable"></div>
                     </div>
+                    <!-- Duration Trend Chart -->
+                    <div class="stat-card mt-3" id="exec-trend-card" style="display: none;">
+                        <h5><i class="bi bi-graph-up"></i> Duration Trend (last 20 runs)</h5>
+                        <div id="exec-trend-chart" style="min-height: 140px; margin-top: 10px;"></div>
+                    </div>
+                </div>
+
+                <!-- Execution Comparison View -->
+                <div id="view-exec-compare" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-arrow-left-right"></i> Execution Comparison</h2>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="showView('executions')">
+                            <i class="bi bi-arrow-left"></i> Back to Executions
+                        </button>
+                    </div>
+                    <div id="compare-content"></div>
                 </div>
 
                 <!-- Execution Detail View (Real-time DAG) -->
@@ -525,6 +667,41 @@
                         <h5 class="mb-3">Step Output</h5>
                         <div id="step-output-tabs"></div>
                         <pre id="step-output" class="p-3 rounded" style="background: var(--bg-darker); color: var(--text-primary); max-height: 400px; overflow-y: auto; font-size: 0.85rem; border: 1px solid var(--border-neon);">Select a step to view output...</pre>
+                        <div class="mt-2 text-end">
+                            <button id="btn-troubleshoot" class="btn btn-sm btn-outline-warning" onclick="troubleshootStep()" style="display: none;">
+                                <i class="bi bi-lightbulb"></i> Troubleshoot
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- AI Troubleshoot Panel -->
+                    <div id="troubleshoot-panel" class="stat-card mt-3" style="display: none; border-color: rgba(245, 158, 11, 0.5);">
+                        <h5 class="mb-3" style="color: #fbbf24;"><i class="bi bi-lightbulb-fill"></i> AI Troubleshooting Analysis</h5>
+                        <div id="troubleshoot-loading" style="display: none;">
+                            <div class="text-center py-3">
+                                <div class="spinner-border text-warning spinner-border-sm" role="status"></div>
+                                <span class="ms-2 text-secondary">Analyzing failure...</span>
+                            </div>
+                        </div>
+                        <div id="troubleshoot-result" style="display: none;">
+                            <div class="mb-3">
+                                <span class="text-secondary text-uppercase" style="font-size: 0.7rem; letter-spacing: 1px;">Root Cause</span>
+                                <span id="troubleshoot-confidence" class="badge ms-2" style="font-size: 0.65rem;"></span>
+                                <div id="troubleshoot-root-cause" class="mt-1" style="color: var(--text-primary);"></div>
+                            </div>
+                            <div class="mb-3">
+                                <span class="text-secondary text-uppercase" style="font-size: 0.7rem; letter-spacing: 1px;">Suggestion</span>
+                                <div id="troubleshoot-suggestion" class="mt-1" style="color: var(--text-primary);"></div>
+                            </div>
+                            <div id="troubleshoot-fix-section" style="display: none;">
+                                <span class="text-secondary text-uppercase" style="font-size: 0.7rem; letter-spacing: 1px;">Suggested Fix</span>
+                                <pre id="troubleshoot-fix-command" class="p-2 mt-1 rounded" style="background: var(--bg-darker); color: var(--cyan-neon); font-size: 0.85rem; border: 1px solid rgba(0,255,255,0.3);"></pre>
+                                <button id="btn-apply-fix" class="btn btn-sm btn-outline-success mt-1" onclick="applyTroubleshootFix()">
+                                    <i class="bi bi-check-lg"></i> Apply Fix
+                                </button>
+                            </div>
+                        </div>
+                        <div id="troubleshoot-error" class="text-danger" style="display: none;"></div>
                     </div>
                 </div>
 
@@ -623,6 +800,86 @@
                     <div id="builder-messages" class="mt-3"></div>
                 </div>
 
+                <!-- Templates / Marketplace View -->
+                <div id="view-templates" class="view-content" style="display: none;">
+                    <h2 class="mb-4"><i class="bi bi-collection"></i> Orchestration Templates</h2>
+                    <div class="stat-card mb-3">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-5">
+                                <input type="text" class="form-control" id="template-search"
+                                       placeholder="Search templates..." oninput="loadTemplates()">
+                            </div>
+                            <div class="col-md-3">
+                                <select class="form-select" id="template-category" onchange="loadTemplates()">
+                                    <option value="">All Categories</option>
+                                    <option value="deployment">Deployment</option>
+                                    <option value="monitoring">Monitoring</option>
+                                    <option value="maintenance">Maintenance</option>
+                                    <option value="security">Security</option>
+                                    <option value="networking">Networking</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-primary w-100" onclick="loadTemplates()">
+                                    <i class="bi bi-search"></i> Search
+                                </button>
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-outline-success w-100" onclick="showShareTemplateForm()">
+                                    <i class="bi bi-plus-circle"></i> Share
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="loading" id="loading-templates">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+                    <div id="templatesGrid" class="row"></div>
+                    <div id="templatesPagination" class="mt-3"></div>
+
+                    <!-- Share Template Modal -->
+                    <div id="shareTemplateForm" class="stat-card mt-3" style="display: none;">
+                        <h5 class="mb-3"><i class="bi bi-share"></i> Share a Template</h5>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" id="share-tpl-name" placeholder="Template name">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Category</label>
+                                <select class="form-select" id="share-tpl-category">
+                                    <option value="deployment">Deployment</option>
+                                    <option value="monitoring">Monitoring</option>
+                                    <option value="maintenance">Maintenance</option>
+                                    <option value="security">Security</option>
+                                    <option value="networking">Networking</option>
+                                    <option value="custom" selected>Custom</option>
+                                </select>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label">Tags (comma-separated)</label>
+                                <input type="text" class="form-control" id="share-tpl-tags" placeholder="deploy, docker, nginx">
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Description</label>
+                                <input type="text" class="form-control" id="share-tpl-desc" placeholder="Brief description">
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">JSON Content</label>
+                                <textarea class="form-control" id="share-tpl-json" rows="5" placeholder='{"name": "...", "steps": [...]}'></textarea>
+                            </div>
+                            <div class="col-md-12 mt-2">
+                                <button class="btn btn-primary" onclick="submitShareTemplate()">
+                                    <i class="bi bi-cloud-upload"></i> Publish Template
+                                </button>
+                                <button class="btn btn-outline-secondary ms-2" onclick="document.getElementById('shareTemplateForm').style.display='none'">Cancel</button>
+                            </div>
+                        </div>
+                        <div id="share-tpl-msg" class="mt-2"></div>
+                    </div>
+                </div>
+
                 <!-- Topology View -->
                 <div id="view-topology" class="view-content" style="display: none;">
                     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -664,6 +921,40 @@
                         <div id="dictionaryContent"></div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Chat Overlay -->
+    <div id="ai-chat-overlay" onclick="toggleAiChat()"></div>
+
+    <!-- AI Chat Sidebar -->
+    <div id="ai-chat-sidebar">
+        <div id="ai-chat-header">
+            <h6><i class="bi bi-robot"></i> AI Assistant</h6>
+            <button class="btn btn-sm btn-outline-secondary" onclick="toggleAiChat()" title="Close">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div id="ai-chat-messages">
+            <div class="ai-msg assistant">
+                Welcome! I can help you review or modify orchestrations. Select a mode below and describe what you need.
+            </div>
+        </div>
+        <div id="ai-chat-input-area">
+            <div class="d-flex gap-2 mb-2">
+                <select class="form-select form-select-sm" id="ai-chat-mode" style="max-width: 130px;">
+                    <option value="review">Review</option>
+                    <option value="modify">Modify</option>
+                </select>
+                <small class="text-secondary align-self-center" id="ai-rate-info" style="font-size:0.7rem;"></small>
+            </div>
+            <div class="d-flex gap-2">
+                <input type="text" class="form-control form-control-sm" id="ai-chat-input"
+                       placeholder="Ask about orchestrations..." onkeydown="if(event.key==='Enter') sendAiMessage()">
+                <button class="btn btn-sm btn-primary" onclick="sendAiMessage()" id="ai-send-btn">
+                    <i class="bi bi-send"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -754,6 +1045,9 @@
                     break;
                 case 'builder':
                     loadBuilderPalette();
+                    break;
+                case 'templates':
+                    loadTemplates();
                     break;
                 case 'topology':
                     loadTopology();
@@ -944,7 +1238,39 @@
         }
 
         // Executions
+        let compareSelected = new Set();
+
+        function toggleCompareCheckbox(execId, orchId) {
+            if (compareSelected.has(execId)) {
+                compareSelected.delete(execId);
+            } else {
+                if (compareSelected.size >= 2) {
+                    // Remove the oldest selection
+                    const first = compareSelected.values().next().value;
+                    compareSelected.delete(first);
+                    const oldCb = document.getElementById('cmp-' + first);
+                    if (oldCb) oldCb.checked = false;
+                }
+                compareSelected.add(execId);
+            }
+            const count = compareSelected.size;
+            document.getElementById('compare-count').textContent = count;
+            document.getElementById('btn-compare-exec').disabled = (count < 2);
+
+            // Show trend chart when at least one is selected
+            if (count >= 1 && orchId) {
+                loadDurationTrend(orchId);
+            } else {
+                document.getElementById('exec-trend-card').style.display = 'none';
+            }
+        }
+
         async function loadExecutions() {
+            compareSelected.clear();
+            document.getElementById('compare-count').textContent = '0';
+            document.getElementById('btn-compare-exec').disabled = true;
+            document.getElementById('exec-trend-card').style.display = 'none';
+
             document.getElementById('loading-executions').classList.add('show');
             const status = document.getElementById('filter-status').value;
             const url = status ? `/api/v2/executions?status=${status}` : '/api/v2/executions';
@@ -954,22 +1280,27 @@
             if (!data) return;
 
             let html = '<table class="table table-hover"><thead><tr>';
-            html += '<th>Orchestration</th><th>Start Time</th><th>Duration</th><th>Status</th><th>Server</th><th></th>';
+            html += '<th style="width:40px;"></th><th>Orchestration</th><th>Start Time</th><th>Duration</th><th>Status</th><th>Server</th><th></th>';
             html += '</tr></thead><tbody>';
 
             (data.executions || []).forEach(exec => {
                 const statusBadge = exec.status === 'success' ? 'bg-success' :
                                   exec.status === 'failed' ? 'bg-danger' : 'bg-warning';
                 const duration = exec.duration ? `${exec.duration.toFixed(2)}s` : 'Running...';
+                const orchId = exec.orchestration?.id || '';
 
                 html += `
-                    <tr style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">
-                        <td>${exec.orchestration?.name || 'Unknown'} v${exec.orchestration?.version || '?'}</td>
-                        <td>${new Date(exec.start_time).toLocaleString()}</td>
-                        <td>${duration}</td>
-                        <td><span class="badge ${statusBadge}">${exec.status}</span></td>
-                        <td>${exec.server?.name || '-'}</td>
-                        <td><button class="btn btn-sm btn-outline-info"><i class="bi bi-eye"></i></button></td>
+                    <tr>
+                        <td onclick="event.stopPropagation()">
+                            <input type="checkbox" class="form-check-input" id="cmp-${exec.id}"
+                                   onchange="toggleCompareCheckbox('${exec.id}', '${orchId}')">
+                        </td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">${exec.orchestration?.name || 'Unknown'} v${exec.orchestration?.version || '?'}</td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">${new Date(exec.start_time).toLocaleString()}</td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">${duration}</td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')"><span class="badge ${statusBadge}">${exec.status}</span></td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">${exec.server?.name || '-'}</td>
+                        <td><button class="btn btn-sm btn-outline-info" onclick="openExecutionMonitor('${exec.id}')"><i class="bi bi-eye"></i></button></td>
                     </tr>
                 `;
             });
@@ -1293,13 +1624,134 @@
             container.innerHTML = html;
         }
 
+        let activeStepId = null;
+        let lastTroubleshootResult = null;
+
         function showStepOutput(stepId) {
             const state = stepStates[stepId];
             if (!state) return;
+            activeStepId = stepId;
             let output = '';
             if (state.stdout) output += state.stdout;
             if (state.stderr) output += '\n--- STDERR ---\n' + state.stderr;
             document.getElementById('step-output').textContent = output || '(no output)';
+
+            // Show Troubleshoot button only for failed steps
+            const btn = document.getElementById('btn-troubleshoot');
+            if (state.status === 'failed') {
+                btn.style.display = 'inline-block';
+            } else {
+                btn.style.display = 'none';
+            }
+
+            // Hide previous troubleshoot panel when switching steps
+            document.getElementById('troubleshoot-panel').style.display = 'none';
+        }
+
+        async function troubleshootStep() {
+            if (!activeStepId) return;
+            const state = stepStates[activeStepId];
+            if (!state) return;
+
+            const panel = document.getElementById('troubleshoot-panel');
+            const loading = document.getElementById('troubleshoot-loading');
+            const resultDiv = document.getElementById('troubleshoot-result');
+            const errorDiv = document.getElementById('troubleshoot-error');
+
+            // Show panel with loading state
+            panel.style.display = 'block';
+            loading.style.display = 'block';
+            resultDiv.style.display = 'none';
+            errorDiv.style.display = 'none';
+
+            try {
+                const resp = await apiCall('/dm-webmanager/api/ai/troubleshoot', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        command: state.command || '',
+                        stdout: state.stdout || '',
+                        stderr: state.stderr || '',
+                        rc: state.rc != null ? state.rc : -1,
+                        step_name: activeStepId,
+                    }),
+                });
+
+                loading.style.display = 'none';
+
+                if (resp && resp.root_cause) {
+                    lastTroubleshootResult = resp;
+                    resultDiv.style.display = 'block';
+
+                    document.getElementById('troubleshoot-root-cause').textContent = resp.root_cause;
+                    document.getElementById('troubleshoot-suggestion').textContent = resp.suggestion;
+
+                    // Confidence badge
+                    const badge = document.getElementById('troubleshoot-confidence');
+                    badge.textContent = resp.confidence;
+                    badge.className = 'badge ms-2';
+                    if (resp.confidence === 'high') badge.classList.add('bg-success');
+                    else if (resp.confidence === 'medium') badge.classList.add('bg-warning');
+                    else badge.classList.add('bg-secondary');
+                    badge.style.fontSize = '0.65rem';
+
+                    // Show fix section if a modified command is suggested
+                    const fixSection = document.getElementById('troubleshoot-fix-section');
+                    if (resp.modified_command) {
+                        fixSection.style.display = 'block';
+                        document.getElementById('troubleshoot-fix-command').textContent = resp.modified_command;
+                    } else {
+                        fixSection.style.display = 'none';
+                    }
+                } else if (resp && resp.error) {
+                    errorDiv.textContent = resp.error;
+                    errorDiv.style.display = 'block';
+                }
+            } catch (err) {
+                loading.style.display = 'none';
+                errorDiv.textContent = 'Failed to analyze step: ' + err.message;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        async function applyTroubleshootFix() {
+            if (!lastTroubleshootResult || !lastTroubleshootResult.modified_command) return;
+
+            const stepId = activeStepId;
+            if (!stepId || !activeExecId) {
+                alert('Cannot apply fix: missing step or execution context.');
+                return;
+            }
+
+            if (!confirm('Apply the suggested command fix to this step?')) return;
+
+            try {
+                const execData = await apiCall(`/api/v2/executions/${activeExecId}`);
+                if (!execData || !execData.orchestration_id) {
+                    alert('Could not determine orchestration. Apply the fix manually.');
+                    return;
+                }
+
+                const resp = await apiCall('/dm-webmanager/api/ai/apply-fix', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        step_id: stepId,
+                        orchestration_id: execData.orchestration_id,
+                        new_command: lastTroubleshootResult.modified_command,
+                    }),
+                });
+
+                if (resp && resp.message) {
+                    const btn = document.getElementById('btn-apply-fix');
+                    btn.classList.remove('btn-outline-success');
+                    btn.classList.add('btn-success');
+                    btn.innerHTML = '<i class="bi bi-check-lg"></i> Fix Applied';
+                    btn.disabled = true;
+                } else if (resp && resp.error) {
+                    alert('Failed to apply fix: ' + resp.error);
+                }
+            } catch (err) {
+                alert('Error applying fix: ' + err.message);
+            }
         }
 
         function connectWs(executionId) {
@@ -1419,6 +1871,173 @@
             if (resp?.message) {
                 document.getElementById('btn-cancel-exec').disabled = true;
                 document.getElementById('btn-cancel-exec').innerHTML = '<i class="bi bi-hourglass"></i> Cancelling...';
+            }
+        }
+
+        // --- Templates / Marketplace ---
+        let templatesPage = 1;
+
+        async function loadTemplates(page) {
+            templatesPage = page || 1;
+            const search = document.getElementById('template-search').value;
+            const category = document.getElementById('template-category').value;
+            const loadingEl = document.getElementById('loading-templates');
+            loadingEl.classList.add('show');
+
+            let url = `/dm-webmanager/api/templates?page=${templatesPage}&per_page=20`;
+            if (search) url += `&search=${encodeURIComponent(search)}`;
+            if (category) url += `&category=${encodeURIComponent(category)}`;
+
+            const data = await apiCall(url);
+            loadingEl.classList.remove('show');
+            if (!data) return;
+
+            const grid = document.getElementById('templatesGrid');
+            if (!data.templates || data.templates.length === 0) {
+                grid.innerHTML = '<div class="col-12"><p class="text-secondary text-center py-4">No templates found. Be the first to share one!</p></div>';
+                document.getElementById('templatesPagination').innerHTML = '';
+                return;
+            }
+
+            let html = '';
+            data.templates.forEach(tpl => {
+                const ratingDisplay = tpl.rating_count > 0 ? tpl.rating.toFixed(1) : 'No ratings';
+                const tagsHtml = (tpl.tags || []).map(t => `<span class="badge bg-secondary me-1" style="font-size:0.65rem;">${t}</span>`).join('');
+                const catColor = {
+                    deployment: '#3b82f6', monitoring: '#10b981', maintenance: '#f59e0b',
+                    security: '#ef4444', networking: '#8b5cf6', custom: '#6b7280'
+                }[tpl.category] || '#6b7280';
+
+                html += `
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <h6 class="card-title mb-0">${tpl.name}</h6>
+                                    <span class="badge" style="background:${catColor};font-size:0.65rem;">${tpl.category}</span>
+                                </div>
+                                <p class="card-text" style="font-size:0.8rem;">${tpl.description || 'No description'}</p>
+                                <div class="mb-2">${tagsHtml}</div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-success me-1" onclick="rateTemplate('${tpl.id}', 1)" title="Upvote">
+                                            <i class="bi bi-hand-thumbs-up"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger me-1" onclick="rateTemplate('${tpl.id}', -1)" title="Downvote">
+                                            <i class="bi bi-hand-thumbs-down"></i>
+                                        </button>
+                                        <span class="text-secondary" style="font-size:0.75rem;">${ratingDisplay} (${tpl.rating_count})</span>
+                                    </div>
+                                    <button class="btn btn-sm btn-primary" onclick="useTemplate('${tpl.id}')">
+                                        <i class="bi bi-download"></i> Use
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-footer" style="background:transparent;border-top:1px solid var(--border-neon);">
+                                <small class="text-secondary">${tpl.created_at ? new Date(tpl.created_at).toLocaleDateString() : ''}</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            grid.innerHTML = html;
+
+            // Pagination
+            const totalPages = Math.ceil(data.total / data.per_page);
+            let pagHtml = '';
+            if (totalPages > 1) {
+                pagHtml = '<nav><ul class="pagination pagination-sm justify-content-center">';
+                for (let p = 1; p <= totalPages; p++) {
+                    pagHtml += `<li class="page-item ${p === data.page ? 'active' : ''}"><a class="page-link" href="#" onclick="loadTemplates(${p}); return false;" style="background:${p === data.page ? 'var(--purple-deep)' : 'rgba(10,1,24,0.6)'};border-color:var(--border-neon);color:var(--text-primary);">${p}</a></li>`;
+                }
+                pagHtml += '</ul></nav>';
+            }
+            document.getElementById('templatesPagination').innerHTML = pagHtml;
+        }
+
+        async function rateTemplate(templateId, rating) {
+            const resp = await apiCall(`/dm-webmanager/api/templates/${templateId}/rate`, {
+                method: 'POST',
+                body: JSON.stringify({ rating })
+            });
+            if (resp && !resp.error) {
+                loadTemplates(templatesPage);
+            }
+        }
+
+        async function useTemplate(templateId) {
+            const resp = await apiCall(`/dm-webmanager/api/templates/${templateId}/use`, { method: 'POST' });
+            if (!resp || resp.error) { alert(resp?.error || 'Failed to load template'); return; }
+
+            // Load into builder
+            const content = resp.json_content || {};
+            document.getElementById('builder-name').value = content.name || resp.name || '';
+            document.getElementById('builder-desc').value = content.description || '';
+            document.getElementById('builder-stop-on-error').checked = content.stop_on_error !== false;
+
+            builderSteps = [];
+            nextTempId = 1;
+            (content.steps || []).forEach(step => {
+                const tempId = `step-${nextTempId++}`;
+                builderSteps.push({
+                    tempId,
+                    actionTemplateId: step.action_template_id || '',
+                    actionName: step.action_name || step.action_template_id || 'Step',
+                    target: step.target || [],
+                    parents: (step.parents || []).map(String),
+                    children: (step.children || []).map(String),
+                    undo: step.undo || false,
+                });
+            });
+
+            if (builderSteps.length > 0) {
+                document.getElementById('builder-empty').style.display = 'none';
+            }
+
+            showView('builder');
+            renderBuilderNodes();
+        }
+
+        function showShareTemplateForm() {
+            document.getElementById('shareTemplateForm').style.display = 'block';
+            document.getElementById('share-tpl-msg').innerHTML = '';
+        }
+
+        async function submitShareTemplate() {
+            const name = document.getElementById('share-tpl-name').value.trim();
+            const category = document.getElementById('share-tpl-category').value;
+            const description = document.getElementById('share-tpl-desc').value.trim();
+            const tagsStr = document.getElementById('share-tpl-tags').value.trim();
+            const jsonStr = document.getElementById('share-tpl-json').value.trim();
+
+            if (!name) { alert('Template name is required'); return; }
+            if (!jsonStr) { alert('JSON content is required'); return; }
+
+            let json_content;
+            try {
+                json_content = JSON.parse(jsonStr);
+            } catch (e) {
+                alert('Invalid JSON content: ' + e.message);
+                return;
+            }
+
+            const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+            const resp = await apiCall('/dm-webmanager/api/templates', {
+                method: 'POST',
+                body: JSON.stringify({ name, category, description, tags, json_content })
+            });
+
+            const msgDiv = document.getElementById('share-tpl-msg');
+            if (resp && !resp.error) {
+                msgDiv.innerHTML = '<div class="alert" style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#86efac;">Template published successfully!</div>';
+                document.getElementById('share-tpl-name').value = '';
+                document.getElementById('share-tpl-desc').value = '';
+                document.getElementById('share-tpl-tags').value = '';
+                document.getElementById('share-tpl-json').value = '';
+                loadTemplates();
+            } else {
+                msgDiv.innerHTML = `<div class="alert" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;">${resp?.error || 'Failed to publish template'}</div>`;
             }
         }
 
@@ -1573,6 +2192,129 @@
             `;
         }
 
+        // --- Execution Comparison ---
+        async function compareExecutions() {
+            if (compareSelected.size < 2) return;
+            const ids = Array.from(compareSelected);
+            const execA = ids[0];
+            const execB = ids[1];
+
+            // Switch to comparison view
+            document.querySelectorAll('.view-content').forEach(v => v.style.display = 'none');
+            document.getElementById('view-exec-compare').style.display = 'block';
+            document.getElementById('compare-content').innerHTML = '<div class="text-center p-4"><div class="spinner-border text-primary" role="status"></div><p class="text-secondary mt-2">Loading comparison...</p></div>';
+
+            const data = await apiCall(`/dm-webmanager/api/executions/compare?a=${execA}&b=${execB}`);
+            if (!data || data.error) {
+                document.getElementById('compare-content').innerHTML = `<div class="alert" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;">${data?.error || 'Failed to load comparison'}</div>`;
+                return;
+            }
+
+            const ea = data.execution_a;
+            const eb = data.execution_b;
+            const diff = data.diff;
+
+            // Build comparison HTML
+            let html = '';
+
+            // Side-by-side summary panels
+            html += '<div class="row mb-3">';
+            html += buildExecPanel(ea, 'A');
+            html += buildExecPanel(eb, 'B');
+            html += '</div>';
+
+            // Status change indicator
+            if (diff.status_changed) {
+                html += `<div class="stat-card mb-3" style="border-color: #f59e0b;">
+                    <strong style="color: #fbbf24;">Status Changed:</strong> <span class="badge ${ea.status === 'success' ? 'bg-success' : 'bg-danger'}">${ea.status}</span> &rarr; <span class="badge ${eb.status === 'success' ? 'bg-success' : 'bg-danger'}">${eb.status}</span>
+                </div>`;
+            }
+
+            // Param diff
+            const paramKeys = Object.keys(diff.param_diff || {});
+            if (paramKeys.length > 0) {
+                html += '<div class="stat-card mb-3"><h5>Parameter Differences</h5><table class="table table-sm"><thead><tr><th>Key</th><th>Execution A</th><th>Execution B</th></tr></thead><tbody>';
+                paramKeys.forEach(key => {
+                    const pd = diff.param_diff[key];
+                    html += `<tr><td><code>${key}</code></td><td>${JSON.stringify(pd.a)}</td><td>${JSON.stringify(pd.b)}</td></tr>`;
+                });
+                html += '</tbody></table></div>';
+            }
+
+            // Step diffs
+            if (diff.step_diffs && diff.step_diffs.length > 0) {
+                html += '<div class="stat-card mb-3"><h5>Step Comparison</h5><table class="table table-sm"><thead><tr><th>Step</th><th>Status A</th><th>Status B</th><th>Duration A</th><th>Duration B</th></tr></thead><tbody>';
+                diff.step_diffs.forEach(sd => {
+                    let borderStyle = '';
+                    if (sd.changed) {
+                        const improved = (sd.status_b === 'success' && sd.status_a !== 'success') ||
+                                         (sd.duration_a && sd.duration_b && sd.duration_b < sd.duration_a);
+                        const degraded = (sd.status_b === 'failed' && sd.status_a !== 'failed') ||
+                                         (sd.duration_a && sd.duration_b && sd.duration_b > sd.duration_a);
+                        if (improved) borderStyle = 'border-left: 4px solid #22c55e;';
+                        else if (degraded) borderStyle = 'border-left: 4px solid #ef4444;';
+                        else borderStyle = 'border-left: 4px solid #f59e0b;';
+                    }
+                    const badgeA = sd.status_a ? `<span class="badge ${sd.status_a === 'success' ? 'bg-success' : sd.status_a === 'failed' ? 'bg-danger' : 'bg-warning'}">${sd.status_a}</span>` : '-';
+                    const badgeB = sd.status_b ? `<span class="badge ${sd.status_b === 'success' ? 'bg-success' : sd.status_b === 'failed' ? 'bg-danger' : 'bg-warning'}">${sd.status_b}</span>` : '-';
+                    const durA = sd.duration_a != null ? sd.duration_a.toFixed(2) + 's' : '-';
+                    const durB = sd.duration_b != null ? sd.duration_b.toFixed(2) + 's' : '-';
+                    html += `<tr style="${borderStyle}"><td>${sd.step_name}</td><td>${badgeA}</td><td>${badgeB}</td><td>${durA}</td><td>${durB}</td></tr>`;
+                });
+                html += '</tbody></table></div>';
+            }
+
+            document.getElementById('compare-content').innerHTML = html;
+        }
+
+        function buildExecPanel(exec, label) {
+            const statusBadge = exec.status === 'success' ? 'bg-success' : exec.status === 'failed' ? 'bg-danger' : 'bg-warning';
+            const dur = exec.duration != null ? exec.duration.toFixed(2) + 's' : 'N/A';
+            return `<div class="col-md-6">
+                <div class="stat-card">
+                    <h5>Execution ${label}</h5>
+                    <p style="font-size:0.85rem;color:var(--text-secondary);">ID: <code>${exec.id}</code></p>
+                    <div class="d-flex gap-3 flex-wrap">
+                        <span><strong>Orchestration:</strong> ${exec.orchestration_name || 'Unknown'}</span>
+                        <span><strong>Status:</strong> <span class="badge ${statusBadge}">${exec.status}</span></span>
+                        <span><strong>Duration:</strong> ${dur}</span>
+                        <span><strong>Started:</strong> ${exec.start_time ? new Date(exec.start_time).toLocaleString() : 'N/A'}</span>
+                    </div>
+                    <div class="mt-2" style="font-size:0.8rem;color:var(--text-secondary);">Steps: ${exec.steps ? exec.steps.length : 0}</div>
+                </div>
+            </div>`;
+        }
+
+        // --- Duration Trend Chart ---
+        async function loadDurationTrend(orchId) {
+            const card = document.getElementById('exec-trend-card');
+            const chart = document.getElementById('exec-trend-chart');
+            card.style.display = 'block';
+            chart.innerHTML = '<p class="text-secondary">Loading trend...</p>';
+
+            const data = await apiCall(`/dm-webmanager/api/executions/trends/${orchId}`);
+            if (!data || !data.runs || data.runs.length === 0) {
+                chart.innerHTML = '<p class="text-secondary">No trend data available.</p>';
+                return;
+            }
+
+            const maxDur = Math.max(...data.runs.map(r => r.duration || 0), 1);
+            let html = '<div style="display:flex;align-items:flex-end;gap:4px;height:120px;">';
+            data.runs.forEach(run => {
+                const dur = run.duration || 0;
+                const barH = Math.max((dur / maxDur) * 110, 4);
+                const color = run.status === 'success' ? '#22c55e' : run.status === 'failed' ? '#ef4444' : '#eab308';
+                const dateStr = run.start_time ? run.start_time.slice(5, 10) : '';
+                html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;">
+                    <span style="font-size:0.6rem;color:var(--text-secondary);margin-bottom:2px;">${dur.toFixed(1)}s</span>
+                    <div style="width:100%;max-width:36px;height:${barH}px;background:${color};border-radius:3px 3px 0 0;transition:height 0.3s;" title="${run.start_time}: ${dur.toFixed(2)}s (${run.status})"></div>
+                    <span style="font-size:0.55rem;color:var(--text-secondary);margin-top:3px;">${dateStr}</span>
+                </div>`;
+            });
+            html += '</div>';
+            chart.innerHTML = html;
+        }
+
         async function logout() {
             try {
                 await fetch('/dm-webmanager/logout', {
@@ -1583,6 +2325,119 @@
                 // Continue with redirect even if logout call fails
             }
             window.location.href = '/dm-webmanager/login';
+        }
+        // --- AI Chat Sidebar ---
+        let aiChatOpen = false;
+        let aiMessageCount = 0;
+
+        function toggleAiChat() {
+            aiChatOpen = !aiChatOpen;
+            document.getElementById('ai-chat-sidebar').classList.toggle('open', aiChatOpen);
+            document.getElementById('ai-chat-overlay').classList.toggle('open', aiChatOpen);
+            if (aiChatOpen) {
+                document.getElementById('ai-chat-input').focus();
+            }
+        }
+
+        function appendAiMessage(text, role) {
+            const container = document.getElementById('ai-chat-messages');
+            const div = document.createElement('div');
+            div.className = 'ai-msg ' + role;
+            div.innerHTML = text;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function renderAiSuggestions(data) {
+            let html = '';
+            if (data.message) {
+                html += '<div>' + escapeHtml(data.message) + '</div>';
+            }
+            if (data.suggestions && data.suggestions.length > 0) {
+                data.suggestions.forEach(function(s) {
+                    const severityClass = 'severity-' + (s.severity || 'info');
+                    html += '<div class="ai-suggestion ' + severityClass + '">';
+                    html += '<strong>' + escapeHtml(s.title || '') + '</strong>';
+                    if (s.category) {
+                        html += ' <span style="font-size:0.7rem;color:var(--text-secondary);">(' + escapeHtml(s.category) + ')</span>';
+                    }
+                    html += '<br>' + escapeHtml(s.description || '');
+                    if (s.affected_steps && s.affected_steps.length > 0) {
+                        html += '<br><small style="color:var(--text-secondary);">Steps: ' + s.affected_steps.map(escapeHtml).join(', ') + '</small>';
+                    }
+                    html += '</div>';
+                });
+            }
+            if (data.summary) {
+                html += '<div style="margin-top:8px;font-size:0.8rem;color:var(--text-secondary);"><em>' + escapeHtml(data.summary) + '</em></div>';
+            }
+            if (data.modified_orchestration) {
+                html += '<div style="margin-top:8px;font-size:0.75rem;color:var(--text-secondary);">[Modified orchestration returned]</div>';
+            }
+            return html || escapeHtml(JSON.stringify(data));
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function getOrchestrationContext() {
+            if (builderSteps && builderSteps.length > 0) {
+                return buildOrchestrationJson();
+            }
+            return null;
+        }
+
+        async function sendAiMessage() {
+            const input = document.getElementById('ai-chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            const mode = document.getElementById('ai-chat-mode').value;
+            const orchContext = getOrchestrationContext();
+
+            appendAiMessage(escapeHtml(message), 'user');
+            input.value = '';
+
+            const sendBtn = document.getElementById('ai-send-btn');
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+
+            try {
+                const resp = await apiCall('/dm-webmanager/api/ai/chat', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        message: message,
+                        orchestration_context: orchContext,
+                        mode: mode,
+                    })
+                });
+
+                if (!resp) {
+                    appendAiMessage('Failed to reach the AI endpoint. Please check your session.', 'assistant');
+                    return;
+                }
+
+                if (resp.error) {
+                    appendAiMessage('<span style="color:#ef4444;">' + escapeHtml(resp.error) + '</span>', 'assistant');
+                    return;
+                }
+
+                const html = renderAiSuggestions(resp);
+                appendAiMessage(html, 'assistant');
+
+                aiMessageCount++;
+                document.getElementById('ai-rate-info').textContent = aiMessageCount + '/20 this hour';
+
+            } catch (e) {
+                appendAiMessage('<span style="color:#ef4444;">Error: ' + escapeHtml(e.message || 'Unknown error') + '</span>', 'assistant');
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i class="bi bi-send"></i>';
+            }
         }
     </script>
 </body>

@@ -41,6 +41,9 @@ class Config(object):
     SECURIZER_MODE = 'auto'  # 'auto' (default), 'always', or 'never'
     SCHEDULER = True
 
+    # AI chat assistant
+    DM_AI_ENABLED = os.environ.get('DM_AI_ENABLED', 'false').lower() == 'true'
+
     @classmethod
     def init_app(cls, app):
         pass
