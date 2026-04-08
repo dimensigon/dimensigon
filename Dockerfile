@@ -109,9 +109,9 @@ ENV CONFIG_DIR=/app/.dimensigon
 # Expose default Dimensigon port
 EXPOSE 20194
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python3 -c "import requests; requests.get('http://localhost:20194/health', timeout=5)" || exit 1
+# Health check using stdlib only (no external dependencies)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')" || exit 1
 
 # Volume for persistent data
 VOLUME ["/app/.dimensigon", "/app/data", "/var/log/dimensigon"]

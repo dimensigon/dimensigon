@@ -22,6 +22,13 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Container-native environment variables
+export DM_DISCOVERY_DNS="${DM_DISCOVERY_DNS:-}"
+export DM_SECRET_KEY="${DM_SECRET_KEY:-}"
+export DM_DATABASE_URL="${DM_DATABASE_URL:-}"
+export DM_NODE_NAME="${DM_NODE_NAME:-$(hostname)}"
+export DM_AUTO_JOIN="${DM_AUTO_JOIN:-true}"
+
 # Configuration
 CONFIG_DIR="${CONFIG_DIR:-/app/.dimensigon}"
 SSL_DIR="${CONFIG_DIR}/.ssl"
@@ -99,6 +106,21 @@ if [[ "${SQLALCHEMY_DATABASE_URI}" == postgresql* ]]; then
     if [ $attempt -eq $max_attempts ]; then
         log_error "Database connection timeout!"
         exit 1
+    fi
+fi
+
+# DNS-based peer discovery for container orchestration
+if [ -n "${DM_DISCOVERY_DNS}" ]; then
+    log_info "Performing DNS discovery for: ${DM_DISCOVERY_DNS}"
+    PEER_IPS=$(getent hosts "${DM_DISCOVERY_DNS}" 2>/dev/null | awk '{print $1}' || true)
+    if [ -n "${PEER_IPS}" ]; then
+        log_info "Discovered peers via DNS:"
+        for ip in ${PEER_IPS}; do
+            log_info "  - ${ip}"
+        done
+        export DM_DISCOVERED_PEERS="${PEER_IPS}"
+    else
+        log_warn "No peers discovered via DNS for ${DM_DISCOVERY_DNS}"
     fi
 fi
 

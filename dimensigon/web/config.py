@@ -24,6 +24,12 @@ class Config(object):
     JWT_COOKIE_CSRF_PROTECT = True
     JWT_COOKIE_SAMESITE = 'Lax'
 
+    # Container-native environment variable mappings
+    DISCOVERY_DNS = os.environ.get('DM_DISCOVERY_DNS')
+    AUTO_JOIN = os.environ.get('DM_AUTO_JOIN', 'true').lower() == 'true'
+    NODE_NAME = os.environ.get('DM_NODE_NAME')
+    GRACEFUL_SHUTDOWN_TIMEOUT = int(os.environ.get('DM_GRACEFUL_SHUTDOWN_TIMEOUT', '30'))
+
     # executor
     EXECUTOR_MAX_WORKERS = min(32, os.cpu_count() + 4)
     EXECUTOR_PROPAGATE_EXCEPTIONS = True

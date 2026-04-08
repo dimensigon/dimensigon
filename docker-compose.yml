@@ -1,27 +1,110 @@
 version: '3.8'
 
 services:
-  dimensigon:
+  # Node 1 - Primary node
+  dimensigon-node1:
     build:
       context: .
-      dockerfile: Dockerfile.production
-    container_name: dimensigon-2.0
+      dockerfile: Dockerfile
+    container_name: dimensigon-node1
+    hostname: node1
     ports:
-      - "5000:5000"
+      - "5001:5000"
     environment:
       - FLASK_ENV=production
-      - SECRET_KEY=${SECRET_KEY:-dimensigon-secret-key-change-in-production}
-      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/dimensigon.db}
+      - DM_SECRET_KEY=${DM_SECRET_KEY:-dimensigon-secret-key-change-in-production}
+      - DM_DATABASE_URL=${DM_DATABASE_URL:-sqlite:////app/data/dimensigon.db}
+      - DM_NODE_NAME=node1
+      - DM_DISCOVERY_DNS=dimensigon-discovery
+      - DM_AUTO_JOIN=true
+      - DM_GRACEFUL_SHUTDOWN_TIMEOUT=30
     volumes:
-      - dimensigon_data:/app/data
+      - node1_data:/app/data
+    networks:
+      dimensigon-net:
+        aliases:
+          - dimensigon-discovery
     restart: unless-stopped
+    stop_grace_period: 35s
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
+      start_period: 30s
       retries: 3
-      start_period: 40s
+
+  # Node 2
+  dimensigon-node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dimensigon-node2
+    hostname: node2
+    ports:
+      - "5002:5000"
+    environment:
+      - FLASK_ENV=production
+      - DM_SECRET_KEY=${DM_SECRET_KEY:-dimensigon-secret-key-change-in-production}
+      - DM_DATABASE_URL=${DM_DATABASE_URL:-sqlite:////app/data/dimensigon.db}
+      - DM_NODE_NAME=node2
+      - DM_DISCOVERY_DNS=dimensigon-discovery
+      - DM_AUTO_JOIN=true
+      - DM_GRACEFUL_SHUTDOWN_TIMEOUT=30
+    volumes:
+      - node2_data:/app/data
+    networks:
+      dimensigon-net:
+        aliases:
+          - dimensigon-discovery
+    restart: unless-stopped
+    stop_grace_period: 35s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # Node 3
+  dimensigon-node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dimensigon-node3
+    hostname: node3
+    ports:
+      - "5003:5000"
+    environment:
+      - FLASK_ENV=production
+      - DM_SECRET_KEY=${DM_SECRET_KEY:-dimensigon-secret-key-change-in-production}
+      - DM_DATABASE_URL=${DM_DATABASE_URL:-sqlite:////app/data/dimensigon.db}
+      - DM_NODE_NAME=node3
+      - DM_DISCOVERY_DNS=dimensigon-discovery
+      - DM_AUTO_JOIN=true
+      - DM_GRACEFUL_SHUTDOWN_TIMEOUT=30
+    volumes:
+      - node3_data:/app/data
+    networks:
+      dimensigon-net:
+        aliases:
+          - dimensigon-discovery
+    restart: unless-stopped
+    stop_grace_period: 35s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+networks:
+  dimensigon-net:
+    driver: bridge
 
 volumes:
-  dimensigon_data:
+  node1_data:
+    driver: local
+  node2_data:
+    driver: local
+  node3_data:
     driver: local
