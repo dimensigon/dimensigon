@@ -1,23 +1,79 @@
 # Dimensigon
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue)
+![Version](https://img.shields.io/badge/version-3.0.0-blue)
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue)
 ![License](https://img.shields.io/badge/license-GPLv3%2B-green)
 ![Status](https://img.shields.io/badge/status-development-yellow)
 
-**Dimensigon (DM)** is a distributed server management and orchestration platform designed for elastic service bootstrapping. Built with Python, it provides a powerful mesh networking solution for managing complex, heterogeneous infrastructures.
+**Dimensigon (DM)** is a distributed server management and orchestration platform designed for elastic service bootstrapping. Built with Python, it provides a powerful mesh networking solution for managing complex, heterogeneous infrastructures -- now with AI-powered automation, real-time monitoring, and a visual orchestration builder.
 
 ## Key Features
 
-- **Polyglot Orchestration** - Technology-agnostic automation and orchestration
-- **Mesh Networking** - Decentralized peer-to-peer communication
+- **Polyglot Orchestration** - Technology-agnostic automation with visual builder and versioning
+- **Mesh Networking** - Decentralized peer-to-peer communication with multi-dimension federation
 - **IoT 2.0** - Advanced decentralization for IoT environments
-- **Distributed Server Management** - High-complexity orchestrations across infrastructure
-- **Full RESTful API** - Easily embeddable and integrable
+- **Distributed Server Management** - High-complexity orchestrations with scheduling, webhooks, and diff history
+- **Full RESTful API** - Easily embeddable and integrable with Prometheus metrics export
 - **Distributed Vault** - Secure configuration and secrets management
-- **Log Federation** - Centralized logging across all nodes
+- **Log Federation** - Centralized logging and audit trail across all nodes
 - **Double Encryption** - SSL/TLS + message-level encryption by default
-- **Granular ACLs** - Fine-grained access control on top of OS security
+- **Granular ACLs** - Role-based access control (RBAC) with fine-grained permissions
+- **AI-Powered Automation** - Context-aware chat, troubleshooting, and natural language orchestration
+- **Real-time Monitoring** - WebSocket-based live dashboards with topology visualization
+
+## What's New in 3.0
+
+Dimensigon 3.0 delivers 25 new features across five development phases:
+
+### Phase 1 -- Foundation
+
+1. **SQLAlchemy 2.x Migration** - Modernized ORM layer with async support and improved performance
+2. **Security Layer Simplification** - Streamlined authentication and encryption architecture
+3. **forward_or_dispatch Fix** - Resolved critical message routing reliability issue
+4. **/health Endpoint** - Standardized health check endpoint for load balancers and monitoring
+5. **Auth Flow with RBAC** - Complete role-based access control replacing legacy ACL system
+
+### Phase 2 -- Core UX
+
+6. **Real-time WebSocket Monitoring** - Live streaming of orchestration status and system events
+7. **Visual Orchestration Builder** - Drag-and-drop workflow designer in the web UI
+8. **Server Topology Visualization** - Interactive map of mesh network connections and node status
+9. **Dashboard Widgets** - Customizable dashboard with pluggable widget system
+10. **Execution History Diff** - Side-by-side comparison of orchestration runs
+11. **Prometheus Metrics** - Native `/metrics` endpoint for Prometheus/Grafana integration
+
+### Phase 3 -- Features
+
+12. **Webhooks** - HTTP callback notifications for orchestration and system events
+13. **Scheduled Orchestrations** - Cron-based orchestration scheduling with croniter
+14. **Audit Log** - Comprehensive audit trail for compliance and forensics
+15. **Orchestration Versioning** - Git-like version control for orchestration definitions
+16. **Container-Native Deployment** - First-class Docker and Kubernetes support
+
+### Phase 4 -- AI & Polish
+
+17. **Context-Aware AI Chat** - In-app AI assistant with full infrastructure context
+18. **AI Troubleshooting** - Automated root cause analysis and remediation suggestions
+19. **Template Marketplace** - Community-shared orchestration templates
+20. **DShell Auto-Complete** - Intelligent tab completion for the DM shell
+
+### Phase 5 -- Advanced
+
+21. **Interactive Step Debugger** - Pause, inspect, and resume orchestration steps
+22. **DShell Web Terminal** - Browser-based DM shell access
+23. **Natural Language Runner** - Execute orchestrations described in plain English
+24. **Training Feedback Loop** - AI model improvement from user corrections
+25. **Multi-Dimension Federation** - Cross-dimension orchestration and resource sharing
+
+## AI Features
+
+Dimensigon 3.0 includes optional AI-powered capabilities for infrastructure management. Enable them by setting the `DM_AI_ENABLED` environment variable:
+
+```bash
+export DM_AI_ENABLED=true
+```
+
+When enabled, you get access to context-aware chat, AI-driven troubleshooting, natural language orchestration execution, and a training feedback loop that improves suggestions over time. AI features are entirely optional and the platform operates fully without them.
 
 ## Why Dimensigon?
 
@@ -35,6 +91,7 @@ Dimensigon serves as a coordination layer for all automation technologies, makin
 ## Quick Links
 
 - [Quick Start Guide](docs/guides/QUICK_START.md) - Get up and running in minutes
+- [Tutorials](docs/tutorials/00-index.md) - Step-by-step tutorials for all features
 - [Documentation](docs/README.md) - Complete documentation
 - [API Reference](docs/api/API_REFERENCE.md) - RESTful API documentation
 - [Architecture](docs/api/ARCHITECTURE.md) - System design and architecture
@@ -46,10 +103,13 @@ Dimensigon serves as a coordination layer for all automation technologies, makin
 ```
 docs/
 ├── README.md                    # Documentation overview and navigation
-├── guides/                      # User guides and tutorials
+├── guides/                      # User guides
 │   ├── QUICK_START.md          # Quick start guide
 │   ├── DM_WEBMANAGER_README.md # Web interface guide
 │   └── GUI_IMPLEMENTATION_SUMMARY.md
+├── tutorials/                   # Step-by-step tutorials
+│   ├── 00-index.md             # Tutorial index
+│   └── ...                     # Feature-specific tutorials
 ├── deployment/                  # Deployment documentation
 │   ├── DEPLOYMENT_GUIDE.md     # Comprehensive deployment guide
 │   ├── DOCKER_DEPLOYMENT.md    # Container deployment
@@ -79,6 +139,69 @@ pip install -e .
 # Or install from PyPI (when available)
 pip install dimensigon
 ```
+
+### Docker Compose (3-Node Deployment)
+
+```yaml
+# docker-compose.yml
+version: "3.8"
+
+services:
+  dm-node1:
+    image: dimensigon/dimensigon:3.0
+    hostname: dm-node1
+    ports:
+      - "20194:20194"
+    environment:
+      - DM_NODE_NAME=node1
+      - DM_CLUSTER_NAME=my-cluster
+      - DM_AI_ENABLED=false
+    volumes:
+      - dm-node1-data:/var/lib/dimensigon
+
+  dm-node2:
+    image: dimensigon/dimensigon:3.0
+    hostname: dm-node2
+    ports:
+      - "20195:20194"
+    environment:
+      - DM_NODE_NAME=node2
+      - DM_CLUSTER_NAME=my-cluster
+      - DM_JOIN_NODE=dm-node1:20194
+    volumes:
+      - dm-node2-data:/var/lib/dimensigon
+
+  dm-node3:
+    image: dimensigon/dimensigon:3.0
+    hostname: dm-node3
+    ports:
+      - "20196:20194"
+    environment:
+      - DM_NODE_NAME=node3
+      - DM_CLUSTER_NAME=my-cluster
+      - DM_JOIN_NODE=dm-node1:20194
+    volumes:
+      - dm-node3-data:/var/lib/dimensigon
+
+volumes:
+  dm-node1-data:
+  dm-node2-data:
+  dm-node3-data:
+```
+
+```bash
+docker-compose up -d
+```
+
+### New Dependencies
+
+Dimensigon 3.0 introduces the following new dependencies:
+
+- **flask-sock** - WebSocket support for real-time monitoring and DShell web terminal
+- **prometheus-client** - Native Prometheus metrics export
+- **croniter** - Cron expression parsing for scheduled orchestrations
+
+Install them via the updated requirements file: `pip install -r requirements.txt`
 
 ### Getting Started (3 Simple Steps)
 
@@ -124,12 +247,14 @@ Open your browser to:
 - **Dashboard**: https://localhost:20194/dm-webmanager/dashboard
 - **Admin Panel**: https://localhost:20194/admin
 - **API v2.0**: https://localhost:20194/api/v2/
+- **Health Check**: https://localhost:20194/health
+- **Metrics**: https://localhost:20194/metrics
 
 **Default Credentials:**
 - Username: `root`
 - Password: (the one you set in Step 1)
 
-**Note**: You'll see an SSL certificate warning - this is expected for development. Click "Advanced" → "Proceed" to continue.
+**Note**: You'll see an SSL certificate warning - this is expected for development. Click "Advanced" -> "Proceed" to continue.
 
 ### Adding More Servers to Your Cluster
 
@@ -148,6 +273,7 @@ dimensigon join 192.168.1.100 <paste-token-here> --port 20194
 - **Complete Tutorial**: [Getting Started Guide](docs/guides/GETTING_STARTED.md) - Hands-on beginner tutorial
 - **Dimension Concepts**: [Dimension Lifecycle](docs/guides/DIMENSION_LIFECYCLE.md) - Understanding dimensions
 - **Quick Reference**: [Quick Start Guide](docs/guides/QUICK_START.md) - Fast reference
+- **All Tutorials**: [Tutorial Index](docs/tutorials/00-index.md) - Feature-specific tutorials
 
 ## System Requirements
 
@@ -178,9 +304,11 @@ Manage and orchestrate large fleets of IoT devices with decentralized architectu
 
 - **Decentralized Design** - No single point of failure
 - **Mesh Networking** - Direct peer-to-peer communication
-- **Security First** - Double encryption and ACLs
+- **Security First** - Double encryption and RBAC
 - **Scalable** - Horizontal scaling through mesh expansion
 - **Technology Agnostic** - Work with any technology stack
+- **Container-Native** - First-class Docker and Kubernetes support
+- **Observable** - Prometheus metrics and real-time WebSocket monitoring
 
 Learn more in the [Architecture Documentation](docs/api/ARCHITECTURE.md).
 
@@ -242,7 +370,7 @@ For security vulnerabilities, please follow responsible disclosure practices.
 
 ## Historical Reports
 
-The following reports document the evolution of Dimensigon 2.0:
+The following reports document the evolution of Dimensigon:
 
 - [DIMENSIGON_2.0_FINAL_REPORT.md](DIMENSIGON_2.0_FINAL_REPORT.md) - Final report for version 2.0
 - [UPGRADE_REPORT.md](UPGRADE_REPORT.md) - Python and Flask upgrade report
