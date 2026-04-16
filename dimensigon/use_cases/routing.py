@@ -8,7 +8,7 @@ import time
 import typing as t
 import uuid
 
-from sqlalchemy import orm
+from sqlalchemy import func, orm, select
 from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
@@ -253,16 +253,16 @@ class RouteManager(Worker):
     @property
     def server(self) -> Server:
         if getattr(self, '_server', None) is None:
-            self._server = self.session.query(Server).filter_by(_me=1, deleted=0).one_or_none()
+            self._server = self.session.execute(select(Server).filter_by(_me=1, deleted=0)).scalars().one_or_none()
         return self._server
 
     @property
     def server_query(self):
-        return self.session.query(Server).filter_by(deleted=0) if self.session else None
+        return self.session.execute(select(Server).filter_by(deleted=0)).scalars() if self.session else None
 
     @property
     def gate_query(self):
-        return self.session.query(Gate).filter_by(deleted=0) if self.session else None
+        return self.session.execute(select(Gate).filter_by(deleted=0)).scalars() if self.session else None
 
     def _route_table_merge(self, data: t.Dict[Server, ntwrk.Response]):
         changed_routes: t.Dict[Server, RouteContainer] = {}
@@ -270,7 +270,7 @@ class RouteManager(Worker):
         for s, resp in data.items():
             if resp.code == 200:
                 server_id = resp.msg.get('server_id', None) or resp.msg.get('server').get('id')
-                likely_proxy_server_entity = self.session.query(Server).get(server_id)
+                likely_proxy_server_entity = self.session.get(Server, server_id)
                 for route_json in resp.msg['route_list']:
                     route_json = convert(route_json)
                     if route_json.destination_id != self.server.id \
@@ -294,9 +294,9 @@ class RouteManager(Worker):
         # Select new routes based on neighbour routes
         neighbour_ids = [s.id for s in Server.get_neighbours(session=self.session)]
         for destination_id in filter(lambda s: s not in neighbour_ids, temp_table_routes.keys()):
-            route = self.session.query(Route).filter_by(destination_id=destination_id).one_or_none()
+            route = self.session.execute(select(Route).filter_by(destination_id=destination_id)).scalars().one_or_none()
             if not route:
-                server = self.session.query(Server).get(destination_id)
+                server = self.session.get(Server, destination_id)
                 if not server:
                     continue
                 else:
@@ -304,7 +304,7 @@ class RouteManager(Worker):
             temp_table_routes[destination_id].sort(key=lambda x: x.cost or MAX_COST)
             if len(temp_table_routes[destination_id]) > 0:
                 min_route = temp_table_routes[destination_id][0]
-                proxy_server: Server = self.session.query(Server).get(min_route.proxy_server)
+                proxy_server: Server = self.session.get(Server, min_route.proxy_server)
                 cost = min_route.cost
                 if route.proxy_server != proxy_server or route.cost != cost:
                     rc = RouteContainer(proxy_server, None, cost)
@@ -383,10 +383,10 @@ class RouteManager(Worker):
                 self.logger.debug("No new neighbours found")
 
         # remove routes whose proxy_server is a node that is not a neighbour
-        query = self.session.query(Route).filter(
+        query = select(Route).where(
             Route.proxy_server_id.in_([s.id for s in list(set(not_neighbours).union(set(not_neighbours_anymore)))]))
         rc = RouteContainer(None, None, None)
-        for route in query.all():
+        for route in self.session.execute(query).scalars().all():
             route.set_route(rc)
             changed_routes[route.destination] = rc
         self.session.commit()
@@ -410,15 +410,15 @@ class RouteManager(Worker):
         routes = new_routes.get('route_list', [])
         routes.sort(key=lambda x: x.get('cost') or MAX_COST, reverse=True)
         try:
-            likely_proxy_server = self.session.query(Server).get(new_routes.get('server_id'))
+            likely_proxy_server = self.session.get(Server, new_routes.get('server_id'))
             if not likely_proxy_server:
                 self.logger.warning(f"Server id still '{new_routes.get('server_id')}' not created.")
                 return changed_routes
             debug_new_routes = []
             for new_route in routes:
-                target_server = self.session.query(Server).get(new_route.get('destination_id'))
-                proxy_server = self.session.query(Server).get(new_route.get('proxy_server_id'))
-                gate = self.session.query(Gate).get(new_route.get('gate_id'))
+                target_server = self.session.get(Server, new_route.get('destination_id'))
+                proxy_server = self.session.get(Server, new_route.get('proxy_server_id'))
+                gate = self.session.get(Gate, new_route.get('gate_id'))
                 dest_name = getattr(target_server, 'name', new_route.get('destination_id'))
                 proxy_name = getattr(proxy_server, 'name', new_route.get('proxy_server_id'))
                 gate_str = str(gate) if gate else new_route.get('gate_id')
@@ -513,10 +513,10 @@ class RouteManager(Worker):
                         # target_server reached through me as a proxy from likely_proxy
                         pass
 
-            query = self.session.query(Route).filter(
+            query = select(Route).where(
                 Route.proxy_server_id.in_([s.id for s, r in changed_routes.items() if r.cost is None]))
             rc = RouteContainer(None, None, None)
-            for route in query.all():
+            for route in self.session.execute(query).scalars().all():
                 route.set_route(rc)
                 changed_routes[route.destination] = rc
 
@@ -528,9 +528,9 @@ class RouteManager(Worker):
             debug_new_routes = []
             routes.sort(key=lambda x: x.get('cost') or MAX_COST, reverse=True)
             for new_route in routes:
-                target_server = self.session.query(Server).get(new_route.get('destination_id'))
-                proxy_server = self.session.query(Server).get(new_route.get('proxy_server_id'))
-                gate = self.session.query(Gate).get(new_route.get('gate_id'))
+                target_server = self.session.get(Server, new_route.get('destination_id'))
+                proxy_server = self.session.get(Server, new_route.get('proxy_server_id'))
+                gate = self.session.get(Gate, new_route.get('gate_id'))
                 dest_name = getattr(target_server, 'name', new_route.get('destination_id'))
                 proxy_name = getattr(proxy_server, 'name', new_route.get('proxy_server_id'))
                 gate_str = str(gate) if gate else new_route.get('gate_id')
@@ -544,7 +544,7 @@ class RouteManager(Worker):
 
     def _new_node_in_cluster(self, server_id, routes):
         changed_routes = {}
-        server = self.session.query(Server).get(server_id)
+        server = self.session.get(Server, server_id)
 
         # server might be sent cluster in message but not created in database
         if server:
@@ -562,12 +562,12 @@ class RouteManager(Worker):
 
     def _remove_node_from_cluster(self, server_id):
         changed_routes = {}
-        server = self.session.query(Server).get(server_id)
+        server = self.session.get(Server, server_id)
 
         if server:
             server.set_route(RouteContainer(None, None, None))
-            lost_routes = self.session.query(Route).filter_by(proxy_server_id=server.id).options(
-                orm.lazyload(Route.destination), orm.lazyload(Route.gate), orm.lazyload(Route.proxy_server)).count()
+            lost_routes = self.session.execute(
+                select(func.count()).select_from(Route).filter_by(proxy_server_id=server.id)).scalar()
             if lost_routes:
                 changed_routes = self._loop.run_until_complete(
                     self._async_refresh_route_table(discover_new_neighbours=False,
@@ -586,10 +586,10 @@ class RouteManager(Worker):
         if self.logger.level <= logging.DEBUG:
             if exclude:
                 if is_iterable_not_string(exclude):
-                    c_exclude = [self.session.query(Server).get(e) if not isinstance(e, Server) else e for e in exclude]
+                    c_exclude = [self.session.get(Server, e) if not isinstance(e, Server) else e for e in exclude]
                 else:
                     c_exclude = [
-                        self.session.query(Server).get(exclude) if not isinstance(exclude, Server) else exclude]
+                        self.session.get(Server, exclude) if not isinstance(exclude, Server) else exclude]
                 log_msg = f" (Excluded nodes: {', '.join([getattr(e, 'name', e) for e in c_exclude])}):"
             else:
                 log_msg = ''
@@ -634,7 +634,7 @@ class RouteManager(Worker):
         if routes:
             iterator = routes.items()
         else:
-            iterator = [(r.destination, r) for r in self.session.query(Route).all()]
+            iterator = [(r.destination, r) for r in self.session.execute(select(Route)).scalars().all()]
         msg = []
         debug_msg = []
         for d, r in iterator:

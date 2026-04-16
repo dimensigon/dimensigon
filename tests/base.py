@@ -66,7 +66,7 @@ class TestBase:
     def remove_db():
         db.session.remove()
         db.drop_all()
-        engine = db.get_engine()
+        engine = db.engine
         if engine.url.drivername == 'sqlite':
             try:
                 os.remove(engine.url.database)
@@ -77,7 +77,7 @@ class TestBase:
         pass
 
     def generate_auth(self):
-        u = User.query.get(ROOT)
+        u = db.session.get(User, ROOT)
         if u:
             self.auth = HTTPBearerAuth(create_access_token(u.id))
 

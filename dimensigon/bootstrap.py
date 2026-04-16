@@ -281,8 +281,9 @@ def _setup_flask_config(run_config: RuntimeConfig, dm: Dimensigon):
 
     dm.config.flask_conf = flask_config
 
-    result = dm.engine.execute(Dimension.__table__.select().where(Dimension.current == True))
-    result = result.fetchall()
+    with dm.engine.connect() as conn:
+        result = conn.execute(Dimension.__table__.select().where(Dimension.current == True))
+        result = result.fetchall()
     if len(result) == 1:
         dm.config.flask_conf.SECRET_KEY = result[0][0]
     elif len(result) > 1:

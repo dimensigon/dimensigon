@@ -305,6 +305,121 @@
         ::-webkit-scrollbar-thumb:hover {
             background: var(--purple-neon);
         }
+
+        /* AI Chat Sidebar */
+        #ai-chat-sidebar {
+            position: fixed;
+            top: 0;
+            right: -380px;
+            width: 380px;
+            height: 100vh;
+            background: linear-gradient(180deg, var(--purple-darker) 0%, var(--bg-dark) 100%);
+            border-left: 2px solid var(--purple-neon);
+            box-shadow: -4px 0 30px rgba(176, 132, 255, 0.2);
+            z-index: 1050;
+            transition: right 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #ai-chat-sidebar.open {
+            right: 0;
+        }
+
+        #ai-chat-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-neon);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        #ai-chat-header h6 {
+            margin: 0;
+            color: var(--purple-light);
+            font-weight: 700;
+        }
+
+        #ai-chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .ai-msg {
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            max-width: 90%;
+            word-wrap: break-word;
+        }
+
+        .ai-msg.user {
+            background: linear-gradient(135deg, var(--purple-deep), var(--purple-neon));
+            color: #fff;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+        .ai-msg.assistant {
+            background: rgba(10, 1, 24, 0.7);
+            border: 1px solid var(--border-neon);
+            color: var(--text-primary);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+
+        .ai-msg.assistant .ai-suggestion {
+            margin-top: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: rgba(176, 132, 255, 0.08);
+            border-left: 3px solid var(--purple-neon);
+            font-size: 0.8rem;
+        }
+
+        .ai-msg.assistant .ai-suggestion.severity-critical {
+            border-left-color: #ef4444;
+        }
+
+        .ai-msg.assistant .ai-suggestion.severity-warning {
+            border-left-color: #f59e0b;
+        }
+
+        .ai-msg.assistant .ai-suggestion.severity-info {
+            border-left-color: var(--cyan-neon);
+        }
+
+        #ai-chat-input-area {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border-neon);
+            flex-shrink: 0;
+        }
+
+        #ai-chat-input-area select {
+            font-size: 0.8rem;
+            padding: 4px 8px;
+        }
+
+        #ai-chat-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 1040;
+        }
+
+        #ai-chat-overlay.open {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -315,8 +430,11 @@
                 <i class="bi bi-diagram-3-fill"></i>
                 <strong>DM-WebManager</strong> - Dimensigon Administration
             </a>
-            <div class="d-flex">
+            <div class="d-flex align-items-center">
                 <span class="navbar-text text-white me-3" id="currentUser"></span>
+                <button onclick="toggleAiChat()" class="btn btn-sm btn-outline-info me-2" title="AI Assistant">
+                    <i class="bi bi-robot"></i> AI
+                </button>
                 <button class="btn btn-outline-light btn-sm" onclick="logout()">
                     <i class="bi bi-box-arrow-right"></i> Logout
                 </button>
@@ -343,6 +461,21 @@
                 <a href="#" onclick="showView('dictionary')" id="nav-dictionary">
                     <i class="bi bi-book"></i> Data Dictionary
                 </a>
+                <a href="#" onclick="showView('builder')" id="nav-builder">
+                    <i class="bi bi-tools"></i> Orch Builder
+                </a>
+                <a href="#" onclick="showView('templates')" id="nav-templates">
+                    <i class="bi bi-collection"></i> Templates
+                </a>
+                <a href="#" onclick="showView('topology')" id="nav-topology">
+                    <i class="bi bi-diagram-2"></i> Topology
+                </a>
+                <a href="#" onclick="showView('terminal')" id="nav-terminal">
+                    <i class="bi bi-terminal"></i> Terminal
+                </a>
+                <a href="#" onclick="showView('federation')" id="nav-federation">
+                    <i class="bi bi-globe"></i> Federation
+                </a>
                 <hr style="border-color: #34495e;">
                 <a href="#" onclick="refreshCurrentView()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -354,6 +487,50 @@
                 <!-- Dashboard View -->
                 <div id="view-dashboard" class="view-content">
                     <h2 class="mb-4"><i class="bi bi-speedometer2"></i> Dashboard</h2>
+
+                    <!-- Natural Language Orchestration Runner -->
+                    <div class="stat-card mb-3" id="nl-runner-card">
+                        <h6 class="mb-2"><i class="bi bi-chat-dots"></i> Natural Language Runner</h6>
+                        <div class="d-flex gap-2">
+                            <input type="text" id="nl-input" class="form-control"
+                                   placeholder="Describe what you want to run... e.g. 'Run health check on all web servers'"
+                                   onkeydown="if(event.key==='Enter')resolveNLCommand()">
+                            <button onclick="resolveNLCommand()" class="btn btn-outline-info" id="nl-resolve-btn">
+                                <i class="bi bi-lightning"></i> Resolve
+                            </button>
+                        </div>
+                        <div id="nl-result" class="mt-3" style="display:none;"></div>
+                    </div>
+
+                    <!-- NL Confirmation Dialog -->
+                    <div id="nl-confirm-dialog" class="stat-card mb-3" style="display:none; border-color: var(--cyan-neon);">
+                        <h6><i class="bi bi-check-circle"></i> Confirm Execution</h6>
+                        <div class="row mt-2">
+                            <div class="col-md-4">
+                                <strong style="color: var(--purple-light);">Orchestration:</strong>
+                                <div id="nl-confirm-orch" class="mt-1"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <strong style="color: var(--purple-light);">Targets:</strong>
+                                <div id="nl-confirm-targets" class="mt-1"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <strong style="color: var(--purple-light);">Parameters:</strong>
+                                <div id="nl-confirm-params" class="mt-1"></div>
+                            </div>
+                        </div>
+                        <div id="nl-alternatives" class="mt-2" style="display:none;">
+                            <small style="color: var(--text-secondary);">Alternatives:</small>
+                            <div id="nl-alternatives-list"></div>
+                        </div>
+                        <div class="mt-3 d-flex gap-2">
+                            <button onclick="confirmAndRun()" class="btn btn-primary" id="nl-confirm-btn">
+                                <i class="bi bi-play-fill"></i> Confirm &amp; Run
+                            </button>
+                            <button onclick="dismissNLDialog()" class="btn btn-outline-light btn-sm">Cancel</button>
+                        </div>
+                        <div id="nl-exec-result" class="mt-2" style="display:none;"></div>
+                    </div>
 
                     <div class="row" id="statsContainer">
                         <div class="col-md-3">
@@ -396,6 +573,36 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Dashboard Widgets -->
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="stat-card">
+                                <h5><i class="bi bi-graph-up"></i> Success Rate Trend (7 days)</h5>
+                                <div id="widgetSuccessRate" class="mt-3" style="min-height: 160px;">
+                                    <p class="text-secondary">Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="stat-card">
+                                <h5><i class="bi bi-x-octagon"></i> Top Failing Orchestrations</h5>
+                                <div id="widgetTopFailures" class="mt-3" style="min-height: 160px;">
+                                    <p class="text-secondary">Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="stat-card">
+                                <h5><i class="bi bi-activity"></i> Recent Activity Feed</h5>
+                                <div id="widgetRecentActivity" class="mt-3" style="max-height: 340px; overflow-y: auto;">
+                                    <p class="text-secondary">Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Orchestrations View -->
@@ -433,7 +640,7 @@
                     <h2 class="mb-4"><i class="bi bi-play-circle"></i> Executions</h2>
                     <div class="stat-card">
                         <div class="row mb-3">
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <select class="form-select" id="filter-status">
                                     <option value="">All Status</option>
                                     <option value="running">Running</option>
@@ -441,15 +648,345 @@
                                     <option value="failed">Failed</option>
                                 </select>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <input type="text" class="form-control" id="search-executions"
                                        placeholder="Search executions...">
+                            </div>
+                            <div class="col-md-4 text-end">
+                                <button class="btn btn-sm btn-primary" id="btn-compare-exec" onclick="compareExecutions()" disabled>
+                                    <i class="bi bi-arrow-left-right"></i> Compare Selected (<span id="compare-count">0</span>/2)
+                                </button>
                             </div>
                         </div>
                         <div class="loading" id="loading-executions">
                             <div class="spinner-border text-primary" role="status"></div>
                         </div>
                         <div id="executionsTable"></div>
+                    </div>
+                    <!-- Duration Trend Chart -->
+                    <div class="stat-card mt-3" id="exec-trend-card" style="display: none;">
+                        <h5><i class="bi bi-graph-up"></i> Duration Trend (last 20 runs)</h5>
+                        <div id="exec-trend-chart" style="min-height: 140px; margin-top: 10px;"></div>
+                    </div>
+                </div>
+
+                <!-- Execution Comparison View -->
+                <div id="view-exec-compare" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-arrow-left-right"></i> Execution Comparison</h2>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="showView('executions')">
+                            <i class="bi bi-arrow-left"></i> Back to Executions
+                        </button>
+                    </div>
+                    <div id="compare-content"></div>
+                </div>
+
+                <!-- Execution Detail View (Real-time DAG) -->
+                <div id="view-execution-detail" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-diagram-3"></i> Execution Monitor</h2>
+                        <div>
+                            <button class="btn btn-sm btn-outline-warning me-2" id="btn-cancel-exec" onclick="cancelExecution()" style="display:none;">
+                                <i class="bi bi-stop-circle"></i> Cancel
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="showView('executions')">
+                                <i class="bi bi-arrow-left"></i> Back
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Execution summary -->
+                    <div class="stat-card mb-3" id="exec-detail-summary"></div>
+
+                    <!-- Timer -->
+                    <div class="stat-card mb-3">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-secondary">Elapsed Time</span>
+                            <span id="exec-elapsed" class="font-monospace" style="color: var(--cyan-neon);">00:00:00</span>
+                        </div>
+                    </div>
+
+                    <!-- Step DAG -->
+                    <div class="stat-card mb-3">
+                        <h5 class="mb-3">Step Progress</h5>
+                        <div id="step-dag" style="min-height: 100px;"></div>
+                    </div>
+
+                    <!-- Live output -->
+                    <div class="stat-card">
+                        <h5 class="mb-3">Step Output</h5>
+                        <div id="step-output-tabs"></div>
+                        <pre id="step-output" class="p-3 rounded" style="background: var(--bg-darker); color: var(--text-primary); max-height: 400px; overflow-y: auto; font-size: 0.85rem; border: 1px solid var(--border-neon);">Select a step to view output...</pre>
+                        <div class="mt-2 text-end">
+                            <button id="btn-troubleshoot" class="btn btn-sm btn-outline-warning" onclick="troubleshootStep()" style="display: none;">
+                                <i class="bi bi-lightbulb"></i> Troubleshoot
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- AI Troubleshoot Panel -->
+                    <div id="troubleshoot-panel" class="stat-card mt-3" style="display: none; border-color: rgba(245, 158, 11, 0.5);">
+                        <h5 class="mb-3" style="color: #fbbf24;"><i class="bi bi-lightbulb-fill"></i> AI Troubleshooting Analysis</h5>
+                        <div id="troubleshoot-loading" style="display: none;">
+                            <div class="text-center py-3">
+                                <div class="spinner-border text-warning spinner-border-sm" role="status"></div>
+                                <span class="ms-2 text-secondary">Analyzing failure...</span>
+                            </div>
+                        </div>
+                        <div id="troubleshoot-result" style="display: none;">
+                            <div class="mb-3">
+                                <span class="text-secondary text-uppercase" style="font-size: 0.7rem; letter-spacing: 1px;">Root Cause</span>
+                                <span id="troubleshoot-confidence" class="badge ms-2" style="font-size: 0.65rem;"></span>
+                                <div id="troubleshoot-root-cause" class="mt-1" style="color: var(--text-primary);"></div>
+                            </div>
+                            <div class="mb-3">
+                                <span class="text-secondary text-uppercase" style="font-size: 0.7rem; letter-spacing: 1px;">Suggestion</span>
+                                <div id="troubleshoot-suggestion" class="mt-1" style="color: var(--text-primary);"></div>
+                            </div>
+                            <div id="troubleshoot-fix-section" style="display: none;">
+                                <span class="text-secondary text-uppercase" style="font-size: 0.7rem; letter-spacing: 1px;">Suggested Fix</span>
+                                <pre id="troubleshoot-fix-command" class="p-2 mt-1 rounded" style="background: var(--bg-darker); color: var(--cyan-neon); font-size: 0.85rem; border: 1px solid rgba(0,255,255,0.3);"></pre>
+                                <button id="btn-apply-fix" class="btn btn-sm btn-outline-success mt-1" onclick="applyTroubleshootFix()">
+                                    <i class="bi bi-check-lg"></i> Apply Fix
+                                </button>
+                            </div>
+                        </div>
+                        <div id="troubleshoot-error" class="text-danger" style="display: none;"></div>
+                    </div>
+                </div>
+
+                <!-- Orchestration Builder View -->
+                <div id="view-builder" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-tools"></i> Orchestration Builder</h2>
+                        <div>
+                            <button class="btn btn-sm btn-outline-info me-2" onclick="importOrchestration()">
+                                <i class="bi bi-upload"></i> Import
+                            </button>
+                            <button class="btn btn-sm btn-outline-warning me-2" onclick="validateDag()">
+                                <i class="bi bi-check-circle"></i> Validate
+                            </button>
+                            <button class="btn btn-sm btn-outline-success" onclick="saveOrchestration()">
+                                <i class="bi bi-save"></i> Save
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Orchestration metadata -->
+                    <div class="stat-card mb-3">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" id="builder-name" placeholder="Orchestration name">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Description</label>
+                                <input type="text" class="form-control" id="builder-desc" placeholder="Description">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Options</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="builder-stop-on-error" checked>
+                                    <label class="form-check-label" for="builder-stop-on-error">Stop on error</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Node Palette -->
+                        <div class="col-md-3">
+                            <div class="stat-card" style="min-height: 400px;">
+                                <h6 class="mb-3">Action Templates</h6>
+                                <div id="builder-palette" style="max-height: 350px; overflow-y: auto;">
+                                    <p class="text-secondary">Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Canvas -->
+                        <div class="col-md-9">
+                            <div class="stat-card" style="min-height: 400px; position: relative;">
+                                <div id="builder-canvas" style="min-height: 380px; border: 1px dashed var(--border-neon); border-radius: 8px; padding: 15px; position: relative; overflow: auto;">
+                                    <p class="text-secondary text-center mt-5" id="builder-empty">Click an action template to add a step</p>
+                                    <div id="builder-nodes" class="d-flex flex-wrap gap-3"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Node Editor Panel -->
+                    <div class="stat-card mt-3" id="builder-editor" style="display: none;">
+                        <h6 class="mb-3">Step Configuration</h6>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label class="form-label">Target Servers</label>
+                                <input type="text" class="form-control" id="editor-target" placeholder="server1, server2">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Parent Steps (comma-sep IDs)</label>
+                                <input type="text" class="form-control" id="editor-parents" placeholder="">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Child Steps (comma-sep IDs)</label>
+                                <input type="text" class="form-control" id="editor-children" placeholder="">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Undo Step</label>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="editor-undo">
+                                    <label class="form-check-label" for="editor-undo">Is undo</label>
+                                </div>
+                            </div>
+                            <div class="col-md-1 d-flex align-items-end">
+                                <button class="btn btn-sm btn-outline-danger" onclick="removeSelectedStep()">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Validation messages -->
+                    <div id="builder-messages" class="mt-3"></div>
+                </div>
+
+                <!-- Templates / Marketplace View -->
+                <div id="view-templates" class="view-content" style="display: none;">
+                    <h2 class="mb-4"><i class="bi bi-collection"></i> Orchestration Templates</h2>
+                    <div class="stat-card mb-3">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-5">
+                                <input type="text" class="form-control" id="template-search"
+                                       placeholder="Search templates..." oninput="loadTemplates()">
+                            </div>
+                            <div class="col-md-3">
+                                <select class="form-select" id="template-category" onchange="loadTemplates()">
+                                    <option value="">All Categories</option>
+                                    <option value="deployment">Deployment</option>
+                                    <option value="monitoring">Monitoring</option>
+                                    <option value="maintenance">Maintenance</option>
+                                    <option value="security">Security</option>
+                                    <option value="networking">Networking</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-primary w-100" onclick="loadTemplates()">
+                                    <i class="bi bi-search"></i> Search
+                                </button>
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-outline-success w-100" onclick="showShareTemplateForm()">
+                                    <i class="bi bi-plus-circle"></i> Share
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="loading" id="loading-templates">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+                    <div id="templatesGrid" class="row"></div>
+                    <div id="templatesPagination" class="mt-3"></div>
+
+                    <!-- Share Template Modal -->
+                    <div id="shareTemplateForm" class="stat-card mt-3" style="display: none;">
+                        <h5 class="mb-3"><i class="bi bi-share"></i> Share a Template</h5>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" id="share-tpl-name" placeholder="Template name">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Category</label>
+                                <select class="form-select" id="share-tpl-category">
+                                    <option value="deployment">Deployment</option>
+                                    <option value="monitoring">Monitoring</option>
+                                    <option value="maintenance">Maintenance</option>
+                                    <option value="security">Security</option>
+                                    <option value="networking">Networking</option>
+                                    <option value="custom" selected>Custom</option>
+                                </select>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label">Tags (comma-separated)</label>
+                                <input type="text" class="form-control" id="share-tpl-tags" placeholder="deploy, docker, nginx">
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Description</label>
+                                <input type="text" class="form-control" id="share-tpl-desc" placeholder="Brief description">
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">JSON Content</label>
+                                <textarea class="form-control" id="share-tpl-json" rows="5" placeholder='{"name": "...", "steps": [...]}'></textarea>
+                            </div>
+                            <div class="col-md-12 mt-2">
+                                <button class="btn btn-primary" onclick="submitShareTemplate()">
+                                    <i class="bi bi-cloud-upload"></i> Publish Template
+                                </button>
+                                <button class="btn btn-outline-secondary ms-2" onclick="document.getElementById('shareTemplateForm').style.display='none'">Cancel</button>
+                            </div>
+                        </div>
+                        <div id="share-tpl-msg" class="mt-2"></div>
+                    </div>
+                </div>
+
+                <!-- Topology View -->
+                <div id="view-topology" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-diagram-2"></i> Server Topology</h2>
+                        <div class="d-flex align-items-center gap-3">
+                            <input type="text" class="form-control form-control-sm" id="topology-search" placeholder="Search nodes..." style="width: 200px;" oninput="filterTopologyNodes()">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="topology-auto-refresh">
+                                <label class="form-check-label text-secondary" for="topology-auto-refresh">Auto-refresh</label>
+                            </div>
+                            <button class="btn btn-sm btn-outline-info" onclick="loadTopology()">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="topology-graph" style="min-height: 500px; position: relative; overflow: auto;">
+                            <div class="loading" id="loading-topology">
+                                <div class="spinner-border text-primary" role="status"></div>
+                                <p class="text-secondary mt-2">Loading topology...</p>
+                            </div>
+                            <div id="topology-nodes" style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; padding: 20px;"></div>
+                        </div>
+                    </div>
+                    <div class="stat-card mt-3" id="topology-detail" style="display: none;">
+                        <h6 class="mb-3"><i class="bi bi-info-circle"></i> Node Details</h6>
+                        <div id="topology-detail-content"></div>
+                    </div>
+                </div>
+
+                <!-- Terminal View -->
+                <div id="view-terminal" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-terminal"></i> DShell Terminal</h2>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-warning" onclick="clearTerminal()">
+                                <i class="bi bi-trash"></i> Clear
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="closeTerminalSession()">
+                                <i class="bi bi-x-circle"></i> Close Session
+                            </button>
+                        </div>
+                    </div>
+                    <div id="terminal-container" style="background: #0d1117; border: 1px solid #30363d; border-radius: 8px; font-family: 'Courier New', Courier, monospace; padding: 0; overflow: hidden;">
+                        <div style="background: #161b22; padding: 8px 16px; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 8px;">
+                            <span style="width: 12px; height: 12px; border-radius: 50%; background: #f85149;"></span>
+                            <span style="width: 12px; height: 12px; border-radius: 50%; background: #d29922;"></span>
+                            <span style="width: 12px; height: 12px; border-radius: 50%; background: #3fb950;"></span>
+                            <span style="color: #8b949e; margin-left: 8px; font-size: 0.85rem;" id="terminal-title">DShell Web Mode</span>
+                        </div>
+                        <div id="terminal-output" style="padding: 16px; min-height: 400px; max-height: 500px; overflow-y: auto; color: #3fb950; font-size: 0.9rem; line-height: 1.6;"></div>
+                        <div style="border-top: 1px solid #30363d; padding: 8px 16px; display: flex; align-items: center; gap: 8px; background: #161b22;">
+                            <span style="color: #3fb950; font-weight: bold;">$</span>
+                            <input type="text" id="terminal-input" placeholder="Type a command..." autocomplete="off"
+                                style="flex: 1; background: transparent; border: none; outline: none; color: #c9d1d9; font-family: 'Courier New', Courier, monospace; font-size: 0.9rem;"
+                                onkeydown="handleTerminalKeydown(event)">
+                        </div>
                     </div>
                 </div>
 
@@ -464,6 +1001,94 @@
                         <div id="dictionaryContent"></div>
                     </div>
                 </div>
+
+                <!-- Federation View -->
+                <div id="view-federation" class="view-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="bi bi-globe"></i> Federation</h2>
+                        <button class="btn btn-sm btn-outline-info" onclick="loadFederation()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+
+                    <!-- Add Peer Form -->
+                    <div class="stat-card mb-4">
+                        <h5 class="mb-3">Add Peer</h5>
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-4">
+                                <label class="form-label text-secondary">Name</label>
+                                <input type="text" class="form-control" id="peer-name" placeholder="Peer name">
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label text-secondary">Endpoint URL</label>
+                                <input type="text" class="form-control" id="peer-endpoint" placeholder="https://peer.example.com/api">
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-primary w-100" onclick="addPeer()">
+                                    <i class="bi bi-plus-circle"></i> Initiate Peering
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Peers Table -->
+                    <div class="stat-card">
+                        <div class="loading" id="loading-federation">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="text-secondary mt-2">Loading peers...</p>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="federation-table" style="display: none;">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Endpoint</th>
+                                        <th>Status</th>
+                                        <th>Last Seen</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="federation-tbody"></tbody>
+                            </table>
+                        </div>
+                        <p class="text-secondary" id="federation-empty" style="display: none;">No federation peers configured.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Chat Overlay -->
+    <div id="ai-chat-overlay" onclick="toggleAiChat()"></div>
+
+    <!-- AI Chat Sidebar -->
+    <div id="ai-chat-sidebar">
+        <div id="ai-chat-header">
+            <h6><i class="bi bi-robot"></i> AI Assistant</h6>
+            <button class="btn btn-sm btn-outline-secondary" onclick="toggleAiChat()" title="Close">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div id="ai-chat-messages">
+            <div class="ai-msg assistant">
+                Welcome! I can help you review or modify orchestrations. Select a mode below and describe what you need.
+            </div>
+        </div>
+        <div id="ai-chat-input-area">
+            <div class="d-flex gap-2 mb-2">
+                <select class="form-select form-select-sm" id="ai-chat-mode" style="max-width: 130px;">
+                    <option value="review">Review</option>
+                    <option value="modify">Modify</option>
+                </select>
+                <small class="text-secondary align-self-center" id="ai-rate-info" style="font-size:0.7rem;"></small>
+            </div>
+            <div class="d-flex gap-2">
+                <input type="text" class="form-control form-control-sm" id="ai-chat-input"
+                       placeholder="Ask about orchestrations..." onkeydown="if(event.key==='Enter') sendAiMessage()">
+                <button class="btn btn-sm btn-primary" onclick="sendAiMessage()" id="ai-send-btn">
+                    <i class="bi bi-send"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -472,28 +1097,40 @@
     <script>
         // API Configuration
         const API_BASE = window.location.origin;
-        let authToken = localStorage.getItem('dm_token');
         let currentView = 'dashboard';
 
-        // API Helper
+        // Auto-refresh token every 7 hours (token expires in 8h)
+        const TOKEN_REFRESH_INTERVAL = 7 * 60 * 60 * 1000;
+        setInterval(async () => {
+            try {
+                const resp = await fetch('/dm-webmanager/refresh', {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
+                if (!resp.ok) {
+                    window.location.href = '/dm-webmanager/login';
+                }
+            } catch (e) {
+                console.warn('Token refresh failed:', e);
+            }
+        }, TOKEN_REFRESH_INTERVAL);
+
+        // API Helper (uses httpOnly cookies automatically)
         async function apiCall(endpoint, options = {}) {
             const headers = {
                 'Content-Type': 'application/json',
                 ...options.headers
             };
 
-            if (authToken) {
-                headers['Authorization'] = `Bearer ${authToken}`;
-            }
-
             const response = await fetch(`${API_BASE}${endpoint}`, {
                 ...options,
-                headers
+                headers,
+                credentials: 'same-origin'
             });
 
             if (response.status === 401) {
                 // Token expired, redirect to login
-                window.location.href = '/login';
+                window.location.href = '/dm-webmanager/login';
                 return null;
             }
 
@@ -513,8 +1150,10 @@
             });
 
             // Show selected view
-            document.getElementById(`view-${viewName}`).style.display = 'block';
-            document.getElementById(`nav-${viewName}`).classList.add('active');
+            const viewEl = document.getElementById(`view-${viewName}`);
+            if (viewEl) viewEl.style.display = 'block';
+            const navEl = document.getElementById(`nav-${viewName}`);
+            if (navEl) navEl.classList.add('active');
             currentView = viewName;
 
             // Load data for the view
@@ -537,6 +1176,21 @@
                     break;
                 case 'dictionary':
                     loadDataDictionary();
+                    break;
+                case 'builder':
+                    loadBuilderPalette();
+                    break;
+                case 'templates':
+                    loadTemplates();
+                    break;
+                case 'topology':
+                    loadTopology();
+                    break;
+                case 'terminal':
+                    initTerminal();
+                    break;
+                case 'federation':
+                    loadFederation();
                     break;
             }
         }
@@ -581,6 +1235,87 @@
             });
             failuresHtml += '</ul>';
             document.getElementById('recentFailures').innerHTML = failuresHtml;
+
+            // Load dashboard widgets
+            loadWidgets();
+        }
+
+        // Dashboard Widgets
+        async function loadWidgets() {
+            // Success Rate Trend
+            try {
+                const sr = await apiCall('/dm-webmanager/api/widgets/success-rate');
+                if (sr && sr.days) {
+                    let html = '<div style="display:flex;align-items:flex-end;gap:6px;height:120px;">';
+                    sr.days.forEach(day => {
+                        const barH = Math.max(day.rate * 1.1, 4);
+                        const color = day.rate >= 80 ? '#10b981' : day.rate >= 50 ? '#f59e0b' : '#ef4444';
+                        html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;">
+                            <span style="font-size:0.65rem;color:var(--text-secondary);margin-bottom:2px;">${day.rate}%</span>
+                            <div style="width:100%;max-width:48px;height:${barH}px;background:${color};border-radius:4px 4px 0 0;transition:height 0.3s;" title="${day.date}: ${day.success}/${day.total}"></div>
+                            <span style="font-size:0.6rem;color:var(--text-secondary);margin-top:4px;">${day.date.slice(5)}</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    document.getElementById('widgetSuccessRate').innerHTML = html;
+                }
+            } catch(e) {
+                document.getElementById('widgetSuccessRate').innerHTML = '<p class="text-secondary">No data available</p>';
+            }
+
+            // Top Failures
+            try {
+                const tf = await apiCall('/dm-webmanager/api/widgets/top-failures');
+                if (tf && tf.failures && tf.failures.length) {
+                    const maxCount = tf.failures[0].count || 1;
+                    let html = '';
+                    tf.failures.forEach(f => {
+                        const pct = Math.round((f.count / maxCount) * 100);
+                        html += `<div style="margin-bottom:10px;">
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:2px;">
+                                <span>${f.name}</span><span style="color:var(--text-secondary);">${f.count} failures</span>
+                            </div>
+                            <div style="background:rgba(239,68,68,0.15);border-radius:4px;height:18px;overflow:hidden;">
+                                <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#ef4444,#f87171);border-radius:4px;transition:width 0.3s;"></div>
+                            </div>
+                        </div>`;
+                    });
+                    document.getElementById('widgetTopFailures').innerHTML = html;
+                } else {
+                    document.getElementById('widgetTopFailures').innerHTML = '<p class="text-secondary">No failures recorded</p>';
+                }
+            } catch(e) {
+                document.getElementById('widgetTopFailures').innerHTML = '<p class="text-secondary">No data available</p>';
+            }
+
+            // Recent Activity Feed
+            try {
+                const ra = await apiCall('/dm-webmanager/api/widgets/recent-activity');
+                if (ra && ra.events && ra.events.length) {
+                    let html = '<div class="list-group">';
+                    ra.events.forEach(ev => {
+                        let badgeClass = 'bg-secondary';
+                        if (ev.status === 'success') badgeClass = 'badge-success';
+                        else if (ev.status === 'failed') badgeClass = 'badge-danger';
+                        else if (ev.status === 'running') badgeClass = 'badge-warning';
+                        const timeStr = ev.start_time ? new Date(ev.start_time).toLocaleString() : '';
+                        html += `<div class="list-group-item d-flex justify-content-between align-items-center" style="background:rgba(10,1,24,0.4);border-color:rgba(176,132,255,0.2);color:var(--text-primary);">
+                            <div>
+                                <strong>${ev.orchestration_name}</strong>
+                                ${ev.server_name ? '<small class="text-secondary ms-2">@ ' + ev.server_name + '</small>' : ''}
+                                <br><small class="text-secondary">${timeStr}</small>
+                            </div>
+                            <span class="badge ${badgeClass}" style="font-size:0.7rem;">${ev.status}</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    document.getElementById('widgetRecentActivity').innerHTML = html;
+                } else {
+                    document.getElementById('widgetRecentActivity').innerHTML = '<p class="text-secondary">No recent activity</p>';
+                }
+            } catch(e) {
+                document.getElementById('widgetRecentActivity').innerHTML = '<p class="text-secondary">No data available</p>';
+            }
         }
 
         // Orchestrations
@@ -643,7 +1378,39 @@
         }
 
         // Executions
+        let compareSelected = new Set();
+
+        function toggleCompareCheckbox(execId, orchId) {
+            if (compareSelected.has(execId)) {
+                compareSelected.delete(execId);
+            } else {
+                if (compareSelected.size >= 2) {
+                    // Remove the oldest selection
+                    const first = compareSelected.values().next().value;
+                    compareSelected.delete(first);
+                    const oldCb = document.getElementById('cmp-' + first);
+                    if (oldCb) oldCb.checked = false;
+                }
+                compareSelected.add(execId);
+            }
+            const count = compareSelected.size;
+            document.getElementById('compare-count').textContent = count;
+            document.getElementById('btn-compare-exec').disabled = (count < 2);
+
+            // Show trend chart when at least one is selected
+            if (count >= 1 && orchId) {
+                loadDurationTrend(orchId);
+            } else {
+                document.getElementById('exec-trend-card').style.display = 'none';
+            }
+        }
+
         async function loadExecutions() {
+            compareSelected.clear();
+            document.getElementById('compare-count').textContent = '0';
+            document.getElementById('btn-compare-exec').disabled = true;
+            document.getElementById('exec-trend-card').style.display = 'none';
+
             document.getElementById('loading-executions').classList.add('show');
             const status = document.getElementById('filter-status').value;
             const url = status ? `/api/v2/executions?status=${status}` : '/api/v2/executions';
@@ -653,21 +1420,27 @@
             if (!data) return;
 
             let html = '<table class="table table-hover"><thead><tr>';
-            html += '<th>Orchestration</th><th>Start Time</th><th>Duration</th><th>Status</th><th>Server</th>';
+            html += '<th style="width:40px;"></th><th>Orchestration</th><th>Start Time</th><th>Duration</th><th>Status</th><th>Server</th><th></th>';
             html += '</tr></thead><tbody>';
 
             (data.executions || []).forEach(exec => {
                 const statusBadge = exec.status === 'success' ? 'bg-success' :
                                   exec.status === 'failed' ? 'bg-danger' : 'bg-warning';
                 const duration = exec.duration ? `${exec.duration.toFixed(2)}s` : 'Running...';
+                const orchId = exec.orchestration?.id || '';
 
                 html += `
                     <tr>
-                        <td>${exec.orchestration?.name || 'Unknown'} v${exec.orchestration?.version || '?'}</td>
-                        <td>${new Date(exec.start_time).toLocaleString()}</td>
-                        <td>${duration}</td>
-                        <td><span class="badge ${statusBadge}">${exec.status}</span></td>
-                        <td>${exec.server?.name || '-'}</td>
+                        <td onclick="event.stopPropagation()">
+                            <input type="checkbox" class="form-check-input" id="cmp-${exec.id}"
+                                   onchange="toggleCompareCheckbox('${exec.id}', '${orchId}')">
+                        </td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">${exec.orchestration?.name || 'Unknown'} v${exec.orchestration?.version || '?'}</td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">${new Date(exec.start_time).toLocaleString()}</td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">${duration}</td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')"><span class="badge ${statusBadge}">${exec.status}</span></td>
+                        <td style="cursor:pointer" onclick="openExecutionMonitor('${exec.id}')">${exec.server?.name || '-'}</td>
+                        <td><button class="btn btn-sm btn-outline-info" onclick="openExecutionMonitor('${exec.id}')"><i class="bi bi-eye"></i></button></td>
                     </tr>
                 `;
             });
@@ -722,9 +1495,1428 @@
             }, 30000);
         });
 
-        function logout() {
-            localStorage.removeItem('dm_token');
-            window.location.href = '/login';
+        // --- Orchestration Builder ---
+        let builderSteps = [];  // [{tempId, actionTemplateId, actionName, target, parents, children, undo}]
+        let selectedStepIdx = -1;
+        let nextTempId = 1;
+
+        async function loadBuilderPalette() {
+            const data = await apiCall('/dm-webmanager/api/builder/action-templates');
+            if (!data) return;
+
+            let html = '';
+            const templates = Array.isArray(data) ? data : (data.action_templates || []);
+            templates.forEach(at => {
+                html += `
+                    <div class="p-2 mb-2 rounded" style="border: 1px solid var(--border-neon); cursor: pointer; transition: all 0.2s;"
+                         onclick="addStepFromTemplate('${at.id}', '${at.name}')"
+                         onmouseover="this.style.borderColor='var(--cyan-neon)'"
+                         onmouseout="this.style.borderColor='var(--border-neon)'">
+                        <div style="font-size: 0.85rem; color: var(--purple-light);">${at.name}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">${at.action_type || 'shell'} v${at.version || 1}</div>
+                    </div>
+                `;
+            });
+            document.getElementById('builder-palette').innerHTML = html || '<p class="text-secondary">No templates found</p>';
+        }
+
+        function addStepFromTemplate(atId, atName) {
+            const tempId = `step-${nextTempId++}`;
+            builderSteps.push({
+                tempId, actionTemplateId: atId, actionName: atName,
+                target: [], parents: [], children: [], undo: false
+            });
+            document.getElementById('builder-empty').style.display = 'none';
+            renderBuilderNodes();
+        }
+
+        function renderBuilderNodes() {
+            const container = document.getElementById('builder-nodes');
+            let html = '';
+            builderSteps.forEach((step, idx) => {
+                const selected = idx === selectedStepIdx;
+                const borderColor = selected ? 'var(--cyan-neon)' : 'var(--border-neon)';
+                const bg = selected ? 'rgba(0,255,255,0.08)' : 'rgba(45,21,82,0.4)';
+                const deps = step.parents.length > 0 ? `← ${step.parents.join(', ')}` : '';
+                html += `
+                    <div class="p-3 rounded text-center" style="border: 2px solid ${borderColor}; background: ${bg}; min-width: 160px; cursor: pointer;"
+                         onclick="selectBuilderStep(${idx})">
+                        <div style="font-size: 0.7rem; color: var(--cyan-neon);">${step.tempId}</div>
+                        <div style="font-size: 0.85rem; color: var(--purple-light); font-weight: 600;">${step.actionName}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">${step.target.join(', ') || 'no target'}</div>
+                        ${deps ? `<div style="font-size: 0.65rem; color: var(--text-secondary);">${deps}</div>` : ''}
+                        ${step.undo ? '<span class="badge bg-warning" style="font-size:0.6rem">UNDO</span>' : ''}
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function selectBuilderStep(idx) {
+            selectedStepIdx = idx;
+            const step = builderSteps[idx];
+            document.getElementById('builder-editor').style.display = 'block';
+            document.getElementById('editor-target').value = step.target.join(', ');
+            document.getElementById('editor-parents').value = step.parents.join(', ');
+            document.getElementById('editor-children').value = step.children.join(', ');
+            document.getElementById('editor-undo').checked = step.undo;
+            renderBuilderNodes();
+
+            // Auto-save on change
+            ['editor-target', 'editor-parents', 'editor-children'].forEach(id => {
+                document.getElementById(id).onchange = () => updateSelectedStep();
+            });
+            document.getElementById('editor-undo').onchange = () => updateSelectedStep();
+        }
+
+        function updateSelectedStep() {
+            if (selectedStepIdx < 0) return;
+            const step = builderSteps[selectedStepIdx];
+            step.target = document.getElementById('editor-target').value.split(',').map(s => s.trim()).filter(Boolean);
+            step.parents = document.getElementById('editor-parents').value.split(',').map(s => s.trim()).filter(Boolean);
+            step.children = document.getElementById('editor-children').value.split(',').map(s => s.trim()).filter(Boolean);
+            step.undo = document.getElementById('editor-undo').checked;
+            renderBuilderNodes();
+        }
+
+        function removeSelectedStep() {
+            if (selectedStepIdx < 0) return;
+            const removedId = builderSteps[selectedStepIdx].tempId;
+            builderSteps.splice(selectedStepIdx, 1);
+            // Clean up references
+            builderSteps.forEach(s => {
+                s.parents = s.parents.filter(p => p !== removedId);
+                s.children = s.children.filter(c => c !== removedId);
+            });
+            selectedStepIdx = -1;
+            document.getElementById('builder-editor').style.display = 'none';
+            if (builderSteps.length === 0) document.getElementById('builder-empty').style.display = 'block';
+            renderBuilderNodes();
+        }
+
+        async function validateDag() {
+            const payload = buildOrchestrationJson();
+            const resp = await apiCall('/dm-webmanager/api/builder/validate', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            const msgDiv = document.getElementById('builder-messages');
+            if (resp?.valid) {
+                msgDiv.innerHTML = '<div class="alert" style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#86efac;">✓ DAG is valid</div>';
+            } else {
+                const errors = (resp?.errors || ['Unknown error']).map(e => `<li>${e}</li>`).join('');
+                msgDiv.innerHTML = `<div class="alert" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;">Validation errors:<ul>${errors}</ul></div>`;
+            }
+        }
+
+        async function saveOrchestration() {
+            const payload = buildOrchestrationJson();
+            if (!payload.name) { alert('Orchestration name is required'); return; }
+            const resp = await apiCall('/dm-webmanager/api/builder/save', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            const msgDiv = document.getElementById('builder-messages');
+            if (resp?.id) {
+                msgDiv.innerHTML = `<div class="alert" style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#86efac;">✓ Orchestration saved (ID: ${resp.id})</div>`;
+            } else {
+                const errors = (resp?.errors || [resp?.error || 'Save failed']).map(e => `<li>${e}</li>`).join('');
+                msgDiv.innerHTML = `<div class="alert" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;">Save failed:<ul>${errors}</ul></div>`;
+            }
+        }
+
+        async function importOrchestration() {
+            const id = prompt('Enter Orchestration ID to import:');
+            if (!id) return;
+            const data = await apiCall(`/dm-webmanager/api/builder/orchestrations/${id}`);
+            if (!data || data.error) { alert(data?.error || 'Not found'); return; }
+
+            // Populate form
+            document.getElementById('builder-name').value = data.name || '';
+            document.getElementById('builder-desc').value = data.description || '';
+            document.getElementById('builder-stop-on-error').checked = data.stop_on_error !== false;
+
+            // Import steps
+            builderSteps = [];
+            nextTempId = 1;
+            (data.steps || []).forEach(step => {
+                const tempId = `step-${nextTempId++}`;
+                builderSteps.push({
+                    tempId,
+                    actionTemplateId: step.action_template_id || '',
+                    actionName: step.action_template_name || step.action_template_id || 'Unknown',
+                    target: step.target || [],
+                    parents: (step.parent_step_ids || []).map(String),
+                    children: (step.child_step_ids || []).map(String),
+                    undo: step.undo || false,
+                    originalId: step.id,
+                });
+            });
+
+            // Remap parent/child references from original IDs to tempIds
+            const idMap = {};
+            builderSteps.forEach(s => { if (s.originalId) idMap[s.originalId] = s.tempId; });
+            builderSteps.forEach(s => {
+                s.parents = s.parents.map(p => idMap[p] || p);
+                s.children = s.children.map(c => idMap[c] || c);
+            });
+
+            document.getElementById('builder-empty').style.display = 'none';
+            renderBuilderNodes();
+        }
+
+        function buildOrchestrationJson() {
+            return {
+                name: document.getElementById('builder-name').value,
+                description: document.getElementById('builder-desc').value,
+                stop_on_error: document.getElementById('builder-stop-on-error').checked,
+                steps: builderSteps.map(s => ({
+                    id: s.tempId,
+                    action_template_id: s.actionTemplateId,
+                    target: s.target,
+                    parents: s.parents,
+                    children: s.children,
+                    undo: s.undo,
+                }))
+            };
+        }
+
+        // --- Real-time Execution Monitoring ---
+        let activeWs = null;
+        let activeExecId = null;
+        let elapsedTimer = null;
+        let execStartTime = null;
+        const stepStates = {};  // step_id -> {status, stdout, stderr, ...}
+
+        async function openExecutionMonitor(executionId) {
+            activeExecId = executionId;
+
+            // Load execution details
+            const exec = await apiCall(`/api/v2/executions/${executionId}`);
+            if (!exec) return;
+
+            // Show the detail view
+            document.querySelectorAll('.view-content').forEach(v => v.style.display = 'none');
+            document.getElementById('view-execution-detail').style.display = 'block';
+
+            // Summary
+            const status = exec.status || 'running';
+            const statusBadge = status === 'success' ? 'bg-success' : status === 'failed' ? 'bg-danger' : 'bg-warning';
+            document.getElementById('exec-detail-summary').innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h4 style="color: var(--purple-light);">${exec.orchestration?.name || 'Unknown'} v${exec.orchestration?.version || '?'}</h4>
+                        <span class="text-secondary">Server: ${exec.server?.name || '-'} | Executor: ${exec.executor?.name || '-'}</span>
+                    </div>
+                    <span class="badge ${statusBadge} fs-6">${status.toUpperCase()}</span>
+                </div>
+            `;
+
+            // Show cancel button for running executions
+            document.getElementById('btn-cancel-exec').style.display = status === 'running' ? 'inline-block' : 'none';
+
+            // Timer
+            execStartTime = new Date(exec.start_time);
+            if (status === 'running') {
+                startElapsedTimer();
+            } else {
+                const elapsed = exec.duration || 0;
+                document.getElementById('exec-elapsed').textContent = formatElapsed(elapsed);
+            }
+
+            // Load steps
+            const stepsData = await apiCall(`/api/v2/executions/${executionId}/steps`);
+            renderStepDag(stepsData?.step_executions || []);
+
+            // Connect WebSocket for live updates if running
+            if (status === 'running') {
+                connectWs(executionId);
+            }
+        }
+
+        function renderStepDag(steps) {
+            const container = document.getElementById('step-dag');
+            if (!steps.length) {
+                container.innerHTML = '<p class="text-secondary">No steps yet...</p>';
+                return;
+            }
+
+            let html = '<div class="d-flex flex-wrap gap-2">';
+            steps.forEach(step => {
+                const s = step.status || (step.end_time ? (step.success ? 'success' : 'failed') : 'running');
+                const color = s === 'success' ? '#22c55e' : s === 'failed' ? '#ef4444' : s === 'running' ? '#eab308' : '#6b7280';
+                const icon = s === 'success' ? 'check-circle-fill' : s === 'failed' ? 'x-circle-fill' : s === 'running' ? 'arrow-repeat' : 'circle';
+                const elapsed = step.total_elapsed ? `${step.total_elapsed.toFixed(1)}s` : '';
+                const stepId = step.step_id || step.id;
+
+                stepStates[stepId] = { stdout: step.stdout || '', stderr: step.stderr || '', status: s };
+
+                html += `
+                    <div class="step-node p-2 rounded text-center" style="border: 2px solid ${color}; background: rgba(${color === '#22c55e' ? '34,197,94' : color === '#ef4444' ? '239,68,68' : color === '#eab308' ? '234,179,8' : '107,114,128'},0.15); min-width: 140px; cursor: pointer;"
+                         onclick="showStepOutput('${stepId}')" id="step-node-${stepId}">
+                        <i class="bi bi-${icon}" style="color: ${color}; font-size: 1.2rem;"></i>
+                        <div class="mt-1" style="font-size: 0.8rem; color: var(--text-primary);">${step.step?.name || step.step_id || 'Step'}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">${step.server?.name || ''} ${elapsed}</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        let activeStepId = null;
+        let lastTroubleshootResult = null;
+
+        function showStepOutput(stepId) {
+            const state = stepStates[stepId];
+            if (!state) return;
+            activeStepId = stepId;
+            let output = '';
+            if (state.stdout) output += state.stdout;
+            if (state.stderr) output += '\n--- STDERR ---\n' + state.stderr;
+            document.getElementById('step-output').textContent = output || '(no output)';
+
+            // Show Troubleshoot button only for failed steps
+            const btn = document.getElementById('btn-troubleshoot');
+            if (state.status === 'failed') {
+                btn.style.display = 'inline-block';
+            } else {
+                btn.style.display = 'none';
+            }
+
+            // Hide previous troubleshoot panel when switching steps
+            document.getElementById('troubleshoot-panel').style.display = 'none';
+        }
+
+        async function troubleshootStep() {
+            if (!activeStepId) return;
+            const state = stepStates[activeStepId];
+            if (!state) return;
+
+            const panel = document.getElementById('troubleshoot-panel');
+            const loading = document.getElementById('troubleshoot-loading');
+            const resultDiv = document.getElementById('troubleshoot-result');
+            const errorDiv = document.getElementById('troubleshoot-error');
+
+            // Show panel with loading state
+            panel.style.display = 'block';
+            loading.style.display = 'block';
+            resultDiv.style.display = 'none';
+            errorDiv.style.display = 'none';
+
+            try {
+                const resp = await apiCall('/dm-webmanager/api/ai/troubleshoot', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        command: state.command || '',
+                        stdout: state.stdout || '',
+                        stderr: state.stderr || '',
+                        rc: state.rc != null ? state.rc : -1,
+                        step_name: activeStepId,
+                    }),
+                });
+
+                loading.style.display = 'none';
+
+                if (resp && resp.root_cause) {
+                    lastTroubleshootResult = resp;
+                    resultDiv.style.display = 'block';
+
+                    document.getElementById('troubleshoot-root-cause').textContent = resp.root_cause;
+                    document.getElementById('troubleshoot-suggestion').textContent = resp.suggestion;
+
+                    // Confidence badge
+                    const badge = document.getElementById('troubleshoot-confidence');
+                    badge.textContent = resp.confidence;
+                    badge.className = 'badge ms-2';
+                    if (resp.confidence === 'high') badge.classList.add('bg-success');
+                    else if (resp.confidence === 'medium') badge.classList.add('bg-warning');
+                    else badge.classList.add('bg-secondary');
+                    badge.style.fontSize = '0.65rem';
+
+                    // Show fix section if a modified command is suggested
+                    const fixSection = document.getElementById('troubleshoot-fix-section');
+                    if (resp.modified_command) {
+                        fixSection.style.display = 'block';
+                        document.getElementById('troubleshoot-fix-command').textContent = resp.modified_command;
+                    } else {
+                        fixSection.style.display = 'none';
+                    }
+                } else if (resp && resp.error) {
+                    errorDiv.textContent = resp.error;
+                    errorDiv.style.display = 'block';
+                }
+            } catch (err) {
+                loading.style.display = 'none';
+                errorDiv.textContent = 'Failed to analyze step: ' + err.message;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        async function applyTroubleshootFix() {
+            if (!lastTroubleshootResult || !lastTroubleshootResult.modified_command) return;
+
+            const stepId = activeStepId;
+            if (!stepId || !activeExecId) {
+                alert('Cannot apply fix: missing step or execution context.');
+                return;
+            }
+
+            if (!confirm('Apply the suggested command fix to this step?')) return;
+
+            try {
+                const execData = await apiCall(`/api/v2/executions/${activeExecId}`);
+                if (!execData || !execData.orchestration_id) {
+                    alert('Could not determine orchestration. Apply the fix manually.');
+                    return;
+                }
+
+                const resp = await apiCall('/dm-webmanager/api/ai/apply-fix', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        step_id: stepId,
+                        orchestration_id: execData.orchestration_id,
+                        new_command: lastTroubleshootResult.modified_command,
+                    }),
+                });
+
+                if (resp && resp.message) {
+                    const btn = document.getElementById('btn-apply-fix');
+                    btn.classList.remove('btn-outline-success');
+                    btn.classList.add('btn-success');
+                    btn.innerHTML = '<i class="bi bi-check-lg"></i> Fix Applied';
+                    btn.disabled = true;
+                } else if (resp && resp.error) {
+                    alert('Failed to apply fix: ' + resp.error);
+                }
+            } catch (err) {
+                alert('Error applying fix: ' + err.message);
+            }
+        }
+
+        function connectWs(executionId) {
+            if (activeWs) { try { activeWs.close(); } catch(e) {} }
+
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            activeWs = new WebSocket(`${proto}//${location.host}/ws/executions/${executionId}`);
+
+            activeWs.onmessage = function(event) {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'ping') return;
+
+                handleWsEvent(msg);
+            };
+
+            activeWs.onclose = function() {
+                activeWs = null;
+            };
+        }
+
+        function handleWsEvent(msg) {
+            const data = msg.data || {};
+
+            if (msg.type === 'step_started') {
+                stepStates[data.step_id] = { status: 'running', stdout: '', stderr: '' };
+                updateStepNode(data.step_id, 'running', data.step_name, data.server_name);
+            }
+            else if (msg.type === 'step_completed' || msg.type === 'step_failed') {
+                const status = data.success ? 'success' : 'failed';
+                if (stepStates[data.step_id]) {
+                    stepStates[data.step_id].status = status;
+                    stepStates[data.step_id].stdout = data.stdout || '';
+                    stepStates[data.step_id].stderr = data.stderr || '';
+                }
+                updateStepNode(data.step_id, status, '', '', data.elapsed);
+            }
+            else if (msg.type === 'orch_completed') {
+                stopElapsedTimer();
+                document.getElementById('btn-cancel-exec').style.display = 'none';
+                const badge = data.success ? 'bg-success' : 'bg-danger';
+                const label = data.success ? 'SUCCESS' : 'FAILED';
+                document.querySelector('#exec-detail-summary .badge')?.classList.remove('bg-warning', 'bg-success', 'bg-danger');
+                document.querySelector('#exec-detail-summary .badge')?.classList.add(badge);
+                if (document.querySelector('#exec-detail-summary .badge'))
+                    document.querySelector('#exec-detail-summary .badge').textContent = label;
+            }
+            else if (msg.type === 'orch_cancelled') {
+                // Visual feedback for cancellation
+            }
+        }
+
+        function updateStepNode(stepId, status, name, serverName, elapsed) {
+            const node = document.getElementById(`step-node-${stepId}`);
+            if (!node) {
+                // Dynamically add new step node
+                const container = document.getElementById('step-dag');
+                if (container.querySelector('.text-secondary')) container.innerHTML = '<div class="d-flex flex-wrap gap-2"></div>';
+                const wrapper = container.querySelector('.d-flex') || container;
+                const div = document.createElement('div');
+                div.id = `step-node-${stepId}`;
+                div.className = 'step-node p-2 rounded text-center';
+                div.style.cssText = 'min-width: 140px; cursor: pointer;';
+                div.onclick = () => showStepOutput(stepId);
+                wrapper.appendChild(div);
+                updateStepNodeContent(div, status, name || stepId, serverName || '', elapsed);
+                return;
+            }
+            updateStepNodeContent(node, status, null, null, elapsed);
+        }
+
+        function updateStepNodeContent(node, status, name, serverName, elapsed) {
+            const color = status === 'success' ? '#22c55e' : status === 'failed' ? '#ef4444' : status === 'running' ? '#eab308' : '#6b7280';
+            const icon = status === 'success' ? 'check-circle-fill' : status === 'failed' ? 'x-circle-fill' : status === 'running' ? 'arrow-repeat' : 'circle';
+            const rgb = status === 'success' ? '34,197,94' : status === 'failed' ? '239,68,68' : status === 'running' ? '234,179,8' : '107,114,128';
+
+            node.style.border = `2px solid ${color}`;
+            node.style.background = `rgba(${rgb},0.15)`;
+
+            const iconEl = node.querySelector('i');
+            if (iconEl) { iconEl.className = `bi bi-${icon}`; iconEl.style.color = color; }
+
+            if (elapsed !== undefined) {
+                const elapsedEl = node.querySelectorAll('div')[1];
+                if (elapsedEl) elapsedEl.textContent = (serverName || elapsedEl.textContent.split(' ')[0] || '') + ` ${elapsed ? elapsed.toFixed(1) + 's' : ''}`;
+            }
+
+            if (name) {
+                const nameEl = node.querySelectorAll('div')[0];
+                if (nameEl) nameEl.textContent = name;
+            }
+        }
+
+        function startElapsedTimer() {
+            stopElapsedTimer();
+            elapsedTimer = setInterval(() => {
+                const now = new Date();
+                const elapsed = (now - execStartTime) / 1000;
+                document.getElementById('exec-elapsed').textContent = formatElapsed(elapsed);
+            }, 1000);
+        }
+
+        function stopElapsedTimer() {
+            if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+        }
+
+        function formatElapsed(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        }
+
+        async function cancelExecution() {
+            if (!activeExecId) return;
+            if (!confirm('Are you sure you want to cancel this execution?')) return;
+            const resp = await apiCall(`/dm-webmanager/executions/${activeExecId}/cancel`, { method: 'POST' });
+            if (resp?.message) {
+                document.getElementById('btn-cancel-exec').disabled = true;
+                document.getElementById('btn-cancel-exec').innerHTML = '<i class="bi bi-hourglass"></i> Cancelling...';
+            }
+        }
+
+        // --- Templates / Marketplace ---
+        let templatesPage = 1;
+
+        async function loadTemplates(page) {
+            templatesPage = page || 1;
+            const search = document.getElementById('template-search').value;
+            const category = document.getElementById('template-category').value;
+            const loadingEl = document.getElementById('loading-templates');
+            loadingEl.classList.add('show');
+
+            let url = `/dm-webmanager/api/templates?page=${templatesPage}&per_page=20`;
+            if (search) url += `&search=${encodeURIComponent(search)}`;
+            if (category) url += `&category=${encodeURIComponent(category)}`;
+
+            const data = await apiCall(url);
+            loadingEl.classList.remove('show');
+            if (!data) return;
+
+            const grid = document.getElementById('templatesGrid');
+            if (!data.templates || data.templates.length === 0) {
+                grid.innerHTML = '<div class="col-12"><p class="text-secondary text-center py-4">No templates found. Be the first to share one!</p></div>';
+                document.getElementById('templatesPagination').innerHTML = '';
+                return;
+            }
+
+            let html = '';
+            data.templates.forEach(tpl => {
+                const ratingDisplay = tpl.rating_count > 0 ? tpl.rating.toFixed(1) : 'No ratings';
+                const tagsHtml = (tpl.tags || []).map(t => `<span class="badge bg-secondary me-1" style="font-size:0.65rem;">${t}</span>`).join('');
+                const catColor = {
+                    deployment: '#3b82f6', monitoring: '#10b981', maintenance: '#f59e0b',
+                    security: '#ef4444', networking: '#8b5cf6', custom: '#6b7280'
+                }[tpl.category] || '#6b7280';
+
+                html += `
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <h6 class="card-title mb-0">${tpl.name}</h6>
+                                    <span class="badge" style="background:${catColor};font-size:0.65rem;">${tpl.category}</span>
+                                </div>
+                                <p class="card-text" style="font-size:0.8rem;">${tpl.description || 'No description'}</p>
+                                <div class="mb-2">${tagsHtml}</div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-success me-1" onclick="rateTemplate('${tpl.id}', 1)" title="Upvote">
+                                            <i class="bi bi-hand-thumbs-up"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger me-1" onclick="rateTemplate('${tpl.id}', -1)" title="Downvote">
+                                            <i class="bi bi-hand-thumbs-down"></i>
+                                        </button>
+                                        <span class="text-secondary" style="font-size:0.75rem;">${ratingDisplay} (${tpl.rating_count})</span>
+                                    </div>
+                                    <button class="btn btn-sm btn-primary" onclick="useTemplate('${tpl.id}')">
+                                        <i class="bi bi-download"></i> Use
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-footer" style="background:transparent;border-top:1px solid var(--border-neon);">
+                                <small class="text-secondary">${tpl.created_at ? new Date(tpl.created_at).toLocaleDateString() : ''}</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            grid.innerHTML = html;
+
+            // Pagination
+            const totalPages = Math.ceil(data.total / data.per_page);
+            let pagHtml = '';
+            if (totalPages > 1) {
+                pagHtml = '<nav><ul class="pagination pagination-sm justify-content-center">';
+                for (let p = 1; p <= totalPages; p++) {
+                    pagHtml += `<li class="page-item ${p === data.page ? 'active' : ''}"><a class="page-link" href="#" onclick="loadTemplates(${p}); return false;" style="background:${p === data.page ? 'var(--purple-deep)' : 'rgba(10,1,24,0.6)'};border-color:var(--border-neon);color:var(--text-primary);">${p}</a></li>`;
+                }
+                pagHtml += '</ul></nav>';
+            }
+            document.getElementById('templatesPagination').innerHTML = pagHtml;
+        }
+
+        async function rateTemplate(templateId, rating) {
+            const resp = await apiCall(`/dm-webmanager/api/templates/${templateId}/rate`, {
+                method: 'POST',
+                body: JSON.stringify({ rating })
+            });
+            if (resp && !resp.error) {
+                loadTemplates(templatesPage);
+            }
+        }
+
+        async function useTemplate(templateId) {
+            const resp = await apiCall(`/dm-webmanager/api/templates/${templateId}/use`, { method: 'POST' });
+            if (!resp || resp.error) { alert(resp?.error || 'Failed to load template'); return; }
+
+            // Load into builder
+            const content = resp.json_content || {};
+            document.getElementById('builder-name').value = content.name || resp.name || '';
+            document.getElementById('builder-desc').value = content.description || '';
+            document.getElementById('builder-stop-on-error').checked = content.stop_on_error !== false;
+
+            builderSteps = [];
+            nextTempId = 1;
+            (content.steps || []).forEach(step => {
+                const tempId = `step-${nextTempId++}`;
+                builderSteps.push({
+                    tempId,
+                    actionTemplateId: step.action_template_id || '',
+                    actionName: step.action_name || step.action_template_id || 'Step',
+                    target: step.target || [],
+                    parents: (step.parents || []).map(String),
+                    children: (step.children || []).map(String),
+                    undo: step.undo || false,
+                });
+            });
+
+            if (builderSteps.length > 0) {
+                document.getElementById('builder-empty').style.display = 'none';
+            }
+
+            showView('builder');
+            renderBuilderNodes();
+        }
+
+        function showShareTemplateForm() {
+            document.getElementById('shareTemplateForm').style.display = 'block';
+            document.getElementById('share-tpl-msg').innerHTML = '';
+        }
+
+        async function submitShareTemplate() {
+            const name = document.getElementById('share-tpl-name').value.trim();
+            const category = document.getElementById('share-tpl-category').value;
+            const description = document.getElementById('share-tpl-desc').value.trim();
+            const tagsStr = document.getElementById('share-tpl-tags').value.trim();
+            const jsonStr = document.getElementById('share-tpl-json').value.trim();
+
+            if (!name) { alert('Template name is required'); return; }
+            if (!jsonStr) { alert('JSON content is required'); return; }
+
+            let json_content;
+            try {
+                json_content = JSON.parse(jsonStr);
+            } catch (e) {
+                alert('Invalid JSON content: ' + e.message);
+                return;
+            }
+
+            const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+            const resp = await apiCall('/dm-webmanager/api/templates', {
+                method: 'POST',
+                body: JSON.stringify({ name, category, description, tags, json_content })
+            });
+
+            const msgDiv = document.getElementById('share-tpl-msg');
+            if (resp && !resp.error) {
+                msgDiv.innerHTML = '<div class="alert" style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#86efac;">Template published successfully!</div>';
+                document.getElementById('share-tpl-name').value = '';
+                document.getElementById('share-tpl-desc').value = '';
+                document.getElementById('share-tpl-tags').value = '';
+                document.getElementById('share-tpl-json').value = '';
+                loadTemplates();
+            } else {
+                msgDiv.innerHTML = `<div class="alert" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;">${resp?.error || 'Failed to publish template'}</div>`;
+            }
+        }
+
+        // --- Topology ---
+        let topologyData = null;
+        let topologyAutoRefreshTimer = null;
+
+        document.getElementById('topology-auto-refresh').addEventListener('change', function() {
+            if (this.checked) {
+                topologyAutoRefreshTimer = setInterval(() => {
+                    if (currentView === 'topology') loadTopology();
+                }, 15000);
+            } else {
+                if (topologyAutoRefreshTimer) { clearInterval(topologyAutoRefreshTimer); topologyAutoRefreshTimer = null; }
+            }
+        });
+
+        async function loadTopology() {
+            const loadingEl = document.getElementById('loading-topology');
+            const nodesEl = document.getElementById('topology-nodes');
+            loadingEl.classList.add('show');
+            nodesEl.innerHTML = '';
+
+            const data = await apiCall('/dm-webmanager/api/topology');
+            loadingEl.classList.remove('show');
+            if (!data) {
+                nodesEl.innerHTML = '<p class="text-danger">Failed to load topology data.</p>';
+                return;
+            }
+            topologyData = data;
+            renderTopology(data);
+        }
+
+        function renderTopology(data) {
+            const nodesEl = document.getElementById('topology-nodes');
+            nodesEl.innerHTML = '';
+
+            if (!data.nodes || data.nodes.length === 0) {
+                nodesEl.innerHTML = '<p class="text-secondary">No servers found.</p>';
+                return;
+            }
+
+            // Build a cost map: destination_id -> cost
+            const costMap = {};
+            const edgeMap = {};
+            (data.edges || []).forEach(e => {
+                costMap[e.destination_id] = e.cost;
+                edgeMap[e.destination_id] = e;
+            });
+
+            data.nodes.forEach(node => {
+                const isMe = node.me;
+                const cost = costMap[node.id];
+                const hasRoute = cost !== undefined;
+                const isAlive = isMe || (hasRoute && cost !== null);
+
+                const borderColor = isMe ? 'var(--cyan-neon)' : (isAlive ? '#10b981' : '#6b7280');
+                const bgColor = isMe ? 'rgba(0, 255, 255, 0.08)' : (isAlive ? 'rgba(16, 185, 129, 0.08)' : 'rgba(107, 114, 128, 0.08)');
+                const glowColor = isMe ? 'rgba(0, 255, 255, 0.3)' : (isAlive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(107, 114, 128, 0.1)');
+
+                const primaryGate = node.gates && node.gates.length > 0 ? node.gates[0] : null;
+                const ipDisplay = primaryGate ? (primaryGate.dns || primaryGate.ip || 'N/A') + ':' + primaryGate.port : 'No gates';
+                const costDisplay = isMe ? 'LOCAL' : (cost !== null && cost !== undefined ? 'cost: ' + cost : 'unreachable');
+
+                const card = document.createElement('div');
+                card.className = 'topology-node';
+                card.dataset.nodeName = node.name.toLowerCase();
+                card.style.cssText = `
+                    border: 2px solid ${borderColor};
+                    background: ${bgColor};
+                    border-radius: 12px;
+                    padding: 18px;
+                    min-width: 200px;
+                    max-width: 260px;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 15px ${glowColor};
+                    position: relative;
+                `;
+                card.onmouseover = () => { card.style.transform = 'translateY(-4px) scale(1.03)'; card.style.boxShadow = `0 8px 25px ${glowColor}`; };
+                card.onmouseout = () => { card.style.transform = ''; card.style.boxShadow = `0 4px 15px ${glowColor}`; };
+                card.onclick = () => showTopologyDetail(node, edgeMap[node.id]);
+
+                card.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: ${borderColor}; box-shadow: 0 0 8px ${borderColor}; display: inline-block;"></span>
+                        <strong style="font-size: 1rem; color: var(--text-primary);">${node.name}</strong>
+                        ${isMe ? '<span style="font-size: 0.65rem; background: var(--cyan-neon); color: #000; padding: 1px 6px; border-radius: 4px; font-weight: 700;">THIS</span>' : ''}
+                    </div>
+                    <div style="font-family: JetBrains Mono, monospace; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 6px;">
+                        <i class="bi bi-hdd-network"></i> ${ipDisplay}
+                    </div>
+                    <div style="font-size: 0.75rem; color: ${isAlive ? '#34d399' : '#9ca3af'};">
+                        <i class="bi bi-${isAlive ? 'check-circle-fill' : 'question-circle'}"></i> ${costDisplay}
+                    </div>
+                `;
+                nodesEl.appendChild(card);
+            });
+        }
+
+        function filterTopologyNodes() {
+            const query = document.getElementById('topology-search').value.toLowerCase();
+            document.querySelectorAll('.topology-node').forEach(el => {
+                el.style.display = el.dataset.nodeName.includes(query) ? '' : 'none';
+            });
+        }
+
+        function showTopologyDetail(node, edge) {
+            const detailEl = document.getElementById('topology-detail');
+            const contentEl = document.getElementById('topology-detail-content');
+            detailEl.style.display = 'block';
+
+            let gatesHtml = '';
+            if (node.gates && node.gates.length > 0) {
+                gatesHtml = '<table class="table table-sm mt-2"><thead><tr><th>DNS</th><th>IP</th><th>Port</th></tr></thead><tbody>';
+                node.gates.forEach(g => {
+                    gatesHtml += `<tr><td>${g.dns || '-'}</td><td>${g.ip || '-'}</td><td>${g.port}</td></tr>`;
+                });
+                gatesHtml += '</tbody></table>';
+            } else {
+                gatesHtml = '<p class="text-secondary">No gates configured.</p>';
+            }
+
+            let routeHtml = '';
+            if (edge) {
+                routeHtml = `
+                    <div class="mt-3">
+                        <strong>Route:</strong>
+                        Cost: <span class="badge bg-info">${edge.cost !== null ? edge.cost : 'N/A'}</span>
+                        ${edge.proxy_server_id ? '| Proxy: <code>' + edge.proxy_server_id + '</code>' : '| Direct connection'}
+                        ${edge.gate_id ? '| Gate: <code>' + edge.gate_id + '</code>' : ''}
+                    </div>
+                `;
+            } else if (node.me) {
+                routeHtml = '<div class="mt-3"><span class="badge bg-info">Local server (this node)</span></div>';
+            } else {
+                routeHtml = '<div class="mt-3"><span class="badge bg-secondary">No route available</span></div>';
+            }
+
+            contentEl.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>${node.name} ${node.me ? '<span class="badge bg-info">THIS</span>' : ''}</h6>
+                        <p class="text-secondary mb-1">ID: <code>${node.id}</code></p>
+                        ${routeHtml}
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Gates</h6>
+                        ${gatesHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- Execution Comparison ---
+        async function compareExecutions() {
+            if (compareSelected.size < 2) return;
+            const ids = Array.from(compareSelected);
+            const execA = ids[0];
+            const execB = ids[1];
+
+            // Switch to comparison view
+            document.querySelectorAll('.view-content').forEach(v => v.style.display = 'none');
+            document.getElementById('view-exec-compare').style.display = 'block';
+            document.getElementById('compare-content').innerHTML = '<div class="text-center p-4"><div class="spinner-border text-primary" role="status"></div><p class="text-secondary mt-2">Loading comparison...</p></div>';
+
+            const data = await apiCall(`/dm-webmanager/api/executions/compare?a=${execA}&b=${execB}`);
+            if (!data || data.error) {
+                document.getElementById('compare-content').innerHTML = `<div class="alert" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;">${data?.error || 'Failed to load comparison'}</div>`;
+                return;
+            }
+
+            const ea = data.execution_a;
+            const eb = data.execution_b;
+            const diff = data.diff;
+
+            // Build comparison HTML
+            let html = '';
+
+            // Side-by-side summary panels
+            html += '<div class="row mb-3">';
+            html += buildExecPanel(ea, 'A');
+            html += buildExecPanel(eb, 'B');
+            html += '</div>';
+
+            // Status change indicator
+            if (diff.status_changed) {
+                html += `<div class="stat-card mb-3" style="border-color: #f59e0b;">
+                    <strong style="color: #fbbf24;">Status Changed:</strong> <span class="badge ${ea.status === 'success' ? 'bg-success' : 'bg-danger'}">${ea.status}</span> &rarr; <span class="badge ${eb.status === 'success' ? 'bg-success' : 'bg-danger'}">${eb.status}</span>
+                </div>`;
+            }
+
+            // Param diff
+            const paramKeys = Object.keys(diff.param_diff || {});
+            if (paramKeys.length > 0) {
+                html += '<div class="stat-card mb-3"><h5>Parameter Differences</h5><table class="table table-sm"><thead><tr><th>Key</th><th>Execution A</th><th>Execution B</th></tr></thead><tbody>';
+                paramKeys.forEach(key => {
+                    const pd = diff.param_diff[key];
+                    html += `<tr><td><code>${key}</code></td><td>${JSON.stringify(pd.a)}</td><td>${JSON.stringify(pd.b)}</td></tr>`;
+                });
+                html += '</tbody></table></div>';
+            }
+
+            // Step diffs
+            if (diff.step_diffs && diff.step_diffs.length > 0) {
+                html += '<div class="stat-card mb-3"><h5>Step Comparison</h5><table class="table table-sm"><thead><tr><th>Step</th><th>Status A</th><th>Status B</th><th>Duration A</th><th>Duration B</th></tr></thead><tbody>';
+                diff.step_diffs.forEach(sd => {
+                    let borderStyle = '';
+                    if (sd.changed) {
+                        const improved = (sd.status_b === 'success' && sd.status_a !== 'success') ||
+                                         (sd.duration_a && sd.duration_b && sd.duration_b < sd.duration_a);
+                        const degraded = (sd.status_b === 'failed' && sd.status_a !== 'failed') ||
+                                         (sd.duration_a && sd.duration_b && sd.duration_b > sd.duration_a);
+                        if (improved) borderStyle = 'border-left: 4px solid #22c55e;';
+                        else if (degraded) borderStyle = 'border-left: 4px solid #ef4444;';
+                        else borderStyle = 'border-left: 4px solid #f59e0b;';
+                    }
+                    const badgeA = sd.status_a ? `<span class="badge ${sd.status_a === 'success' ? 'bg-success' : sd.status_a === 'failed' ? 'bg-danger' : 'bg-warning'}">${sd.status_a}</span>` : '-';
+                    const badgeB = sd.status_b ? `<span class="badge ${sd.status_b === 'success' ? 'bg-success' : sd.status_b === 'failed' ? 'bg-danger' : 'bg-warning'}">${sd.status_b}</span>` : '-';
+                    const durA = sd.duration_a != null ? sd.duration_a.toFixed(2) + 's' : '-';
+                    const durB = sd.duration_b != null ? sd.duration_b.toFixed(2) + 's' : '-';
+                    html += `<tr style="${borderStyle}"><td>${sd.step_name}</td><td>${badgeA}</td><td>${badgeB}</td><td>${durA}</td><td>${durB}</td></tr>`;
+                });
+                html += '</tbody></table></div>';
+            }
+
+            document.getElementById('compare-content').innerHTML = html;
+        }
+
+        function buildExecPanel(exec, label) {
+            const statusBadge = exec.status === 'success' ? 'bg-success' : exec.status === 'failed' ? 'bg-danger' : 'bg-warning';
+            const dur = exec.duration != null ? exec.duration.toFixed(2) + 's' : 'N/A';
+            return `<div class="col-md-6">
+                <div class="stat-card">
+                    <h5>Execution ${label}</h5>
+                    <p style="font-size:0.85rem;color:var(--text-secondary);">ID: <code>${exec.id}</code></p>
+                    <div class="d-flex gap-3 flex-wrap">
+                        <span><strong>Orchestration:</strong> ${exec.orchestration_name || 'Unknown'}</span>
+                        <span><strong>Status:</strong> <span class="badge ${statusBadge}">${exec.status}</span></span>
+                        <span><strong>Duration:</strong> ${dur}</span>
+                        <span><strong>Started:</strong> ${exec.start_time ? new Date(exec.start_time).toLocaleString() : 'N/A'}</span>
+                    </div>
+                    <div class="mt-2" style="font-size:0.8rem;color:var(--text-secondary);">Steps: ${exec.steps ? exec.steps.length : 0}</div>
+                </div>
+            </div>`;
+        }
+
+        // --- Duration Trend Chart ---
+        async function loadDurationTrend(orchId) {
+            const card = document.getElementById('exec-trend-card');
+            const chart = document.getElementById('exec-trend-chart');
+            card.style.display = 'block';
+            chart.innerHTML = '<p class="text-secondary">Loading trend...</p>';
+
+            const data = await apiCall(`/dm-webmanager/api/executions/trends/${orchId}`);
+            if (!data || !data.runs || data.runs.length === 0) {
+                chart.innerHTML = '<p class="text-secondary">No trend data available.</p>';
+                return;
+            }
+
+            const maxDur = Math.max(...data.runs.map(r => r.duration || 0), 1);
+            let html = '<div style="display:flex;align-items:flex-end;gap:4px;height:120px;">';
+            data.runs.forEach(run => {
+                const dur = run.duration || 0;
+                const barH = Math.max((dur / maxDur) * 110, 4);
+                const color = run.status === 'success' ? '#22c55e' : run.status === 'failed' ? '#ef4444' : '#eab308';
+                const dateStr = run.start_time ? run.start_time.slice(5, 10) : '';
+                html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;">
+                    <span style="font-size:0.6rem;color:var(--text-secondary);margin-bottom:2px;">${dur.toFixed(1)}s</span>
+                    <div style="width:100%;max-width:36px;height:${barH}px;background:${color};border-radius:3px 3px 0 0;transition:height 0.3s;" title="${run.start_time}: ${dur.toFixed(2)}s (${run.status})"></div>
+                    <span style="font-size:0.55rem;color:var(--text-secondary);margin-top:3px;">${dateStr}</span>
+                </div>`;
+            });
+            html += '</div>';
+            chart.innerHTML = html;
+        }
+
+        async function logout() {
+            try {
+                await fetch('/dm-webmanager/logout', {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
+            } catch (e) {
+                // Continue with redirect even if logout call fails
+            }
+            window.location.href = '/dm-webmanager/login';
+        }
+        // --- AI Chat Sidebar ---
+        // --- Federation ---
+        async function loadFederation() {
+            const loadingEl = document.getElementById('loading-federation');
+            const tableEl = document.getElementById('federation-table');
+            const tbodyEl = document.getElementById('federation-tbody');
+            const emptyEl = document.getElementById('federation-empty');
+            loadingEl.classList.add('show');
+            tableEl.style.display = 'none';
+            emptyEl.style.display = 'none';
+            tbodyEl.innerHTML = '';
+
+            const data = await apiCall('/dm-webmanager/api/federation/peers');
+            loadingEl.classList.remove('show');
+            if (!data || data.length === 0) {
+                emptyEl.style.display = 'block';
+                return;
+            }
+            tableEl.style.display = 'table';
+
+            data.forEach(peer => {
+                const statusBadge = {
+                    'connected': '<span class="badge bg-success">Connected</span>',
+                    'pending': '<span class="badge bg-warning text-dark">Pending</span>',
+                    'disconnected': '<span class="badge bg-secondary">Disconnected</span>',
+                    'revoked': '<span class="badge bg-danger">Revoked</span>',
+                }[peer.status] || '<span class="badge bg-secondary">' + (peer.status || 'unknown') + '</span>';
+
+                let actions = '';
+                if (peer.status === 'pending') {
+                    actions += `<button class="btn btn-sm btn-outline-success me-1" onclick="acceptPeer('${peer.id}')"><i class="bi bi-check-circle"></i> Accept</button>`;
+                }
+                if (peer.status !== 'revoked') {
+                    actions += `<button class="btn btn-sm btn-outline-danger" onclick="revokePeer('${peer.id}')"><i class="bi bi-x-circle"></i> Revoke</button>`;
+                }
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${peer.name || ''}</td>
+                    <td><code>${peer.endpoint || ''}</code></td>
+                    <td>${statusBadge}</td>
+                    <td>${peer.last_seen || 'Never'}</td>
+                    <td>${peer.created_at || ''}</td>
+                    <td>${actions}</td>
+                `;
+                tbodyEl.appendChild(row);
+            });
+        }
+
+        async function addPeer() {
+            const name = document.getElementById('peer-name').value.trim();
+            const endpoint = document.getElementById('peer-endpoint').value.trim();
+            if (!name || !endpoint) {
+                alert('Name and Endpoint are required.');
+                return;
+            }
+            const resp = await apiCall('/dm-webmanager/api/federation/peers', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, endpoint}),
+            });
+            if (resp) {
+                document.getElementById('peer-name').value = '';
+                document.getElementById('peer-endpoint').value = '';
+                loadFederation();
+            }
+        }
+
+        async function acceptPeer(id) {
+            const resp = await apiCall(`/dm-webmanager/api/federation/peers/${id}/accept`, {method: 'POST'});
+            if (resp) loadFederation();
+        }
+
+        async function revokePeer(id) {
+            if (!confirm('Revoke this peer? All federation links will be deactivated.')) return;
+            const resp = await apiCall(`/dm-webmanager/api/federation/peers/${id}/revoke`, {method: 'POST'});
+            if (resp) loadFederation();
+        }
+
+        let aiChatOpen = false;
+        let aiMessageCount = 0;
+
+        function toggleAiChat() {
+            aiChatOpen = !aiChatOpen;
+            document.getElementById('ai-chat-sidebar').classList.toggle('open', aiChatOpen);
+            document.getElementById('ai-chat-overlay').classList.toggle('open', aiChatOpen);
+            if (aiChatOpen) {
+                document.getElementById('ai-chat-input').focus();
+            }
+        }
+
+        function appendAiMessage(text, role) {
+            const container = document.getElementById('ai-chat-messages');
+            const div = document.createElement('div');
+            div.className = 'ai-msg ' + role;
+            div.innerHTML = text;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function renderAiSuggestions(data) {
+            let html = '';
+            if (data.message) {
+                html += '<div>' + escapeHtml(data.message) + '</div>';
+            }
+            if (data.suggestions && data.suggestions.length > 0) {
+                data.suggestions.forEach(function(s) {
+                    const severityClass = 'severity-' + (s.severity || 'info');
+                    html += '<div class="ai-suggestion ' + severityClass + '">';
+                    html += '<strong>' + escapeHtml(s.title || '') + '</strong>';
+                    if (s.category) {
+                        html += ' <span style="font-size:0.7rem;color:var(--text-secondary);">(' + escapeHtml(s.category) + ')</span>';
+                    }
+                    html += '<br>' + escapeHtml(s.description || '');
+                    if (s.affected_steps && s.affected_steps.length > 0) {
+                        html += '<br><small style="color:var(--text-secondary);">Steps: ' + s.affected_steps.map(escapeHtml).join(', ') + '</small>';
+                    }
+                    html += '</div>';
+                });
+            }
+            if (data.summary) {
+                html += '<div style="margin-top:8px;font-size:0.8rem;color:var(--text-secondary);"><em>' + escapeHtml(data.summary) + '</em></div>';
+            }
+            if (data.modified_orchestration) {
+                html += '<div style="margin-top:8px;font-size:0.75rem;color:var(--text-secondary);">[Modified orchestration returned]</div>';
+            }
+            return html || escapeHtml(JSON.stringify(data));
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function getOrchestrationContext() {
+            if (builderSteps && builderSteps.length > 0) {
+                return buildOrchestrationJson();
+            }
+            return null;
+        }
+
+        async function sendAiMessage() {
+            const input = document.getElementById('ai-chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            const mode = document.getElementById('ai-chat-mode').value;
+            const orchContext = getOrchestrationContext();
+
+            appendAiMessage(escapeHtml(message), 'user');
+            input.value = '';
+
+            const sendBtn = document.getElementById('ai-send-btn');
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+
+            try {
+                const resp = await apiCall('/dm-webmanager/api/ai/chat', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        message: message,
+                        orchestration_context: orchContext,
+                        mode: mode,
+                    })
+                });
+
+                if (!resp) {
+                    appendAiMessage('Failed to reach the AI endpoint. Please check your session.', 'assistant');
+                    return;
+                }
+
+                if (resp.error) {
+                    appendAiMessage('<span style="color:#ef4444;">' + escapeHtml(resp.error) + '</span>', 'assistant');
+                    return;
+                }
+
+                const html = renderAiSuggestions(resp);
+                appendAiMessage(html, 'assistant');
+
+                aiMessageCount++;
+                document.getElementById('ai-rate-info').textContent = aiMessageCount + '/20 this hour';
+
+            } catch (e) {
+                appendAiMessage('<span style="color:#ef4444;">Error: ' + escapeHtml(e.message || 'Unknown error') + '</span>', 'assistant');
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i class="bi bi-send"></i>';
+            }
+        }
+        // --- DShell Terminal ---
+        let terminalSessionId = null;
+        let terminalHistory = [];
+        let terminalHistoryIndex = -1;
+
+        async function initTerminal() {
+            if (terminalSessionId) {
+                document.getElementById('terminal-input').focus();
+                return;
+            }
+            const outputEl = document.getElementById('terminal-output');
+            outputEl.innerHTML = '<span style="color: #8b949e;">Initializing session...</span>';
+            try {
+                const resp = await fetch('/dm-webmanager/api/terminal/create', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    outputEl.innerHTML = '<span style="color: #f85149;">Error: ' + escapeHtml(data.error || 'Failed to create session') + '</span>';
+                    return;
+                }
+                terminalSessionId = data.session_id;
+                terminalHistory = [];
+                terminalHistoryIndex = -1;
+                outputEl.innerHTML = '<span style="color: #3fb950;">DShell Web Mode initialized. Type "help" for available commands.</span>\n';
+                document.getElementById('terminal-input').focus();
+            } catch (e) {
+                outputEl.innerHTML = '<span style="color: #f85149;">Error: ' + escapeHtml(e.message) + '</span>';
+            }
+        }
+
+        async function sendTerminalCommand() {
+            const inputEl = document.getElementById('terminal-input');
+            const outputEl = document.getElementById('terminal-output');
+            const command = inputEl.value.trim();
+            if (!command) return;
+            if (!terminalSessionId) {
+                await initTerminal();
+                if (!terminalSessionId) return;
+            }
+
+            // Show command in output
+            outputEl.innerHTML += '<div><span style="color: #58a6ff;">$ </span><span style="color: #c9d1d9;">' + escapeHtml(command) + '</span></div>';
+
+            terminalHistory.push(command);
+            terminalHistoryIndex = terminalHistory.length;
+            inputEl.value = '';
+
+            if (command === 'clear') {
+                outputEl.innerHTML = '';
+            }
+
+            try {
+                const resp = await fetch('/dm-webmanager/api/terminal/' + terminalSessionId + '/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({command: command})
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    outputEl.innerHTML += '<div style="color: #f85149;">' + escapeHtml(data.error || 'Error') + '</div>';
+                } else if (data.output) {
+                    const lines = escapeHtml(data.output).split('\n');
+                    outputEl.innerHTML += '<div style="color: #3fb950; white-space: pre-wrap;">' + lines.join('\n') + '</div>';
+                }
+            } catch (e) {
+                outputEl.innerHTML += '<div style="color: #f85149;">Error: ' + escapeHtml(e.message) + '</div>';
+            }
+            outputEl.scrollTop = outputEl.scrollHeight;
+        }
+
+        function handleTerminalKeydown(event) {
+            if (event.key === 'Enter') {
+                sendTerminalCommand();
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (terminalHistory.length > 0 && terminalHistoryIndex > 0) {
+                    terminalHistoryIndex--;
+                    document.getElementById('terminal-input').value = terminalHistory[terminalHistoryIndex];
+                }
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                if (terminalHistoryIndex < terminalHistory.length - 1) {
+                    terminalHistoryIndex++;
+                    document.getElementById('terminal-input').value = terminalHistory[terminalHistoryIndex];
+                } else {
+                    terminalHistoryIndex = terminalHistory.length;
+                    document.getElementById('terminal-input').value = '';
+                }
+            }
+        }
+
+        function clearTerminal() {
+            document.getElementById('terminal-output').innerHTML = '';
+        }
+
+        async function closeTerminalSession() {
+            if (!terminalSessionId) return;
+            try {
+                await fetch('/dm-webmanager/api/terminal/' + terminalSessionId, {method: 'DELETE'});
+            } catch (e) { /* ignore */ }
+            terminalSessionId = null;
+            terminalHistory = [];
+            terminalHistoryIndex = -1;
+            document.getElementById('terminal-output').innerHTML = '<span style="color: #8b949e;">Session closed.</span>';
+        }
+
+        // --- Natural Language Orchestration Runner ---
+        let nlResolvedData = null;
+
+        async function resolveNLCommand() {
+            const input = document.getElementById('nl-input');
+            const userInput = input.value.trim();
+            if (!userInput) return;
+
+            const btn = document.getElementById('nl-resolve-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Resolving...';
+
+            const resultDiv = document.getElementById('nl-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<span class="text-secondary">Resolving command...</span>';
+
+            try {
+                const resp = await apiFetch('/dm-webmanager/api/ai/resolve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({input: userInput}),
+                });
+
+                if (!resp || resp.error) {
+                    resultDiv.innerHTML = '<span style="color:#ef4444;">' + escapeHtml(resp ? resp.error : 'Failed to reach endpoint') + '</span>';
+                    return;
+                }
+
+                nlResolvedData = resp;
+                renderNLConfirmation(resp);
+
+            } catch (e) {
+                resultDiv.innerHTML = '<span style="color:#ef4444;">Error: ' + escapeHtml(e.message || 'Unknown error') + '</span>';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-lightning"></i> Resolve';
+            }
+        }
+
+        function renderNLConfirmation(data) {
+            const resultDiv = document.getElementById('nl-result');
+            const dialog = document.getElementById('nl-confirm-dialog');
+
+            if (!data.orchestration_id) {
+                resultDiv.innerHTML = '<span style="color: var(--text-secondary);">No matching orchestration found. Try rephrasing your command.</span>';
+                dialog.style.display = 'none';
+                return;
+            }
+
+            const confidencePct = Math.round(data.confidence * 100);
+            const confidenceColor = data.confidence >= 0.8 ? '#10b981' : (data.confidence >= 0.5 ? '#f59e0b' : '#ef4444');
+
+            resultDiv.innerHTML = '<span style="color:' + confidenceColor + ';">' +
+                'Matched: <strong>' + escapeHtml(data.orchestration_name) + '</strong> (' + confidencePct + '% confidence)</span>';
+
+            document.getElementById('nl-confirm-orch').innerHTML =
+                '<span class="orchestration-badge">' + escapeHtml(data.orchestration_name) + '</span>' +
+                ' <small style="color:' + confidenceColor + ';">(' + confidencePct + '%)</small>';
+
+            const targetsDiv = document.getElementById('nl-confirm-targets');
+            if (data.targets && data.targets.length > 0) {
+                targetsDiv.innerHTML = data.targets.map(function(t) {
+                    return '<span class="badge bg-secondary me-1">' + escapeHtml(t.name) + '</span>';
+                }).join('');
+            } else {
+                targetsDiv.innerHTML = '<span class="text-secondary">No targets specified</span>';
+            }
+
+            const paramsDiv = document.getElementById('nl-confirm-params');
+            const paramKeys = Object.keys(data.params || {});
+            if (paramKeys.length > 0) {
+                paramsDiv.innerHTML = paramKeys.map(function(k) {
+                    return '<code>' + escapeHtml(k) + '=' + escapeHtml(data.params[k]) + '</code>';
+                }).join('<br>');
+            } else {
+                paramsDiv.innerHTML = '<span class="text-secondary">None</span>';
+            }
+
+            const altDiv = document.getElementById('nl-alternatives');
+            const altList = document.getElementById('nl-alternatives-list');
+            if (data.alternatives && data.alternatives.length > 0) {
+                altDiv.style.display = 'block';
+                altList.innerHTML = data.alternatives.map(function(a) {
+                    return '<button class="btn btn-outline-light btn-sm me-1 mt-1" onclick="selectAlternative(\'' +
+                        escapeHtml(a.id) + '\', \'' + escapeHtml(a.name) + '\')">' +
+                        escapeHtml(a.name) + ' (' + Math.round(a.confidence * 100) + '%)</button>';
+                }).join('');
+            } else {
+                altDiv.style.display = 'none';
+            }
+
+            document.getElementById('nl-exec-result').style.display = 'none';
+            dialog.style.display = 'block';
+        }
+
+        function selectAlternative(orchId, orchName) {
+            if (nlResolvedData) {
+                nlResolvedData.orchestration_id = orchId;
+                nlResolvedData.orchestration_name = orchName;
+                nlResolvedData.confidence = 1.0;
+                nlResolvedData.alternatives = [];
+                renderNLConfirmation(nlResolvedData);
+            }
+        }
+
+        async function confirmAndRun() {
+            if (!nlResolvedData || !nlResolvedData.orchestration_id) return;
+
+            const btn = document.getElementById('nl-confirm-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Executing...';
+
+            const execResult = document.getElementById('nl-exec-result');
+            execResult.style.display = 'block';
+            execResult.innerHTML = '<span class="text-secondary">Dispatching execution...</span>';
+
+            try {
+                const resp = await apiFetch('/dm-webmanager/api/ai/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        orchestration_id: nlResolvedData.orchestration_id,
+                        targets: nlResolvedData.targets || [],
+                        params: nlResolvedData.params || {},
+                        confirmed: true,
+                    }),
+                });
+
+                if (!resp || resp.error) {
+                    execResult.innerHTML = '<span style="color:#ef4444;">' + escapeHtml(resp ? resp.error : 'Failed to dispatch') + '</span>';
+                    return;
+                }
+
+                execResult.innerHTML = '<span style="color:#10b981;"><i class="bi bi-check-circle"></i> ' +
+                    'Execution dispatched: <strong>' + escapeHtml(resp.orchestration_name) + '</strong>' +
+                    ' (ID: <code>' + escapeHtml(resp.execution_id) + '</code>)</span>';
+
+                setTimeout(function() { loadDashboard(); }, 2000);
+
+            } catch (e) {
+                execResult.innerHTML = '<span style="color:#ef4444;">Error: ' + escapeHtml(e.message || 'Unknown error') + '</span>';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-play-fill"></i> Confirm &amp; Run';
+            }
+        }
+
+        function dismissNLDialog() {
+            document.getElementById('nl-confirm-dialog').style.display = 'none';
+            document.getElementById('nl-result').style.display = 'none';
+            document.getElementById('nl-input').value = '';
+            nlResolvedData = null;
         }
     </script>
 </body>

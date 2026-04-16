@@ -5,6 +5,61 @@ All notable changes to Dimensigon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-04-11
+
+### Added
+
+#### Phase 1: Foundation
+- SQLAlchemy 2.x migration — full codebase modernization (57 files, select() style queries)
+- Security layer simplification — SECURIZER_MODE config (auto/always/never)
+- forward_or_dispatch fix — GET requests no longer crash with 400/415
+- Lightweight health endpoint — GET /health with detail mode and caching
+- Authentication flow rework — JWT cookie auth, RBAC (administrator/operator/readonly), login page, token blacklist
+
+#### Phase 2: Core UX
+- Real-time execution monitoring — WebSocket-powered with live DAG visualization
+- Visual orchestration builder — drag-and-drop with DAG validation and cycle detection
+- Server topology visualization — interactive network graph with health status
+- Dashboard widgets — success rate trends, top failures, recent activity feed
+- Execution history diff — side-by-side comparison with step-level status changes
+- Prometheus metrics endpoint — 6 metrics at /metrics with auto-instrumentation
+
+#### Phase 3: Features
+- Webhook/event system — CRUD API with exponential backoff retry (max 5)
+- Scheduled orchestrations — cron syntax with timezone support and missed-run policies
+- Audit log — immutable action tracking with @audit_log decorator
+- Orchestration versioning — immutable snapshots, diff, non-destructive rollback
+- Container-native deployment — Docker HEALTHCHECK, DNS discovery, graceful shutdown
+
+#### Phase 4: AI & Polish
+- Context-aware AI chat — sidebar with review/modify modes and rate limiting
+- AI-powered troubleshooting — 10 built-in error patterns with confidence scoring
+- Template marketplace — browsable library with categories, search, and ratings
+- DShell auto-complete — fuzzy matching for orchestrations, parameters, and servers
+
+#### Phase 5: Advanced
+- Interactive step debugger — breakpoints, inspect, modify, rerun, variable inspection
+- DShell web terminal — browser-based DShell with session management
+- Natural language orchestration runner — intent resolution with disambiguation
+- Training data feedback loop — quality scoring and admin review queue
+- Multi-dimension federation — peer management with trust lifecycle
+
+### Changed
+- Default SECURIZER_MODE changed from 'always' to 'auto'
+- Dashboard now uses httpOnly cookie auth instead of localStorage
+- All Model.query patterns replaced with select() style (SQLAlchemy 2.x)
+- TypeDecorator base class now sets cache_ok = True
+
+### Dependencies Added
+- flask-sock>=0.7.0 (WebSocket support)
+- prometheus-client>=0.20.0 (metrics endpoint)
+- croniter>=1.3.0 (cron schedule parsing)
+- SQLAlchemy>=2.0,<3.0 (pinned for 2.x)
+
+### Documentation
+- 26 tutorial files (10,321 lines) covering all 25 features
+- Tutorial index at docs/tutorials/00-index.md
+
 ## [2.0.0] - 2025-10-29
 
 ### Added

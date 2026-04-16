@@ -20,7 +20,7 @@ import yaml
 from dataclasses import dataclass
 from flask import Flask
 from flask_jwt_extended import create_access_token
-from sqlalchemy import exc, sql
+from sqlalchemy import exc, select, sql
 
 from dimensigon import defaults
 from dimensigon.core import Dimensigon
@@ -47,7 +47,7 @@ def new(dm: Dimensigon, name: str):
         from cryptography.x509.oid import NameOID
         import datetime
         Server.set_initial()
-        count = Dimension.query.count()
+        count = db.session.execute(select(db.func.count()).select_from(Dimension)).scalar()
 
         if count > 0:
             exit("Only one dimension can be created")
@@ -234,7 +234,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
             logger.log(1, resp_data)
         if 'Dimension' in resp_data:
             json_dim = resp_data.pop('Dimension')
-            dim = Dimension.query.get(json_dim.get('id'))
+            dim = db.session.get(Dimension, json_dim.get('id'))
             if not dim:
                 dim = Dimension.from_json(json_dim)
                 dim.current = True
@@ -252,7 +252,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 logger.info('Updating Catalog...')
                 reference_server_id = resp_data.pop('me')
                 # remove catalog
-                for c in Catalog.query.all():
+                for c in db.session.execute(select(Catalog)).scalars().all():
                     db.session.delete(c)
                 try:
                     dm.catalog_manager.db_update_catalog(resp_data['catalog'])  # implicit commit
@@ -262,7 +262,7 @@ def join(dm: Dimensigon, server: str, token: str, port: int = None, ssl: bool = 
                 else:
                     logger.info('Catalog updated.')
                 # set reference server as a neighbour
-                reference_server = Server.query.get(reference_server_id)
+                reference_server = db.session.get(Server, reference_server_id)
                 if not reference_server:
                     db.session.rollback()
                     logger.info(f"Server id {reference_server_id} not found in catalog.")
@@ -310,15 +310,15 @@ def token(dm: Dimensigon, dimension_id_or_name: str, applicant=None, expire_time
     dm.create_flask_instance()
     with dm.flask_app.app_context():
         if dimension_id_or_name is not None:
-            dim = Dimension.query.get(dimension_id_or_name)
+            dim = db.session.get(Dimension, dimension_id_or_name)
             if dim is None:
-                dim = Dimension.query.filter_by(name=dimension_id_or_name)
+                dim = db.session.execute(select(Dimension).filter_by(name=dimension_id_or_name)).scalars().first()
                 if dim is None:
                     exit(f"{dimension_id_or_name} is not a valid dimension")
         else:
-            count = Dimension.query.count()
+            count = db.session.execute(select(db.func.count()).select_from(Dimension)).scalar()
             if count == 1:
-                dim = Dimension.query.all()[0]
+                dim = db.session.execute(select(Dimension)).scalars().first()
             else:
                 exit("No dimension specified. Please specify a dimension")
 
@@ -380,17 +380,17 @@ def gate_create(dm: Dimensigon, ip_or_dns, port, hidden=True):
 def gate_port(dm: Dimensigon, port):
     dm.create_flask_instance()
     with dm.flask_app.app_context():
-        db.engine.execute(sql.text(f"UPDATE D_gate set port = :port WHERE main.D_gate.server_id = :server_id"),
-                          port=port,
-                          server_id=Server.get_current().id)
-        db.session.commit()
+        with db.engine.connect() as conn:
+            conn.execute(sql.text(f"UPDATE D_gate set port = :port WHERE main.D_gate.server_id = :server_id"),
+                         {"port": port, "server_id": str(Server.get_current().id)})
+            conn.commit()
 
 
 def gate_list(dm: Dimensigon):
     dm.create_flask_instance()
     with dm.flask_app.app_context():
         dprint([f"{g.ip or g.dns}:{g.port}{' (hidden)' if g.hidden else ''}" for g in
-                Gate.query.filter_by(server_id=Server.get_current().id).all()])
+                db.session.execute(select(Gate).filter_by(server_id=Server.get_current().id)).scalars().all()])
 
 
 def gate_delete(dm: Dimensigon, ip_or_dns, port, hidden=True):
@@ -402,21 +402,22 @@ def gate_delete(dm: Dimensigon, ip_or_dns, port, hidden=True):
         except:
             dns = ip_or_dns
 
-        query = Gate.query
+        query = select(Gate)
         if ip or dns:
             query = query.filter_by(ip=ip, dns=dns)
         if port:
             query = query.filter_by(port=port)
         if hidden:
             query = query.filter_by(hidden=hidden)
-        [g.delete() for g in query.all()]
+        [g.delete() for g in db.session.execute(query).scalars().all()]
         db.session.commit()
 
 
 def run(dm: Dimensigon):
     # check if there is a dimension
-    result = dm.engine.execute(Dimension.__table__.select())
-    count = len(result.fetchall())
+    with dm.engine.connect() as conn:
+        result = conn.execute(Dimension.__table__.select())
+        count = len(result.fetchall())
     if count == 0:
         exit("No dimension created. Create or join to a dimension")
     try:
@@ -430,7 +431,7 @@ def run(dm: Dimensigon):
 def locker_list(dm: Dimensigon):
     dm.create_flask_instance()
     with dm.flask_app.app_context():
-        dprint([l.to_dict() for l in Locker.query.all()])
+        dprint([l.to_dict() for l in db.session.execute(select(Locker)).scalars().all()])
 
 
 def locker_action(dm, action: str, locks: t.List[str]):
@@ -444,7 +445,7 @@ def locker_action(dm, action: str, locks: t.List[str]):
     dm.create_flask_instance()
     with dm.flask_app.app_context():
         for lock in locks:
-            l = Locker.query.get(lock)
+            l = db.session.get(Locker, lock)
             l.disabled = True if action == 'disable' else False
         db.session.commit()
 

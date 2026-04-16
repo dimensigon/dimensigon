@@ -1,5 +1,7 @@
 import typing as t
 
+from sqlalchemy import select
+
 from dimensigon.domain.entities import User
 from dimensigon.domain.entities.base import DistributedEntityMixin, SoftDeleteMixin
 from dimensigon.utils.typos import UUID, Id
@@ -31,8 +33,9 @@ class Vault(DistributedEntityMixin, SoftDeleteMixin, db.Model):
     @classmethod
     def from_json(cls, kwargs):
         super().from_json(kwargs)
-        kwargs['user'] = User.query.get_or_raise(kwargs.pop('user_id', None))
-        o = cls.query.get((getattr(kwargs.get('user'), 'id'), kwargs.get('scope', 'global'), kwargs.get('name')))
+        from dimensigon.web.helpers import get_or_raise
+        kwargs['user'] = get_or_raise(User, kwargs.pop('user_id', None))
+        o = db.session.get(cls, (getattr(kwargs.get('user'), 'id'), kwargs.get('scope', 'global'), kwargs.get('name')))
         if o:
             for k, v in kwargs.items():
                 if getattr(o, k) != v:
@@ -47,7 +50,7 @@ class Vault(DistributedEntityMixin, SoftDeleteMixin, db.Model):
             user_id = user.id
         else:
             user_id = user
-        return {vault.name: vault.value for vault in cls.query.filter_by(user_id=user_id, scope=scope).all()}
+        return {vault.name: vault.value for vault in db.session.execute(select(cls).filter_by(user_id=user_id, scope=scope)).scalars().all()}
 
     def __str__(self):
         return f"Vault({self.user}:{self.scope}[{self.name}={self.value}])"

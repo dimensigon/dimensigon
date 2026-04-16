@@ -10,6 +10,7 @@ from prompt_toolkit.document import Document
 
 import dimensigon.dshell.network as ntwrk
 from dimensigon.dshell.argparse_raise import GuessArgumentParser, create_parser, DictAction
+from dimensigon.dshell.catalog import fuzzy_match, get_catalog
 from dimensigon.dshell.output import dprint
 from dimensigon.dshell.utils import get_raw_text
 from dimensigon.utils.helpers import is_iterable_not_string
@@ -367,6 +368,153 @@ class DshellCompleter(Completer):
         except Exception as e:
             dprint(e)
 
+
+class CatalogOrchNameCompleter(Completer):
+    """Completer for orchestration names using the local catalog cache with fuzzy matching."""
+
+    def get_completions(
+            self, document: Document, complete_event: CompleteEvent
+    ) -> Iterable[Completion]:
+        word = document.get_word_before_cursor(WORD=True)
+        try:
+            catalog = get_catalog()
+            names = catalog.get_orchestration_names()
+        except Exception:
+            return
+        matches = fuzzy_match(word, names)
+        for name in matches:
+            if name != word:
+                params = catalog.get_parameters(name)
+                desc = ''
+                if params.get('required'):
+                    desc = 'params: ' + ', '.join(str(r) for r in params['required'])
+                display_meta = HTML(desc) if desc else None
+                if " " in name:
+                    escaped = name.replace('"', '\\"')
+                    yield Completion(f'"{escaped}"', display=name, display_meta=display_meta)
+                else:
+                    yield Completion(name, -len(word), display_meta=display_meta)
+
+
+class CatalogParamCompleter(Completer):
+    """Completer for orchestration parameter names from the schema.
+
+    Designed to be used after an orchestration name has been resolved.
+    Provide ``orch_name`` when constructing, or call ``set_orch_name``
+    before completion.
+    """
+
+    def __init__(self, orch_name: str = None) -> None:
+        self._orch_name = orch_name
+
+    def set_orch_name(self, orch_name: str) -> None:
+        self._orch_name = orch_name
+
+    def get_completions(
+            self, document: Document, complete_event: CompleteEvent
+    ) -> Iterable[Completion]:
+        if not self._orch_name:
+            return
+        word = document.get_word_before_cursor(WORD=True)
+        try:
+            catalog = get_catalog()
+            params = catalog.get_parameters(self._orch_name)
+        except Exception:
+            return
+        # Collect parameter names from schema containers (input, required, etc.)
+        candidates = []
+        for key, value in params.items():
+            if key in ('required', 'output'):
+                if isinstance(value, (list, set)):
+                    candidates.extend(str(v) for v in value)
+            elif isinstance(value, dict):
+                candidates.extend(value.keys())
+        candidates = sorted(set(candidates))
+        matches = fuzzy_match(word, candidates)
+        for match in matches:
+            if match != word:
+                yield Completion(match, -len(word))
+
+
+class CatalogServerNameCompleter(Completer):
+    """Completer for server names using the local catalog cache with fuzzy matching."""
+
+    def get_completions(
+            self, document: Document, complete_event: CompleteEvent
+    ) -> Iterable[Completion]:
+        word = document.get_word_before_cursor(WORD=True)
+        try:
+            catalog = get_catalog()
+            names = catalog.get_server_names()
+        except Exception:
+            return
+        matches = fuzzy_match(word, names)
+        for name in matches:
+            if name != word:
+                if " " in name:
+                    escaped = name.replace('"', '\\"')
+                    yield Completion(f'"{escaped}"', display=name)
+                else:
+                    yield Completion(name, -len(word))
+
+
+class CatalogTargetCompleter(Completer):
+    """Completer for orchestration target fields.
+
+    Suggests target names from the orchestration schema and server names
+    as possible values.
+    """
+
+    def __init__(self, orch_name: str = None) -> None:
+        self._orch_name = orch_name
+
+    def set_orch_name(self, orch_name: str) -> None:
+        self._orch_name = orch_name
+
+    def get_completions(
+            self, document: Document, complete_event: CompleteEvent
+    ) -> Iterable[Completion]:
+        word = document.get_word_before_cursor(WORD=True)
+        try:
+            catalog = get_catalog()
+        except Exception:
+            return
+
+        # If the word contains '=', complete the value part with server names
+        if '=' in word:
+            _, partial_value = word.rsplit('=', 1)
+            server_names = catalog.get_server_names()
+            matches = fuzzy_match(partial_value, server_names)
+            for name in matches:
+                if name != partial_value:
+                    yield Completion(name, -len(partial_value))
+            return
+
+        # Otherwise, suggest target names (from orch schema) and server names
+        candidates = []
+        if self._orch_name:
+            targets = catalog.get_target_names(self._orch_name)
+            # Target names get '=' appended so the user can type the value
+            for t_name in targets:
+                if t_name != word:
+                    matches = fuzzy_match(word, [t_name])
+                    if matches:
+                        yield Completion(t_name + '=', -len(word), display=t_name,
+                                         display_meta=HTML('<i>target</i>'))
+
+        # Also suggest server names directly
+        server_names = catalog.get_server_names()
+        matches = fuzzy_match(word, server_names)
+        for name in matches:
+            if name != word:
+                yield Completion(name, -len(word), display_meta=HTML('<i>server</i>'))
+
+
+# Catalog-backed completer instances (fuzzy, offline)
+catalog_orch_name_completer = CatalogOrchNameCompleter()
+catalog_param_completer = CatalogParamCompleter()
+catalog_server_name_completer = CatalogServerNameCompleter()
+catalog_target_completer = CatalogTargetCompleter()
 
 server_name_completer = ResourceCompleter('api_1_0.serverlist', 'name')
 server_completer = ResourceCompleter('api_1_0.serverlist', meta_key='name')

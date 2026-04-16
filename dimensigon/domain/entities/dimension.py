@@ -3,6 +3,7 @@ from datetime import datetime
 
 import rsa
 from flask import has_app_context, current_app
+from sqlalchemy import select
 from sqlalchemy.orm.exc import NoResultFound
 
 from dimensigon import defaults
@@ -44,14 +45,35 @@ class Dimension(UUIDEntityMixin, EntityReprMixin, db.Model):
         if has_app_context():
             app = current_app._get_current_object()
             if app not in current:
-                entity = cls.query.filter_by(current=True).one()
+                entity = db.session.execute(select(cls).filter_by(current=True)).scalars().one()
                 if entity:
                     db.session.expunge(entity)
                     current[app] = entity
                 else:
                     raise NoResultFound('No row was found for one()')
             return db.session.merge(current[app], load=False)
-        return cls.query.filter_by(current=True).one()
+        return db.session.execute(select(cls).filter_by(current=True)).scalars().one()
+
+    @classmethod
+    def is_same_dimension(cls, source_server) -> bool:
+        """Check if a source server belongs to the current dimension.
+
+        For intra-dimension traffic, the securizer can be skipped in 'auto' mode.
+        Returns True if source is from the same dimension (or if we can't determine).
+        """
+        try:
+            # If source is a Server object with a known dimension, compare
+            # For now, all servers in the local DB are considered same-dimension
+            if source_server is None:
+                return True
+            from dimensigon.domain.entities import Server
+            if isinstance(source_server, Server):
+                return True  # Servers in our DB are in our dimension
+            # If it's a string (IP/ID), check if it's a known server
+            server = db.session.get(Server, source_server)
+            return server is not None
+        except Exception:
+            return True  # Default to same-dimension (safe fallback)
 
     def to_json(self):
         return {'id': str(self.id) if self.id else None, 'name': self.name,

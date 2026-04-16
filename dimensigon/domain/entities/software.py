@@ -29,11 +29,11 @@ class SoftwareServerAssociation(DistributedEntityMixin, SoftDeleteMixin, db.Mode
     @classmethod
     def from_json(cls, kwargs):
         kwargs = copy.deepcopy(kwargs)
-        kwargs['software'] = Software.query.get(kwargs.get('software_id'))
-        kwargs['server'] = Server.query.get(kwargs.get('server_id'))
+        kwargs['software'] = db.session.get(Software, kwargs.get('software_id'))
+        kwargs['server'] = db.session.get(Server, kwargs.get('server_id'))
         super().from_json(kwargs)
         try:
-            o = cls.query.get((kwargs['software_id'], kwargs['server_id']))
+            o = db.session.get(cls, (kwargs['software_id'], kwargs['server_id']))
         except RuntimeError as e:
             o = None
         if o:

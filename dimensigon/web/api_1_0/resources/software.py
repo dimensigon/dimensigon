@@ -6,9 +6,10 @@ from flask_restful import Resource
 
 from dimensigon.domain.entities import Software, Server, SoftwareServerAssociation
 from dimensigon.utils.helpers import md5
+from sqlalchemy import select, func
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dimensigon.web.helpers import filter_query, check_param_in_uri
+from dimensigon.web.helpers import filter_query, check_param_in_uri, get_or_raise
 from dimensigon.web.json_schemas import software_post, software_servers_put, software_servers_patch, \
     software_servers_delete
 
@@ -34,8 +35,8 @@ class SoftwareList(Resource):
     @securizer
     @forward_or_dispatch()
     def get(self):
-        query = filter_query(Software, request.args)
-        return [soft.to_json(servers=check_param_in_uri('servers'), no_delete=False) for soft in query.all()]
+        stmt = filter_query(Software, request.args)
+        return [soft.to_json(servers=check_param_in_uri('servers'), no_delete=False) for soft in db.session.execute(stmt).scalars().all()]
 
     @forward_or_dispatch()
     @jwt_required()
@@ -67,13 +68,13 @@ class SoftwareResource(Resource):
     @securizer
     @forward_or_dispatch()
     def get(self, software_id):
-        return Software.query.get_or_raise(software_id).to_json(no_delete=True)
+        return get_or_raise(Software, software_id).to_json(no_delete=True)
 
     @jwt_required()
     @securizer
     @forward_or_dispatch()
     def delete(self, software_id):
-        s = Software.query.get_or_raise(software_id)
+        s = get_or_raise(Software, software_id)
         s.delete()
         db.session.commit()
         return {}, 204
@@ -85,7 +86,7 @@ class SoftwareServersResource(Resource):
     @securizer
     @forward_or_dispatch()
     def get(self, software_id):
-        soft = Software.query.get_or_raise(software_id)
+        soft = get_or_raise(Software, software_id)
         return [ssa.server.to_json(no_delete=True) for ssa in soft.ssas]
 
     @forward_or_dispatch()
@@ -96,14 +97,14 @@ class SoftwareServersResource(Resource):
     def put(self, software_id):
         json = request.get_json()
 
-        soft = Software.query.get_or_raise(software_id)
+        soft = get_or_raise(Software, software_id)
 
         # delete all associations
         for ssa in soft.ssas:
             ssa.delete()
 
         for ssa_json in json:
-            server = Server.query.get_or_raise(ssa_json['server_id'])
+            server = get_or_raise(Server, ssa_json['server_id'])
             ssa = SoftwareServerAssociation(software=soft, server=server, path=ssa_json['path'])
             db.session.add(ssa)
 
@@ -118,8 +119,8 @@ class SoftwareServersResource(Resource):
     def patch(self, software_id):
         json = request.get_json()
 
-        soft = Software.query.get_or_raise(software_id)
-        server = Server.query.get_or_raise()
+        soft = get_or_raise(Software, software_id)
+        server = get_or_raise(Server, )
 
         ssa = set_software_server(soft, server, json['path'], recalculate_data=json.get('recalculate_data', False))
         db.session.add(ssa)
@@ -134,11 +135,16 @@ class SoftwareServersResource(Resource):
     def delete(self, software_id):
         data = request.get_json()
 
-        if Software.query.filter_by(id=software_id).count() == 0:
+        if db.session.execute(select(func.count()).select_from(Software).where(Software.id == software_id)).scalar() == 0:
             raise errors.EntityNotFound('Software', software_id)
 
         for server_id in data:
-            ssa = SoftwareServerAssociation.query.filter_by(software_id=software_id, server_id=server_id)
+            ssa = db.session.execute(
+                select(SoftwareServerAssociation).where(
+                    SoftwareServerAssociation.software_id == software_id,
+                    SoftwareServerAssociation.server_id == server_id
+                )
+            ).scalars().first()
             if not ssa:
                 raise errors.EntityNotFound('SoftwareServerAssociation', (software_id, server_id),
                                             ['software_id', 'server_id'])

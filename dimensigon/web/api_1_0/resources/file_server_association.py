@@ -7,7 +7,7 @@ from flask_restful import Resource
 from dimensigon.domain.entities import FileServerAssociation, File, Server
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import securizer, forward_or_dispatch, lock_catalog, validate_schema
-from dimensigon.web.helpers import filter_query, check_param_in_uri
+from dimensigon.web.helpers import filter_query, check_param_in_uri, get_or_raise
 from dimensigon.web.json_schemas import file_server_associations_post, file_server_associations_patch, \
     file_server_associations_delete
 
@@ -18,8 +18,8 @@ class FileServerAssociationList(Resource):
     @securizer
     @forward_or_dispatch()
     def get(self, file_id):
-        query = filter_query(FileServerAssociation, request.args).filter_by(file_id=file_id)
-        return [fsa.to_json(human=check_param_in_uri('human'), no_delete=True) for fsa in query.all()]
+        stmt = filter_query(FileServerAssociation, request.args).where(FileServerAssociation.file_id == file_id)
+        return [fsa.to_json(human=check_param_in_uri('human'), no_delete=True) for fsa in db.session.execute(stmt).scalars().all()]
 
     @jwt_required()
     @securizer
@@ -30,7 +30,7 @@ class FileServerAssociationList(Resource):
         destinations = request.get_json()
         if isinstance(destinations, dict):
             destinations = [destinations]
-        new_fsas = change_destinations(File.query.get_or_raise(file_id), destinations, action='add')
+        new_fsas = change_destinations(get_or_raise(File, file_id), destinations, action='add')
         new = [(fsa.file.id, fsa.destination_server.id) for fsa in new_fsas]
         db.session.commit()
         fs = current_app.dm.file_sync
@@ -47,7 +47,7 @@ class FileServerAssociationList(Resource):
         destinations = request.get_json()
         if isinstance(destinations, dict):
             destinations = [destinations]
-        new_fsas = change_destinations(File.query.get_or_raise(file_id), destinations)
+        new_fsas = change_destinations(get_or_raise(File, file_id), destinations)
         new = [(fsa.file.id, fsa.destination_server.id) for fsa in new_fsas]
         db.session.commit()
         fs = current_app.extensions.get('file_sync')
@@ -64,7 +64,7 @@ class FileServerAssociationList(Resource):
         destinations = request.get_json()
         if isinstance(destinations, dict):
             destinations = [destinations]
-        change_destinations(File.query.get_or_raise(file_id), destinations, action='delete')
+        change_destinations(get_or_raise(File, file_id), destinations, action='delete')
         db.session.commit()
         return {}, 204
 
@@ -86,7 +86,7 @@ def change_destinations(file: File, destinations: t.List, action: str = None):
         already_there = current.intersection(new)
         if already_there:
             raise errors.InvalidValue("destination servers already exist",
-                                      destinations=[{'id': ident, 'name': Server.query.get(ident).name} for ident
+                                      destinations=[{'id': ident, 'name': db.session.get(Server, ident).name} for ident
                                                     in already_there])
         to_add = new
     elif action == 'delete':
@@ -94,7 +94,7 @@ def change_destinations(file: File, destinations: t.List, action: str = None):
         not_there = new - current
         if not_there:
             raise errors.InvalidValue("destination servers do not exist",
-                                      destinations=[{'id': ident, 'name': Server.query.get(ident).name} for ident
+                                      destinations=[{'id': ident, 'name': db.session.get(Server, ident).name} for ident
                                                     in not_there])
         to_modify = []
         to_add = []
@@ -104,7 +104,7 @@ def change_destinations(file: File, destinations: t.List, action: str = None):
         to_add = new - current
 
     for dst_server_id in to_add:
-        s = Server.query.get_or_raise(dst_server_id)
+        s = get_or_raise(Server, dst_server_id)
         if s._me:
             raise errors.InvalidValue("Destination cannot be the same as the source server",
                                       source_server={'id': s.id, 'name': s.name})
@@ -114,13 +114,13 @@ def change_destinations(file: File, destinations: t.List, action: str = None):
         db.session.add(fsa)
         new_fsas.append(fsa)
     for dst_server_id in to_modify:
-        s = Server.query.get_or_raise(dst_server_id)
+        s = get_or_raise(Server, dst_server_id)
         curr_dest = [d for d in file.destinations if d.dst_server_id == dst_server_id][0]
         in_dest = [d for d in destinations if d['dst_server_id'] == dst_server_id][0]
         if curr_dest.dest_folder != in_dest.get('dest_folder', None):
             curr_dest.dest_folder = in_dest.get('dest_folder', None)
     for dst_server_id in to_remove:
-        s = Server.query.get_or_raise(dst_server_id)
+        s = get_or_raise(Server, dst_server_id)
         dest = [d for d in file.destinations if d.dst_server_id == dst_server_id]
         if dest:
             db.session.delete(dest[0])

@@ -3,6 +3,8 @@ import os
 import sys
 import typing as t
 
+from sqlalchemy import select
+
 from dimensigon.domain.entities import Server
 from dimensigon.domain.entities.base import UUIDistributedEntityMixin, SoftDeleteMixin, DistributedEntityMixin
 from dimensigon.utils import typos
@@ -57,11 +59,12 @@ class FileServerAssociation(DistributedEntityMixin, SoftDeleteMixin, db.Model):
     @classmethod
     def from_json(cls, kwargs) -> 'FileServerAssociation':
         kwargs = copy.deepcopy(kwargs)
-        kwargs['file'] = File.query.get_or_raise(kwargs.get('file_id'))
-        kwargs['destination_server'] = Server.query.get_or_raise(kwargs.get('dst_server_id'))
+        from dimensigon.web.helpers import get_or_raise
+        kwargs['file'] = get_or_raise(File, kwargs.get('file_id'))
+        kwargs['destination_server'] = get_or_raise(Server, kwargs.get('dst_server_id'))
         super().from_json(kwargs)
         try:
-            o = cls.query.get((kwargs['file_id'], kwargs['dst_server_id']))
+            o = db.session.get(cls, (kwargs['file_id'], kwargs['dst_server_id']))
         except RuntimeError as e:
             o = None
         if o:
@@ -104,14 +107,14 @@ class File(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
             elif isinstance(ds, dict):
 
                 dest.append(
-                    FileServerAssociation(file=self, destination_server=Server.query.get(ds.get('dst_server_id')),
+                    FileServerAssociation(file=self, destination_server=db.session.get(Server, ds.get('dst_server_id')),
                                           dest_folder=ds.get('dest_folder')))
             elif isinstance(ds, tuple):
                 if isinstance(ds[0], Server):
                     dest.append(FileServerAssociation(file=self, destination_server=ds[0], dest_folder=ds[1]))
                 else:
                     dest.append(
-                        FileServerAssociation(file=self, destination_server=Server.query.get(ds[0]), dest_folder=ds[1]))
+                        FileServerAssociation(file=self, destination_server=db.session.get(Server, ds[0]), dest_folder=ds[1]))
         self.destinations = dest
 
     def __str__(self):
@@ -147,7 +150,8 @@ class File(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
     @classmethod
     def from_json(cls, kwargs) -> 'File':
         kwargs = copy.deepcopy(kwargs)
-        kwargs['source_server'] = Server.query.get_or_raise(kwargs.pop('src_server_id'))
+        from dimensigon.web.helpers import get_or_raise
+        kwargs['source_server'] = get_or_raise(Server, kwargs.pop('src_server_id'))
         return super().from_json(kwargs)
 
     def delete(self):

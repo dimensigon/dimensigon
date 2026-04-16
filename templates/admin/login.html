@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - DM-WebManager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg-dark: #0a0118;
+            --bg-darker: #050010;
+            --purple-neon: #b084ff;
+            --purple-deep: #4c2889;
+            --purple-darker: #2d1552;
+            --purple-light: #d4b3ff;
+            --cyan-neon: #00ffff;
+            --pink-neon: #ff00ff;
+            --text-primary: #e5e7eb;
+            --text-secondary: #9ca3af;
+            --border-neon: rgba(176, 132, 255, 0.3);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, var(--bg-darker) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-container {
+            width: 100%;
+            max-width: 420px;
+            padding: 20px;
+        }
+
+        .login-card {
+            background: linear-gradient(135deg, rgba(45, 21, 82, 0.6) 0%, rgba(10, 1, 24, 0.8) 100%);
+            border: 1px solid var(--border-neon);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 40px rgba(176, 132, 255, 0.15);
+            backdrop-filter: blur(10px);
+        }
+
+        .login-logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .login-logo h1 {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 1.5rem;
+            background: linear-gradient(135deg, var(--purple-neon) 0%, var(--cyan-neon) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 5px;
+        }
+
+        .login-logo .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .form-control {
+            background: rgba(10, 1, 24, 0.6);
+            border: 1px solid var(--border-neon);
+            color: var(--text-primary);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            background: rgba(10, 1, 24, 0.8);
+            border-color: var(--purple-neon);
+            box-shadow: 0 0 15px rgba(176, 132, 255, 0.3);
+            color: var(--text-primary);
+        }
+
+        .form-control::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .form-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .btn-login {
+            background: linear-gradient(135deg, var(--purple-deep) 0%, var(--purple-darker) 100%);
+            border: 1px solid var(--purple-neon);
+            color: var(--purple-light);
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: 600;
+            width: 100%;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .btn-login:hover {
+            background: linear-gradient(135deg, var(--purple-neon) 0%, var(--purple-deep) 100%);
+            color: white;
+            box-shadow: 0 0 25px rgba(176, 132, 255, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn-login:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .alert-error {
+            background: rgba(220, 38, 38, 0.15);
+            border: 1px solid rgba(220, 38, 38, 0.4);
+            color: #fca5a5;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .input-icon {
+            position: relative;
+        }
+
+        .input-icon i {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+        }
+
+        .input-icon .form-control {
+            padding-left: 42px;
+        }
+
+        .spinner-border-sm {
+            width: 1rem;
+            height: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-logo">
+                <h1><i class="bi bi-hdd-network"></i> DM-WebManager</h1>
+                <div class="subtitle">Dimensigon Administration</div>
+            </div>
+
+            <div id="error-alert" class="alert-error mb-3">
+                <i class="bi bi-exclamation-triangle"></i>
+                <span id="error-message"></span>
+            </div>
+
+            <form id="login-form" onsubmit="handleLogin(event)">
+                <div class="mb-3">
+                    <label for="username" class="form-label">Username</label>
+                    <div class="input-icon">
+                        <i class="bi bi-person"></i>
+                        <input type="text" class="form-control" id="username"
+                               placeholder="Enter username" required autocomplete="username" autofocus>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label for="password" class="form-label">Password</label>
+                    <div class="input-icon">
+                        <i class="bi bi-lock"></i>
+                        <input type="password" class="form-control" id="password"
+                               placeholder="Enter password" required autocomplete="current-password">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-login" id="login-btn">
+                    <span id="btn-text">Sign In</span>
+                    <span id="btn-spinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        async function handleLogin(e) {
+            e.preventDefault();
+
+            const btn = document.getElementById('login-btn');
+            const btnText = document.getElementById('btn-text');
+            const spinner = document.getElementById('btn-spinner');
+            const errorAlert = document.getElementById('error-alert');
+            const errorMessage = document.getElementById('error-message');
+
+            btn.disabled = true;
+            btnText.textContent = 'Signing in...';
+            spinner.classList.remove('d-none');
+            errorAlert.style.display = 'none';
+
+            try {
+                const resp = await fetch('/dm-webmanager/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('username').value,
+                        password: document.getElementById('password').value
+                    })
+                });
+
+                const data = await resp.json();
+
+                if (resp.ok) {
+                    // Cookies are set by the server; redirect to dashboard
+                    const next = new URLSearchParams(window.location.search).get('next');
+                    window.location.href = next || '/dm-webmanager/';
+                } else {
+                    errorMessage.textContent = data.error || 'Login failed';
+                    errorAlert.style.display = 'block';
+                }
+            } catch (err) {
+                errorMessage.textContent = 'Connection error. Please try again.';
+                errorAlert.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btnText.textContent = 'Sign In';
+                spinner.classList.add('d-none');
+            }
+        }
+    </script>
+</body>
+</html>

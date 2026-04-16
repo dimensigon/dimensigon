@@ -34,7 +34,7 @@ class Locker(db.Model):
             session = db.session
 
         for scope in Scope:
-            l = session.query(cls).get(scope)
+            l = session.get(cls, scope)
             if not l:
                 l = cls(scope=scope, state=State.UNLOCKED)
                 session.add(l)

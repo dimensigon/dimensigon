@@ -17,6 +17,18 @@ class Config(object):
     PROPAGATE_EXCEPTIONS = False
 
     JWT_DECODE_LEEWAY = 15
+    JWT_ACCESS_TOKEN_EXPIRES = 28800  # 8 hours
+    JWT_REFRESH_TOKEN_EXPIRES = 2592000  # 30 days
+    JWT_TOKEN_LOCATION = ['headers', 'cookies']
+    JWT_COOKIE_SECURE = True
+    JWT_COOKIE_CSRF_PROTECT = True
+    JWT_COOKIE_SAMESITE = 'Lax'
+
+    # Container-native environment variable mappings
+    DISCOVERY_DNS = os.environ.get('DM_DISCOVERY_DNS')
+    AUTO_JOIN = os.environ.get('DM_AUTO_JOIN', 'true').lower() == 'true'
+    NODE_NAME = os.environ.get('DM_NODE_NAME')
+    GRACEFUL_SHUTDOWN_TIMEOUT = int(os.environ.get('DM_GRACEFUL_SHUTDOWN_TIMEOUT', '30'))
 
     # executor
     EXECUTOR_MAX_WORKERS = min(32, os.cpu_count() + 4)
@@ -26,7 +38,11 @@ class Config(object):
     PREFERRED_URL_SCHEME = 'https'  # scheme used to communicate with servers
     SECURIZER = True
     SECURIZER_PLAIN = True
+    SECURIZER_MODE = 'auto'  # 'auto' (default), 'always', or 'never'
     SCHEDULER = True
+
+    # AI chat assistant
+    DM_AI_ENABLED = os.environ.get('DM_AI_ENABLED', 'false').lower() == 'true'
 
     @classmethod
     def init_app(cls, app):
@@ -103,6 +119,8 @@ class TestingConfig(Config):
     PREFERRED_URL_SCHEME = 'http'
     SECURIZER = False
     DEBUG = False
+    JWT_COOKIE_SECURE = False
+    JWT_COOKIE_CSRF_PROTECT = False
 
     @classmethod
     def init_app(cls, app):

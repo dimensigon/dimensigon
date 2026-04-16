@@ -437,12 +437,12 @@ class Step(UUIDistributedEntityMixin, db.Model):
         kwargs = dict(kwargs)
         if 'orchestration_id' in kwargs:
             ident = kwargs.pop('orchestration_id')
-            kwargs['orchestration'] = db.session.query(Orchestration).get(ident)
+            kwargs['orchestration'] = db.session.get(Orchestration, ident)
             if kwargs['orchestration'] is None:
                 raise errors.EntityNotFound('Orchestration', ident=ident)
         if 'action_template_id' in kwargs:
             ident = kwargs.pop('action_template_id')
-            kwargs['action_template'] = db.session.query(ActionTemplate).get(ident)
+            kwargs['action_template'] = db.session.get(ActionTemplate, ident)
             if kwargs['action_template'] is None:
                 raise errors.EntityNotFound('ActionTemplate', ident=ident)
         if 'action_type' in kwargs:
@@ -451,7 +451,7 @@ class Step(UUIDistributedEntityMixin, db.Model):
             kwargs['created_on'] = datetime.datetime.strptime(kwargs['created_on'], defaults.DATETIME_FORMAT)
         kwargs['parent_steps'] = []
         for parent_step_id in kwargs.pop('parent_step_ids', []):
-            ps = Step.query.get(parent_step_id)
+            ps = db.session.get(Step, parent_step_id)
             if ps:
                 kwargs['parent_steps'].append(ps)
             else:

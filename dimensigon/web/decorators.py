@@ -14,6 +14,8 @@ from flask_jwt_extended import get_jwt
 from jsonschema import validate
 
 from dimensigon import defaults
+from sqlalchemy import select
+
 from dimensigon.domain.entities import Server, Scope, User, Locker, State, Gate
 from dimensigon.network.exceptions import NotValidMessage
 from dimensigon.use_cases.lock import lock_scope
@@ -86,7 +88,7 @@ def save_if_hidden_ip(remote_addr: str, server: Server):
 
 def _proxy_request(request: 'flask.Request', destination: Server, verify=False) -> requests.Response:
     url = destination.url() + request.full_path
-    req_data = request.get_json()
+    req_data = request.get_json(silent=True)
 
     if request.path == '/ping':
         server_data = {'id': str(g.server.id), 'name': g.server.name,
@@ -126,13 +128,13 @@ def set_source():
         proxies = proxies.strip(':')
         source = None
         if source_id:
-            source = Server.query.get(source_id)
+            source = db.session.get(Server, source_id)
         # check hidden ip on server
         if proxies:
             lp = proxies.split(':')
             neighbour = None
             if lp[-1]:
-                neighbour = Server.query.get(lp[-1])
+                neighbour = db.session.get(Server, lp[-1])
             if neighbour:
                 save_if_hidden_ip(request.remote_addr, neighbour)
         if not source:
@@ -141,8 +143,8 @@ def set_source():
             save_if_hidden_ip(request.remote_addr, source)
 
         if not isinstance(source, Server):
-            servers = db.session.query(Server).filter_by(deleted=False).join(Gate.server).filter(
-                Gate.ip == source).all()
+            servers = db.session.execute(select(Server).filter_by(deleted=False).join(Gate.server).where(
+                Gate.ip == source)).scalars().all()
             if len(servers) == 1:
                 source = servers[0]
 
@@ -162,12 +164,12 @@ def forward_or_dispatch(*methods):
             else:
                 # Get information from content
                 # Code Compatibility. Use D-Destination header instead
-                data = request.get_json()
+                data = request.get_json(silent=True)
                 if data is not None and 'destination' in data:
                     destination_id = data.get('destination')
 
             if destination_id and destination_id != str(g.server.id) and (not methods or request.method in methods):
-                destination: Server = Server.query.get(destination_id)
+                destination: Server = db.session.get(Server, destination_id)
                 if destination is None:
                     return errors.format_error_response(errors.EntityNotFound('Server', destination_id))
                 try:
@@ -191,23 +193,59 @@ def forward_or_dispatch(*methods):
     return inner
 
 
+def _should_encrypt(securizer_method):
+    """Determine if encryption should be applied based on SECURIZER_MODE config.
+
+    Modes:
+        'never'  - skip securizer entirely (dev/test)
+        'always' - encrypt everything (legacy behavior)
+        'auto'   - plain for intra-dimension, encrypted for cross-dimension
+    """
+    mode = current_app.config.get('SECURIZER_MODE', 'auto')
+
+    if mode == 'never':
+        dm_logger.debug("Securizer skipped: mode=never")
+        return False
+
+    if mode == 'always':
+        if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
+            return False
+        return current_app.config.get('SECURIZER', False)
+
+    # mode == 'auto': check if source is from same dimension
+    if securizer_method == 'plain':
+        return False
+
+    from dimensigon.domain.entities.dimension import Dimension
+    source = getattr(g, 'source', None)
+    if Dimension.is_same_dimension(source):
+        dm_logger.debug("Securizer skipped: intra-dimension traffic (mode=auto)")
+        return False
+
+    dm_logger.debug("Securizer applied: cross-dimension traffic (mode=auto)")
+    return current_app.config.get('SECURIZER', False)
+
+
 def securizer(func):
     from flask import request
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
 
-        # cipher_key = session.get('cipher_key', None)
         cipher_key = None
         securizer_method = None
+        temp_pub_key = None
 
         if 'D-Securizer' in request.headers:
             securizer_method = request.headers.get('D-Securizer')
-            if securizer_method == 'plain' and not current_app.config.get('SECURIZER_PLAIN', False):
+            mode = current_app.config.get('SECURIZER_MODE', 'auto')
+            if securizer_method == 'plain' and mode == 'always' and not current_app.config.get('SECURIZER_PLAIN', False):
                 return {'error': 'plain data is not allowed'}, 406
+
+        should_encrypt = _should_encrypt(securizer_method)
 
         if request.method != 'GET':
             if request.is_json:
-                if current_app.config.get('SECURIZER', False) and securizer_method != 'plain':
+                if should_encrypt:
                     g.original_json = request.get_json()
                     cipher_key = base64.b64decode(
                         request.get_json().get('key')) if 'key' in request.get_json() else cipher_key
@@ -229,7 +267,6 @@ def securizer(func):
                     request._cached_data = json.dumps(data)
                     request._cached_json = (data, data)
 
-
             else:
                 if request.data:
                     return {'error': 'Content Type must be application/json'}, 400
@@ -247,21 +284,15 @@ def securizer(func):
             return rv
 
         if isinstance(rv, dict):
-
-            if request.path == url_for('api_1_0.join'):
+            if request.path == url_for('api_1_0.join') and temp_pub_key:
                 rv = ntwrk.pack_msg2(data=rv, pub_key=temp_pub_key,
                                      priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
                                      cipher_key=cipher_key)
-            else:
-                if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
-                    pass
-                else:
-                    rv = ntwrk.pack_msg(data=rv)
+            elif should_encrypt:
+                rv = ntwrk.pack_msg(data=rv)
 
         if isinstance(rv, list):
-            if securizer_method == 'plain' and current_app.config.get('SECURIZER_PLAIN', False):
-                pass
-            else:
+            if should_encrypt:
                 rv = ntwrk.pack_msg(data=rv)
 
         if rest:
@@ -278,7 +309,7 @@ def validate_schema(schema_name=None, **methods):
         def wrapper(*args, **kw):
             schema = methods.get(request.method.upper()) or methods.get(request.method.lower()) or schema_name
             if schema:
-                validate(request.get_json(), schema)
+                validate(request.get_json(silent=True), schema)
             return f(*args, **kw)
 
         return wrapper
@@ -293,7 +324,7 @@ def lock_catalog(f):
         claims = get_jwt()
         if claims:
             if claims.get('applicant'):
-                locker = Locker.query.get(Scope.CATALOG)
+                locker = db.session.get(Locker, Scope.CATALOG)
                 if locker.state == State.LOCKED and locker.applicant == claims.get('applicant'):
                     try:
                         ret = f(*args, **kw)
@@ -360,6 +391,44 @@ def run_as(username: str):
 
         return wrapper
 
+    return decorator
+
+
+def audit_log(action, resource_type=None):
+    """Decorator to log user actions to the audit trail."""
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            result = f(*args, **kwargs)
+            try:
+                from dimensigon.domain.entities.audit import AuditEntry
+                from flask import request, g
+                from flask_jwt_extended import get_jwt_identity
+
+                user_id = None
+                try:
+                    identity = get_jwt_identity()
+                    if identity:
+                        user_id = str(identity)
+                except Exception:
+                    pass
+
+                entry = AuditEntry(
+                    user_id=user_id,
+                    username=getattr(getattr(g, 'current_user', None), 'name', None),
+                    action=action,
+                    resource_type=resource_type,
+                    resource_id=kwargs.get('orchestration_id') or kwargs.get('server_id') or kwargs.get('user_id'),
+                    details={'method': request.method, 'path': request.path},
+                    ip_address=request.remote_addr,
+                    user_agent=str(request.user_agent),
+                )
+                db.session.add(entry)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()  # Rollback to clean session state
+            return result
+        return wrapper
     return decorator
 
 

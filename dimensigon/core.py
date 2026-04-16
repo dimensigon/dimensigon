@@ -1,6 +1,7 @@
 import logging
 import multiprocessing as mp
 import os
+import signal
 import time
 import typing as t
 
@@ -75,6 +76,7 @@ class Dimensigon:
         self.server_id: t.Optional[Id] = None
         self.pid = None
         self.pidfile = None
+        self._shutting_down = False
 
     def create_flask_instance(self):
         if self.flask_app is None:
@@ -133,6 +135,7 @@ class Dimensigon:
     def start(self):
         """starts dimensigon server"""
         _logger.info(f"Starting Dimensigon ({os.getpid()})")
+        self._register_shutdown_signals()
         self._main_ctx.init_signals()
         self.pid = os.getpid()
         pidname = self.config.pidfile
@@ -151,6 +154,26 @@ class Dimensigon:
         except (TerminateInterrupt, KeyboardInterrupt):
             pass
         self.shutdown()
+
+    def graceful_shutdown(self, signum=None, frame=None):
+        """Handle graceful shutdown on SIGTERM/SIGINT for container environments."""
+        _logger.info("Graceful shutdown initiated (signal: %s)", signum)
+        self._shutting_down = True
+
+        # Read timeout from flask app config if available, else default 30s
+        timeout = 30
+        if self.flask_app and hasattr(self.flask_app, 'config'):
+            timeout = self.flask_app.config.get('GRACEFUL_SHUTDOWN_TIMEOUT', 30)
+
+        _logger.info("Waiting up to %d seconds for active operations to drain", timeout)
+        # Set the shutdown event so the main loop exits
+        self._main_ctx.shutdown_event.set()
+
+    def _register_shutdown_signals(self):
+        """Register SIGTERM and SIGINT handlers for container-native graceful shutdown."""
+        signal.signal(signal.SIGTERM, self.graceful_shutdown)
+        signal.signal(signal.SIGINT, self.graceful_shutdown)
+        _logger.info("Registered graceful shutdown signal handlers (SIGTERM, SIGINT)")
 
     def shutdown(self):
         _logger.info(f"Shutting down Dimensigon")

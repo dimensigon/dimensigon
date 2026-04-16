@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  dm30-frontend:
+    build: .
+    container_name: dm30-frontend
+    restart: unless-stopped
+    networks:
+      - management-network
+
+networks:
+  management-network:
+    external: true

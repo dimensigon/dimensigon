@@ -8,7 +8,7 @@ import dimensigon
 from dimensigon import defaults
 from dimensigon.domain.entities import Server, Catalog, User
 from dimensigon.utils.helpers import get_now
-from dimensigon.web import errors
+from dimensigon.web import db, errors
 from dimensigon.web.decorators import forward_or_dispatch, validate_schema, securizer
 from dimensigon.web.helpers import check_param_in_uri
 from dimensigon.web.json_schemas import login_post, healthcheck_post
@@ -53,9 +53,9 @@ def healthcheck():
         server = g.server.name
         neighbours = sorted([s.name for s in Server.get_neighbours()])
         cluster = {'alive': sorted(
-            [getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_alive()]),
+            [getattr(db.session.get(Server, i), 'name', i) for i in current_app.dm.cluster_manager.get_alive()]),
             'in_coma': sorted(
-                [getattr(Server.query.get(i), 'name', i) for i in current_app.dm.cluster_manager.get_zombies()])}
+                [getattr(db.session.get(Server, i), 'name', i) for i in current_app.dm.cluster_manager.get_zombies()])}
     data.update(server=server, neighbours=neighbours, cluster=cluster,
                 now=get_now().strftime(defaults.DATETIME_FORMAT))
 
@@ -100,7 +100,7 @@ def login():
 @forward_or_dispatch()
 @jwt_required(refresh=True)
 def refresh():
-    user = User.query.get(get_jwt_identity())
+    user = db.session.get(User, get_jwt_identity())
     ret = {
         'username': getattr(user, 'name', None),
         'access_token': create_access_token(identity=get_jwt_identity(), fresh=False)

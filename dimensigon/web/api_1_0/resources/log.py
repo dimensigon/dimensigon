@@ -12,7 +12,7 @@ from dimensigon.domain.entities.log import Mode
 from dimensigon.utils.helpers import clean_string
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import forward_or_dispatch, securizer, validate_schema, lock_catalog
-from dimensigon.web.helpers import filter_query, check_param_in_uri
+from dimensigon.web.helpers import filter_query, check_param_in_uri, get_or_raise
 from dimensigon.web.json_schemas import log_post, logs_post, log_patch
 
 
@@ -22,8 +22,8 @@ class LogList(Resource):
     @securizer
     @forward_or_dispatch()
     def get(self):
-        query = filter_query(Log, request.args)
-        return [log.to_json(human=check_param_in_uri('human'), delete_data=False) for log in query.all()]
+        stmt = filter_query(Log, request.args)
+        return [log.to_json(human=check_param_in_uri('human'), delete_data=False) for log in db.session.execute(stmt).scalars().all()]
 
     @forward_or_dispatch()
     @jwt_required()
@@ -32,8 +32,8 @@ class LogList(Resource):
     @lock_catalog
     def post(self):
         data = request.get_json()
-        source_server = Server.query.get_or_raise(data.pop('src_server_id'))
-        destination_server = Server.query.get_or_raise(data.pop('dst_server_id'))
+        source_server = get_or_raise(Server, data.pop('src_server_id'))
+        destination_server = get_or_raise(Server, data.pop('dst_server_id'))
         if source_server == destination_server:
             return {'error': 'source and destination must be different'}, 400
         if 'mode' in data:
@@ -53,14 +53,14 @@ class LogResource(Resource):
     @securizer
     @forward_or_dispatch()
     def get(self, log_id):
-        return Log.query.get_or_raise(log_id).to_json()
+        return get_or_raise(Log, log_id).to_json()
 
     @jwt_required()
     @securizer
     @forward_or_dispatch()
     @validate_schema(log_post)
     def post(self, log_id):
-        log = Log.query.get_or_raise(log_id)
+        log = get_or_raise(Log, log_id)
         data = request.get_json()
         file = data.get('file')
         if log.mode in (Mode.REPO_MIRROR, Mode.REPO_ROOT):
@@ -91,7 +91,7 @@ class LogResource(Resource):
     @validate_schema(log_patch)
     @lock_catalog
     def patch(self, log_id):
-        log = Log.query.get_or_raise(log_id)
+        log = get_or_raise(Log, log_id)
         data = request.get_json()
         if 'include' in data and log.include != data.get('include'):
             log.include = data.get('include')
@@ -118,7 +118,7 @@ class LogResource(Resource):
     @forward_or_dispatch()
     @lock_catalog
     def delete(self, log_id):
-        log = Log.query.get_or_raise(log_id)
+        log = get_or_raise(Log, log_id)
         log.delete()
         db.session.commit()
         return {}, 204

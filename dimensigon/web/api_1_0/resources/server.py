@@ -5,7 +5,7 @@ from flask_restful import Resource
 from dimensigon.domain.entities import Server
 from dimensigon.web import errors, db
 from dimensigon.web.decorators import securizer, forward_or_dispatch, lock_catalog, validate_schema
-from dimensigon.web.helpers import filter_query, check_param_in_uri
+from dimensigon.web.helpers import filter_query, check_param_in_uri, get_or_raise
 from dimensigon.web.json_schemas import server_patch, servers_delete
 
 
@@ -15,12 +15,12 @@ class ServerList(Resource):
     @jwt_required()
     @securizer
     def get(self):
-        query = filter_query(Server, request.args)
+        stmt = filter_query(Server, request.args)
         return [s.to_json(add_gates=check_param_in_uri('gates'),
                           human=check_param_in_uri('human'),
                           no_delete=True,
                           add_ignore=True) for s in
-                query.all()]
+                db.session.execute(stmt).scalars().all()]
 
     @forward_or_dispatch()
     @jwt_required()
@@ -28,7 +28,7 @@ class ServerList(Resource):
     @validate_schema(servers_delete)
     @lock_catalog
     def delete(self):
-        servers = [Server.query.get_or_raise(s_id) for s_id in request.get_json()['server_ids']]
+        servers = [get_or_raise(Server, s_id) for s_id in request.get_json()['server_ids']]
         for server in servers:
             if server == g.server:
                 raise errors.ServerDeleteError
@@ -46,7 +46,7 @@ class ServerResource(Resource):
     @jwt_required()
     @securizer
     def get(self, server_id):
-        return Server.query.get_or_raise(server_id).to_json(add_gates=check_param_in_uri('gates'),
+        return get_or_raise(Server, server_id).to_json(add_gates=check_param_in_uri('gates'),
                                                             human=check_param_in_uri('human'),
                                                             no_delete=True,
                                                             add_ignore=True)
@@ -60,7 +60,7 @@ class ServerResource(Resource):
         json_data = request.get_json()
         resp_data = {}
 
-        server = Server.query.get_or_raise(server_id)
+        server = get_or_raise(Server, server_id)
         if 'all' in json_data.get('granules', []):
             raise errors.KeywordReserved("'all' is a reserved granule")
 
@@ -90,7 +90,7 @@ class ServerResource(Resource):
     @securizer
     @lock_catalog
     def delete(self, server_id):
-        server = Server.query.get_or_raise(server_id)
+        server = get_or_raise(Server, server_id)
         if server == g.server:
             raise errors.ServerDeleteError
         # remove associated routes

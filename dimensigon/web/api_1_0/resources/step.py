@@ -7,7 +7,7 @@ from flask_restful import Resource
 from dimensigon.domain.entities import Step, Orchestration, ActionTemplate, ActionType
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema, lock_catalog
-from dimensigon.web.helpers import filter_query, check_param_in_uri
+from dimensigon.web.helpers import filter_query, check_param_in_uri, get_or_raise
 from dimensigon.web.json_schemas import step_post, step_put, step_patch
 
 
@@ -17,8 +17,8 @@ class StepList(Resource):
     @jwt_required()
     @securizer
     def get(self):
-        query = filter_query(Step, request.args)
-        return [s.to_json(split_lines=check_param_in_uri('split_lines')) for s in query.all()]
+        stmt = filter_query(Step, request.args)
+        return [s.to_json(split_lines=check_param_in_uri('split_lines')) for s in db.session.execute(stmt).scalars().all()]
 
     @forward_or_dispatch()
     @jwt_required()
@@ -39,11 +39,11 @@ class StepList(Resource):
             if rid is not None and rid in rid2step.keys():
                 raise errors.DuplicatedId(rid)
             if o is None or str(o.id) != json_step.get('orchestration_id'):
-                o = Orchestration.query.get_or_raise(json_step.pop('orchestration_id'))
+                o = get_or_raise(Orchestration, json_step.pop('orchestration_id'))
             else:
                 json_step.pop('orchestration_id')
             if 'action_template_id' in json_step:
-                json_step['action_template'] = ActionTemplate.query.get_or_raise(json_step.pop('action_template_id'))
+                json_step['action_template'] = get_or_raise(ActionTemplate, json_step.pop('action_template_id'))
             elif 'action_type' in json_step:
                 json_step['action_type'] = ActionType[json_step.pop('action_type')]
             dep = {'parent_step_ids': json_step.pop('parent_step_ids', []),
@@ -69,14 +69,14 @@ class StepList(Resource):
                 if p_s_id in rid2step:
                     parents.append(rid2step[p_s_id])
                 else:
-                    parents.append(Step.query.get_or_raise(p_s_id))
+                    parents.append(get_or_raise(Step, p_s_id))
             o.set_parents(step, parents)
             children = []
             for c_s_id in dep['children_step_ids']:
                 if c_s_id in rid2step:
                     children.append(rid2step[c_s_id])
                 else:
-                    children.append(Step.query.get_or_raise(c_s_id))
+                    children.append(get_or_raise(Step, c_s_id))
             o.set_children(step, children)
 
         db.session.commit()
@@ -89,7 +89,7 @@ class StepResource(Resource):
     @jwt_required()
     @securizer
     def get(self, step_id):
-        return Step.query.get_or_raise(step_id).to_json(split_lines=check_param_in_uri('split_lines'))
+        return get_or_raise(Step, step_id).to_json(split_lines=check_param_in_uri('split_lines'))
 
     @forward_or_dispatch()
     @jwt_required()
@@ -97,10 +97,10 @@ class StepResource(Resource):
     @validate_schema(step_put)
     @lock_catalog
     def put(self, step_id):
-        s: Step = Step.query.get_or_raise(step_id)
+        s: Step = get_or_raise(Step, step_id)
         json_data = request.get_json()
         s.undo = json_data.pop('undo')
-        s.action_template = ActionTemplate.query.get_or_raise(json_data.pop('action_template_id'))
+        s.action_template = get_or_raise(ActionTemplate, json_data.pop('action_template_id'))
         # remove dependencies
         s.orchestration.set_parents(s, [])
         s.orchestration.set_children(s, [])
@@ -108,14 +108,14 @@ class StepResource(Resource):
         parent_step_ids = json_data.pop('parent_step_ids', [])
         parent_steps = []
         for parent_step_id in parent_step_ids:
-            cs = Step.query.get_or_raise(parent_step_id)
+            cs = get_or_raise(Step, parent_step_id)
             parent_steps.append(cs)
             s.orchestration.set_parents(s, parent_steps)
 
         children_step_ids = json_data.pop('children_step_ids', [])
         children_steps = []
         for children_step_id in children_step_ids:
-            cs = Step.query.get_or_raise(children_step_id)
+            cs = get_or_raise(Step, children_step_id)
             children_steps.append(cs)
             s.orchestration.set_children(s, children_steps)
 
@@ -155,24 +155,24 @@ class StepResource(Resource):
     @validate_schema(step_patch)
     @lock_catalog
     def patch(self, step_id):
-        s: Step = Step.query.get_or_raise(step_id)
+        s: Step = get_or_raise(Step, step_id)
         json_data = request.get_json()
         if 'undo' in json_data:
             s.undo = json_data.pop('undo')
         if 'action_template_id' in json_data:
-            s.action_template = ActionTemplate.query.get_or_raise(json_data.pop('action_template_id'))
+            s.action_template = get_or_raise(ActionTemplate, json_data.pop('action_template_id'))
         if 'parent_step_ids' in json_data:
             parent_step_ids = json_data.pop('parent_step_ids')
             parent_steps = []
             for parent_step_id in parent_step_ids:
-                ps = Step.query.get_or_raise(parent_step_id)
+                ps = get_or_raise(Step, parent_step_id)
                 parent_steps.append(ps)
                 s.orchestration.add_parents(s, parent_steps)
         if 'children_step_ids' in json_data:
             children_step_ids = json_data.pop('children_step_ids')
             children_steps = []
             for children_step_id in children_step_ids:
-                cs = Step.query.get_or_raise(children_step_id)
+                cs = get_or_raise(Step, children_step_id)
                 children_steps.append(cs)
                 s.orchestration.add_children(s, children_steps)
 
@@ -208,7 +208,7 @@ class StepResource(Resource):
     @securizer
     @lock_catalog
     def delete(self, step_id):
-        s: Step = Step.query.get_or_raise(step_id)
+        s: Step = get_or_raise(Step, step_id)
         s.orchestration.delete_step(s)
 
         db.session.delete(s)

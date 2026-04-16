@@ -1,6 +1,8 @@
 import typing as t
 from datetime import datetime
 
+from sqlalchemy import select
+
 from dimensigon import defaults
 from dimensigon.utils.typos import UtcDateTime
 from dimensigon.web import db
@@ -20,7 +22,7 @@ class Catalog(db.Model):
 
     @classmethod
     def max_catalog(cls, out=None) -> t.Union[datetime, str]:
-        catalog_ver = db.session.query(db.func.max(Catalog.last_modified_at)).scalar()
+        catalog_ver = db.session.execute(select(db.func.max(Catalog.last_modified_at))).scalar()
         if catalog_ver is None:
             catalog_ver = defaults.INITIAL_DATEMARK
         return catalog_ver.strftime(defaults.DATEMARK_FORMAT) if out is str else catalog_ver

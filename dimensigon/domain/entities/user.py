@@ -4,6 +4,8 @@ from datetime import datetime
 from flask_jwt_extended import get_jwt_identity
 from passlib.hash import sha256_crypt
 
+from sqlalchemy import select
+
 from dimensigon import defaults
 from dimensigon.domain.entities.base import UUIDistributedEntityMixin
 from dimensigon.utils.helpers import get_now
@@ -45,11 +47,11 @@ class User(UUIDistributedEntityMixin, db.Model):
 
     @classmethod
     def get_by_name(cls, name):
-        return cls.query.filter_by(name=name).one_or_none()
+        return db.session.execute(select(cls).filter_by(name=name)).scalars().one_or_none()
 
     @classmethod
     def get_by_group(cls, group):
-        return [g for g in cls.query.all() if group in g.groups]
+        return [g for g in db.session.execute(select(cls)).scalars().all() if group in g.groups]
 
     def _hash_password(self, password):
         if not self._password:
@@ -92,22 +94,22 @@ class User(UUIDistributedEntityMixin, db.Model):
             session = db.session
 
         with bypass_datamark_update(session):
-            root = session.query(cls).filter_by(name='root').one_or_none()
+            root = session.execute(select(cls).filter_by(name='root')).scalars().one_or_none()
             if not root:
                 root = User(id=ROOT, name='root', groups=['administrator'],
                             last_modified_at=defaults.INITIAL_DATEMARK)
                 session.add(root)
-            ops = session.query(cls).filter_by(name='ops').one_or_none()
+            ops = session.execute(select(cls).filter_by(name='ops')).scalars().one_or_none()
             if not ops:
                 ops = User(id=OPS, name='ops', groups=['operator', 'deployer'],
                            last_modified_at=defaults.INITIAL_DATEMARK)
                 session.add(ops)
-            reporter = session.query(cls).filter_by(name='reporter').one_or_none()
+            reporter = session.execute(select(cls).filter_by(name='reporter')).scalars().one_or_none()
             if not reporter:
                 reporter = User(id=REPORTER, name='reporter', groups=['readonly'],
                                 last_modified_at=defaults.INITIAL_DATEMARK)
                 session.add(reporter)
-            join = session.query(cls).filter_by(name='join').one_or_none()
+            join = session.execute(select(cls).filter_by(name='join')).scalars().one_or_none()
             if not join:
                 join = User(id=JOIN, name='join', groups=[''],
                             last_modified_at=defaults.INITIAL_DATEMARK)
@@ -115,7 +117,7 @@ class User(UUIDistributedEntityMixin, db.Model):
 
     @classmethod
     def get_current(cls):
-        return cls.query.get(get_jwt_identity())
+        return db.session.get(cls, get_jwt_identity())
 
     def __repr__(self):
         return f"{self.id}.{self.name}"

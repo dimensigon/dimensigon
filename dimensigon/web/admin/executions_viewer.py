@@ -5,7 +5,7 @@ Real-time execution monitoring with filtering, pagination, and detailed views.
 """
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, select
 from datetime import datetime, timedelta
 
 from dimensigon.web import db
@@ -102,30 +102,30 @@ def list_executions():
     page = request.args.get('page', 1, type=int)
     per_page = min(request.args.get('per_page', 50, type=int), 200)
 
-    query = OrchExecution.query
+    stmt = select(OrchExecution)
 
     # Apply filters
     status = request.args.get('status')
     if status == 'running':
-        query = query.filter(OrchExecution.end_time == None)
+        stmt = stmt.where(OrchExecution.end_time == None)
     elif status == 'success':
-        query = query.filter(OrchExecution.success == True)
+        stmt = stmt.where(OrchExecution.success == True)
     elif status == 'failed':
-        query = query.filter(OrchExecution.success == False, OrchExecution.end_time != None)
+        stmt = stmt.where(OrchExecution.success == False, OrchExecution.end_time != None)
 
     orchestration_id = request.args.get('orchestration_id')
     if orchestration_id:
-        query = query.filter(OrchExecution.orchestration_id == orchestration_id)
+        stmt = stmt.where(OrchExecution.orchestration_id == orchestration_id)
 
     server_id = request.args.get('server_id')
     if server_id:
-        query = query.filter(OrchExecution.server_id == server_id)
+        stmt = stmt.where(OrchExecution.server_id == server_id)
 
     start_date = request.args.get('start_date')
     if start_date:
         try:
             start_dt = datetime.fromisoformat(start_date)
-            query = query.filter(OrchExecution.start_time >= start_dt)
+            stmt = stmt.where(OrchExecution.start_time >= start_dt)
         except ValueError:
             pass
 
@@ -133,22 +133,22 @@ def list_executions():
     if end_date:
         try:
             end_dt = datetime.fromisoformat(end_date)
-            query = query.filter(OrchExecution.start_time <= end_dt)
+            stmt = stmt.where(OrchExecution.start_time <= end_dt)
         except ValueError:
             pass
 
     search = request.args.get('search')
     if search:
-        query = query.join(Orchestration).filter(
+        stmt = stmt.join(Orchestration).where(
             (Orchestration.name.contains(search)) |
             (OrchExecution.message.contains(search))
         )
 
     # Order by start time (newest first)
-    query = query.order_by(desc(OrchExecution.start_time))
+    stmt = stmt.order_by(desc(OrchExecution.start_time))
 
     # Paginate
-    paginated = query.paginate(page=page, per_page=per_page, error_out=False)
+    paginated = db.paginate(stmt, page=page, per_page=per_page, error_out=False)
 
     executions = [format_execution(exec) for exec in paginated.items]
 
@@ -165,7 +165,7 @@ def list_executions():
 @jwt_required()
 def get_execution_details(execution_id):
     """Get detailed information about a specific execution"""
-    execution = OrchExecution.query.get(execution_id)
+    execution = db.session.get(OrchExecution, execution_id)
 
     if not execution:
         return jsonify({'error': 'Execution not found'}), 404
@@ -185,7 +185,7 @@ def get_execution_details(execution_id):
 @jwt_required()
 def get_execution_steps(execution_id):
     """Get all step executions for a specific orchestration execution"""
-    execution = OrchExecution.query.get(execution_id)
+    execution = db.session.get(OrchExecution, execution_id)
 
     if not execution:
         return jsonify({'error': 'Execution not found'}), 404
@@ -208,43 +208,43 @@ def get_execution_stats():
     since = datetime.utcnow() - timedelta(hours=hours)
 
     # Total executions
-    total = OrchExecution.query.filter(OrchExecution.start_time >= since).count()
+    total = db.session.execute(select(func.count()).select_from(OrchExecution).where(OrchExecution.start_time >= since)).scalar()
 
     # Running executions
-    running = OrchExecution.query.filter(
+    running = db.session.execute(select(func.count()).select_from(OrchExecution).where(
         OrchExecution.start_time >= since,
         OrchExecution.end_time == None
-    ).count()
+    )).scalar()
 
     # Successful executions
-    success = OrchExecution.query.filter(
+    success = db.session.execute(select(func.count()).select_from(OrchExecution).where(
         OrchExecution.start_time >= since,
         OrchExecution.success == True
-    ).count()
+    )).scalar()
 
     # Failed executions
-    failed = OrchExecution.query.filter(
+    failed = db.session.execute(select(func.count()).select_from(OrchExecution).where(
         OrchExecution.start_time >= since,
         OrchExecution.success == False,
         OrchExecution.end_time != None
-    ).count()
+    )).scalar()
 
     # Success rate
     completed = success + failed
     success_rate = (success / completed * 100) if completed > 0 else 0
 
     # Most executed orchestrations
-    top_orchestrations = db.session.query(
+    top_orchestrations = db.session.execute(select(
         Orchestration.name,
         Orchestration.version,
         func.count(OrchExecution.id).label('count')
-    ).join(OrchExecution).filter(
+    ).join(OrchExecution).where(
         OrchExecution.start_time >= since
     ).group_by(
         Orchestration.name, Orchestration.version
     ).order_by(
         desc('count')
-    ).limit(10).all()
+    ).limit(10)).all()
 
     top_orch_list = [
         {'name': name, 'version': version, 'count': count}
@@ -252,11 +252,11 @@ def get_execution_stats():
     ]
 
     # Recent failures
-    recent_failures = OrchExecution.query.filter(
+    recent_failures = db.session.execute(select(OrchExecution).where(
         OrchExecution.start_time >= since,
         OrchExecution.success == False,
         OrchExecution.end_time != None
-    ).order_by(desc(OrchExecution.start_time)).limit(5).all()
+    ).order_by(desc(OrchExecution.start_time)).limit(5)).scalars().all()
 
     failures_list = [
         {
@@ -284,9 +284,9 @@ def get_execution_stats():
 @jwt_required()
 def get_running_executions():
     """Get all currently running executions"""
-    running = OrchExecution.query.filter(
+    running = db.session.execute(select(OrchExecution).where(
         OrchExecution.end_time == None
-    ).order_by(OrchExecution.start_time).all()
+    ).order_by(OrchExecution.start_time)).scalars().all()
 
     executions = [format_execution(exec) for exec in running]
 
@@ -302,9 +302,9 @@ def get_recent_executions():
     """Get most recent executions (completed or running)"""
     limit = min(request.args.get('limit', 20, type=int), 100)
 
-    recent = OrchExecution.query.order_by(
+    recent = db.session.execute(select(OrchExecution).order_by(
         desc(OrchExecution.start_time)
-    ).limit(limit).all()
+    ).limit(limit)).scalars().all()
 
     executions = [format_execution(exec) for exec in recent]
 
@@ -318,7 +318,7 @@ def get_recent_executions():
 @jwt_required()
 def get_step_execution_details(step_execution_id):
     """Get detailed information about a specific step execution"""
-    step_exec = StepExecution.query.get(step_execution_id)
+    step_exec = db.session.get(StepExecution, step_execution_id)
 
     if not step_exec:
         return jsonify({'error': 'Step execution not found'}), 404

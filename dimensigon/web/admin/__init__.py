@@ -7,7 +7,7 @@ Dimensigon orchestrations, actions, and executions.
 from flask_admin import Admin
 from flask_admin.contrib.sqla import ModelView
 from flask import redirect, url_for, request
-from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, get_jwt
 from werkzeug.exceptions import Forbidden
 
 from dimensigon.web import db
@@ -18,22 +18,29 @@ from dimensigon.domain.entities import (
 
 
 class SecureModelView(ModelView):
-    """Base view with JWT authentication"""
+    """Base view with JWT authentication and role checking"""
+    required_role = 'readonly'  # Minimum role for read access
 
     def is_accessible(self):
-        """Check if user is authenticated via JWT"""
+        """Check if user is authenticated via JWT and has required role"""
         try:
-            verify_jwt_in_request()
-            # Get user identity and check if they exist
+            verify_jwt_in_request(locations=['cookies', 'headers'])
+            from dimensigon.web.admin.auth import get_user_role_level, ROLE_HIERARCHY, token_blacklist
+            jwt_data = get_jwt()
+            if token_blacklist.is_blacklisted(jwt_data.get('jti', '')):
+                return False
             identity = get_jwt_identity()
-            user = User.query.get(identity)
-            return user is not None
+            user = db.session.get(User, identity)
+            if not user:
+                return False
+            min_level = ROLE_HIERARCHY.get(self.required_role, 0)
+            return get_user_role_level(user) >= min_level
         except:
             return False
 
     def inaccessible_callback(self, name, **kwargs):
         """Redirect to login if not accessible"""
-        return redirect(url_for('root.token', next=request.url))
+        return redirect(url_for('admin_routes.login_page', next=request.url))
 
 
 class OrchestrationView(SecureModelView):

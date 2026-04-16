@@ -21,6 +21,7 @@ from functools import partial
 import jsonschema
 from flask import current_app, has_app_context, g
 from flask_jwt_extended import create_access_token
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
@@ -222,7 +223,7 @@ class ImplementationCommand(ICommand):
                                 self.params['input'].update({dest: getattr(self.var_context, container_name, {})[var]})
                             except KeyError:
                                 if dest in required.get('input', []):
-                                    se = StepExecution.query.get(self.step_execution_id)
+                                    se = db.session.get(StepExecution, self.step_execution_id)
                                     raise errors.MissingParameters([source],
                                                                    se.step, se.server)
                         else:
@@ -244,8 +245,8 @@ class ImplementationCommand(ICommand):
                                     elif var in required.get(container_name, []):
                                         if has_app_context():
                                             raise errors.MissingParameters([f"{container_name}.{var}"],
-                                                                           Step.query.get(self.id[1]),
-                                                                           Server.query.get(self.id[0]))
+                                                                           db.session.get(Step, self.id[1]),
+                                                                           db.session.get(Server, self.id[0]))
                                         else:
                                             raise errors.MissingParameters([f"{container_name}.{var}"])
                         # add variables specified in required
@@ -256,8 +257,8 @@ class ImplementationCommand(ICommand):
                                         {var: getattr(self.var_context, container_name, {})[var]})
                                 except KeyError:
                                     raise errors.MissingParameters([f"{container_name}.{var}"],
-                                                                   Step.query.get(self.id[1]),
-                                                                   Server.query.get(self.id[0]))
+                                                                   db.session.get(Step, self.id[1]),
+                                                                   db.session.get(Server, self.id[0]))
 
                     if schema2validate:
                         jsonschema.validate(self.params, schema2validate)
@@ -677,7 +678,7 @@ class ProxyImplementation:
             ctx = self._app.app_context()
             ctx.push()
         try:
-            self.__dict__['_server'] = Server.query.get(self._server)
+            self.__dict__['_server'] = db.session.get(Server, self._server)
 
             # set a timeout if none to avoid infinite wait in event
             if timeout is None:
@@ -892,10 +893,44 @@ class RegisterStepExecution:
 
     def update_orch_execution(self, **kwargs):
         with self.session_scope() as s:
-            orch_execution = s.query(OrchExecution).get(self.json_orch_execution.get('id'))
+            orch_execution = s.get(OrchExecution, self.json_orch_execution.get('id'))
             for key, value in kwargs.items():
                 setattr(orch_execution, key, value)
             self.json_orch_execution = orch_execution.to_json()
+
+        # Emit real-time event for orchestration completion
+        try:
+            if 'success' in kwargs and kwargs.get('end_time') is not None:
+                from dimensigon.web.admin.ws import emit_orch_completed
+                emit_orch_completed(
+                    execution_id=self.json_orch_execution.get('id'),
+                    success=kwargs['success'],
+                    message=kwargs.get('message'),
+                )
+        except Exception:
+            pass
+
+        # Record Prometheus metrics for orchestration execution
+        try:
+            if 'success' in kwargs:
+                from dimensigon.web.metrics import ORCHESTRATION_EXECUTIONS
+                status = 'success' if kwargs['success'] else 'failed'
+                ORCHESTRATION_EXECUTIONS.labels(orchestration_name='unknown', status=status).inc()
+        except Exception:
+            pass
+
+        # Dispatch webhook events for orchestration completion
+        try:
+            from dimensigon.use_cases.webhooks import dispatch_event
+            if 'success' in kwargs:
+                event_type = 'orchestration.completed' if kwargs['success'] else 'orchestration.failed'
+                dispatch_event(event_type, {
+                    'execution_id': self.json_orch_execution.get('id'),
+                    'success': kwargs['success'],
+                    'message': kwargs.get('message'),
+                })
+        except Exception:
+            pass
 
     def create_step_execution(self, command):
         ident = str(uuid.uuid4())
@@ -905,6 +940,21 @@ class RegisterStepExecution:
                                start_time=get_now())
             s.add(se)
         self._store[ident] = se
+
+        # Emit real-time event
+        try:
+            from dimensigon.web.admin.ws import emit_step_started
+            emit_step_started(
+                execution_id=self.json_orch_execution.get('id'),
+                step_execution_id=ident,
+                step_id=str(command.id[1]),
+                step_name=getattr(command, 'step_name', ''),
+                server_id=str(command.id[0]),
+                server_name=getattr(command, '_server_name', ''),
+            )
+        except Exception:
+            pass  # Don't let WS errors affect execution
+
         return ident
 
     def save_step_execution(self, command: ImplementationCommand, params=None, pre_process_time=None,
@@ -920,6 +970,32 @@ class RegisterStepExecution:
             se.end_time = get_now()
             if command._cp.stdout and ORCH_EXEC_PATTERN.match(command._cp.stdout):
                 se.child_orch_execution_id = ORCH_EXEC_PATTERN.match(command._cp.stdout)[1]
+
+        # Emit real-time event
+        try:
+            from dimensigon.web.admin.ws import emit_step_completed
+            total_elapsed = sum(filter(None, [pre_process_time, execution_time, post_process_time]))
+            emit_step_completed(
+                execution_id=self.json_orch_execution.get('id'),
+                step_execution_id=command.step_execution_id,
+                step_id=str(command.id[1]),
+                success=getattr(command._cp, 'success', False),
+                rc=getattr(command._cp, 'rc', None),
+                stdout=getattr(command._cp, 'stdout', None),
+                stderr=getattr(command._cp, 'stderr', None),
+                elapsed=total_elapsed,
+            )
+        except Exception:
+            pass  # Don't let WS errors affect execution
+
+        # Record Prometheus metrics for step execution
+        try:
+            from dimensigon.web.metrics import STEP_EXECUTION_DURATION
+            total = sum(filter(None, [pre_process_time, execution_time, post_process_time]))
+            status = 'success' if getattr(command._cp, 'success', False) else 'failed'
+            STEP_EXECUTION_DURATION.labels(step_name=str(command.id[1]), status=status).observe(total)
+        except Exception:
+            pass
 
     def commit_data(self):
         pass
@@ -1061,14 +1137,14 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
     executor = executor or var_context.env.get('executor_id')
     hosts = hosts or var_context.get('hosts')
     if not isinstance(orchestration, Orchestration):
-        orchestration = db.session.query(Orchestration).get(orchestration)
+        orchestration = db.session.get(Orchestration, orchestration)
     if not isinstance(execution, OrchExecution):
         exe = None
         if execution is not None:
-            exe = db.session.query(OrchExecution).get(execution)
+            exe = db.session.get(OrchExecution, execution)
         if exe is None:
             if not isinstance(executor, User):
-                executor = db.session.query(User).get(executor)
+                executor = db.session.get(User, executor)
             if executor is None:
                 raise ValueError('executor must be set')
             if not isinstance(execution_server, Server):
@@ -1080,7 +1156,7 @@ def deploy_orchestration(orchestration: t.Union[Id, Orchestration],
                     if execution_server is None:
                         raise ValueError('execution server not found')
                 else:
-                    execution_server = db.session.query(Server).get(execution_server)
+                    execution_server = db.session.get(Server, execution_server)
             exe = OrchExecution(id=execution, orchestration_id=orchestration.id, target=hosts,
                                 params=dict(var_context),
                                 executor_id=executor.id, server_id=execution_server.id)
@@ -1125,7 +1201,7 @@ def _deploy_orchestration(orchestration: Orchestration,
 
     # convert UUID into str as in_ filter does not handle UUID type
     all = [str(s) for s in hosts['all']]
-    servers = Server.query.filter(Server.id.in_(all)).all()
+    servers = db.session.execute(select(Server).where(Server.id.in_(all))).scalars().all()
     scope_enabled = locker_scope_enabled(Scope.ORCHESTRATION)
     if scope_enabled:
         try:

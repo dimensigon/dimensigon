@@ -11,7 +11,7 @@ from json import JSONEncoder
 from flask import current_app, request
 from flask_jwt_extended import create_access_token, get_jwt_identity
 from flask_sqlalchemy.query import Query as BaseQuery
-from sqlalchemy import not_, inspect
+from sqlalchemy import not_, inspect, select
 from sqlalchemy.orm import sessionmaker
 
 from dimensigon import defaults
@@ -85,13 +85,28 @@ class QueryWithSoftDelete(BaseQueryJSON):
         return obj if obj is None or self._with_deleted or not obj.deleted else None
 
 
+def get_or_raise(model, ident):
+    """Get a model instance by primary key, or raise EntityNotFound.
+
+    Handles soft-delete models by checking the 'deleted' attribute.
+    This is the SQLAlchemy 2.x equivalent of Model.query.get_or_raise().
+    """
+    from dimensigon.web import db
+
+    rv = db.session.get(model, ident)
+    if rv is None or (hasattr(rv, 'deleted') and rv.deleted):
+        raise EntityNotFound(model.__name__, ident)
+    return rv
+
+
 def filter_query(entity, req_args: dict, exclude: t.Container = None):
-    """Generates a sqlalchemy query object filtered by filters.
+    """Generates a SQLAlchemy 2.x select statement filtered by filters.
 
     entity: entity to filter
     filters: filters in JSON API format https://jsonapi.org/format/#fetching-filtering
     exclude: columns to exclude on filter
 
+    Returns a select() statement. Use db.session.execute(stmt).scalars().all() to get results.
     """
     filters = []
     for k, v in req_args.items():
@@ -99,21 +114,21 @@ def filter_query(entity, req_args: dict, exclude: t.Container = None):
             m = re.search(r'^filter\[(\w+)\]$', k)  # Raw string to fix escape sequence
             if m:
                 filters.append((m.group(1), v))
-    query = entity.query
+    stmt = select(entity)
     for k, v in filters:
         column = getattr(entity, k, None)
         if not column or k in (exclude or []):
             raise errors.ColumnFilterError(k, entity.__name__)
         if ',' in v:
             values = v.split(',')
-            query = query.filter(column.in_(values))
+            stmt = stmt.where(column.in_(values))
         else:
             if v.lower() == 'true':
                 v = True
             elif v.lower() == 'false':
                 v = False
-            query = query.filter(column == v)
-    return query
+            stmt = stmt.where(column == v)
+    return stmt
 
 
 def check_param_in_uri(param):
@@ -193,8 +208,9 @@ def normalize_hosts(hosts: t.Dict[str, t.Union[str, t.List[str]]]) -> t.List[str
     """
     from dimensigon.domain.entities import Server
 
+    from dimensigon.web import db
     not_found = []
-    servers = Server.query.all()
+    servers = db.session.execute(select(Server)).scalars().all()
     for target, v in hosts.items():
         server_list = []
         if is_iterable_not_string(v):
@@ -275,6 +291,8 @@ def get_servers_from_scope(scope: 'Scope', bypass: t.Union[t.List['Server'], 'Se
 
     """
     from dimensigon.domain.entities import Server
+    from dimensigon.web import db
+    from sqlalchemy import func
 
     quorum = []
     me = Server.get_current()
@@ -282,31 +300,31 @@ def get_servers_from_scope(scope: 'Scope', bypass: t.Union[t.List['Server'], 'Se
         last_alive_ids = current_app.dm.cluster_manager.get_alive()
         if me.id not in last_alive_ids:
             last_alive_ids.append(me.id)
-        all_query = Server.query.filter_by(l_ignore_on_lock=False)
+        all_stmt = select(Server).filter_by(l_ignore_on_lock=False)
         if isinstance(bypass, list):
-            all_query = all_query.filter(not_(Server.id.in_([s.id for s in bypass])))
+            all_stmt = all_stmt.where(not_(Server.id.in_([s.id for s in bypass])))
         elif isinstance(bypass, Server):
-            all_query = all_query.filter_by(Server.id != bypass.id)
-        n_servers = all_query.count()
+            all_stmt = all_stmt.where(Server.id != bypass.id)
+        n_servers = db.session.execute(select(func.count()).select_from(all_stmt.subquery())).scalar()
 
-        adult_query = all_query.filter(Server.created_on <= get_now() - defaults.ADULT_NODES)
-        n_adult_nodes = adult_query.count()
+        adult_stmt = all_stmt.where(Server.created_on <= get_now() - defaults.ADULT_NODES)
+        n_adult_nodes = db.session.execute(select(func.count()).select_from(adult_stmt.subquery())).scalar()
 
         if n_adult_nodes == 0:
             if n_servers <= defaults.MIN_SERVERS_QUORUM:
-                return all_query.filter(Server.id.in_(last_alive_ids)).order_by(
-                    Server.created_on).all()
+                return db.session.execute(all_stmt.where(Server.id.in_(last_alive_ids)).order_by(
+                    Server.created_on)).scalars().all()
             else:
-                return all_query.filter(Server.id.in_(last_alive_ids)).order_by(
-                    Server.created_on).limit(defaults.MIN_SERVERS_QUORUM).all()
+                return db.session.execute(all_stmt.where(Server.id.in_(last_alive_ids)).order_by(
+                    Server.created_on).limit(defaults.MIN_SERVERS_QUORUM)).scalars().all()
 
-        elegible_query = adult_query.filter(Server.id.in_(last_alive_ids))
-        n_elegible = elegible_query.count()
+        elegible_stmt = adult_stmt.where(Server.id.in_(last_alive_ids))
+        n_elegible = db.session.execute(select(func.count()).select_from(elegible_stmt.subquery())).scalar()
 
         if n_elegible <= defaults.MIN_SERVERS_QUORUM:
-            return elegible_query.all()
+            return db.session.execute(elegible_stmt).scalars().all()
         else:
-            servers = elegible_query.order_by(Server.created_on).all()
+            servers = db.session.execute(elegible_stmt.order_by(Server.created_on)).scalars().all()
             if len(servers) < defaults.MIN_SERVERS_QUORUM:
                 return servers
             else:

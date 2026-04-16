@@ -1,11 +1,12 @@
 from flask import request
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
+from sqlalchemy import select
 
 from dimensigon.domain.entities.user import User
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import forward_or_dispatch, securizer, validate_schema, lock_catalog
-from dimensigon.web.helpers import filter_query
+from dimensigon.web.helpers import filter_query, get_or_raise
 from dimensigon.web.json_schemas import users_post, user_patch
 
 
@@ -15,8 +16,8 @@ class UserList(Resource):
     @jwt_required()
     @securizer
     def get(self):
-        query = filter_query(User, request.args, exclude=['_password'])
-        return [user.to_json() for user in query.all()]
+        stmt = filter_query(User, request.args, exclude=['_password'])
+        return [user.to_json() for user in db.session.execute(stmt).scalars().all()]
 
     @forward_or_dispatch()
     @jwt_required()
@@ -26,7 +27,7 @@ class UserList(Resource):
     def post(self):
         data = request.get_json()
         password = data.pop("password")
-        if User.query.filter_by(name=data['name']).all():
+        if db.session.execute(select(User).where(User.name == data['name'])).scalars().all():
             raise errors.EntityAlreadyExists("User", data['name'], ['name'])
         u = User(**data)
         u.set_password(password)
@@ -40,7 +41,7 @@ class UserResource(Resource):
     @jwt_required()
     @securizer
     def get(self, user_id):
-        return User.query.get_or_raise(user_id).to_json()
+        return get_or_raise(User, user_id).to_json()
 
     @forward_or_dispatch()
     @jwt_required()
@@ -48,7 +49,7 @@ class UserResource(Resource):
     @validate_schema(user_patch)
     @lock_catalog
     def patch(self, user_id):
-        user = User.query.get_or_raise(user_id)
+        user = get_or_raise(User, user_id)
         data = request.get_json()
         if 'email' in data and user.email != data.get('email'):
             user.email = data.get('email')

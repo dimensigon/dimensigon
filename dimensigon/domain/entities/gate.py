@@ -2,6 +2,8 @@ import copy
 import ipaddress
 import typing as t
 
+from sqlalchemy import select
+
 from dimensigon import defaults
 from dimensigon.domain.entities.base import UUIDistributedEntityMixin, SoftDeleteMixin
 from dimensigon.utils.typos import UUID, IP as IPType
@@ -58,6 +60,6 @@ class Gate(UUIDistributedEntityMixin, SoftDeleteMixin, db.Model):
         kwargs['ip'] = ipaddress.ip_address(kwargs.get('ip')) if isinstance(kwargs.get('ip'), str) else kwargs.get('ip')
         if 'server_id' in kwargs and kwargs['server_id'] is not None:
             # through db.session to allow load from removed entities
-            kwargs['server'] = db.session.query(Server).filter_by(id=kwargs.get('server_id')).one()
+            kwargs['server'] = db.session.execute(select(Server).filter_by(id=kwargs.get('server_id'))).scalars().one()
             kwargs.pop('server_id')
         return super().from_json(kwargs)

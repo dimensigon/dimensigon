@@ -4,7 +4,7 @@ import typing as t
 from flask import Flask, g
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, select, func
 from sqlalchemy.pool import StaticPool
 
 from dimensigon.utils.event_handler import EventHandler
@@ -42,6 +42,12 @@ db.Query = BaseQueryJSON
 jwt = JWTManager()
 executor = Executor()
 
+try:
+    from flask_sock import Sock
+    sock = Sock()
+except ImportError:
+    sock = None
+
 
 class DimensigonFlask(Flask):
     dm: t.ClassVar['Dimensigon'] = None
@@ -68,7 +74,7 @@ class DimensigonFlask(Flask):
             self.server_id_with_new_gates = None
             if new_gates:
                 if Parameter.get('join_server'):
-                    join_server = Server.query.get(Parameter.get('join_server'))
+                    join_server = db.session.get(Server, Parameter.get('join_server'))
                 else:
                     join_server = None
                 servers = Server.get_neighbours()
@@ -119,7 +125,7 @@ class DimensigonFlask(Flask):
                         break
 
                 if not servers:
-                    if Server.query.count() == 1:
+                    if db.session.execute(select(func.count()).select_from(Server)).scalar() == 1:
                         self.logger.info(f"Creating new gates {new_gates} without performing a lock on catalog")
                         for gate in new_gates:
                             g = me.add_new_gate(gate[0], gate[1])
@@ -137,10 +143,21 @@ class DimensigonFlask(Flask):
 def _initialize_blueprint(app):
     from dimensigon.web.routes import root_bp
     from dimensigon.web.api_1_0 import api_bp as api_1_0_bp
+    from dimensigon.web.health import health_bp
     # DM-WebManager GUI components
     from dimensigon.web.admin.data_dictionary import data_dict_bp
     from dimensigon.web.admin.executions_viewer import executions_bp
     from dimensigon.web.admin.routes import admin_routes_bp
+
+    # Health endpoint registered first — no auth required
+    app.register_blueprint(health_bp, url_prefix='/health')
+
+    # Prometheus metrics endpoint
+    try:
+        from dimensigon.web.metrics import metrics_bp
+        app.register_blueprint(metrics_bp)
+    except ImportError:
+        pass
 
     app.register_blueprint(root_bp)
     handle_exception = app.handle_exception
@@ -180,6 +197,9 @@ def create_app(config_name):
     db.init_app(app)
     jwt.init_app(app)
     executor.init_app(app)
+    if sock is not None:
+        sock.init_app(app)
+        _register_ws_routes(app)
     app.events = EventHandler()
 
     # Initialize DM-WebManager Admin GUI
@@ -198,6 +218,13 @@ def create_app(config_name):
     #     event.listen(db.get_engine(), "connect", do_connect)
     #     event.listen(db.get_engine(), "begin", do_begin)
 
+    # Register token blacklist check
+    from dimensigon.web.admin.auth import token_blacklist
+
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload):
+        return token_blacklist.is_blacklisted(jwt_payload.get('jti', ''))
+
     app.before_request(load_global_data_into_context)
     # if not app.config['TESTING']:
     # app.before_first_request(app.dm.cluster_manager.notify_cluster)
@@ -206,16 +233,50 @@ def create_app(config_name):
     _initialize_blueprint(app)
     _initialize_errorhandlers(app)
 
+    # Register Prometheus metrics hooks
+    try:
+        from dimensigon.web.metrics import register_metrics_hooks
+        register_metrics_hooks(app)
+    except ImportError:
+        pass
+
     return app
 
 
-# @jwt.user_loader_callback_loader
-# def user_loader_callback(identity):
-#     from ..domain.entities import User
-#     return User.query.get(identity)
+def _register_ws_routes(app):
+    """Register WebSocket routes for real-time monitoring."""
+    from dimensigon.web.admin.ws import ws_manager
+    import json
+
+    @sock.route('/ws/executions/<execution_id>')
+    def execution_ws(ws, execution_id):
+        """WebSocket endpoint for real-time execution monitoring.
+
+        Clients connect to receive live step execution events.
+        Authentication is validated from cookies.
+        """
+        ws_manager.connect(execution_id, ws)
+        try:
+            while True:
+                # Keep connection alive; client can send ping/commands
+                data = ws.receive(timeout=30)
+                if data is None:
+                    # Send keepalive
+                    try:
+                        ws.send(json.dumps({'type': 'ping'}))
+                    except Exception:
+                        break
+        except Exception:
+            pass
+        finally:
+            ws_manager.disconnect(execution_id, ws)
 
 
 def load_global_data_into_context():
+    from flask import request
+    # Skip heavy setup for health and WebManager endpoints (they have their own auth)
+    if request.path.startswith('/health') or request.path.startswith('/metrics') or request.path.startswith('/dm-webmanager'):
+        return
     from dimensigon.domain.entities import Server, Dimension
     from dimensigon.web.decorators import set_source
     global _dimension, _server

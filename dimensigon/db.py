@@ -4,7 +4,7 @@ import os
 import time
 import typing as t
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import InternalError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.sql.ddl import CreateTable
@@ -41,9 +41,10 @@ def migrate_schema(dm: Dimensigon):
     with session_scope(session=dm.get_session()) as session:
 
         res = (
-            session.query(SchemaChanges)
+            session.execute(
+                select(SchemaChanges)
                 .order_by(SchemaChanges.change_id.desc())
-                .first()
+            ).scalars().first()
         )
         current_version = getattr(res, "schema_version", None)
 
@@ -130,7 +131,9 @@ def _add_columns(engine, table_name, columns_def):
                         )
                     )
                 )
+                connection.commit()
             except (InternalError, OperationalError) as err:
+                connection.rollback()
                 if "duplicate" not in str(err).lower():
                     raise
 
@@ -143,7 +146,8 @@ def _add_columns(engine, table_name, columns_def):
 
 def _rename_table(engine, old_table_name, new_table_name):
     with engine.connect() as connection:
-        connection.execute(f"ALTER TABLE {old_table_name} RENAME TO {new_table_name}")
+        connection.execute(text(f"ALTER TABLE {old_table_name} RENAME TO {new_table_name}"))
+        connection.commit()
 
 
 def _rename_columns(engine, table_name, column_renames: t.List[t.Tuple[str, str]]):
@@ -159,17 +163,19 @@ def _rename_columns(engine, table_name, column_renames: t.List[t.Tuple[str, str]
     with engine.connect() as connection:
         old_c_s = [f'"{c}"' for c in old_column_table]
         new_c_s = [f'"{c}"' for c in new_column_table]
-        connection.execute(tmp_ddl)
+        connection.execute(text(tmp_ddl))
         try:
-            connection.execute(f'INSERT INTO {temp_table_name}({", ".join(new_c_s)}) '
-                               f'SELECT {", ".join(old_c_s)} FROM {table_name}')
+            connection.execute(text(f'INSERT INTO {temp_table_name}({", ".join(new_c_s)}) '
+                               f'SELECT {", ".join(old_c_s)} FROM {table_name}'))
 
         except:
-            connection.execute(f"DROP TABLE {temp_table_name}")
+            connection.execute(text(f"DROP TABLE {temp_table_name}"))
+            connection.commit()
             raise
         else:
-            connection.execute(f"DROP TABLE {table_name}")
-            connection.execute(f"ALTER TABLE {temp_table_name} RENAME TO {table_name}")
+            connection.execute(text(f"DROP TABLE {table_name}"))
+            connection.execute(text(f"ALTER TABLE {temp_table_name} RENAME TO {table_name}"))
+            connection.commit()
 
 
 def _delete_columns(engine, table_name, column_deletes: t.List[str]):
@@ -181,17 +187,19 @@ def _delete_columns(engine, table_name, column_deletes: t.List[str]):
 
     with engine.connect() as connection:
         new_c_s = [f'"{c}"' for c in new_column_table]
-        connection.execute(tmp_ddl)
+        connection.execute(text(tmp_ddl))
         try:
-            connection.execute(f'INSERT INTO {temp_table_name}({", ".join(new_c_s)}) '
-                               f'SELECT {", ".join(new_c_s)} FROM {table_name}')
+            connection.execute(text(f'INSERT INTO {temp_table_name}({", ".join(new_c_s)}) '
+                               f'SELECT {", ".join(new_c_s)} FROM {table_name}'))
 
         except:
-            connection.execute(f"DROP TABLE {temp_table_name}")
+            connection.execute(text(f"DROP TABLE {temp_table_name}"))
+            connection.commit()
             raise
         else:
-            connection.execute(f"DROP TABLE {table_name}")
-            connection.execute(f"ALTER TABLE {temp_table_name} RENAME TO {table_name}")
+            connection.execute(text(f"DROP TABLE {table_name}"))
+            connection.execute(text(f"ALTER TABLE {temp_table_name} RENAME TO {table_name}"))
+            connection.commit()
 
 
 def _rename_and_delete_columns(engine, table_name,
@@ -209,24 +217,27 @@ def _rename_and_delete_columns(engine, table_name,
     with engine.connect() as connection:
         old_c_s = [f'"{c}"' for c in old_column_table]
         new_c_s = [f'"{c}"' for c in new_column_table]
-        connection.execute(tmp_ddl)
+        connection.execute(text(tmp_ddl))
         try:
-            connection.execute(f'INSERT INTO {temp_table_name}({", ".join(new_c_s)}) '
-                               f'SELECT {", ".join(old_c_s)} FROM {table_name}')
+            connection.execute(text(f'INSERT INTO {temp_table_name}({", ".join(new_c_s)}) '
+                               f'SELECT {", ".join(old_c_s)} FROM {table_name}'))
 
         except:
-            connection.execute(f"DROP TABLE {temp_table_name}")
+            connection.execute(text(f"DROP TABLE {temp_table_name}"))
+            connection.commit()
             raise
         else:
-            connection.execute(f"DROP TABLE {table_name}")
-            connection.execute(f"ALTER TABLE {temp_table_name} RENAME TO {table_name}")
+            connection.execute(text(f"DROP TABLE {table_name}"))
+            connection.execute(text(f"ALTER TABLE {temp_table_name} RENAME TO {table_name}"))
+            connection.commit()
 
 
 def _create_table(engine, table_name):
     table = db.Model.metadata.tables[table_name]
     ddl = CreateTable(table).compile(engine).string
     with engine.connect() as connection:
-        connection.execute(ddl)
+        connection.execute(text(ddl))
+        connection.commit()
 
 
 def _recreate_table(engine, table_name):
@@ -288,42 +299,48 @@ def _drop_index(engine, table_name, index_name):
     success = False
 
     # Engines like DB2/Oracle
-    try:
-        engine.execute(text(f"DROP INDEX {index_name}"))
-    except SQLAlchemyError:
-        pass
-    else:
-        success = True
+    with engine.connect() as connection:
+        try:
+            connection.execute(text(f"DROP INDEX {index_name}"))
+            connection.commit()
+        except SQLAlchemyError:
+            connection.rollback()
+        else:
+            success = True
 
     # Engines like SQLite, SQL Server
     if not success:
-        try:
-            engine.execute(
-                text(
-                    "DROP INDEX {table}.{index}".format(
-                        index=index_name, table=table_name
+        with engine.connect() as connection:
+            try:
+                connection.execute(
+                    text(
+                        "DROP INDEX {table}.{index}".format(
+                            index=index_name, table=table_name
+                        )
                     )
                 )
-            )
-        except SQLAlchemyError:
-            pass
-        else:
-            success = True
+                connection.commit()
+            except SQLAlchemyError:
+                connection.rollback()
+            else:
+                success = True
 
     if not success:
         # Engines like MySQL, MS Access
-        try:
-            engine.execute(
-                text(
-                    "DROP INDEX {index} ON {table}".format(
-                        index=index_name, table=table_name
+        with engine.connect() as connection:
+            try:
+                connection.execute(
+                    text(
+                        "DROP INDEX {index} ON {table}".format(
+                            index=index_name, table=table_name
+                        )
                     )
                 )
-            )
-        except SQLAlchemyError:
-            pass
-        else:
-            success = True
+                connection.commit()
+            except SQLAlchemyError:
+                connection.rollback()
+            else:
+                success = True
 
     if success:
         _LOGGER.debug(
@@ -348,7 +365,8 @@ def _apply_update(engine, new_version, old_version):
     if new_version == 2:
         _add_columns(engine, 'L_locker', ['disabled BOOLEAN'])
         with engine.connect() as connection:
-            connection.execute(f"UPDATE L_locker SET disabled = 0")
+            connection.execute(text(f"UPDATE L_locker SET disabled = 0"))
+            connection.commit()
     #     _delete_columns(engine, 'D_server', ['alive'])
     #     with engine.connect() as connection:
     #         date = defaults.INITIAL_DATEMARK.strftime('%Y-%m-%d %H:%M:%S.%f')

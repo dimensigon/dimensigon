@@ -101,7 +101,7 @@ def lock_unlock(action: str, scope: Scope, servers: t.List[Server], applicant=No
 
 
 def locker_scope_enabled(scope: Scope):
-    return not getattr(Locker.query.get(scope), 'disabled', None)
+    return not getattr(db.session.get(Locker, scope), 'disabled', None)
 
 def lock(scope: Scope, servers: t.List[Server] = None, applicant=None, retries=0, delay=3, identity=None) -> UUID:
     """
@@ -171,7 +171,7 @@ def unlock(scope: Scope, applicant, servers: t.Union[t.List[Server], t.List[Id]]
             engine = db.get_engine()
             Session = sessionmaker(bind=engine)
             s = Session()
-            servers = [s.session.query(Server).get(s) for s in servers]
+            servers = [s.get(Server, srv_id) for srv_id in servers]
     servers = servers or get_servers_from_scope(scope)
 
     if not servers:

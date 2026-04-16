@@ -5,7 +5,7 @@ import re
 from flask import request, current_app
 from flask_jwt_extended import jwt_required
 from flask_restful import Resource
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 
 import dimensigon.defaults as d
 from dimensigon import defaults
@@ -14,7 +14,7 @@ from dimensigon.domain.entities.transfer import Status
 from dimensigon.utils.helpers import md5, get_now
 from dimensigon.web import db, errors
 from dimensigon.web.decorators import securizer, forward_or_dispatch, validate_schema
-from dimensigon.web.helpers import filter_query
+from dimensigon.web.helpers import filter_query, get_or_raise
 from dimensigon.web.json_schemas import transfers_post, transfer_post, transfer_patch
 
 
@@ -24,8 +24,8 @@ class TransferList(Resource):
     @jwt_required()
     @securizer
     def get(self):
-        query = filter_query(Transfer, request.args)
-        return [t.to_json() for t in query.order_by(Transfer.created_on).all()]
+        stmt = filter_query(Transfer, request.args).order_by(Transfer.created_on)
+        return [t.to_json() for t in db.session.execute(stmt).scalars().all()]
 
     @forward_or_dispatch()
     @jwt_required()
@@ -36,12 +36,17 @@ class TransferList(Resource):
         json_data = request.get_json()
         soft = None
         if 'software_id' in json_data:
-            soft = Software.query.get_or_raise(json_data['software_id'])
+            soft = get_or_raise(Software, json_data['software_id'])
             dest_path = json_data.get('dest_path', current_app.dm.config.path(defaults.SOFTWARE_REPO))
-            pending = Transfer.query.filter_by(software=soft,
-                                               dest_path=dest_path).filter(
-                or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
-                    Transfer.status == TransferStatus.IN_PROGRESS)).all()
+            pending = db.session.execute(
+                select(Transfer).where(
+                    Transfer.software == soft,
+                    Transfer.dest_path == dest_path,
+                ).where(
+                    or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
+                        Transfer.status == TransferStatus.IN_PROGRESS)
+                )
+            ).scalars().all()
 
             if pending and not json_data.get('cancel_pending', False):
                 raise errors.TransferSoftwareAlreadyOpen(str(soft.id))
@@ -51,10 +56,15 @@ class TransferList(Resource):
                     trans.ended_on = get_now()
         else:
             dest_path = json_data['dest_path']
-            pending = Transfer.query.filter_by(_filename=json_data['filename'],
-                                               dest_path=dest_path).filter(
-                or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
-                    Transfer.status == TransferStatus.IN_PROGRESS)).all()
+            pending = db.session.execute(
+                select(Transfer).where(
+                    Transfer._filename == json_data['filename'],
+                    Transfer.dest_path == dest_path,
+                ).where(
+                    or_(Transfer.status == TransferStatus.WAITING_CHUNKS,
+                        Transfer.status == TransferStatus.IN_PROGRESS)
+                )
+            ).scalars().all()
 
             if pending and not json_data.get('cancel_pending', False):
                 raise errors.TransferFileAlreadyOpen(os.path.join(json_data['dest_path'], json_data['filename']))
@@ -115,7 +125,7 @@ class TransferResource(Resource):
     @jwt_required()
     @securizer
     def get(self, transfer_id):
-        return Transfer.query.get_or_raise(transfer_id).to_json()
+        return get_or_raise(Transfer, transfer_id).to_json()
 
     @forward_or_dispatch()
     @jwt_required()
@@ -123,7 +133,7 @@ class TransferResource(Resource):
     @validate_schema(transfer_patch)
     def patch(self, transfer_id):
         data = request.get_json()
-        trans: Transfer = Transfer.query.get_or_raise(transfer_id)
+        trans: Transfer = get_or_raise(Transfer, transfer_id)
         trans.status = Status[data.get('status')]
         db.session.commit()
         return {'transfer_id': transfer_id, 'status': str(trans.status)}, 200
@@ -135,7 +145,7 @@ class TransferResource(Resource):
     def post(self, transfer_id):
         """Generates the chunk into disk"""
         data = request.get_json()
-        trans: Transfer = Transfer.query.get_or_raise(transfer_id)
+        trans: Transfer = get_or_raise(Transfer, transfer_id)
         if trans.status == TransferStatus.WAITING_CHUNKS:
             trans.started_on = get_now()
             trans.status = TransferStatus.IN_PROGRESS
@@ -168,7 +178,7 @@ class TransferResource(Resource):
     @securizer
     def put(self, transfer_id):
         """ends the transfer creating the file"""
-        trans: Transfer = Transfer.query.get_or_raise(transfer_id)
+        trans: Transfer = get_or_raise(Transfer, transfer_id)
         if trans.status == TransferStatus.COMPLETED:
             return {'error': 'Transfer has already completed'}, 410
         elif trans.status == TransferStatus.WAITING_CHUNKS:
