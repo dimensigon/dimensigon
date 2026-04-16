@@ -1,0 +1,48 @@
+# Core dependencies - Updated for Python 3.8+ compatibility and security
+# DM-WebManager Admin GUI
+Flask-Admin>=1.6.1,<2.0.0
+WTForms>=3.0.0,<4.0.0
+
+# Core dependencies - Updated for Python 3.8+ compatibility and security
+aiohttp>=3.9.5,<4.0.0
+click>=8.1.7,<9.0.0
+coolname>=1.1.0,<2.0.0
+cryptography>=46.0.5  # SECURITY: Updated to fix CVE-2024-12797, CVE-2026-26007
+dill>=0.3.8,<0.4.0
+docopt>=0.6.2,<0.7.0
+gunicorn>=22.0.0,<23.0.0
+
+# Flask ecosystem - Updated for security and Python 3.8+ support
+Flask>=2.3.0,<3.0.0  # Conservative upgrade from 1.1.2
+Flask-JWT-Extended>=4.6.0,<5.0.0
+Flask-RESTful>=0.3.10,<0.4.0
+Flask-SQLAlchemy==3.0.3
+SQLAlchemy==1.4.52
+
+# Template and validation - Security updates
+jinja2>=3.1.6,<4.0.0  # SECURITY: Updated to fix CVE-2025-27516 (sandbox breakout)
+jinja2schema>=0.1.4,<0.2.0
+jsonschema>=4.21.0,<5.0.0
+
+# Networking and utilities
+netifaces>=0.11.0,<0.12.0
+packaging>=24.0,<25.0
+
+# Security and authentication
+passlib>=1.7.4,<2.0.0
+PyYAML>=6.0.1,<7.0.0  # SECURITY: Updated from 5.4.1
+
+# CLI and UI
+prompt_toolkit>=3.0.47,<4.0.0
+Pygments>=2.18.0,<3.0.0
+
+# Data processing
+python-dateutil>=2.9.0,<3.0.0
+requests>=2.32.0,<3.0.0
+RestrictedPython>=8.0.0,<9.0.0  # SECURITY: Updated to address known vulnerabilities
+rsa>=4.9,<5.0.0
+schema>=0.7.7,<0.8.0
+watchdog>=4.0.0,<5.0.0
+
+# AI Assistant (SLM + RAG)
+pyperclip

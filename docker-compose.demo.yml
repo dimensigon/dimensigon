@@ -1,0 +1,139 @@
+# Dimensigon 5-Node Demo Cluster
+# Usage: docker compose -f docker-compose.demo.yml up -d
+
+x-dm-common: &dm-common
+  build:
+    context: .
+    dockerfile: scripts/demo/Dockerfile.node
+  restart: unless-stopped
+  mem_limit: 512m
+  mem_reservation: 256m
+  cpus: 0.5
+  tmpfs:
+    - /tmp:size=100M
+  networks:
+    - dm-demo-net
+  environment: &dm-env
+    DM_PORT: "20194"
+    DM_SECRET_KEY: "demo-secret-key-not-for-production"
+    DM_ROOT_PASSWORD: "demo123"
+    FLASK_CONFIG: "development"
+    SECURIZER_PLAIN: "true"
+    DM_AI_BASE_URL: "http://10.55.0.1:11434/v1"
+    DM_AI_MODEL: "dimensigon-ai"
+
+services:
+  # ── Master Node ────────────────────────────────
+  dm-master:
+    <<: *dm-common
+    container_name: dm-master
+    hostname: dm-master
+    ports:
+      - "20194:20194"
+    environment:
+      <<: *dm-env
+      DIMENSIGON_INIT_NEW: "true"
+      DIMENSION_NAME: "demo-cluster"
+      DM_GRANULES: "lb,monitor"
+    healthcheck:
+      test: ["CMD", "curl", "-sfk", "https://localhost:20194/"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # ── Web Server 1 ───────────────────────────────
+  dm-web1:
+    <<: *dm-common
+    container_name: dm-web1
+    hostname: dm-web1
+    ports:
+      - "20195:20194"
+    environment:
+      <<: *dm-env
+      DM_JOIN_SERVER: "dm-master"
+      DM_JOIN_PORT: "20194"
+      DM_GRANULES: "web,app,frontend"
+    depends_on:
+      dm-master:
+        condition: service_healthy
+
+  # ── Web Server 2 ───────────────────────────────
+  dm-web2:
+    <<: *dm-common
+    container_name: dm-web2
+    hostname: dm-web2
+    ports:
+      - "20196:20194"
+    environment:
+      <<: *dm-env
+      DM_JOIN_SERVER: "dm-master"
+      DM_JOIN_PORT: "20194"
+      DM_GRANULES: "web,app,backend"
+    depends_on:
+      dm-master:
+        condition: service_healthy
+
+  # ── Database Server ────────────────────────────
+  dm-db1:
+    <<: *dm-common
+    container_name: dm-db1
+    hostname: dm-db1
+    ports:
+      - "20197:20194"
+    environment:
+      <<: *dm-env
+      DM_JOIN_SERVER: "dm-master"
+      DM_JOIN_PORT: "20194"
+      DM_GRANULES: "db,cache,storage"
+    depends_on:
+      dm-master:
+        condition: service_healthy
+
+  # ── Monitor Server ─────────────────────────────
+  dm-monitor:
+    <<: *dm-common
+    container_name: dm-monitor
+    hostname: dm-monitor
+    ports:
+      - "20198:20194"
+    environment:
+      <<: *dm-env
+      DM_JOIN_SERVER: "dm-master"
+      DM_JOIN_PORT: "20194"
+      DM_GRANULES: "monitor,worker"
+    depends_on:
+      dm-master:
+        condition: service_healthy
+
+  # ── Web Terminal (ttyd + DShell) ───────────────
+  dm-shell:
+    build:
+      context: .
+      dockerfile: scripts/demo/Dockerfile.shell
+    container_name: dm-shell
+    hostname: dm-shell
+    ports:
+      - "7681:7681"
+    mem_limit: 256m
+    cpus: 0.25
+    tmpfs:
+      - /tmp:size=50M
+    networks:
+      - dm-demo-net
+    environment:
+      DSHELL_SERVER: dm-master
+      DSHELL_PORT: "20194"
+      DSHELL_SCHEME: https
+      DM_ROOT_PASSWORD: "demo123"
+    depends_on:
+      dm-master:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  dm-demo-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.55.0.0/24

@@ -1,0 +1,37 @@
+# Web terminal for Dimensigon DShell demo
+FROM python:3.9-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl jq gcc g++ python3-dev libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ttyd
+RUN curl -fsSL https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 \
+    -o /usr/local/bin/ttyd && chmod +x /usr/local/bin/ttyd
+
+WORKDIR /app
+
+# Copy demo requirements (no heliosdb)
+COPY scripts/demo/requirements-demo.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy app and install
+COPY dimensigon/ ./dimensigon/
+COPY templates/ ./templates/
+COPY setup.py README.md ./
+RUN pip install --no-cache-dir -e .
+
+# Welcome banner
+COPY scripts/demo/welcome.sh /usr/local/bin/welcome.sh
+RUN chmod +x /usr/local/bin/welcome.sh
+
+# DShell wrapper with auto-login
+RUN printf '#!/bin/bash\n/usr/local/bin/welcome.sh\nexec dshell -s "${DSHELL_SERVER:-dm-master}" -p "${DSHELL_PORT:-20194}" -u root --password "${DM_ROOT_PASSWORD:-demo123}"\n' > /usr/local/bin/demo-shell.sh \
+    && chmod +x /usr/local/bin/demo-shell.sh
+
+EXPOSE 7681
+
+CMD ["ttyd", "--port", "7681", "--writable", "--max-clients", "5", "--ping-interval", "30", \
+     "--client-option", "fontSize=14", \
+     "--client-option", "fontFamily=JetBrains Mono,monospace", \
+     "/usr/local/bin/demo-shell.sh"]

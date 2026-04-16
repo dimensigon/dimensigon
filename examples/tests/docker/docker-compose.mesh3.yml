@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  dm-master:
+    build:
+      context: ../../..
+      dockerfile: examples/tests/docker/Dockerfile.dm-test
+    container_name: dm-test-master
+    ports:
+      - "20194:20194"
+    environment:
+      - DM_INIT_NEW=true
+      - DM_DIMENSION_NAME=test-mesh
+      - DM_ROOT_PASSWORD=testpass123
+      - DM_PORT=20194
+      - DM_GRANULES=lb,monitor
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:20194/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    networks:
+      dm_mesh:
+        ipv4_address: 172.30.0.10
+
+  dm-web:
+    build:
+      context: ../../..
+      dockerfile: examples/tests/docker/Dockerfile.dm-test
+    container_name: dm-test-web
+    ports:
+      - "20195:20194"
+    environment:
+      - DM_JOIN_SERVER=172.30.0.10
+      - DM_JOIN_PORT=20194
+      - DM_ROOT_PASSWORD=testpass123
+      - DM_PORT=20194
+      - DM_GRANULES=web,app,frontend
+    depends_on:
+      dm-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:20194/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    networks:
+      dm_mesh:
+        ipv4_address: 172.30.0.11
+
+  dm-db:
+    build:
+      context: ../../..
+      dockerfile: examples/tests/docker/Dockerfile.dm-test
+    container_name: dm-test-db
+    ports:
+      - "20196:20194"
+    environment:
+      - DM_JOIN_SERVER=172.30.0.10
+      - DM_JOIN_PORT=20194
+      - DM_ROOT_PASSWORD=testpass123
+      - DM_PORT=20194
+      - DM_GRANULES=db,cache,storage
+    depends_on:
+      dm-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:20194/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    networks:
+      dm_mesh:
+        ipv4_address: 172.30.0.12
+
+networks:
+  dm_mesh:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

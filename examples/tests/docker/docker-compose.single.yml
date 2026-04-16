@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  dm-node1:
+    build:
+      context: ../../..
+      dockerfile: examples/tests/docker/Dockerfile.dm-test
+    container_name: dm-test-single
+    ports:
+      - "20194:20194"
+    environment:
+      - DM_INIT_NEW=true
+      - DM_DIMENSION_NAME=test-dimension
+      - DM_ROOT_PASSWORD=testpass123
+      - DM_PORT=20194
+      - DM_GRANULES=web,db,app,monitor
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:20194/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    volumes:
+      - dm_test_data:/app/data
+
+volumes:
+  dm_test_data:
+    driver: local

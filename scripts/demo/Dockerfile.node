@@ -1,0 +1,37 @@
+# Dimensigon Demo Node
+FROM python:3.9-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ libpq-dev libssl-dev python3-dev curl sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy demo requirements FIRST (overwrites requirements.txt for setup.py)
+COPY scripts/demo/requirements-demo.txt ./requirements.txt
+
+# Install deps
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy app source
+COPY dimensigon/ ./dimensigon/
+COPY templates/ ./templates/
+COPY setup.py README.md ./
+
+# Install DM package (setup.py reads requirements.txt which is now the demo version)
+RUN pip install --no-cache-dir -e .
+
+# Copy entrypoint
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENV DM_PORT=20194
+EXPOSE 20194
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=60 \
+    CMD curl -sf http://localhost:${DM_PORT}/healthcheck || exit 1
+
+COPY scripts/demo/start-node.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/start-node.sh
+
+ENTRYPOINT ["start-node.sh"]

@@ -1,0 +1,45 @@
+# DM test image for example validation
+# Built from the main Dimensigon Dockerfile with added test utilities
+
+FROM python:3.11-slim AS base
+
+# Install system dependencies for DM + test verification tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    jq \
+    netcat-openbsd \
+    postgresql-client \
+    default-mysql-client \
+    redis-tools \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy DM source and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN pip install --no-cache-dir -e .
+
+# Install test dependencies
+RUN pip install --no-cache-dir pytest requests
+
+# Environment for test mode
+ENV FLASK_ENV=testing
+ENV DM_PORT=20194
+ENV DM_DATABASE_URL=sqlite:///
+ENV DM_SECRET_KEY=test-secret-key
+ENV DM_SSL_VERIFY=false
+
+EXPOSE 20194
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --retries=10 \
+    CMD curl -sf http://localhost:20194/ || exit 1
+
+# Entry point: initialize dimension and start DM
+COPY examples/tests/docker/init_dimension.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/init_dimension.sh
+
+CMD ["python", "-m", "dimensigon", "run", "--port", "20194"]
