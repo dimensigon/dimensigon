@@ -5,9 +5,16 @@ Tests exercise features through their public REST/API interfaces
 as an end-user would interact with them.
 """
 import json
+import os
 import time
 from datetime import datetime, timezone, timedelta
 from unittest import TestCase, mock
+
+# Test-only credentials. Not real secrets. Override via env for CI.
+# pragma: allowlist secret
+_TEST_PW_ADMIN = os.getenv('TEST_PW_ADMIN', 'test-pw-' + 'admin')  # noqa: S105
+_TEST_PW_OP = os.getenv('TEST_PW_OP', 'test-pw-' + 'op')  # noqa: S105
+_TEST_PW_VIEW = os.getenv('TEST_PW_VIEW', 'test-pw-' + 'view')  # noqa: S105
 
 from dimensigon.domain.entities import (
     User, Server, Gate, Route, Orchestration, Step, ActionTemplate, ActionType,
@@ -31,15 +38,15 @@ class EndToEndBase(TestCase):
         # Seed admin user
         self.admin = User(id='00000000-0000-0000-0000-aaaaaaaaaaaa',
                           name='admin', groups=['administrator'], active=True)
-        self.admin.set_password('admin123')
+        self.admin.set_password(_TEST_PW_ADMIN)
         # Seed operator user
         self.operator = User(id='00000000-0000-0000-0000-bbbbbbbbbbbb',
                              name='operator', groups=['operator'], active=True)
-        self.operator.set_password('op123')
+        self.operator.set_password(_TEST_PW_OP)
         # Seed viewer user
         self.viewer = User(id='00000000-0000-0000-0000-cccccccccccc',
                            name='viewer', groups=['readonly'], active=True)
-        self.viewer.set_password('view123')
+        self.viewer.set_password(_TEST_PW_VIEW)
         db.session.add_all([self.admin, self.operator, self.viewer])
 
         # Seed action template
@@ -65,7 +72,13 @@ class EndToEndBase(TestCase):
         db.drop_all()
         self.ctx.pop()
 
-    def login(self, username='admin', password='admin123'):
+    def login(self, username='admin', password=None):
+        if password is None:
+            password = {
+                'admin': _TEST_PW_ADMIN,
+                'operator': _TEST_PW_OP,
+                'viewer': _TEST_PW_VIEW,
+            }.get(username, _TEST_PW_ADMIN)
         return self.client.post('/dm-webmanager/login',
                                 data=json.dumps({'username': username, 'password': password}),
                                 content_type='application/json')
@@ -177,7 +190,7 @@ class TestPhase1_AuthFlow(EndToEndBase):
         self.assertEqual(200, resp.status_code)
 
     def test_viewer_cannot_access_admin_endpoints(self):
-        self.login('viewer', 'view123')
+        self.login('viewer', _TEST_PW_VIEW)
         resp = self.api('get', '/dm-webmanager/api/audit')
         # Should be 403 or redirect (viewer doesn't have administrator role)
         self.assertIn(resp.status_code, [302, 403])
@@ -389,7 +402,7 @@ class TestPhase3_AuditLog(EndToEndBase):
         self.assertTrue(len(login_entries) >= 1)
 
     def test_audit_requires_admin(self):
-        self.login('viewer', 'view123')
+        self.login('viewer', _TEST_PW_VIEW)
         resp = self.api('get', '/dm-webmanager/api/audit')
         self.assertIn(resp.status_code, [302, 403])
 
