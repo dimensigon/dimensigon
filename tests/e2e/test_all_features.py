@@ -763,3 +763,118 @@ class TestPhase5_Federation(EndToEndBase):
             # Revoke
             resp = self.api('post', f'/dm-webmanager/api/federation/peers/{peer_id}/revoke')
             self.assertEqual(200, resp.status_code)
+
+
+# ==============================================================
+# Orch-Library Integration (Plan 26 — post-3.0)
+# ==============================================================
+
+class TestOrchLibrary(EndToEndBase):
+    """Template suggestion and fetch integration with orch-library."""
+
+    SAMPLE_CATALOG = {
+        "version": "1.0.0",
+        "total": 2,
+        "entries": [
+            {
+                "id": "shell.service_mgmt.restart-service.v0",
+                "name": "postgresql-restart",
+                "description": "Restarts the postgresql systemd service.",
+                "category": "shell.service_mgmt",
+                "entity_type": "action_template",
+                "action_type": "SHELL",
+                "difficulty": "basic",
+                "tags": ["shell", "service_mgmt", "basic"],
+                "user_prompt": "Restart the postgresql service using systemctl",
+                "path": "action_templates/shell/service_mgmt/postgresql-restart.json",
+            },
+            {
+                "id": "orch.deploy.rolling.v0",
+                "name": "rolling-deploy",
+                "description": "Rolling deployment across multiple nodes.",
+                "category": "orchestration.single.app_deploy",
+                "entity_type": "orchestration",
+                "action_type": "ORCHESTRATION",
+                "difficulty": "advanced",
+                "tags": ["orchestration", "deploy"],
+                "user_prompt": "Deploy using rolling update",
+                "path": "orchestrations/single/app_deploy/rolling-deploy.json",
+            },
+        ],
+    }
+
+    def setUp(self):
+        super().setUp()
+        # Pre-populate the library index with a sample catalog
+        from dimensigon.ai import template_suggest
+        template_suggest._index = template_suggest.TemplateIndex()
+        template_suggest._index.load_from_catalog(self.SAMPLE_CATALOG)
+
+    def test_suggest_requires_auth(self):
+        resp = self.api('post', '/dm-webmanager/api/library/suggest',
+                        {'query': 'restart service'})
+        self.assertEqual(302, resp.status_code)
+
+    def test_suggest_returns_results(self):
+        self.login()
+        resp = self.api('post', '/dm-webmanager/api/library/suggest',
+                        {'query': 'restart postgresql', 'top_k': 3})
+        self.assertEqual(200, resp.status_code)
+        data = resp.get_json()
+        self.assertIn('results', data)
+        self.assertTrue(len(data['results']) >= 1)
+        self.assertEqual('postgresql-restart', data['results'][0]['name'])
+
+    def test_suggest_rejects_empty_query(self):
+        self.login()
+        resp = self.api('post', '/dm-webmanager/api/library/suggest', {'query': ''})
+        self.assertEqual(400, resp.status_code)
+
+    def test_suggest_filters_by_entity_type(self):
+        self.login()
+        resp = self.api('post', '/dm-webmanager/api/library/suggest',
+                        {'query': 'deploy rolling', 'entity_type': 'orchestration'})
+        data = resp.get_json()
+        for r in data['results']:
+            self.assertEqual('orchestration', r['entity_type'])
+
+    def test_fetch_requires_path(self):
+        self.login()
+        resp = self.api('post', '/dm-webmanager/api/library/fetch', {})
+        self.assertEqual(400, resp.status_code)
+
+    def test_fetch_rejects_traversal(self):
+        self.login()
+        resp = self.api('post', '/dm-webmanager/api/library/fetch',
+                        {'path': '../../etc/passwd'})
+        self.assertEqual(404, resp.status_code)
+
+    def test_refresh_requires_admin(self):
+        self.login('operator', _TEST_PW_OP)
+        resp = self.api('post', '/dm-webmanager/api/library/refresh')
+        self.assertIn(resp.status_code, [302, 403])
+
+    def test_import_requires_operator(self):
+        self.login('viewer', _TEST_PW_VIEW)
+        resp = self.api('post', '/dm-webmanager/api/library/import',
+                        {'path': 'fake.json'})
+        self.assertIn(resp.status_code, [302, 403])
+
+    def test_import_template_success(self):
+        from dimensigon.ai import template_suggest
+        self.login('operator', _TEST_PW_OP)
+        sample_tpl = {
+            'id': 'test.sample.v0',
+            'name': 'sample-import',
+            'description': 'Imported sample',
+            'category': 'orchestration.single.app_deploy',
+            'tags': ['test'],
+            'template': {'name': 'sample-import', 'steps': []},
+        }
+        with mock.patch.object(template_suggest, 'fetch_template',
+                               return_value=sample_tpl):
+            resp = self.api('post', '/dm-webmanager/api/library/import',
+                            {'path': 'orchestrations/test/sample.json'})
+        self.assertEqual(201, resp.status_code)
+        data = resp.get_json()
+        self.assertEqual('sample-import', data['name'])

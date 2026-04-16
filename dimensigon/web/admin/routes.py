@@ -1854,3 +1854,100 @@ def federation_peer_detail(peer_id):
     if not peer:
         return jsonify({'error': 'Peer not found'}), 404
     return jsonify(peer), 200
+
+
+# --- Orch-Library Template Suggestions (RAG-style search) ---
+
+@admin_routes_bp.route('/api/library/suggest', methods=['POST'])
+@webmanager_auth_required
+def library_suggest():
+    """Suggest templates from the orch-library matching the user's query.
+
+    Body: {query: str, top_k?: int, entity_type?: str, action_type?: str, difficulty?: str}
+    Returns: {query, results: [{id, name, description, score, path, ...}], size}
+    """
+    from dimensigon.ai import template_suggest
+    data = request.get_json(silent=True) or {}
+    query = (data.get('query') or '').strip()
+    if not query:
+        return jsonify({'error': 'query is required'}), 400
+
+    result = template_suggest.suggest(
+        query=query,
+        top_k=min(int(data.get('top_k', 10)), 50),
+        entity_type=data.get('entity_type'),
+        action_type=data.get('action_type'),
+        difficulty=data.get('difficulty'),
+    )
+    return jsonify(result), 200
+
+
+@admin_routes_bp.route('/api/library/refresh', methods=['POST'])
+@require_role('administrator')
+def library_refresh():
+    """Force-refresh the catalog index from the orch-library URL."""
+    from dimensigon.ai import template_suggest
+    data = request.get_json(silent=True) or {}
+    result = template_suggest.refresh_index(force=True, url=data.get('url'))
+    status = 200 if result.get('ok') else 503
+    return jsonify(result), status
+
+
+@admin_routes_bp.route('/api/library/fetch', methods=['POST'])
+@webmanager_auth_required
+def library_fetch():
+    """Fetch a single template by path and return its full JSON payload."""
+    from dimensigon.ai import template_suggest
+    data = request.get_json(silent=True) or {}
+    path = (data.get('path') or '').strip()
+    if not path:
+        return jsonify({'error': 'path is required'}), 400
+
+    tpl = template_suggest.fetch_template(path)
+    if tpl is None:
+        return jsonify({'error': 'Template not found or invalid path'}), 404
+    return jsonify(tpl), 200
+
+
+@admin_routes_bp.route('/api/library/import', methods=['POST'])
+@require_role('operator')
+def library_import():
+    """Fetch a template from the library and import it as a local OrchTemplate."""
+    from dimensigon.ai import template_suggest
+    from dimensigon.domain.entities.template import OrchTemplate
+
+    data = request.get_json(silent=True) or {}
+    path = (data.get('path') or '').strip()
+    if not path:
+        return jsonify({'error': 'path is required'}), 400
+
+    tpl = template_suggest.fetch_template(path)
+    if tpl is None:
+        return jsonify({'error': 'Template not found'}), 404
+
+    # Map library template to local OrchTemplate
+    category_map = {
+        'app_deploy': 'deployment', 'web': 'deployment', 'cicd': 'deployment',
+        'containers': 'deployment', 'database': 'maintenance',
+        'maintenance': 'maintenance', 'monitoring': 'monitoring',
+        'security': 'security', 'mail': 'custom',
+    }
+    cat_parts = tpl.get('category', '').split('.')
+    sub = cat_parts[-1] if cat_parts else 'custom'
+    local_category = category_map.get(sub, 'custom')
+
+    imported = OrchTemplate(
+        name=tpl.get('name', path),
+        description=tpl.get('description', ''),
+        category=local_category,
+        tags=tpl.get('tags', []),
+        json_content=tpl.get('template', {}),
+    )
+    db.session.add(imported)
+    db.session.commit()
+    return jsonify({
+        'message': 'Template imported',
+        'id': str(imported.id),
+        'name': imported.name,
+        'source_path': path,
+    }), 201
