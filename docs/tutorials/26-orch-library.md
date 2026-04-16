@@ -6,7 +6,7 @@
 
 ## Overview
 
-The `orch-library` is a public GitHub repository (`github.com/dimensigon/orch-library`) hosting 6,302+ ready-to-use orchestrations and action templates. Dimensigon integrates with it in three ways:
+The `orch-library` is a public GitHub repository (`github.com/dimensigon/orch-library`) hosting 1,712+ unique ready-to-use orchestrations and action templates (deduplicated from an AI training dataset of 6,302 variants). Dimensigon integrates with it in three ways:
 
 1. **Search** — a built-in TF-IDF + fuzzy hybrid search over the catalog
 2. **Fetch** — retrieve a single template's full JSON by path
@@ -50,7 +50,7 @@ Response:
 ```json
 {
   "query": "restart a systemd service with retries",
-  "size": 6302,
+  "size": 1712,
   "results": [
     {
       "id": "shell.service_mgmt.restart-service.v0",
