@@ -169,6 +169,17 @@ def _initialize_blueprint(app):
     app.register_blueprint(executions_bp)
     app.register_blueprint(admin_routes_bp)
 
+    # Billing (Phase 2 — Stripe). ENV-GATED: the blueprint always registers, but
+    # its routes return 503 when STRIPE_API_KEY is unset. Registration imports
+    # only Flask + the billing routes module (no `stripe` SDK at import time), so
+    # this must never raise even when Stripe is entirely unconfigured. Guarded
+    # defensively so a billing-import problem can never take down app startup.
+    try:
+        from dimensigon.billing.routes import billing_bp
+        app.register_blueprint(billing_bp)
+    except Exception:  # pragma: no cover - defensive, must never block startup
+        app.logger.exception("Billing blueprint not registered (continuing without billing)")
+
     app.handle_exception = handle_exception
     app.handle_user_exception = handle_user_exception
 

@@ -44,6 +44,25 @@ class Config(object):
     # AI chat assistant
     DM_AI_ENABLED = os.environ.get('DM_AI_ENABLED', 'false').lower() == 'true'
 
+    # ------------------------------------------------------------------
+    # Billing (Phase 2 — Stripe). ADDITIVE + ENV-GATED.
+    #
+    # All values default to None. When STRIPE_API_KEY is None the billing
+    # blueprint still registers (it must never raise at import/startup) but
+    # every billing endpoint returns HTTP 503 "billing not configured". No
+    # Stripe client is initialised until a request actually needs it, so the
+    # app behaves EXACTLY as before when these are unset.
+    # ------------------------------------------------------------------
+    STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY')
+    STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
+    # Per-tier Stripe Price IDs (read from env — never hardcode live IDs).
+    STRIPE_PRICE_COMMUNITY = os.environ.get('STRIPE_PRICE_COMMUNITY')
+    STRIPE_PRICE_PRO = os.environ.get('STRIPE_PRICE_PRO')
+    STRIPE_PRICE_ENTERPRISE = os.environ.get('STRIPE_PRICE_ENTERPRISE')
+    # Optional redirect URLs for Stripe Checkout success/cancel pages.
+    STRIPE_CHECKOUT_SUCCESS_URL = os.environ.get('STRIPE_CHECKOUT_SUCCESS_URL')
+    STRIPE_CHECKOUT_CANCEL_URL = os.environ.get('STRIPE_CHECKOUT_CANCEL_URL')
+
     @classmethod
     def init_app(cls, app):
         pass

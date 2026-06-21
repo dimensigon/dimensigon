@@ -36,6 +36,11 @@ from .orch_version import OrchestrationVersion
 from .template import OrchTemplate
 from .training_candidate import TrainingCandidate
 from .federation import Peer, FederationLink
+# Billing (Phase 2 — Stripe). Imported here only so the License /
+# ProcessedStripeEvent tables register with db.Model.metadata and are picked up
+# by create_all. This import is pure SQLAlchemy declarations — it does NOT pull
+# in the `stripe` SDK (the SDK is imported lazily inside StripeService).
+from dimensigon.billing.models import License, ProcessedStripeEvent
 
 SCHEMA_VERSION = 2
 
@@ -77,6 +82,8 @@ __all__ = [
     "TrainingCandidate",
     "Peer",
     "FederationLink",
+    "License",
+    "ProcessedStripeEvent",
 ]
 
 catalog = threading.local()
