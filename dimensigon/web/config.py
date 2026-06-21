@@ -71,9 +71,12 @@ class Config(object):
 class ProductionConfig(Config):
     SQLALCHEMY_DATABASE_URI = None
 
-    def __init__(self):
-        super().__init__()
-        # CRITICAL: Fail fast in production if SECRET_KEY is not set to a strong value
+    @staticmethod
+    def _require_secret_key(app):
+        # CRITICAL: Fail fast in production if SECRET_KEY is not a strong value.
+        # This runs at APP CREATION (init_app), never at module import — importing
+        # web.config (e.g. by the dshell CLI or tests) must NOT raise just because
+        # this process has no DM_SECRET_KEY. Only a real production app start enforces it.
         secret = os.environ.get('DM_SECRET_KEY')
         if not secret or secret == 'hard to guess string':
             raise ValueError(
@@ -82,11 +85,12 @@ class ProductionConfig(Config):
                 'Never use the placeholder "hard to guess string".\n'
                 'Set DM_SECRET_KEY environment variable before starting the application.'
             )
-        self.SECRET_KEY = secret
+        app.config['SECRET_KEY'] = secret
 
     @classmethod
     def init_app(cls, app):
         Config.init_app(app)
+        cls._require_secret_key(app)
 
         # email errors to the administrators
         # import logging
@@ -120,6 +124,7 @@ class GunicornConfig(ProductionConfig):
     @classmethod
     def init_app(cls, app):
         Config.init_app(app)
+        cls._require_secret_key(app)
         # from logging import FileHandler
         # file_handler = FileHandler('dimensigon.log')
         # file_handler.setLevel(logging.INFO)
