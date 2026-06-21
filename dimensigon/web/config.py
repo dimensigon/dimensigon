@@ -52,6 +52,19 @@ class Config(object):
 class ProductionConfig(Config):
     SQLALCHEMY_DATABASE_URI = None
 
+    def __init__(self):
+        super().__init__()
+        # CRITICAL: Fail fast in production if SECRET_KEY is not set to a strong value
+        secret = os.environ.get('DM_SECRET_KEY')
+        if not secret or secret == 'hard to guess string':
+            raise ValueError(
+                'FATAL: DM_SECRET_KEY must be set to a strong random value in production.\n'
+                'Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"\n'
+                'Never use the placeholder "hard to guess string".\n'
+                'Set DM_SECRET_KEY environment variable before starting the application.'
+            )
+        self.SECRET_KEY = secret
+
     @classmethod
     def init_app(cls, app):
         Config.init_app(app)
@@ -83,6 +96,7 @@ class ProductionConfig(Config):
 
 
 class GunicornConfig(ProductionConfig):
+    """Gunicorn production config - inherits SECRET_KEY validation from ProductionConfig"""
 
     @classmethod
     def init_app(cls, app):
