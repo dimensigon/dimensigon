@@ -243,27 +243,50 @@ def securizer(func):
 
         should_encrypt = _should_encrypt(securizer_method)
 
+        # Whether the inbound body arrived wrapped in a transport envelope
+        # (pack_msg output). The client (web/network.py:prepare_request) ALWAYS
+        # envelopes the payload whenever SECURIZER is on, regardless of the
+        # securizer mode. The envelope and the encryption layer are SEPARATE
+        # concerns: `enveloped_data` may be plain base64 (no key/signature) for
+        # intra-dimension/plain traffic, or encrypted+signed for cross-dimension
+        # traffic. We must therefore UN-ENVELOPE any request that looks like an
+        # envelope, gated only by SECURIZER (the transport switch), not by
+        # _should_encrypt (which only governs the ENCRYPTION layer + responses).
+        # unpack_msg handles both shapes transparently (it base64-decodes when
+        # there is no key, and decrypts+verifies when there is). This keeps
+        # pack/unpack symmetric and is the root-cause fix for peers failing to
+        # join with "'scope' is a required property" on the locker endpoints.
+        was_enveloped = False
+
         if request.method != 'GET':
             if request.is_json:
-                if should_encrypt:
-                    g.original_json = request.get_json()
-                    cipher_key = base64.b64decode(
-                        request.get_json().get('key')) if 'key' in request.get_json() else cipher_key
+                body = request.get_json(silent=True)
+                is_envelope = isinstance(body, dict) and 'enveloped_data' in body
+                securizer_on = current_app.config.get('SECURIZER', False)
+                # The join endpoint carries a one-time temp public key and uses
+                # the dedicated pack_msg2/unpack_msg2 handshake; it must keep its
+                # special handling and must never be treated as a plain envelope.
+                is_join = request.path == url_for('api_1_0.join')
+
+                if securizer_on and is_envelope and (should_encrypt or not is_join):
+                    g.original_json = body
+                    cipher_key = base64.b64decode(body.get('key')) if 'key' in body else cipher_key
 
                     try:
-                        if request.path == url_for('api_1_0.join'):
+                        if is_join:
                             temp_pub_key = rsa.PublicKey.load_pkcs1(
-                                request.get_json().pop('my_pub_key').encode('ascii'))
-                            data = ntwrk.unpack_msg2(data=request.get_json(),
+                                body.pop('my_pub_key').encode('ascii'))
+                            data = ntwrk.unpack_msg2(data=body,
                                                      pub_key=temp_pub_key,
                                                      priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
                                                      cipher_key=cipher_key)
                         else:
-                            data = ntwrk.unpack_msg(data=request.get_json())
+                            data = ntwrk.unpack_msg(data=body)
                     except (rsa.pkcs1.VerificationError, NotValidMessage) as e:
                         return {'error': str(e),
-                                'message': request.get_json()}, 400
+                                'message': body}, 400
 
+                    was_enveloped = True
                     request._cached_data = json.dumps(data)
                     request._cached_json = (data, data)
 
@@ -283,16 +306,22 @@ def securizer(func):
         if rv is None:
             return rv
 
+        # Symmetric response handling: envelope the response whenever we
+        # un-enveloped the request (was_enveloped), so the client's unpack_msg
+        # on the response round-trips correctly. should_encrypt still drives
+        # whether pack_msg additionally ENCRYPTS (cross-dimension); for plain
+        # intra-dimension traffic pack_msg produces a plain base64 envelope that
+        # the client transparently base64-decodes back.
         if isinstance(rv, dict):
             if request.path == url_for('api_1_0.join') and temp_pub_key:
                 rv = ntwrk.pack_msg2(data=rv, pub_key=temp_pub_key,
                                      priv_key=getattr(getattr(g, 'dimension', None), 'private', None),
                                      cipher_key=cipher_key)
-            elif should_encrypt:
+            elif should_encrypt or was_enveloped:
                 rv = ntwrk.pack_msg(data=rv)
 
         if isinstance(rv, list):
-            if should_encrypt:
+            if should_encrypt or was_enveloped:
                 rv = ntwrk.pack_msg(data=rv)
 
         if rest:
