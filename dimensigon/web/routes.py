@@ -30,7 +30,7 @@ def home():
 @validate_schema(POST=healthcheck_post)
 # @log_time('after validation')
 def healthcheck():
-    if request.method == 'POST' and isinstance(g.source, Server):
+    if request.method == 'POST' and isinstance(getattr(g, 'source', None), Server):
         data = request.get_json()
         try:
             heartbeat = dt.datetime.strptime(data['heartbeat'], defaults.DATETIME_FORMAT)
@@ -39,6 +39,16 @@ def healthcheck():
         current_app.dm.cluster_manager.put(data['me'], heartbeat)
 
     catalog_ver = Catalog.max_catalog()
+
+    # Only authenticated mesh peers (g.source resolves to a known Server) or
+    # JWT-authenticated users may see node identity and cluster topology.
+    # Anonymous/unidentified callers get a minimal liveness response only, so
+    # the node's Server UUID, version and neighbour/cluster maps are not leaked
+    # to unauthenticated reconnaissance (CWE-200).
+    trusted = isinstance(getattr(g, 'source', None), Server) or get_jwt_identity() is not None
+    if not trusted:
+        return {"status": "ok", "now": get_now().strftime(defaults.DATETIME_FORMAT)}
+
     data = {"version": dimensigon.__version__,
             "catalog_version": catalog_ver.strftime(defaults.DATEMARK_FORMAT) if catalog_ver else None,
             "services": [],
@@ -105,18 +115,4 @@ def refresh():
         'username': getattr(user, 'name', None),
         'access_token': create_access_token(identity=get_jwt_identity(), fresh=False)
     }
-    return jsonify(ret), 200
-
-
-@root_bp.route('/fresh-login', methods=['POST'])
-@forward_or_dispatch()
-@validate_schema(login_post)
-def fresh_login():
-    username = request.get_json().get('username', None)
-    password = request.get_json().get('password', None)
-    if username != 'test' or password != 'test':
-        return jsonify({"msg": "Bad username or password"}), 401
-
-    new_token = create_access_token(identity=username, fresh=True)
-    ret = {'access_token': new_token}
     return jsonify(ret), 200

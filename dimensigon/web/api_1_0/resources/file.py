@@ -17,6 +17,48 @@ from dimensigon.web.json_schemas import files_post, file_post, file_patch, file_
 _logger = logging.getLogger('dm.fileSync')
 
 
+def _resolve_sync_target(file_entity, requested_path):
+    """Validate and resolve the file-sync write path (defense in depth).
+
+    The write path must not be derived blindly from request data (that is an
+    arbitrary-file-write -> RCE primitive). The path is only accepted if it
+    matches one of the destination targets registered for *this* server on the
+    given File entity. Comparison is done on os.path.realpath so '..'
+    traversal, symlinks and absolute-path escapes cannot point the write
+    outside a registered destination.
+
+    Returns the safe (realpath) write path, or raises errors.Forbidden.
+    """
+    if not requested_path or not isinstance(requested_path, str):
+        raise errors.UserForbiddenError
+
+    current = Server.get_current()
+    allowed = []
+    if file_entity is not None and current is not None:
+        for fsa in file_entity.destinations:
+            try:
+                if fsa.destination_server is not None and fsa.destination_server.id == current.id:
+                    allowed.append(fsa.target)
+            except Exception:
+                continue
+
+    if not allowed:
+        # No registered destination for this server: refuse rather than writing
+        # to an attacker-chosen path.
+        _logger.warning("file_sync: no registered destination for this server; rejecting write to %r",
+                        requested_path)
+        raise errors.UserForbiddenError
+
+    real_requested = os.path.realpath(requested_path)
+    for target in allowed:
+        if os.path.realpath(target) == real_requested:
+            return real_requested
+
+    _logger.warning("file_sync: requested path %r does not match any registered destination; rejecting",
+                    requested_path)
+    raise errors.UserForbiddenError
+
+
 @api_bp.route("/file/<file_id>/sync", methods=['POST'])
 @jwt_required()
 @securizer
@@ -25,11 +67,18 @@ _logger = logging.getLogger('dm.fileSync')
 def file_sync(file_id):
     if get_jwt_identity() == '00000000-0000-0000-0000-000000000001':
         data = request.get_json()
-        file = db.session.get(File, file_id)
-        if file is None and not data.get('force', False):
+        file_entity = db.session.get(File, file_id)
+        if file_entity is None:
+            # The write path is derived from a registered destination, so the
+            # File entity must exist on this node. Never fall back to an
+            # attacker-chosen path via force=True.
             raise errors.EntityNotFound("File", file_id)
 
-        file = data.get('file')
+        # Resolve and validate the write path against the destinations
+        # registered for this server (defense in depth against path traversal /
+        # arbitrary file write). Only a path matching a registered destination
+        # target is accepted.
+        file = _resolve_sync_target(file_entity, data.get('file'))
         content = zlib.decompress(base64.b64decode(data.get('data').encode('ascii')))
 
         _logger.debug(f"received file sync {file}.")

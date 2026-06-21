@@ -4,6 +4,11 @@ import time
 
 metrics_bp = Blueprint('metrics', __name__)
 
+# Bounded set of HTTP methods used for metric labels (cardinality guard).
+_KNOWN_METHODS = frozenset(
+    {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE', 'CONNECT'}
+)
+
 # Define metrics
 ORCHESTRATION_EXECUTIONS = Counter(
     'dm_orchestration_executions_total',
@@ -64,15 +69,22 @@ def register_metrics_hooks(app):
         start = getattr(g, '_metrics_start_time', None)
         if start is not None:
             duration = time.monotonic() - start
-            # Use a simplified endpoint label to avoid high cardinality
-            endpoint = request.endpoint or 'unknown'
+            # Cardinality guard: label by the Flask *rule name* (request.endpoint),
+            # which is a bounded set, NOT the request path (unbounded). When no
+            # rule matched (404 on an arbitrary path), request.endpoint is None;
+            # collapse those to a single 'unmatched' bucket so a flood of 404s on
+            # random paths cannot create unbounded label series.
+            endpoint = request.endpoint or 'unmatched'
+            # request.method is bounded by Werkzeug to known HTTP verbs, but be
+            # defensive: only emit recognized methods, else collapse to 'other'.
+            method = request.method if request.method in _KNOWN_METHODS else 'other'
             API_REQUESTS.labels(
-                method=request.method,
+                method=method,
                 endpoint=endpoint,
                 status_code=response.status_code
             ).inc()
             API_REQUEST_DURATION.labels(
-                method=request.method,
+                method=method,
                 endpoint=endpoint
             ).observe(duration)
 

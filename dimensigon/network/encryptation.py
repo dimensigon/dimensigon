@@ -1,6 +1,7 @@
 import base64
 import copy
 import json
+import os
 import pickle
 import typing as t
 
@@ -163,19 +164,35 @@ def unpack_msg(msg, pub_key: rsa.PublicKey = None, priv_key: rsa.PrivateKey = No
     else:
         unloaded_data = base64.b64decode(enveloped_data.encode('ascii'))
 
-    # Security: Try JSON first (safe deserialization)
-    # Only fall back to pickle for backward compatibility with legacy messages
+    # Security: only safe (JSON) deserialization of inbound network data.
+    # pickle.loads() executes arbitrary code, so the legacy pickle fallback is
+    # OFF by default and must be explicitly opted into for a one-off migration
+    # window via DM_ALLOW_PICKLE_DESERIALIZATION (truthy). Even when enabled,
+    # every use is logged loudly so it can be detected and the window closed.
     try:
         data = json.loads(unloaded_data)
     except (json.JSONDecodeError, UnicodeDecodeError):
-        # WARNING: pickle.loads() can execute arbitrary code
-        # This fallback exists only for backward compatibility
-        # TODO: Remove pickle support in future version after migration period
         import logging
-        logging.getLogger(__name__).warning(
-            "Received message using pickle serialization. "
-            "This is deprecated and will be removed in a future version. "
-            "Please upgrade all nodes to use JSON serialization."
+        log = logging.getLogger(__name__)
+        if os.environ.get('DM_ALLOW_PICKLE_DESERIALIZATION', '').lower() \
+                not in ('1', 'true', 'yes', 'on'):
+            log.error(
+                "Rejected inbound message that is not valid JSON. The deprecated "
+                "pickle deserialization fallback is disabled (CWE-502). Upgrade "
+                "all mesh nodes to JSON serialization. To temporarily re-enable "
+                "for a controlled migration window, set "
+                "DM_ALLOW_PICKLE_DESERIALIZATION=true (NOT recommended)."
+            )
+            raise NotValidMessage(
+                "Unable to deserialize message: payload is not valid JSON and "
+                "pickle deserialization is disabled."
+            )
+        # WARNING: pickle.loads() can execute arbitrary code. Only reached when
+        # the operator has explicitly opted in via env flag.
+        log.warning(
+            "SECURITY: deserializing an inbound message with pickle because "
+            "DM_ALLOW_PICKLE_DESERIALIZATION is set. This is unsafe (CWE-502) "
+            "and must be disabled once all nodes use JSON serialization."
         )
         try:
             data = pickle.loads(unloaded_data)

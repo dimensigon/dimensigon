@@ -4,6 +4,7 @@ import functools
 import inspect
 import os
 import re
+import shlex
 import signal
 import sqlite3
 import sys
@@ -475,45 +476,105 @@ class NativeDeleteOperation(IOperationEncapsulation):
         return cp
 
 
+# Environment variables that are safe to pass through to step subprocesses.
+# Everything else (including the platform's own secrets: DM_SECRET_KEY,
+# POSTGRES_PASSWORD, REDIS_PASSWORD, JOIN_TOKEN, ...) is stripped so that an
+# orchestration author cannot env-dump the master process configuration.
+_SHELL_ENV_ALLOWLIST = (
+    'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'PWD', 'TMPDIR',
+    'LANG', 'LANGUAGE', 'TZ', 'TERM',
+)
+
+# Defense-in-depth: even if one of the allowlisted names somehow carries a
+# secret, drop any variable whose name looks credential-bearing.
+_SECRET_ENV_RE = re.compile(
+    r'(SECRET|PASSWORD|PASSWD|TOKEN|API[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIAL|'
+    r'_KEY$|^KEY$|AUTH|SESSION|SALT)',
+    re.IGNORECASE,
+)
+
+
+def _curated_env():
+    """Build a minimal, secret-free environment for step subprocesses.
+
+    Returns a dict containing only allowlisted system variables plus LC_*
+    locale variables, with anything matching a credential pattern removed.
+    A sane PATH is always provided as a fallback.
+    """
+    base = os.environ
+    env = {}
+    for name in _SHELL_ENV_ALLOWLIST:
+        if name in base:
+            env[name] = base[name]
+    # locale variables are benign and commonly required for correct encoding
+    for name, value in base.items():
+        if name.startswith('LC_'):
+            env[name] = value
+    # strip anything that looks like a secret, regardless of how it got here
+    env = {k: v for k, v in env.items() if not _SECRET_ENV_RE.search(k)}
+    env.setdefault('PATH', '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')
+    return env
+
+
+def _safe_suffix(shebang):
+    """Derive a filesystem-safe temp-file suffix from the shebang.
+
+    ``os.path.basename(shebang)`` is attacker-influenced; restrict it to a
+    short alphanumeric token so it cannot inject path/shell characters into
+    the temp filename.
+    """
+    raw = os.path.basename(shebang or '')
+    cleaned = re.sub(r'[^A-Za-z0-9_]', '', raw)[:16]
+    return '.' + cleaned if cleaned else '.sh'
+
+
 class ShellOperation(IOperationEncapsulation):
 
     def _run(self, code, user=None, shebang=None, timeout=None):
         stdout = None
         stderr = None
         rc = None
-        tmp = tempfile.NamedTemporaryFile('w', delete=False, suffix='.' + os.path.basename(shebang))
+        shebang = shebang or '/bin/bash'
+        tmp = tempfile.NamedTemporaryFile('w', delete=False, suffix=_safe_suffix(shebang))
         tmp.write(f"#!{shebang}\n")
         tmp.write(code)
         tmp.close()
         os.chmod(tmp.name, 0o755)
         out_fh = open(tmp.name + '.out', 'w')
 
+        # Curated, secret-free environment for the step process.
+        run_env = _curated_env()
+
+        # shlex.quote every interpolated value: a crafted 'user' (or the temp
+        # path) must not be able to inject shell metacharacters.
+        quoted_script = shlex.quote(tmp.name)
+        quoted_user = shlex.quote(str(user)) if user else None
         if user:
-            cmd = f"sudo -niu {user} {tmp.name}"
+            cmd = f"sudo -niu {quoted_user} {quoted_script}"
         else:
-            cmd = tmp.name
+            cmd = quoted_script
 
         with subprocess.Popen(cmd, stdout=out_fh, stderr=subprocess.STDOUT, encoding='utf-8',
-                              shell=True, env=os.environ) as p:
+                              shell=True, env=run_env) as p:
             try:
                 p.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
-                subprocess.run(f"sudo -u {user} kill {p.pid}", shell=True) if user else p.terminate()
+                subprocess.run(f"sudo -u {quoted_user} kill {p.pid}", shell=True) if user else p.terminate()
                 try:
                     p.communicate(timeout=5)
                 except subprocess.TimeoutExpired:
-                    subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
+                    subprocess.run(f"sudo -u {quoted_user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
                                                                                                        signal.SIGKILL)
                     p.communicate()
                     raise TimeoutError(f"Timeout of {timeout} seconds while executing shell")
                 except Exception as e:
-                    subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
+                    subprocess.run(f"sudo -u {quoted_user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
                                                                                                        signal.SIGKILL)
                     raise RuntimeError(f"Error waiting process {p.pid} to terminate\n{format_exception(e)}")
                 else:
                     raise TimeoutError(f"Timeout of {timeout} seconds while executing shell")
             except Exception as e:
-                subprocess.run(f"sudo -u {user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
+                subprocess.run(f"sudo -u {quoted_user} kill -9 {p.pid}", shell=True) if user else os.kill(p.pid,
                                                                                                    signal.SIGKILL)
                 p.communicate()
                 stderr += "\n" + format_exception(e)

@@ -80,6 +80,42 @@ def _create_orchestration_version(orchestration, author=None, message=None):
 
 # --- Authentication endpoints ---
 
+# Brute-force protection for login: sliding-window failed-attempt tracking
+# keyed by (client IP, username). After _LOGIN_MAX_FAILURES failed attempts
+# within _LOGIN_WINDOW seconds the key is temporarily locked out (HTTP 429).
+# In-process store, mirroring the existing AI-chat limiter; for a multi-worker
+# deployment back this with the shared Redis instance.
+_login_failures = defaultdict(list)  # (ip, username) -> [failure_timestamp, ...]
+_LOGIN_MAX_FAILURES = 5
+_LOGIN_WINDOW = 900  # 15 minutes
+
+
+def _login_throttle_key():
+    # request.remote_addr can be spoofed behind a misconfigured proxy; the
+    # username dimension keeps password-spray across many users in check too.
+    ip = request.remote_addr or 'unknown'
+    data = request.get_json(silent=True) or {}
+    return ip, (data.get('username') or '')
+
+
+def _login_is_locked(key):
+    """Return (locked, retry_after_seconds)."""
+    now = time.time()
+    _login_failures[key] = [ts for ts in _login_failures[key] if now - ts < _LOGIN_WINDOW]
+    if len(_login_failures[key]) >= _LOGIN_MAX_FAILURES:
+        retry_after = int(_LOGIN_WINDOW - (now - min(_login_failures[key])))
+        return True, max(retry_after, 1)
+    return False, 0
+
+
+def _login_record_failure(key):
+    _login_failures[key].append(time.time())
+
+
+def _login_clear(key):
+    _login_failures.pop(key, None)
+
+
 @admin_routes_bp.route('/login', methods=['GET'])
 def login_page():
     """Render the login page."""
@@ -94,15 +130,29 @@ def login():
     username = data.get('username', '')
     password = data.get('password', '')
 
+    # Brute-force protection: reject early if this IP/username is locked out.
+    throttle_key = _login_throttle_key()
+    locked, retry_after = _login_is_locked(throttle_key)
+    if locked:
+        resp = jsonify({'error': 'Too many failed login attempts. Try again later.'})
+        resp.headers['Retry-After'] = str(retry_after)
+        return resp, 429
+
     user = User.get_by_name(username)
     try:
         if not user or not user.verify_password(password):
+            _login_record_failure(throttle_key)
             return jsonify({'error': 'Invalid username or password'}), 401
     except TypeError:
+        _login_record_failure(throttle_key)
         return jsonify({'error': 'Invalid username or password'}), 401
 
     if not user.active:
+        _login_record_failure(throttle_key)
         return jsonify({'error': 'Account is disabled'}), 403
+
+    # Successful authentication: reset the failure counter for this key.
+    _login_clear(throttle_key)
 
     access_token = create_access_token(identity=str(user.id), fresh=True)
     refresh_token = create_refresh_token(identity=str(user.id))
@@ -1134,6 +1184,9 @@ def ai_troubleshoot():
         }
 
     result = analyze_failure(step_data)
+    # analyze_failure is a fixed rule table, not an LLM. Label it honestly.
+    if isinstance(result, dict):
+        result.setdefault('engine', 'heuristic')
     return jsonify(result), 200
 
 
@@ -1251,28 +1304,48 @@ def ai_chat():
         # Attempt to call the real AI handler
         try:
             from dimensigon.ai.handler import handle_ai_chat
+        except ImportError:
+            # The LLM handler module is not installed. Do NOT fall through to the
+            # generic "AI not enabled" mock: that misleads the operator into
+            # thinking they forgot DM_AI_ENABLED when in fact the backend module
+            # is missing. Return an explicit, accurate 501 instead.
+            current_app.logger.warning(
+                'DM_AI_ENABLED is true but dimensigon.ai.handler is not installed; '
+                'the LLM-backed AI chat handler is unavailable.'
+            )
+            return jsonify({
+                'error': (
+                    'AI is enabled (DM_AI_ENABLED=true) but the LLM handler module '
+                    '(dimensigon.ai.handler) is not installed, so AI chat cannot run. '
+                    'Install/configure an AI backend, or unset DM_AI_ENABLED to use '
+                    'the built-in heuristic engines.'
+                ),
+                'ai_enabled': True,
+                'handler_available': False,
+            }), 501
+        try:
             result = handle_ai_chat(
                 message=message,
                 orchestration_context=orchestration_context,
                 mode=mode,
             )
             return jsonify(result), 200
-        except ImportError:
-            # AI handler module not available; fall through to mock response
-            pass
         except Exception as e:
             return jsonify({
                 'error': f'AI handler error: {str(e)}',
             }), 500
 
-    # Mock response when AI is not configured
+    # Mock response when AI is not configured. These engines are heuristic /
+    # rule-based, not LLM-backed; label them as such so the UI is honest.
     if mode == 'modify':
         mock_response = {
             'type': 'modify',
+            'engine': 'heuristic',
+            'ai_enabled': False,
             'message': (
-                'AI-powered orchestration modification is not currently configured. '
-                'To enable this feature, set the DM_AI_ENABLED environment variable '
-                'to "true" and ensure an AI backend is available. '
+                'LLM-powered orchestration modification is not currently configured. '
+                'To enable it, set the DM_AI_ENABLED environment variable to "true" '
+                'and ensure an AI backend (dimensigon.ai.handler) is available. '
                 'Your instruction was: ' + message
             ),
             'modified_orchestration': orchestration_context,
@@ -1280,26 +1353,33 @@ def ai_chat():
     else:
         mock_response = {
             'type': 'review',
+            'engine': 'heuristic',
+            'ai_enabled': False,
             'message': (
-                'AI-powered orchestration review is not currently configured. '
-                'To enable this feature, set the DM_AI_ENABLED environment variable '
-                'to "true" and ensure an AI backend is available. '
+                'LLM-powered orchestration review is not currently configured. '
+                'To enable it, set the DM_AI_ENABLED environment variable to "true" '
+                'and ensure an AI backend (dimensigon.ai.handler) is available. '
                 'Your instruction was: ' + message
             ),
             'suggestions': [
                 {
                     'category': 'info',
                     'severity': 'info',
-                    'title': 'AI features not enabled',
+                    'title': 'LLM AI features not enabled',
                     'description': (
-                        'Configure DM_AI_ENABLED=true to unlock AI-powered '
-                        'orchestration review, modification suggestions, '
-                        'error-handling analysis, and parallelization recommendations.'
+                        'Configure DM_AI_ENABLED=true (and install an AI backend) to '
+                        'unlock LLM-powered orchestration review, modification '
+                        'suggestions, error-handling analysis, and parallelization '
+                        'recommendations. The rule-based heuristic engines remain '
+                        'available regardless.'
                     ),
                     'affected_steps': [],
                 }
             ],
-            'summary': 'AI assistant is not configured. Enable it via DM_AI_ENABLED=true.',
+            'summary': (
+                'LLM AI assistant is not configured (heuristic engine only). '
+                'Enable it via DM_AI_ENABLED=true.'
+            ),
         }
 
     return jsonify(mock_response), 200
@@ -1356,6 +1436,9 @@ def ai_nl_resolve():
         })
 
     result = resolve_intent(user_input, orchestrations_list, servers_list)
+    # This resolver is rule-based (regex + fuzzy matching), not LLM-backed.
+    # Surface that honestly so the UI does not imply LLM intelligence.
+    result.setdefault('engine', 'heuristic')
     return jsonify(result), 200
 
 

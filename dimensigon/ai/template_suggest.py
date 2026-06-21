@@ -7,15 +7,18 @@ caches in memory, and ranks templates by relevance to the user's query.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import math
 import os
 import re
+import socket
 import threading
 import time
 from collections import Counter
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 import requests
 
@@ -25,6 +28,50 @@ _LOGGER = logging.getLogger('dm.ai.template_suggest')
 DEFAULT_CATALOG_URL = (
     "https://raw.githubusercontent.com/dimensigon/orch-library/main/catalog.json"
 )
+
+# SSRF guard: only fetch catalogs over https from public hosts. A request may
+# supply its own catalog URL only when DM_ORCH_LIBRARY_ALLOW_CUSTOM_URL is set
+# to a truthy value; otherwise the env-configured URL is always used.
+_ALLOWED_CATALOG_SCHEMES = ('https',)
+
+
+def _allow_request_supplied_url() -> bool:
+    return os.environ.get('DM_ORCH_LIBRARY_ALLOW_CUSTOM_URL', '').lower() in (
+        '1', 'true', 'yes', 'on'
+    )
+
+
+def _is_public_address(host: str) -> bool:
+    """Return True only if every resolved address of ``host`` is a global
+    (public) IP. Blocks loopback, RFC1918 private, link-local (incl. the
+    169.254.169.254 cloud-metadata endpoint), and other reserved ranges."""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        ip = info[4][0]
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        if (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
+            return False
+    return True
+
+
+def _validate_catalog_url(source: str) -> Optional[str]:
+    """Validate a catalog URL for SSRF safety. Returns an error string if the
+    URL must be rejected, else None."""
+    parsed = urlparse(source)
+    if parsed.scheme not in _ALLOWED_CATALOG_SCHEMES:
+        return f"scheme '{parsed.scheme}' not allowed (https only)"
+    if not parsed.hostname:
+        return "missing host"
+    if not _is_public_address(parsed.hostname):
+        return "host resolves to a private/loopback/link-local address"
+    return None
 # Cache TTL for the fetched catalog
 CATALOG_TTL = 60 * 60  # 1 hour
 
@@ -164,9 +211,27 @@ def refresh_index(force: bool = False, url: Optional[str] = None) -> Dict:
     if not force and _index.size > 0 and not _index.is_stale():
         return {"ok": True, "cached": True, "size": _index.size}
 
-    source = url or os.environ.get("DM_ORCH_LIBRARY_URL", DEFAULT_CATALOG_URL)
+    env_source = os.environ.get("DM_ORCH_LIBRARY_URL", DEFAULT_CATALOG_URL)
+    # Fail-closed: a request-supplied URL is only honored when explicitly
+    # enabled; otherwise we always use the env-configured catalog URL.
+    if url and _allow_request_supplied_url():
+        source = url
+    else:
+        if url:
+            _LOGGER.warning(
+                "Ignoring request-supplied catalog url (DM_ORCH_LIBRARY_ALLOW_CUSTOM_URL not set)"
+            )
+        source = env_source
+
+    err = _validate_catalog_url(source)
+    if err:
+        _LOGGER.warning(f"Rejected catalog url {source!r}: {err}")
+        return {"ok": False, "error": f"invalid catalog url: {err}", "size": _index.size}
+
     try:
-        resp = requests.get(source, timeout=15)
+        # Disable redirects so a validated host cannot bounce us to an
+        # internal target after the SSRF check.
+        resp = requests.get(source, timeout=15, allow_redirects=False)
         resp.raise_for_status()
         catalog = resp.json()
     except Exception as e:

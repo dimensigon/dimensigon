@@ -51,5 +51,8 @@ watchdog>=4.0.0,<5.0.0
 
 # AI Assistant (SLM + RAG)
 pyperclip
-heliosdb[embeddings]>=0.1.0  # HeliosDB Nano vector DB for orch-library RAG
+# heliosdb[embeddings]>=0.1.0  # HeliosDB Nano vector DB for orch-library RAG
+# ^ DISABLED 2026-06-04: unpublished pin ("No matching distribution"), 0 imports in dimensigon/,
+#   absent from the live image. This is the file Dockerfile.node actually installs — it blocked every
+#   node rebuild. Re-enable once heliosdb[embeddings] is published to the build's index.
 httpx>=0.27.0,<1.0.0  # HTTP client for HeliosDB SDK

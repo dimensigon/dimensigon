@@ -240,7 +240,35 @@ def create_app(config_name):
     except ImportError:
         pass
 
+    _register_security_headers(app)
+
     return app
+
+
+def _register_security_headers(app):
+    """Add baseline browser-hardening response headers on every response.
+
+    Defense-in-depth at the application layer so the headers are present on
+    every node regardless of the fronting proxy (openresty/nginx). Existing
+    upstream values are not overwritten, so an edge proxy can still tighten
+    them. See CWE-693 / OWASP A05:2021 (Security Misconfiguration).
+    """
+    default_headers = {
+        'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Content-Security-Policy': (
+            "default-src 'self'; frame-ancestors 'none'; "
+            "base-uri 'self'; form-action 'self'; object-src 'none'"
+        ),
+    }
+
+    @app.after_request
+    def set_security_headers(response):
+        for name, value in default_headers.items():
+            response.headers.setdefault(name, value)
+        return response
 
 
 def _register_ws_routes(app):
@@ -253,8 +281,45 @@ def _register_ws_routes(app):
         """WebSocket endpoint for real-time execution monitoring.
 
         Clients connect to receive live step execution events.
-        Authentication is validated from cookies.
+
+        Access control (fail-closed): the caller must present a valid,
+        non-revoked JWT (cookies or headers) for a user with at least the
+        'readonly' role. A 'readonly' user may only view executions they
+        launched; 'operator'/'administrator' may view any execution. The
+        broadcast stream carries raw step stdout/stderr, so an
+        unauthenticated/unauthorized connection is closed immediately.
         """
+        from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, get_jwt
+        from dimensigon.web.admin.auth import (
+            get_user_role_level, ROLE_HIERARCHY, token_blacklist,
+        )
+        from dimensigon.domain.entities import User, OrchExecution
+
+        try:
+            verify_jwt_in_request(locations=['cookies', 'headers'])
+            jwt_data = get_jwt()
+            if token_blacklist.is_blacklisted(jwt_data.get('jti', '')):
+                ws.close()
+                return
+            identity = get_jwt_identity()
+            user = db.session.get(User, identity)
+            if not user or get_user_role_level(user) < ROLE_HIERARCHY['readonly']:
+                ws.close()
+                return
+            # Authorize access to this specific execution.
+            if get_user_role_level(user) < ROLE_HIERARCHY['operator']:
+                # readonly user: only their own executions
+                execution = db.session.get(OrchExecution, execution_id)
+                if execution is None or str(execution.executor_id) != str(identity):
+                    ws.close()
+                    return
+        except Exception:
+            try:
+                ws.close()
+            except Exception:
+                pass
+            return
+
         ws_manager.connect(execution_id, ws)
         try:
             while True:
@@ -273,7 +338,7 @@ def _register_ws_routes(app):
 
 
 def load_global_data_into_context():
-    from flask import request
+    from flask import request, current_app
     # Skip heavy setup for health and WebManager endpoints (they have their own auth)
     if request.path.startswith('/health') or request.path.startswith('/metrics') or request.path.startswith('/dm-webmanager'):
         return
@@ -281,5 +346,29 @@ def load_global_data_into_context():
     from dimensigon.web.decorators import set_source
     global _dimension, _server
     set_source()
-    g.server = Server.get_current()
+    g.server = _get_current_server_cached(current_app, Server)
+    # Dimension.get_current() already caches per-app internally.
     g.dimension = Dimension.get_current()
+
+
+def _get_current_server_cached(app, Server):
+    """Resolve the local Server, caching its id on the app to keep it off the
+    per-request hot path.
+
+    The local node's identity (the ``_me=True`` row) is fixed for the process
+    lifetime, so we resolve it once via the filtered query and thereafter fetch
+    by primary key (``db.session.get`` — an identity-map lookup) instead of
+    re-running the ``_me=True``/``deleted=False`` scan on every request.
+    """
+    cached_id = getattr(app, '_cached_current_server_id', None)
+    if cached_id is not None:
+        server = db.session.get(Server, cached_id)
+        if server is not None and not server.deleted:
+            return server
+        # Cache went stale (row deleted/replaced); fall through to re-resolve.
+    server = Server.get_current()
+    try:
+        app._cached_current_server_id = server.id
+    except Exception:
+        pass
+    return server

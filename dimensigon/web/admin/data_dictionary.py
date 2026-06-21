@@ -5,11 +5,12 @@ Provides introspection and documentation for Dimensigon data models,
 including Orchestrations, Actions, and their schemas.
 """
 from flask import Blueprint, render_template, jsonify, request
-from flask_jwt_extended import jwt_required
+from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import inspect, select, func
 from sqlalchemy.orm import class_mapper
 
 from dimensigon.web import db
+from dimensigon.web.admin.auth import get_user_role_level, ROLE_HIERARCHY
 from dimensigon.domain.entities import (
     Orchestration, ActionTemplate, Step,
     OrchExecution, StepExecution, Server,
@@ -17,6 +18,15 @@ from dimensigon.domain.entities import (
 )
 
 data_dict_bp = Blueprint('data_dictionary', __name__, url_prefix='/api/v2/data-dictionary')
+
+# Entities whose schema / row count must not be exposed to non-administrators.
+SENSITIVE_ENTITIES = {'user'}
+
+
+def _caller_is_administrator():
+    """Fail-closed administrator check for data-dictionary introspection."""
+    caller = db.session.get(User, get_jwt_identity())
+    return bool(caller) and get_user_role_level(caller) >= ROLE_HIERARCHY['administrator']
 
 
 # Entity registry for introspection
@@ -196,8 +206,11 @@ def get_action_template_schema_details(action_id):
 def list_entities():
     """List all available entities in the data dictionary"""
     entities_list = []
+    is_admin = _caller_is_administrator()
 
     for key, model_class in ENTITIES.items():
+        if key in SENSITIVE_ENTITIES and not is_admin:
+            continue
         entities_list.append({
             'key': key,
             'name': model_class.__name__,
@@ -217,6 +230,11 @@ def list_entities():
 def get_entity_schema(entity_key):
     """Get schema for a specific entity"""
     if entity_key not in ENTITIES:
+        return jsonify({'error': 'Entity not found'}), 404
+
+    # Sensitive entity schemas (e.g. the user table) are administrator-only.
+    # Return 404 rather than 403 so non-admins cannot confirm the entity exists.
+    if entity_key in SENSITIVE_ENTITIES and not _caller_is_administrator():
         return jsonify({'error': 'Entity not found'}), 404
 
     model_class = ENTITIES[entity_key]
