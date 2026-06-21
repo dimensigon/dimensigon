@@ -44,6 +44,11 @@ class Config(object):
     # AI chat assistant
     DM_AI_ENABLED = os.environ.get('DM_AI_ENABLED', 'false').lower() == 'true'
 
+    # Opt-in: expose a names-only cluster topology on the anonymous /healthcheck
+    # so the public demo status page can render the mesh. OFF by default (prod
+    # never leaks topology to anonymous callers — CWE-200).
+    HEALTHCHECK_PUBLIC_TOPOLOGY = os.environ.get('DM_HEALTHCHECK_PUBLIC_TOPOLOGY', 'false').lower() == 'true'
+
     # ------------------------------------------------------------------
     # Billing (Phase 2 — Stripe). ADDITIVE + ENV-GATED.
     #

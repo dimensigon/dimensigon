@@ -19,8 +19,11 @@ x-dm-common: &dm-common
     DM_ROOT_PASSWORD: "demo123"
     FLASK_CONFIG: "development"
     SECURIZER_PLAIN: "true"
+    # Public demo: let the anonymous /healthcheck expose a names-only mesh
+    # topology so playground.html's Cluster Status renders all 5 nodes.
+    DM_HEALTHCHECK_PUBLIC_TOPOLOGY: "true"
     DM_AI_BASE_URL: "http://10.55.0.1:11434/v1"
-    DM_AI_MODEL: "dimensigon-ai"
+    DM_AI_MODEL: "qwen3.6:latest"
 
 services:
   # ── Master Node ────────────────────────────────

@@ -47,7 +47,24 @@ def healthcheck():
     # to unauthenticated reconnaissance (CWE-200).
     trusted = isinstance(getattr(g, 'source', None), Server) or get_jwt_identity() is not None
     if not trusted:
-        return {"status": "ok", "now": get_now().strftime(defaults.DATETIME_FORMAT)}
+        # Default: minimal liveness only — never leak node identity/topology to
+        # anonymous callers (CWE-200). When the operator explicitly opts in via
+        # HEALTHCHECK_PUBLIC_TOPOLOGY (e.g. the public demo cluster), expose a
+        # NAMES-ONLY mesh view so the demo status page can render the cluster —
+        # still no UUIDs, version or service detail.
+        if not current_app.config.get('HEALTHCHECK_PUBLIC_TOPOLOGY', False):
+            return {"status": "ok", "now": get_now().strftime(defaults.DATETIME_FORMAT)}
+        try:
+            alive_names = sorted([getattr(db.session.get(Server, i), 'name', str(i))
+                                  for i in current_app.dm.cluster_manager.get_alive()])
+        except Exception:
+            alive_names = []
+        me = g.server if isinstance(getattr(g, 'server', None), Server) else Server.get_current()
+        return {"status": "ok",
+                "now": get_now().strftime(defaults.DATETIME_FORMAT),
+                "server": me.name if me else None,
+                "neighbours": [{"name": s.name} for s in Server.get_neighbours()],
+                "cluster": {"alive": alive_names}}
 
     data = {"version": dimensigon.__version__,
             "catalog_version": catalog_ver.strftime(defaults.DATEMARK_FORMAT) if catalog_ver else None,
