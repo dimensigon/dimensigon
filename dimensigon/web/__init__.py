@@ -275,10 +275,32 @@ def _register_security_headers(app):
         ),
     }
 
+    # The DM-WebManager admin GUI loads Bootstrap + Bootstrap-Icons from the
+    # jsDelivr CDN and Google Fonts, and relies on inline <style>/<script>. The
+    # strict default-src 'self' policy above blocks those and strips the GUI's
+    # styling, so WebManager paths get a scoped policy that allows exactly those
+    # origins while every other path (API/cluster) keeps the strict CSP.
+    webmanager_csp = (
+        "default-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+    )
+
     @app.after_request
     def set_security_headers(response):
+        from flask import request
         for name, value in default_headers.items():
             response.headers.setdefault(name, value)
+        # WebManager GUI needs CDN/inline assets — override CSP for its paths.
+        try:
+            if request.path.startswith('/dm-webmanager'):
+                response.headers['Content-Security-Policy'] = webmanager_csp
+        except RuntimeError:
+            pass  # No request context — leave the strict default in place.
         return response
 
 
