@@ -60,10 +60,21 @@ def healthcheck():
         except Exception:
             alive_names = []
         me = g.server if isinstance(getattr(g, 'server', None), Server) else Server.get_current()
+        # Use the catalog (all joined servers) rather than the route-table
+        # neighbours, so the demo status page reflects every node that has joined
+        # the dimension even before route/heartbeat gossip fully converges.
+        try:
+            from sqlalchemy import select as _select
+            all_servers = db.session.execute(_select(Server)).scalars().all()
+        except Exception:
+            all_servers = []
+        peers = [{"name": s.name} for s in all_servers if not (me and s.id == me.id)]
+        if me and me.name not in alive_names:
+            alive_names = sorted(set(alive_names) | {me.name})
         return {"status": "ok",
                 "now": get_now().strftime(defaults.DATETIME_FORMAT),
                 "server": me.name if me else None,
-                "neighbours": [{"name": s.name} for s in Server.get_neighbours()],
+                "neighbours": peers,
                 "cluster": {"alive": alive_names}}
 
     data = {"version": dimensigon.__version__,
