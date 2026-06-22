@@ -28,7 +28,7 @@ docker compose -f "$COMPOSE_FILE" up -d 2>&1
 # Step 3: Wait for master to be healthy
 echo "[reset] Waiting for dm-master to be healthy..."
 for i in $(seq 1 90); do
-    if curl -sf http://localhost:20194/healthcheck > /dev/null 2>&1; then
+    if curl -sfk https://localhost:20194/healthcheck > /dev/null 2>&1; then
         echo "[reset] dm-master is up after ${i}0 seconds"
         break
     fi

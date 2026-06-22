@@ -29,7 +29,7 @@ ENV DM_PORT=20194
 EXPOSE 20194
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=60 \
-    CMD curl -sf http://localhost:${DM_PORT}/healthcheck || exit 1
+    CMD curl -sfk https://localhost:${DM_PORT}/healthcheck || exit 1
 
 COPY scripts/demo/start-node.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/start-node.sh

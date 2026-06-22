@@ -961,32 +961,31 @@
                 </div>
 
                 <!-- Terminal View -->
+                <!-- Embeds the same ttyd-backed DShell web terminal as the public
+                     playground (playground.html), so it is a real DShell session
+                     connected to dm-master — not the limited in-page command stub. -->
                 <div id="view-terminal" class="view-content" style="display: none;">
                     <div class="d-flex justify-content-between align-items-center mb-4">
                         <h2><i class="bi bi-terminal"></i> DShell Terminal</h2>
                         <div class="d-flex gap-2">
-                            <button class="btn btn-sm btn-outline-warning" onclick="clearTerminal()">
-                                <i class="bi bi-trash"></i> Clear
+                            <button class="btn btn-sm btn-outline-warning" onclick="reloadTerminal()">
+                                <i class="bi bi-arrow-clockwise"></i> Reload
                             </button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="closeTerminalSession()">
-                                <i class="bi bi-x-circle"></i> Close Session
+                            <button class="btn btn-sm btn-outline-info" onclick="window.open(TTYD_URL, '_blank')">
+                                <i class="bi bi-box-arrow-up-right"></i> Open in new tab
                             </button>
                         </div>
                     </div>
-                    <div id="terminal-container" style="background: #0d1117; border: 1px solid #30363d; border-radius: 8px; font-family: 'Courier New', Courier, monospace; padding: 0; overflow: hidden;">
+                    <div id="terminal-container" style="background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 0; overflow: hidden;">
                         <div style="background: #161b22; padding: 8px 16px; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 8px;">
                             <span style="width: 12px; height: 12px; border-radius: 50%; background: #f85149;"></span>
                             <span style="width: 12px; height: 12px; border-radius: 50%; background: #d29922;"></span>
                             <span style="width: 12px; height: 12px; border-radius: 50%; background: #3fb950;"></span>
-                            <span style="color: #8b949e; margin-left: 8px; font-size: 0.85rem;" id="terminal-title">DShell Web Mode</span>
+                            <span style="color: #8b949e; margin-left: 8px; font-size: 0.85rem;" id="terminal-title">DShell &middot; connected to dm-master</span>
                         </div>
-                        <div id="terminal-output" style="padding: 16px; min-height: 400px; max-height: 500px; overflow-y: auto; color: #3fb950; font-size: 0.9rem; line-height: 1.6;"></div>
-                        <div style="border-top: 1px solid #30363d; padding: 8px 16px; display: flex; align-items: center; gap: 8px; background: #161b22;">
-                            <span style="color: #3fb950; font-weight: bold;">$</span>
-                            <input type="text" id="terminal-input" placeholder="Type a command..." autocomplete="off"
-                                style="flex: 1; background: transparent; border: none; outline: none; color: #c9d1d9; font-family: 'Courier New', Courier, monospace; font-size: 0.9rem;"
-                                onkeydown="handleTerminalKeydown(event)">
-                        </div>
+                        <iframe id="terminal-iframe" src="" title="DShell terminal"
+                                allow="clipboard-read; clipboard-write"
+                                style="width: 100%; height: 520px; border: 0; display: block; background: #0d1117;"></iframe>
                     </div>
                 </div>
 
@@ -1097,15 +1096,17 @@
     <script>
         // API Configuration
         const API_BASE = window.location.origin;
+        // Public ttyd-backed DShell web terminal (same one the playground embeds).
+        const TTYD_URL = 'https://demo.dimensigon.danimoya.com';
         let currentView = 'dashboard';
 
         // Auto-refresh token every 7 hours (token expires in 8h)
         const TOKEN_REFRESH_INTERVAL = 7 * 60 * 60 * 1000;
         setInterval(async () => {
             try {
-                const resp = await fetch('/dm-webmanager/refresh', {
+                const resp = await apiFetch('/dm-webmanager/refresh', {
                     method: 'POST',
-                    credentials: 'same-origin'
+                    headers: { 'X-CSRF-TOKEN': getCookie('csrf_refresh_token') }
                 });
                 if (!resp.ok) {
                     window.location.href = '/dm-webmanager/login';
@@ -1115,18 +1116,39 @@
             }
         }, TOKEN_REFRESH_INTERVAL);
 
-        // API Helper (uses httpOnly cookies automatically)
-        async function apiCall(endpoint, options = {}) {
+        // Read a non-httpOnly cookie (e.g. the JWT CSRF double-submit token).
+        function getCookie(name) {
+            const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+            return m ? decodeURIComponent(m.pop()) : '';
+        }
+
+        // Low-level fetch wrapper. Always sends the httpOnly auth cookies and,
+        // for state-changing methods, the X-CSRF-TOKEN header that
+        // flask-jwt-extended requires (JWT_COOKIE_CSRF_PROTECT=True). Without it
+        // POST/PUT/PATCH/DELETE calls are rejected and redirected to the login
+        // HTML page, which then breaks callers doing response.json()
+        // ("Unexpected token '<'"). Returns the raw Response.
+        async function apiFetch(endpoint, options = {}) {
+            const method = (options.method || 'GET').toUpperCase();
             const headers = {
                 'Content-Type': 'application/json',
                 ...options.headers
             };
-
-            const response = await fetch(`${API_BASE}${endpoint}`, {
+            if (method !== 'GET' && method !== 'HEAD' && !('X-CSRF-TOKEN' in headers)) {
+                // Default to the access-token CSRF cookie. Callers hitting a
+                // refresh-protected endpoint can override with csrf_refresh_token.
+                headers['X-CSRF-TOKEN'] = getCookie('csrf_access_token');
+            }
+            return fetch(`${API_BASE}${endpoint}`, {
                 ...options,
                 headers,
                 credentials: 'same-origin'
             });
+        }
+
+        // API Helper (uses httpOnly cookies automatically). Returns parsed JSON.
+        async function apiCall(endpoint, options = {}) {
+            const response = await apiFetch(endpoint, options);
 
             if (response.status === 401) {
                 // Token expired, redirect to login
@@ -1321,7 +1343,7 @@
         // Orchestrations
         async function loadOrchestrations() {
             document.getElementById('loading-orchestrations').classList.add('show');
-            const data = await apiCall('/api/1.0/orchestrations');
+            const data = await apiCall('/api/v1.0/orchestrations', { headers: { 'D-Securizer': 'plain' } });
             document.getElementById('loading-orchestrations').classList.remove('show');
 
             if (!data) return;
@@ -1353,7 +1375,7 @@
         // Action Templates
         async function loadActionTemplates() {
             document.getElementById('loading-actions').classList.add('show');
-            const data = await apiCall('/api/1.0/action_templates');
+            const data = await apiCall('/api/v1.0/action_templates', { headers: { 'D-Securizer': 'plain' } });
             document.getElementById('loading-actions').classList.remove('show');
 
             if (!data) return;
@@ -2457,9 +2479,8 @@
 
         async function logout() {
             try {
-                await fetch('/dm-webmanager/logout', {
-                    method: 'POST',
-                    credentials: 'same-origin'
+                await apiFetch('/dm-webmanager/logout', {
+                    method: 'POST'
                 });
             } catch (e) {
                 // Continue with redirect even if logout call fails
@@ -2662,107 +2683,18 @@
         let terminalHistory = [];
         let terminalHistoryIndex = -1;
 
-        async function initTerminal() {
-            if (terminalSessionId) {
-                document.getElementById('terminal-input').focus();
-                return;
-            }
-            const outputEl = document.getElementById('terminal-output');
-            outputEl.innerHTML = '<span style="color: #8b949e;">Initializing session...</span>';
-            try {
-                const resp = await fetch('/dm-webmanager/api/terminal/create', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'}
-                });
-                const data = await resp.json();
-                if (!resp.ok) {
-                    outputEl.innerHTML = '<span style="color: #f85149;">Error: ' + escapeHtml(data.error || 'Failed to create session') + '</span>';
-                    return;
-                }
-                terminalSessionId = data.session_id;
-                terminalHistory = [];
-                terminalHistoryIndex = -1;
-                outputEl.innerHTML = '<span style="color: #3fb950;">DShell Web Mode initialized. Type "help" for available commands.</span>\n';
-                document.getElementById('terminal-input').focus();
-            } catch (e) {
-                outputEl.innerHTML = '<span style="color: #f85149;">Error: ' + escapeHtml(e.message) + '</span>';
+        // Lazy-load the ttyd terminal iframe on first open (same DShell session
+        // the playground uses — full `server list`, `orch list`, etc.).
+        function initTerminal() {
+            const el = document.getElementById('terminal-iframe');
+            if (el && (!el.src || el.src === 'about:blank' || el.src === window.location.href)) {
+                el.src = TTYD_URL;
             }
         }
 
-        async function sendTerminalCommand() {
-            const inputEl = document.getElementById('terminal-input');
-            const outputEl = document.getElementById('terminal-output');
-            const command = inputEl.value.trim();
-            if (!command) return;
-            if (!terminalSessionId) {
-                await initTerminal();
-                if (!terminalSessionId) return;
-            }
-
-            // Show command in output
-            outputEl.innerHTML += '<div><span style="color: #58a6ff;">$ </span><span style="color: #c9d1d9;">' + escapeHtml(command) + '</span></div>';
-
-            terminalHistory.push(command);
-            terminalHistoryIndex = terminalHistory.length;
-            inputEl.value = '';
-
-            if (command === 'clear') {
-                outputEl.innerHTML = '';
-            }
-
-            try {
-                const resp = await fetch('/dm-webmanager/api/terminal/' + terminalSessionId + '/execute', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({command: command})
-                });
-                const data = await resp.json();
-                if (!resp.ok) {
-                    outputEl.innerHTML += '<div style="color: #f85149;">' + escapeHtml(data.error || 'Error') + '</div>';
-                } else if (data.output) {
-                    const lines = escapeHtml(data.output).split('\n');
-                    outputEl.innerHTML += '<div style="color: #3fb950; white-space: pre-wrap;">' + lines.join('\n') + '</div>';
-                }
-            } catch (e) {
-                outputEl.innerHTML += '<div style="color: #f85149;">Error: ' + escapeHtml(e.message) + '</div>';
-            }
-            outputEl.scrollTop = outputEl.scrollHeight;
-        }
-
-        function handleTerminalKeydown(event) {
-            if (event.key === 'Enter') {
-                sendTerminalCommand();
-            } else if (event.key === 'ArrowUp') {
-                event.preventDefault();
-                if (terminalHistory.length > 0 && terminalHistoryIndex > 0) {
-                    terminalHistoryIndex--;
-                    document.getElementById('terminal-input').value = terminalHistory[terminalHistoryIndex];
-                }
-            } else if (event.key === 'ArrowDown') {
-                event.preventDefault();
-                if (terminalHistoryIndex < terminalHistory.length - 1) {
-                    terminalHistoryIndex++;
-                    document.getElementById('terminal-input').value = terminalHistory[terminalHistoryIndex];
-                } else {
-                    terminalHistoryIndex = terminalHistory.length;
-                    document.getElementById('terminal-input').value = '';
-                }
-            }
-        }
-
-        function clearTerminal() {
-            document.getElementById('terminal-output').innerHTML = '';
-        }
-
-        async function closeTerminalSession() {
-            if (!terminalSessionId) return;
-            try {
-                await fetch('/dm-webmanager/api/terminal/' + terminalSessionId, {method: 'DELETE'});
-            } catch (e) { /* ignore */ }
-            terminalSessionId = null;
-            terminalHistory = [];
-            terminalHistoryIndex = -1;
-            document.getElementById('terminal-output').innerHTML = '<span style="color: #8b949e;">Session closed.</span>';
+        function reloadTerminal() {
+            const el = document.getElementById('terminal-iframe');
+            if (el) el.src = TTYD_URL;
         }
 
         // --- Natural Language Orchestration Runner ---
